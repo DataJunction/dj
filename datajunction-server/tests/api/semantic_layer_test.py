@@ -22,7 +22,13 @@ from datajunction_server.api.semantic_layer import (
     _metrics_payload,
     _quote_value,
 )
+from datajunction_server.construction.build_v3.types import (
+    GeneratedSQL as V3GeneratedSQL,
+)
 from datajunction_server.errors import DJException
+from datajunction_server.internal.sql import build_row_count_sql
+from datajunction_server.models.dialect import Dialect
+from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 
 class TestFilterToSql:
@@ -48,6 +54,24 @@ class TestFilterToSql:
         flt = FilterPayload(column=None, operator="=", value="x")
         with pytest.raises(DJException) as exc:
             _filter_to_sql(flt)
+        assert exc.value.http_status_code == 400
+
+    def test_in_quotes_each_value(self):
+        flt = FilterPayload(
+            column="ns.dim",
+            operator="IN",
+            value=["North", "O'Brien"],
+        )
+        assert _filter_to_sql(flt) == "ns.dim IN ('North', 'O\\'Brien')"
+
+    def test_between_requires_two_values(self):
+        flt = FilterPayload(column="ns.dim", operator="between", value=[1, 10])
+        assert _filter_to_sql(flt) == "ns.dim BETWEEN 1 AND 10"
+
+        with pytest.raises(DJException) as exc:
+            _filter_to_sql(
+                FilterPayload(column="ns.dim", operator="between", value=[1]),
+            )
         assert exc.value.http_status_code == 400
 
 
@@ -197,6 +221,34 @@ class TestSemanticViewPayloadTypes:
         column = SimpleNamespace(type=None, semantic_type="metric")
 
         assert _generated_column_arrow_type_name(column) == "floating"
+
+
+@pytest.mark.parametrize(
+    ("dialect", "quoted_alias"),
+    [
+        (Dialect.SPARK, "`COUNT`"),
+        (Dialect.TRINO, '"COUNT"'),
+        (Dialect.DRUID, '"COUNT"'),
+        (Dialect.POSTGRES, '"COUNT"'),
+        (Dialect.DUCKDB, '"COUNT"'),
+    ],
+)
+def test_row_count_uses_native_ast_and_quotes_alias(dialect, quoted_alias):
+    generated = V3GeneratedSQL(
+        query=parse("SELECT region_name FROM sales"),
+        columns=[],
+        dialect=dialect,
+        cube_name="sem.sales_cube",
+    )
+
+    result = build_row_count_sql(generated)
+
+    assert f"COUNT(*) AS {quoted_alias}" in result.sql
+    assert ") AS semantic_query" in result.sql
+    assert [(column.name, column.type) for column in result.columns] == [
+        ("COUNT", "bigint"),
+    ]
+    assert result.cube_name == "sem.sales_cube"
 
 
 # ---------------------------------------------------------------------------
@@ -381,6 +433,41 @@ async def test_semantic_endpoints_end_to_end(client: AsyncClient):
     assert "SELECT" in sql_body["sql"].upper()
     assert sql_body["columns"]
 
+    # /row-count wraps the same semantic query in COUNT(*).
+    resp = await _expect(
+        await client.post(f"/semantic/views/{view}/row-count", json=query),
+        200,
+    )
+    count_body = resp.json()
+    assert 'COUNT(*) AS "COUNT"' in count_body["sql"]
+    assert count_body["columns"] == [{"name": "COUNT", "type": "int"}]
+    assert count_body["dialect"] == "trino"
+
+    # /values returns a filtered distinct-dimension query.
+    resp = await _expect(
+        await client.post(
+            f"/semantic/views/{view}/values",
+            json={
+                "additional_configuration": {},
+                "dimension": "sem.region.region_name",
+                "filters": [
+                    {
+                        "column": "sem.region.region_name",
+                        "operator": "IN",
+                        "value": ["North", "South"],
+                    },
+                ],
+            },
+        ),
+        200,
+    )
+    values_body = resp.json()
+    assert "DISTINCT" in values_body["sql"]
+    assert "total_amount" not in values_body["sql"]
+    assert " IN ('North', 'South')" in values_body["sql"]
+    assert values_body["columns"] == [{"name": "region_name", "type": "utf8"}]
+    assert values_body["dialect"] == "trino"
+
     # Unknown metric/dimension ids are rejected (400).
     resp = await client.post(
         f"/semantic/views/{view}/sql",
@@ -500,6 +587,17 @@ async def test_get_view_unknown_returns_404(client: AsyncClient):
     )
     assert resp.status_code == 404, resp.text
     assert "does not exist" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_values_rejects_unknown_dimension(client: AsyncClient):
+    view = await _setup_cube(client)
+    resp = await client.post(
+        f"/semantic/views/{view}/values",
+        json={"dimension": "sem.region.unknown", "filters": []},
+    )
+    assert resp.status_code == 400, resp.text
+    assert "does not contain dimension" in resp.json()["detail"]
 
 
 # ---------------------------------------------------------------------------
