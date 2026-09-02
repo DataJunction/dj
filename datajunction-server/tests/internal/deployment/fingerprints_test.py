@@ -1,3 +1,4 @@
+from typing import get_args
 from unittest.mock import MagicMock
 
 import pytest
@@ -9,7 +10,6 @@ from datajunction_server.internal.deployment.fingerprints import (
     _parent_candidates,
     _resolved_proposed_specs,
     build_deployment_fingerprints,
-    concrete_node_spec_types,
 )
 from datajunction_server.models.deployment import (
     ColumnSpec,
@@ -18,6 +18,7 @@ from datajunction_server.models.deployment import (
     DimensionSpec,
     MetricSpec,
     NodeSpec,
+    NodeUnion,
     SourceSpec,
     TransformSpec,
 )
@@ -111,7 +112,8 @@ def test_parent_candidates_follow_oss_semantic_relationships():
         "ns.dimension",
         "ns.filter_dimension",
     }
-    assert set(SEMANTIC_PARENT_RESOLVERS) == concrete_node_spec_types()
+    node_union = get_args(NodeUnion)[0]
+    assert set(SEMANTIC_PARENT_RESOLVERS) == set(get_args(node_union))
 
     cache = {}
     first = _candidate_parts(transform, cache)
@@ -274,8 +276,7 @@ def test_cycle_hashing_is_stable_and_propagates_member_changes():
     )
     assert original == reversed_input
     assert all(
-        fingerprint != UNKNOWN_SEMANTIC_FINGERPRINT
-        for fingerprint in original.values()
+        fingerprint != UNKNOWN_SEMANTIC_FINGERPRINT for fingerprint in original.values()
     )
 
     changed_second = second.model_copy(update={"query": "SELECT 2"})
@@ -346,6 +347,7 @@ def test_fingerprint_build_failures_are_unavailable():
     invalid_source.columns[0].type = object()  # type: ignore[assignment]
     specs = spec_map(invalid_metric, invalid_source)
 
+    assert _compute_merkle_fingerprints(specs, [], set()) == {}
     assert _compute_merkle_fingerprints(specs, specs, set()) == {
         invalid_metric.rendered_name: UNKNOWN_SEMANTIC_FINGERPRINT,
         invalid_source.rendered_name: UNKNOWN_SEMANTIC_FINGERPRINT,

@@ -74,7 +74,7 @@ def extract_dimension_refs_from_filters(
         return []
     refs = []
     for column in tree.find_all(ast.Column):
-        if column.namespace and len(column.namespace) >= 1:
+        if column.namespace:
             node_name = SEPARATOR.join(name.name for name in column.namespace)
             if SEPARATOR in node_name:
                 refs.append((node_name, column.name.name))

@@ -1,7 +1,6 @@
 import logging
 from collections.abc import Callable, Iterable
 from heapq import heappop, heappush
-from typing import get_args
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
@@ -16,7 +15,6 @@ from datajunction_server.models.deployment import (
     DimensionSpec,
     LinkableNodeSpec,
     MetricSpec,
-    NodeUnion,
     NodeSpec,
     SourceSpec,
     TransformSpec,
@@ -78,11 +76,6 @@ SEMANTIC_PARENT_RESOLVERS: dict[type[NodeSpec], ParentResolver] = {
     MetricSpec: _metric_parent_candidates,
     CubeSpec: _cube_parent_candidates,
 }
-
-
-def concrete_node_spec_types() -> set[type[NodeSpec]]:
-    node_union = get_args(NodeUnion)[0]
-    return set(get_args(node_union))
 
 
 def _candidate_parts(
@@ -236,6 +229,9 @@ def _compute_merkle_fingerprints(
     ignored_parse_errors: set[str],
     parent_cache: ParentCandidateCache | None = None,
 ) -> FingerprintMap:
+    target_names = set(target_names)
+    if not target_names:
+        return {}
     parent_cache = parent_cache if parent_cache is not None else {}
     graph: dict[str, list[str]] = {}
     failed_names: set[str] = set()
@@ -269,7 +265,6 @@ def _compute_merkle_fingerprints(
                 parent_cache,
             )
         except (DJParseException, TypeError, ValueError) as exc:
-            fingerprint_specs[name] = spec
             failed_names.add(name)
             if name not in ignored_parse_errors:
                 logger.warning("Fingerprint unavailable for %s: %s", name, exc)
@@ -405,7 +400,6 @@ async def build_deployment_fingerprints(
     additional_target_names: Iterable[str] = (),
 ) -> tuple[FingerprintMap, FingerprintMap]:
     proposed_specs = list(proposed_specs)
-    deleted_specs = list(deleted_specs)
     additional_target_names = set(additional_target_names)
     deleted_names = {spec.rendered_name for spec in deleted_specs}
     proposed = _resolved_proposed_specs(
