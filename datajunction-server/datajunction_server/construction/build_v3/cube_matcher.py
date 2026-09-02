@@ -527,6 +527,9 @@ async def build_sql_from_cube(
     Returns:
         GeneratedSQL with the query and column metadata.
     """
+    if not metrics:
+        raise DJInvalidInputException("At least one metric is required")
+
     # Import here to avoid circular dependency
     from datajunction_server.construction.build_v3.builder import setup_build_context
 

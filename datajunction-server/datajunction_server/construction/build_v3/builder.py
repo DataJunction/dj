@@ -250,7 +250,6 @@ async def setup_build_context(
     include_temporal_filters: bool = False,
     lookback_window: str | None = None,
     matched_cube: NodeRevision | None = None,
-    require_metrics: bool = True,
 ) -> BuildContext:
     """
     Create and initialize a BuildContext with all setup done.
@@ -271,8 +270,6 @@ async def setup_build_context(
         use_materialized: Whether to use materialized tables
         include_temporal_filters: Whether to include temporal partition filters from cube
         lookback_window: Lookback window for temporal filters
-        require_metrics: Whether an empty metric list should be rejected
-
     Returns:
         Fully initialized BuildContext
     """
@@ -313,8 +310,6 @@ async def setup_build_context(
     # Load all required nodes (metrics + explicit dimensions + filter dimensions)
     await load_nodes(ctx)
 
-    if not ctx.metrics and require_metrics:
-        raise DJInvalidInputException("At least one metric is required")
     if not ctx.metrics:
         return ctx
 
@@ -387,6 +382,9 @@ async def build_measures_sql(
         GeneratedMeasuresSQL with one GrainGroupSQL per aggregation level,
         plus context and decomposed metrics for efficient reuse by build_metrics_sql
     """
+    if not metrics:
+        raise DJInvalidInputException("At least one metric is required")
+
     # Setup context (loads nodes, decomposes metrics, adds dimensions from expressions)
     ctx = await setup_build_context(
         session=session,
@@ -572,7 +570,6 @@ async def build_metrics_sql(
         dialect=dialect,
         use_materialized=use_materialized,
         lookback_window=lookback_window,
-        require_metrics=False,
     )
 
     if not metrics:
