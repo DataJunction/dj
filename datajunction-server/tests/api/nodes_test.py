@@ -326,6 +326,7 @@ async def test_get_nodes_with_details(client_with_examples: AsyncClient):
         "v3.line_item_count",
         "v3.location",
         "v3.max_unit_price",
+        "v3.median_unit_price",
         "v3.min_unit_price",
         "v3.mom_revenue_change",
         "v3.order_count",

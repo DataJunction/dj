@@ -1217,6 +1217,11 @@ def process_derived_metrics(
             # COUNT DISTINCT base metrics from pre-aggregated (_agg) CTEs, where
             # the combiner_ast would produce COUNT(DISTINCT ...) but the pre-built
             # expression already uses MAX(...) as the correct passthrough aggregation.
+            # It is also what keeps a derived metric correct when its grain group
+            # didn't pre-aggregate (see GrainGroupSQL.components_accumulated): the
+            # inlined base expressions are the metrics' own expressions over raw
+            # columns, whereas combiner_ast would merge components that were never
+            # accumulated.
             # Fall back to build_derived_metric_expr when some base metrics are missing
             # from base_metric_exprs (e.g., NONE-aggregability metrics not in any grain group).
             expr_ast = (  # type: ignore[assignment]
