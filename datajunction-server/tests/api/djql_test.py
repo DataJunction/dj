@@ -510,6 +510,103 @@ async def test_get_djsql_with_orderby_and_limit(
 
 
 @pytest.mark.asyncio
+async def test_get_djsql_role_qualified_dimension(
+    module__client_with_examples: AsyncClient,
+) -> None:
+    """
+    A role-qualified dimension attribute is allowed in the projection and is
+    classified as a dimension (not a metric) when it's also in the GROUP BY.
+    """
+    query = """
+        SELECT
+            default.special_country_dim.name[birth_country],
+            default.avg_user_age
+        FROM metrics
+        GROUP BY default.special_country_dim.name[birth_country]
+    """
+
+    response = await module__client_with_examples.get(
+        "/djsql/",
+        params={"query": query},
+    )
+    assert response.status_code == 200, response.json()
+
+    semantics = {
+        (col["semantic_name"], col["semantic_type"])
+        for col in response.json()["columns"]
+    }
+    assert semantics == {
+        ("default.special_country_dim.name[birth_country]", "dimension"),
+        ("default.avg_user_age", "metric"),
+    }
+
+
+@pytest.mark.asyncio
+async def test_get_djsql_role_path_dimension(
+    module__client_with_examples: AsyncClient,
+) -> None:
+    """
+    A multi-hop role path dimension attribute is allowed in the projection and
+    is classified as a dimension (not a metric) when it's also in the GROUP BY.
+    """
+    query = """
+        SELECT
+            default.date_dim.dateint[birth_country->formation_date],
+            default.avg_user_age
+        FROM metrics
+        GROUP BY default.date_dim.dateint[birth_country->formation_date]
+    """
+
+    response = await module__client_with_examples.get(
+        "/djsql/",
+        params={"query": query},
+    )
+    assert response.status_code == 200, response.json()
+
+    semantics = {
+        (col["semantic_name"], col["semantic_type"])
+        for col in response.json()["columns"]
+    }
+    assert semantics == {
+        ("default.date_dim.dateint[birth_country->formation_date]", "dimension"),
+        ("default.avg_user_age", "metric"),
+    }
+
+
+@pytest.mark.asyncio
+async def test_get_djsql_role_qualified_dimension_with_alias(
+    module__client_with_examples: AsyncClient,
+) -> None:
+    """
+    A role-qualified attribute may carry an alias. Unlike a plain column, which
+    absorbs its own alias, it is wrapped in an Alias node, so the alias has to be
+    unwrapped before the reference is classified.
+    """
+    query = """
+        SELECT
+            default.special_country_dim.name[birth_country] AS birth_country_name,
+            default.avg_user_age
+        FROM metrics
+        GROUP BY default.special_country_dim.name[birth_country]
+    """
+
+    response = await module__client_with_examples.get(
+        "/djsql/",
+        params={"query": query},
+    )
+    assert response.status_code == 200, response.json()
+
+    semantics = {
+        (col["semantic_name"], col["semantic_type"])
+        for col in response.json()["columns"]
+    }
+    assert semantics == {
+        ("default.special_country_dim.name[birth_country]", "dimension"),
+        ("default.avg_user_age", "metric"),
+    }
+
+
+@pytest.mark.asyncio
 async def test_get_djsql_no_nodes(
     module__client_with_roads: AsyncClient,
 ) -> None:
