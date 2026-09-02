@@ -33,6 +33,9 @@ from datajunction_server.internal.git.yaml_export import (
     fetch_existing_yaml_map,
     generate_namespace_yaml_files,
 )
+from datajunction_server.internal.deployment.fingerprints import (
+    build_current_fingerprints,
+)
 from datajunction_server.internal.namespaces import (
     create_or_reactivate_namespace,
     detect_parent_cycle,
@@ -64,6 +67,8 @@ from datajunction_server.models.deployment import (
     NamespaceSourcesResponse,
 )
 from datajunction_server.models.namespace import (
+    NamespaceFingerprintNode,
+    NamespaceFingerprintResponse,
     NamespaceProvisionRequest,
     NamespaceProvisionResponse,
     NamespaceWriteStatus,
@@ -73,6 +78,10 @@ from datajunction_server.models.node import (
     NodeMinimumDetail,
 )
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.semantic_fingerprint import (
+    LATEST_SEMANTIC_FINGERPRINT_VERSION,
+    SUPPORTED_SEMANTIC_FINGERPRINT_VERSIONS,
+)
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import (
     get_current_user,
@@ -287,6 +296,56 @@ async def list_nodes_in_namespace(
         if decision.approved
     }
     return [node for node in nodes if node.name in approved_names]
+
+
+@router.get(
+    "/namespaces/{namespace}/semantic-fingerprints",
+    response_model=NamespaceFingerprintResponse,
+)
+async def get_namespace_semantic_fingerprints(
+    namespace: str,
+    version: int = Query(default=LATEST_SEMANTIC_FINGERPRINT_VERSION),
+    *,
+    session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
+) -> NamespaceFingerprintResponse:
+    """Return current semantic fingerprints for a namespace and its descendants."""
+    if version not in SUPPORTED_SEMANTIC_FINGERPRINT_VERSIONS:
+        raise DJInvalidInputException(
+            f"Unsupported semantic fingerprint version: {version}",
+        )
+
+    access_checker.add_namespace(namespace, ResourceAction.READ)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+    nodes = await NodeNamespace.list_all_nodes(
+        session,
+        namespace,
+        options=Node.export_load_options(),
+    )
+    access_checker.add_nodes(nodes, ResourceAction.READ)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+    ordered_nodes = sorted(nodes, key=lambda node: node.name)
+    specs = [await node.to_spec(session) for node in ordered_nodes]
+    fingerprints = await build_current_fingerprints(
+        session,
+        specs,
+        version=version,
+    )
+    return NamespaceFingerprintResponse(
+        namespace=namespace,
+        version=version,
+        nodes=[
+            NamespaceFingerprintNode(
+                name=node.name,
+                node_type=node.type,
+                owners=sorted(owner.username for owner in node.owners),
+                semantic_fingerprint=fingerprints[node.name],
+            )
+            for node in ordered_nodes
+        ],
+    )
 
 
 @router.delete("/namespaces/{namespace}/", status_code=HTTPStatus.OK)
