@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import enum
+import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
 from datajunction._base import SerializableMixin
 
@@ -362,6 +363,42 @@ class BranchInfo(SerializableMixin):
 
 
 @dataclass
+class SemanticFingerprint:
+    """A semantic node digest returned by the server."""
+
+    digest: str
+    version: Literal[1] = 1
+
+    def __post_init__(self) -> None:
+        if self.version != 1:
+            raise ValueError(
+                f"Unsupported semantic fingerprint version: {self.version}",
+            )
+        if re.fullmatch(r"[0-9a-f]{64}", self.digest) is None:
+            raise ValueError(
+                "Semantic fingerprint digest must be 64 lowercase hexadecimal characters",
+            )
+
+    @classmethod
+    def from_dict(cls, d: dict) -> SemanticFingerprint:
+        return cls(
+            version=d.get("version", 1),
+            digest=d.get("digest", ""),
+        )
+
+
+SemanticFingerprintValue: TypeAlias = SemanticFingerprint | Literal["unknown"]
+
+
+def _parse_semantic_fingerprint(value: Any) -> SemanticFingerprintValue | None:
+    if value is None or value == "unknown":
+        return value
+    if not isinstance(value, dict):
+        raise ValueError("Semantic fingerprint must be an object or 'unknown'")
+    return SemanticFingerprint.from_dict(value)
+
+
+@dataclass
 class DeploymentResult:
     """A single node-level result within a deployment."""
 
@@ -370,15 +407,22 @@ class DeploymentResult:
     status: str
     message: str = ""
     changed_fields: list[str] = field(default_factory=list)
+    deploy_type: str = ""
+    change_tier: Literal["none", "minor", "major"] | None = None
+    semantic_fingerprint: SemanticFingerprintValue | None = None
 
     @classmethod
     def from_dict(cls, d: dict) -> DeploymentResult:
+        fingerprint = d.get("semantic_fingerprint")
         return cls(
             name=d.get("name", ""),
             operation=d.get("operation", ""),
             status=d.get("status", ""),
             message=d.get("message", ""),
             changed_fields=d.get("changed_fields") or [],
+            deploy_type=d.get("deploy_type", ""),
+            change_tier=d.get("change_tier"),
+            semantic_fingerprint=_parse_semantic_fingerprint(fingerprint),
         )
 
 
@@ -392,9 +436,11 @@ class DownstreamImpact:
     caused_by: list[str] = field(default_factory=list)
     depth: int = 0
     impact_type: str = ""
+    semantic_fingerprint: SemanticFingerprintValue | None = None
 
     @classmethod
     def from_dict(cls, d: dict) -> DownstreamImpact:
+        fingerprint = d.get("semantic_fingerprint")
         return cls(
             name=d.get("name", ""),
             node_type=d.get("node_type", ""),
@@ -402,6 +448,7 @@ class DownstreamImpact:
             caused_by=d.get("caused_by") or [],
             depth=d.get("depth", 0),
             impact_type=d.get("impact_type", ""),
+            semantic_fingerprint=_parse_semantic_fingerprint(fingerprint),
         )
 
 
