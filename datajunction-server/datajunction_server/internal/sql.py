@@ -136,7 +136,16 @@ async def build_node_sql(
 
     node = cast(
         Node,
-        await Node.get_by_name(session, node_name, raise_if_not_exists=True),
+        await Node.get_by_name(
+            session,
+            node_name,
+            options=[
+                joinedload(Node.current).options(
+                    joinedload(NodeRevision.catalog).joinedload(Catalog.engines),
+                ),
+            ],
+            raise_if_not_exists=True,
+        ),
     )
     if not engine:  # pragma: no cover
         engine = node.current.catalog.engines[0]
