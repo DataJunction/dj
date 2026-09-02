@@ -3,6 +3,8 @@
 from typing import cast
 from unittest.mock import MagicMock
 
+import duckdb
+
 import pytest
 
 from datajunction_server.construction.build_v3.cte import (
@@ -2598,3 +2600,111 @@ class TestProjectionInvariantOracle:
             "b AS (SELECT channel, id AS channel_id FROM a) "
             "SELECT y.channel FROM b AS y",
         ) == {"a.channel"}
+
+
+class TestPruneCteProjectionsExecuted:
+    """
+    Pruning faults that neither a parse check nor a string comparison notices.
+
+    Cutting too deep here does not raise. The query still runs and gives back a
+    different number, or the same numbers in a different order, which is how it
+    reaches a Spark job before anyone looks. So these run the SQL both ways and
+    compare what comes back.
+    """
+
+    SETUP = (
+        "CREATE TABLE t (id INTEGER, grp VARCHAR, keep INTEGER, drop_me INTEGER)",
+        "INSERT INTO t VALUES "
+        "(1,'a',10,100),(2,'a',10,101),(3,'b',20,200),(4,'b',20,200)",
+    )
+
+    def _execute(self, sql: str):
+        connection = duckdb.connect(":memory:")
+        try:
+            for statement in self.SETUP:
+                connection.execute(statement)
+            return connection.execute(sql).fetchall()
+        finally:
+            connection.close()
+
+    def _prune(self, sql: str) -> tuple[str, ast.Query]:
+        query = parse(sql)
+        prune_cte_projections(query)
+        return str(query), query
+
+    def _same_results(self, sql: str) -> str:
+        """Assert pruning did not change the answer; return the pruned SQL."""
+        pruned, _ = self._prune(sql)
+        assert self._execute(pruned) == self._execute(sql), pruned
+        return pruned
+
+    def test_distinct_producer_keeps_every_column(self):
+        """
+        Under DISTINCT the projection is the dedup key. Narrowing it folds
+        together rows that were distinct, and the total silently drops.
+        """
+        sql = (
+            "WITH a AS (SELECT DISTINCT grp, keep, drop_me FROM t) "
+            "SELECT SUM(x.keep) AS s FROM a AS x"
+        )
+        assert self._execute(sql) == [(40,)]
+        pruned, query = self._prune(sql)
+        assert self._execute(pruned) == [(40,)], pruned
+        assert [str(entry) for entry in query.ctes[0].select.projection] == [
+            "grp",
+            "keep",
+            "drop_me",
+        ]
+
+    def test_having_on_the_arm_s_own_alias_survives(self):
+        """HAVING can name an output alias, so that alias has to stay."""
+        sql = (
+            "WITH a AS ("
+            "SELECT grp, SUM(keep) AS s FROM t GROUP BY grp HAVING s > 25"
+            ") SELECT x.grp FROM a AS x"
+        )
+        pruned = self._same_results(sql)
+        assert self._execute(pruned) == [("b",)]
+        assert "s" in pruned
+
+    def test_order_by_on_the_arm_s_own_alias_survives(self):
+        """
+        ORDER BY can name an output alias too. With LIMIT above it the ordering
+        decides which row survives, so losing the alias is not cosmetic.
+        """
+        sql = (
+            "WITH a AS ("
+            "SELECT id, id * 10 AS ranked FROM t ORDER BY ranked DESC LIMIT 1"
+            ") SELECT x.id FROM a AS x"
+        )
+        pruned = self._same_results(sql)
+        assert self._execute(pruned) == [(4,)]
+
+    def test_order_by_position_is_renumbered(self):
+        """
+        A position left alone after the projection shrinks points at whatever
+        slid into that slot, or off the end of it.
+        """
+        sql = (
+            "WITH a AS (SELECT drop_me, id FROM t ORDER BY 2 DESC LIMIT 1) "
+            "SELECT x.id FROM a AS x"
+        )
+        pruned, query = self._prune(sql)
+        assert self._execute(pruned) == self._execute(sql) == [(4,)], pruned
+        arm = query.ctes[0].select
+        assert [str(entry) for entry in arm.projection] == ["id"]
+        assert [str(item.expr) for item in arm.organization.order] == ["1"]
+
+    def test_a_column_only_the_producer_s_where_reads_is_still_dropped(self):
+        """
+        WHERE resolves against the FROM, not against the projection, so a column
+        only the filter uses is free to go. Pinned because protecting it would
+        undo the pruning this pass exists for.
+        """
+        sql = (
+            "WITH a AS (SELECT id, keep FROM t WHERE drop_me > 100) "
+            "SELECT SUM(x.keep) AS s FROM a AS x"
+        )
+        pruned, query = self._prune(sql)
+        assert self._execute(pruned) == self._execute(sql)
+        assert [str(entry) for entry in query.ctes[0].select.projection] == ["keep"]

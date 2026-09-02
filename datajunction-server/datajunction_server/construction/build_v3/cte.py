@@ -829,6 +829,24 @@ def _projection_name(expr: object) -> str | None:
     return None
 
 
+def _output_alias_clauses(select: ast.SelectExpression) -> list[ast.Node]:
+    """
+    The clauses that may name the select's own output, one expression each.
+
+    GROUP BY, HAVING and ORDER BY can all address a projection entry by the
+    alias it is given or by its position. WHERE deliberately does not appear:
+    a column it uses resolves against the FROM, not against the projection, so
+    a column only the WHERE reads is still free to go.
+    """
+    parts: list[ast.Node] = list(select.group_by)
+    if select.having is not None:
+        parts.append(select.having)
+    if select.organization is not None:
+        parts.extend(item.expr for item in select.organization.order)
+        parts.extend(item.expr for item in select.organization.sort)
+    return parts
+
+
 def _keep_positions(
     select: ast.SelectExpression,
     columns_to_select: set[str],
@@ -836,20 +854,29 @@ def _keep_positions(
     """
     The 1-indexed projection positions a select must keep.
 
-    A position survives when its output name is wanted downstream, when GROUP BY
-    names or points at it, or when it has no readable output name.
+    A position survives when its output name is wanted downstream, when a
+    clause that can address the projection names or points at it, or when it
+    has no readable output name.
+
+    Under DISTINCT every position survives: the projection is the dedup key, so
+    narrowing it folds together rows that were distinct and silently changes
+    the row count.
     """
     projection = select.projection
+    if (select.quantifier or "").upper() == "DISTINCT":
+        return set(range(1, len(projection) + 1))
+
     effective_cols = set(columns_to_select)
-    for item in select.group_by:
+    for item in _output_alias_clauses(select):
         if isinstance(item, ast.Number) and isinstance(item.value, int):
             pos = int(item.value)
             if 1 <= pos <= len(projection):
                 if name := _projection_name(projection[pos - 1]):
                     effective_cols.add(name)
-        elif isinstance(item, ast.Column):
+            continue
+        for column in item.find_all(ast.Column):
             effective_cols.add(
-                str(item.alias.name) if item.alias else str(item.name.name),
+                str(column.alias.name) if column.alias else str(column.name.name),
             )
 
     keep: set[int] = set()
@@ -862,11 +889,12 @@ def _keep_positions(
 
 def _apply_keep_positions(select: ast.SelectExpression, keep: set[int]) -> None:
     """
-    Drop projection entries outside ``keep`` and renumber positional GROUP BY.
+    Drop projection entries outside ``keep`` and renumber positional references.
 
-    Positional GROUP BY references are renumbered rather than rewritten to alias
-    names, which is invalid in dialects like Trino. An empty result leaves the
-    projection alone: an empty SELECT is never an improvement.
+    GROUP BY and ORDER BY positions are renumbered rather than rewritten to
+    alias names, which is invalid in dialects like Trino. Left alone they would
+    quietly point at whichever column slid into that slot. An empty result
+    leaves the projection alone: an empty SELECT is never an improvement.
     """
     new_projection = []
     old_to_new: dict[int, int] = {}  # 1-indexed old pos to 1-indexed new pos
@@ -889,6 +917,15 @@ def _apply_keep_positions(select: ast.SelectExpression, keep: set[int]) -> None:
         else:
             new_group_by.append(item)
     select.group_by = new_group_by
+
+    if select.organization is not None:
+        for sort_item in (*select.organization.order, *select.organization.sort):
+            position = sort_item.expr
+            if isinstance(position, ast.Number) and isinstance(position.value, int):
+                position.value = old_to_new.get(
+                    int(position.value),
+                    int(position.value),
+                )
 
 
 def _set_op_arms(select: ast.SelectExpression) -> list[ast.SelectExpression]:
