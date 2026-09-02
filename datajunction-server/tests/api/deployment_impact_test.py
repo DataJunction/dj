@@ -7,6 +7,9 @@ from unittest import mock
 
 import pytest
 
+from datajunction_server.internal.deployment.fingerprints import (
+    SemanticFingerprintGraph,
+)
 from datajunction_server.models.deployment import (
     ColumnSpec,
     CubeSpec,
@@ -82,9 +85,9 @@ def _updated_dimension_project(project: DeploymentSpec) -> DeploymentSpec:
     return updated
 
 
-def _dimension_fingerprint(project: DeploymentSpec):
-    return project.nodes[1].semantic_fingerprint(
-        parent_fingerprints=[project.nodes[0].semantic_fingerprint()],
+def _fingerprint_graph(*projects: DeploymentSpec) -> SemanticFingerprintGraph:
+    return SemanticFingerprintGraph(
+        {node.rendered_name: node for project in projects for node in project.nodes},
     )
 
 
@@ -154,9 +157,10 @@ class TestDeploymentImpactEndpoint:
         assert node_results[0].name == "impact_create_test.orders"
         assert node_results[0].operation == "create"
         assert node_results[0].change_tier == "major"
-        assert (
-            node_results[0].semantic_fingerprint == spec.nodes[0].semantic_fingerprint()
+        expected = _fingerprint_graph(spec).fingerprint(
+            spec.nodes[0].rendered_name,
         )
+        assert node_results[0].semantic_fingerprint == expected
 
     @pytest.mark.asyncio
     async def test_impact_detects_updates(self, client_with_roads):
@@ -221,13 +225,15 @@ class TestDeploymentImpactEndpoint:
         assert update_results[0]["change_tier"] == "major"
         assert (
             update_results[0]["semantic_fingerprint"]
-            == updated_spec.nodes[1].semantic_fingerprint().model_dump()
+            == _fingerprint_graph(updated_spec)
+            .fingerprint(updated_spec.nodes[1].rendered_name)
+            .model_dump()
         )
-        updated_fingerprint = updated_spec.nodes[0].semantic_fingerprint(
-            parent_fingerprints=[updated_spec.nodes[1].semantic_fingerprint()],
+        updated_fingerprint = _fingerprint_graph(updated_spec).fingerprint(
+            updated_spec.nodes[0].rendered_name,
         )
-        initial_fingerprint = initial_spec.nodes[0].semantic_fingerprint(
-            parent_fingerprints=[initial_spec.nodes[1].semantic_fingerprint()],
+        initial_fingerprint = _fingerprint_graph(initial_spec).fingerprint(
+            initial_spec.nodes[0].rendered_name,
         )
         unchanged_nodes = [
             result for result in skip_results if result["deploy_type"] == "node"
@@ -302,7 +308,9 @@ class TestDeploymentImpactEndpoint:
         assert delete_results[0]["change_tier"] == "major"
         assert (
             delete_results[0]["semantic_fingerprint"]
-            == initial_spec.nodes[1].semantic_fingerprint().model_dump()
+            == _fingerprint_graph(initial_spec)
+            .fingerprint(initial_spec.nodes[1].rendered_name)
+            .model_dump()
         )
 
     @pytest.mark.asyncio
@@ -318,6 +326,7 @@ class TestDeploymentImpactEndpoint:
             ],
         )
         await _deploy(client_with_roads, initial)
+        initial_graph = _fingerprint_graph(initial)
 
         minor = initial.model_copy(deep=True)
         minor.nodes[0].description = "After"
@@ -325,7 +334,7 @@ class TestDeploymentImpactEndpoint:
         assert by_name["impact_tiers_test.one"]["change_tier"] == "minor"
         assert (
             by_name["impact_tiers_test.one"]["semantic_fingerprint"]
-            == initial.nodes[0].semantic_fingerprint().model_dump()
+            == initial_graph.fingerprint(initial.nodes[0].rendered_name).model_dump()
         )
         assert by_name["impact_tiers_test.two"]["change_tier"] == "none"
 
@@ -340,7 +349,7 @@ class TestDeploymentImpactEndpoint:
         assert all(result["semantic_fingerprint"] for result in noop_nodes.values())
         assert (
             noop_nodes["impact_tiers_test.two"]["semantic_fingerprint"]
-            == initial.nodes[1].semantic_fingerprint().model_dump()
+            == initial_graph.fingerprint(initial.nodes[1].rendered_name).model_dump()
         )
 
         forced = equivalent.model_copy(update={"force": True})
@@ -350,7 +359,7 @@ class TestDeploymentImpactEndpoint:
         assert all(result["semantic_fingerprint"] for result in forced_nodes.values())
         assert (
             forced_nodes["impact_tiers_test.two"]["semantic_fingerprint"]
-            == initial.nodes[1].semantic_fingerprint().model_dump()
+            == initial_graph.fingerprint(initial.nodes[1].rendered_name).model_dump()
         )
 
     @pytest.mark.asyncio
@@ -477,11 +486,9 @@ class TestDeploymentImpactEndpoint:
                 "caused_by": ["impact_downstream_test.base"],
                 "is_external": False,
                 "owners": ["dj"],
-                "semantic_fingerprint": modified_spec.nodes[1]
-                .semantic_fingerprint(
-                    parent_fingerprints=[
-                        modified_spec.nodes[0].semantic_fingerprint(),
-                    ],
+                "semantic_fingerprint": _fingerprint_graph(modified_spec)
+                .fingerprint(
+                    modified_spec.nodes[1].rendered_name,
                 )
                 .model_dump(),
             },
@@ -517,10 +524,8 @@ class TestDeploymentImpactEndpoint:
             for impact in data["downstream_impacts"]
             if impact["name"] == "impact_external_consumer.derived"
         )
-        expected = consumer.nodes[0].semantic_fingerprint(
-            parent_fingerprints=[
-                updated_parent.nodes[0].semantic_fingerprint(),
-            ],
+        expected = _fingerprint_graph(updated_parent, consumer).fingerprint(
+            consumer.nodes[0].rendered_name,
         )
         assert external["is_external"] is True
         assert external["semantic_fingerprint"] == expected.model_dump()
@@ -611,7 +616,9 @@ class TestDeploymentImpactEndpoint:
         assert delete_result["status"] == "failed"
         assert (
             delete_result["semantic_fingerprint"]
-            == parent.nodes[1].semantic_fingerprint().model_dump()
+            == _fingerprint_graph(parent)
+            .fingerprint(parent.nodes[1].rendered_name)
+            .model_dump()
         )
         assert data["downstream_impacts"] == []
 
@@ -648,8 +655,8 @@ class TestDeploymentImpactEndpoint:
             for impact in data["downstream_impacts"]
             if impact["name"] == "impact_link_consumer.fact"
         )
-        expected = consumer.nodes[0].semantic_fingerprint(
-            parent_fingerprints=[_dimension_fingerprint(updated_parent)],
+        expected = _fingerprint_graph(updated_parent, consumer).fingerprint(
+            consumer.nodes[0].rendered_name,
         )
         assert external["semantic_fingerprint"] == expected.model_dump()
 
@@ -684,14 +691,7 @@ class TestDeploymentImpactEndpoint:
             for impact in data["downstream_impacts"]
             if impact["name"] == "impact_filter_consumer.cube"
         )
-        fact_fingerprint = consumer.nodes[0].semantic_fingerprint()
-        metric_fingerprint = consumer.nodes[1].semantic_fingerprint(
-            parent_fingerprints=[fact_fingerprint],
-        )
-        expected = consumer.nodes[2].semantic_fingerprint(
-            parent_fingerprints=[
-                _dimension_fingerprint(updated_parent),
-                metric_fingerprint,
-            ],
+        expected = _fingerprint_graph(updated_parent, consumer).fingerprint(
+            consumer.nodes[2].rendered_name,
         )
         assert external["semantic_fingerprint"] == expected.model_dump()

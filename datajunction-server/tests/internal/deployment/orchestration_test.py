@@ -24,6 +24,9 @@ from datajunction_server.database.partition import Partition
 from datajunction_server.database.tag import Tag
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.errors import DJError, DJInvalidDeploymentConfig, ErrorCode
+from datajunction_server.internal.deployment.fingerprints import (
+    SemanticFingerprintGraph,
+)
 from datajunction_server.internal.deployment.orchestrator import (
     DeploymentOrchestrator,
     DeploymentPlan,
@@ -57,7 +60,6 @@ from datajunction_server.models.deployment import (
     MetricSpec,
     PartitionSpec,
     PartitionType,
-    SemanticFingerprint,
     SourceSpec,
     TagSpec,
     TransformSpec,
@@ -67,6 +69,7 @@ from datajunction_server.models.history import ActivityType
 from datajunction_server.models.node import MetricUnit, NodeStatus
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import Granularity
+from datajunction_server.models.semantic_fingerprint import SemanticFingerprint
 from datajunction_server.sql.parsing.types import StringType
 
 
@@ -1201,7 +1204,10 @@ class TestCubeDeployment:
         orchestrator._generate_changelog = AsyncMock(
             return_value=([], [], ChangeTier.NONE),
         )
-        cube_fingerprint = invalid_results[0].spec.semantic_fingerprint()
+        cube = invalid_results[0].spec
+        cube_fingerprint = SemanticFingerprintGraph(
+            {cube.rendered_name: cube},
+        ).fingerprint(cube.rendered_name)
         orchestrator._proposed_semantic_fingerprints = {
             invalid_results[0].spec.rendered_name: cube_fingerprint,
         }
