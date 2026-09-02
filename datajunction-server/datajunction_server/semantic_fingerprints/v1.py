@@ -7,7 +7,6 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 from datajunction_server.models.deployment import (
-    ChangeTier,
     CubeSpec,
     DimensionSpec,
     MetricSpec,
@@ -69,18 +68,12 @@ def build_fingerprint(
 ) -> SemanticFingerprint:
     """Build a version 1 semantic fingerprint."""
     fingerprint_fields = semantic_fields(type(spec))
-    for field in fingerprint_fields:
-        canonical_json(normalize_value(getattr(spec, field)))
-
     rendered = spec.rendered_spec()
     fields = {
         field: normalize_field(
             rendered,
             field,
             resolved_columns=resolved_columns,
-            preserve_order=(
-                type(rendered).field_order_change_tier(field) == ChangeTier.MAJOR
-            ),
             structural_version=1,
         )
         for field in fingerprint_fields

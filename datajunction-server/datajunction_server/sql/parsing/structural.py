@@ -1,14 +1,13 @@
 """Versioned structural serialization for parsed SQL."""
 
+import math
 from collections.abc import Callable
 from decimal import Decimal
 from enum import Enum
-import math
 from typing import Any
 
 from datajunction_server.sql.parsing.ast import Node
 from datajunction_server.sql.parsing.types import ColumnType
-
 
 _AST_NODE_TAGS_V1 = frozenset(
     {
@@ -64,13 +63,13 @@ _AST_NODE_TAGS_V1 = frozenset(
 )
 
 
-def _serialize_number_v1(value: int | float | Decimal) -> int | float | dict[str, str]:
+def _serialize_number_v1(value: float | Decimal) -> int | float | dict[str, str]:
     if isinstance(value, bool):
         raise TypeError("Boolean values are not SQL numbers")
     if isinstance(value, float):
         if not math.isfinite(value):
             raise ValueError("Structural SQL numbers must be finite")
-        if value == 0 or value.is_integer():
+        if value.is_integer():
             return int(value)
         return value
     if isinstance(value, Decimal):

@@ -53,7 +53,7 @@ def normalize_value(value: Any) -> Any:
     if isinstance(value, float):
         if not math.isfinite(value):
             raise ValueError("Semantic fingerprint values must be finite")
-        if value == 0 or value.is_integer():
+        if value.is_integer():
             return int(value)
         return value
     if isinstance(value, Decimal):
