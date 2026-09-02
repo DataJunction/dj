@@ -1,5 +1,7 @@
 import pytest
 
+from datajunction_server.construction.build_v3 import loaders
+
 from . import assert_sql_equal
 
 
@@ -7308,3 +7310,86 @@ class TestGrainGroupWithoutPreAggregation:
             GROUP BY order_details_0.status
             """,
         )
+
+
+class TestGeneratedSQLIsOrderStable:
+    """
+    Generated SQL must not depend on the order rows came back in.
+
+    ``find_upstream_node_names`` builds parent_map from a recursive CTE, and for
+    a derived metric that map decides the order its base metrics are resolved --
+    and therefore the order their components are projected in the grain group
+    CTE.  Reversing every parent list simulates a different row order (a
+    different query plan, a different engine) and must not change the SQL.
+    """
+
+    @staticmethod
+    async def _build_sql(client, monkeypatch, metrics, dimensions, reverse_parents):
+        original = loaders.find_upstream_node_names
+
+        async def ordered_differently(session, starting_node_names):
+            all_names, parent_map = await original(session, starting_node_names)
+            return all_names, {k: list(reversed(v)) for k, v in parent_map.items()}
+
+        if reverse_parents:
+            monkeypatch.setattr(
+                loaders,
+                "find_upstream_node_names",
+                ordered_differently,
+            )
+        response = await client.get(
+            "/sql/metrics/v3/",
+            params={"metrics": metrics, "dimensions": dimensions},
+        )
+        assert response.status_code == 200, response.json()
+        return response.json()["sql"]
+
+    @pytest.mark.asyncio
+    async def test_derived_metric_sql_is_parent_order_independent(
+        self,
+        client_with_build_v3,
+        monkeypatch,
+    ):
+        """A derived metric over two base metrics on the same fact."""
+        metrics = ["v3.revenue_per_customer"]
+        dimensions = ["v3.order_details.status"]
+        expected = await self._build_sql(
+            client_with_build_v3,
+            monkeypatch,
+            metrics,
+            dimensions,
+            reverse_parents=False,
+        )
+        reordered = await self._build_sql(
+            client_with_build_v3,
+            monkeypatch,
+            metrics,
+            dimensions,
+            reverse_parents=True,
+        )
+        assert reordered == expected
+
+    @pytest.mark.asyncio
+    async def test_cross_fact_derived_metric_sql_is_parent_order_independent(
+        self,
+        client_with_build_v3,
+        monkeypatch,
+    ):
+        """Two derived metrics whose base metrics span two facts."""
+        metrics = ["v3.conversion_rate", "v3.revenue_per_visitor"]
+        dimensions = ["v3.product.category"]
+        expected = await self._build_sql(
+            client_with_build_v3,
+            monkeypatch,
+            metrics,
+            dimensions,
+            reverse_parents=False,
+        )
+        reordered = await self._build_sql(
+            client_with_build_v3,
+            monkeypatch,
+            metrics,
+            dimensions,
+            reverse_parents=True,
+        )
+        assert reordered == expected
