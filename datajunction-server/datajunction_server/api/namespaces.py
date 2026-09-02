@@ -25,6 +25,9 @@ from datajunction_server.internal.access.authorization import (
     AccessDenialMode,
     get_access_checker,
 )
+from datajunction_server.internal.deployment.fingerprints import (
+    build_current_fingerprint_graph,
+)
 from datajunction_server.internal.git.github_service import (
     GitHubService,
     GitHubServiceError,
@@ -32,9 +35,6 @@ from datajunction_server.internal.git.github_service import (
 from datajunction_server.internal.git.yaml_export import (
     fetch_existing_yaml_map,
     generate_namespace_yaml_files,
-)
-from datajunction_server.internal.deployment.fingerprints import (
-    build_current_fingerprints,
 )
 from datajunction_server.internal.namespaces import (
     create_or_reactivate_namespace,
@@ -328,11 +328,12 @@ async def get_namespace_semantic_fingerprints(
 
     ordered_nodes = sorted(nodes, key=lambda node: node.name)
     specs = [await node.to_spec(session) for node in ordered_nodes]
-    fingerprints = await build_current_fingerprints(
+    graph = await build_current_fingerprint_graph(
         session,
         specs,
         version=version,
     )
+    fingerprints = graph.fingerprints(spec.rendered_name for spec in specs)
     return NamespaceFingerprintResponse(
         namespace=namespace,
         version=version,
