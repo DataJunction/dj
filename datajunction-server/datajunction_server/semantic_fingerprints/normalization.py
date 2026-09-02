@@ -22,6 +22,7 @@ from datajunction_server.models.deployment import (
     SourceSpec,
 )
 from datajunction_server.models.node import MetricDirection
+from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 
 
 def canonical_json(value: Any) -> str:
@@ -237,16 +238,22 @@ def semantic_diff(
         if field == "display_name" and getattr(rendered_two, field) is None:
             continue
 
-        left = normalize_field(
-            rendered_one,
-            field,
-            resolved_columns=resolved_columns,
-        )
-        right = normalize_field(
-            rendered_two,
-            field,
-            resolved_columns=other_resolved_columns,
-        )
+        try:
+            left = normalize_field(
+                rendered_one,
+                field,
+                resolved_columns=resolved_columns,
+            )
+            right = normalize_field(
+                rendered_two,
+                field,
+                resolved_columns=other_resolved_columns,
+            )
+        except DJParseException:
+            if field != "query":  # pragma: no cover
+                raise
+            left = rendered_one.rendered_query
+            right = rendered_two.rendered_query
         if left != right:
             changed_fields.append(field)
             continue

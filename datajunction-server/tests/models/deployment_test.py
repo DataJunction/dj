@@ -1900,6 +1900,15 @@ def test_semantic_diff_and_fingerprint_share_change_rules():
     assert MetricSpec.change_tier(changed, reordered) == ChangeTier.MINOR
 
 
+def test_semantic_diff_compares_unparseable_queries_as_raw_sql():
+    original = TransformSpec(name="node", query="SELECT (")
+    same = TransformSpec(name="node", query="SELECT (")
+    changed = TransformSpec(name="node", query="SELECT )")
+
+    assert original.semantic_diff(same) == ([], [])
+    assert original.semantic_diff(changed) == (["query"], [])
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
