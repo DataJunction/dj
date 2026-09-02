@@ -1014,7 +1014,6 @@ class TestExternalPreAggRouting:
             """
             WITH v3_order_details AS (
                 SELECT o.status,
-                       oi.product_id,
                        oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id

@@ -20,7 +20,10 @@ from datajunction_server.construction.build_v3.types import (
     GrainGroupSQL,
     PushdownFilters,
 )
-from datajunction_server.construction.build_v3.utils import get_cte_name
+from datajunction_server.construction.build_v3.utils import (
+    column_table_name,
+    get_cte_name,
+)
 from datajunction_server.database.node import Node
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.decompose import wrap_divisions_in_nullif
@@ -952,16 +955,25 @@ def _record_arm_demands(
     the leaf. A reference with no qualifier we recognize goes to every CTE in
     scope: which one supplies it is only knowable after compilation, and
     keeping a name a CTE does not have is a no-op.
+
+    A qualifier reaches us two ways. Dotted into the name is the parsed form,
+    and it can carry further struct segments. Hung off the column as a table is
+    what the builder produces for its own projections and GROUP BY, and there
+    the column name stands alone.
     """
     bare_targets = set(sources.values())
     for part in _arm_parts(arm):
         for column in part.find_all(ast.Column):
             segments = column.identifier(quotes=False).split(SEPARATOR)
-            if len(segments) > 1 and segments[0] in sources:
-                live[sources[segments[0]]].add(segments[1])
+            qualifier = segments[0] if len(segments) > 1 else None
+            wanted = segments[1] if len(segments) > 1 else segments[0]
+            if qualifier is None:
+                qualifier = column_table_name(column)
+            if qualifier in sources:
+                live[sources[qualifier]].add(wanted)
             else:
                 for target in bare_targets:
-                    live[target].add(segments[0])
+                    live[target].add(wanted)
 
 
 def _consumers_first(scopes: dict[str, ast.Query], cte_names: set[str]) -> list[str]:

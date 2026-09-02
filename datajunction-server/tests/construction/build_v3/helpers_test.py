@@ -66,6 +66,9 @@ from datajunction_server.models.node import NodeType
 from datajunction_server.naming import amenable_col_names
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
+from tests.construction.build_v3.projection_invariant import (
+    unprojected_references,
+)
 
 
 class TestDimensionRefParsing:
@@ -2531,3 +2534,67 @@ class TestPruneCteProjections:
 
     def test_query_without_ctes_is_untouched(self):
         assert self._pruned("SELECT a FROM t") == str(parse("SELECT a FROM t"))
+
+
+class TestProjectionInvariantOracle:
+    """
+    Tests for the oracle the pruning tests are gated on.
+
+    It is only worth trusting if it still fails on the shapes that motivated
+    this work, so those are pinned here directly.
+    """
+
+    def test_consistent_query_reports_nothing(self):
+        assert (
+            unprojected_references(
+                "WITH a AS (SELECT id, keep FROM t) SELECT x.keep FROM a AS x",
+            )
+            == set()
+        )
+
+    def test_reports_a_bare_reference_the_producer_dropped(self):
+        """The original bug: a CTE reads a column its source stopped projecting."""
+        assert unprojected_references(
+            "WITH a AS (SELECT id FROM t), "
+            "b AS (SELECT CASE WHEN code_a = 'x' THEN 1 END AS flag FROM a) "
+            "SELECT y.flag FROM b AS y",
+        ) == {"a.code_a"}
+
+    def test_reports_a_qualified_reference_the_producer_dropped(self):
+        assert unprojected_references(
+            "WITH a AS (SELECT id FROM t) SELECT x.gone FROM a AS x",
+        ) == {"a.gone"}
+
+    def test_reports_per_union_arm(self):
+        """An arm is read on its own, so its own source is the one charged."""
+        assert unprojected_references(
+            "WITH a AS (SELECT id FROM t1), b AS (SELECT id FROM t2), "
+            "c AS (SELECT id FROM a UNION ALL SELECT missing FROM b) "
+            "SELECT z.id FROM c AS z",
+        ) == {"b.missing"}
+
+    def test_excuses_a_filter_on_the_arm_s_own_output_alias(self):
+        """
+        A filter pushed into a CTE can land on a name the arm introduces with
+        ``AS``. The source never had a column by that name, so charging it there
+        would be a false alarm.
+        """
+        assert (
+            unprojected_references(
+                "WITH a AS (SELECT order_date FROM t), "
+                "b AS (SELECT order_date AS date_id FROM a WHERE date_id = 1) "
+                "SELECT y.date_id FROM b AS y",
+            )
+            == set()
+        )
+
+    def test_still_charges_an_alias_name_used_in_the_projection(self):
+        """
+        The excuse is only for filter clauses. A bare name in the projection is
+        read from the source, whatever else the arm happens to alias.
+        """
+        assert unprojected_references(
+            "WITH a AS (SELECT id FROM t), "
+            "b AS (SELECT channel, id AS channel_id FROM a) "
+            "SELECT y.channel FROM b AS y",
+        ) == {"a.channel"}

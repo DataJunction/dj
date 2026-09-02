@@ -64,6 +64,7 @@ from datajunction_server.construction.build_v3.types import (
     ResolvedDimension,
 )
 from datajunction_server.construction.build_v3.utils import (
+    column_table_name,
     get_column_type,
     get_cte_name,
     get_short_name,
@@ -586,26 +587,6 @@ def _apply_outer_where_atoms(
             select.where = atom
 
 
-def _col_table_name(col: ast.Column) -> str | None:
-    """Return the table-qualifier short name for a column, or None.
-
-    Handles both qualification styles:
-    - ``_table`` (set by :func:`make_column_ref`) — projection / GROUP BY.
-    - ``name.namespace`` (set by ``_add_table_prefixes_to_filter``) —
-      filter atoms.
-    """
-    tbl = col._table
-    if tbl is not None:
-        tname = getattr(tbl, "name", None)
-        if tname is None:  # pragma: no cover
-            return None
-        return tname.name if hasattr(tname, "name") else str(tname)
-    if col.name and col.name.namespace:
-        ns = col.name.namespace
-        return ns.name if hasattr(ns, "name") else str(ns)
-    return None  # pragma: no cover
-
-
 def _set_col_table_alias(col: ast.Column, new_alias: str) -> None:
     """Rewrite the table-qualifier on a column to ``new_alias``,
     matching the qualification style already on the column.
@@ -740,7 +721,7 @@ def _absorb_filtered_joins_for_outer_safety(
 
     def _process(node: ast.Node) -> None:
         for col in node.find_all(ast.Column):
-            tname_str = _col_table_name(col)
+            tname_str = column_table_name(col)
             if tname_str is not None and tname_str in absorbed_aliases:
                 absorbed_cols[tname_str].add(col.name.name)
                 _set_col_table_alias(col, main_alias)

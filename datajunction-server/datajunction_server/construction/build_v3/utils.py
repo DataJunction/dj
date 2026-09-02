@@ -104,6 +104,26 @@ def get_column_type(node: Node, column_name: str) -> str:
     return "string"  # pragma: no cover
 
 
+def column_table_name(col: ast.Column) -> str | None:
+    """Return the table-qualifier short name for a column, or None.
+
+    Handles both qualification styles:
+    - ``_table`` (set by :func:`make_column_ref`) — projection / GROUP BY.
+    - ``name.namespace`` (set by ``_add_table_prefixes_to_filter``) —
+      filter atoms.
+    """
+    tbl = col._table
+    if tbl is not None:
+        tname = getattr(tbl, "name", None)
+        if tname is None:  # pragma: no cover
+            return None
+        return tname.name if hasattr(tname, "name") else str(tname)
+    if col.name and col.name.namespace:
+        ns = col.name.namespace
+        return ns.name if hasattr(ns, "name") else str(ns)
+    return None  # pragma: no cover
+
+
 def extract_columns_from_expression(expr: ast.Expression) -> set[str]:
     """
     Extract all column names referenced in an expression.
