@@ -5,6 +5,8 @@ what its upstream CTEs may prune.
 
 import pytest
 
+from tests.construction.build_v3.projection_invariant import unprojected_references
+
 
 class TestTransitiveConsumerProjection:
     """
@@ -136,9 +138,11 @@ class TestTransitiveConsumerProjection:
         assert resp.status_code == 200, resp.text
         sql = resp.json()["grain_groups"][0]["sql"]
 
+        # ``bundles`` is itself pruned to what ``fact`` reads from it, which
+        # narrows its own demand on ``item`` — so ``item`` need not keep
+        # ``bundle_id``. What has to hold either way is that nothing reads a
+        # column its producer stopped projecting.
+        assert unprojected_references(sql) == set(), sql
+
         item_cte = sql.split(f"{ns}_bundles")[0]
         assert "channel" in item_cte, sql
-        assert "bundle_id" in item_cte, (
-            f"{ns}.item CTE pruned bundle_id, but {ns}.bundles "
-            f"selects it from that CTE:\n\n{sql}"
-        )

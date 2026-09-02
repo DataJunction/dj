@@ -10,6 +10,7 @@ from datajunction_server.construction.build_v3.cte import (
     flatten_inner_ctes,
     get_column_full_name,
     get_table_references_from_ast,
+    prune_cte_projections,
     rewrite_table_references,
     topological_sort_nodes,
 )
@@ -36,7 +37,7 @@ from datajunction_server.construction.build_v3.materialization import (
 from datajunction_server.construction.build_v3.measures import (
     _add_table_prefixes_to_filter,
     _resolve_dim_namespace_refs,
-    collect_cte_nodes_and_needed_columns,
+    collect_cte_nodes,
 )
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
@@ -915,45 +916,31 @@ class TestAddTablePrefixesToFilter:
 
 class TestResolveDimNamespaceRefs:
     """Tests for ``_resolve_dim_namespace_refs`` — rewrites dim-namespaced
-    column refs to use the dim's joined table alias and returns the columns
-    that must be preserved in each dim's CTE projection."""
+    column refs to use the dim's joined table alias."""
 
     @staticmethod
     def _expr(sql: str) -> ast.Expression:
         return cast(ast.Expression, parse(f"SELECT {sql}").select.projection[0])
 
-    def test_rewrites_known_dim_and_collects_col(self):
+    def test_rewrites_known_dim(self):
         expr = self._expr("v3.customer.tier")
-        cols = _resolve_dim_namespace_refs(
-            [expr],
-            {"v3.customer": "t2"},
-        )
+        _resolve_dim_namespace_refs([expr], {"v3.customer": "t2"})
         assert str(expr) == "t2.tier"
-        assert cols == {"v3.customer": {"tier"}}
 
     def test_skips_unknown_namespace(self):
-        """Namespaces that don't match a joined dim are left unchanged and
-        not recorded."""
+        """Namespaces that don't match a joined dim are left unchanged."""
         expr = self._expr("v3.fact.amount + v3.customer.threshold")
-        cols = _resolve_dim_namespace_refs(
-            [expr],
-            {"v3.customer": "t2"},
-        )
+        _resolve_dim_namespace_refs([expr], {"v3.customer": "t2"})
         rendered = str(expr)
         assert "v3.fact.amount" in rendered
         assert "t2.threshold" in rendered
-        assert cols == {"v3.customer": {"threshold"}}
 
     def test_skips_bare_columns(self):
         """Bare columns have no namespace, so they're not touched here —
         the main-alias rewrite runs separately."""
         expr = self._expr("SUM(amount)")
-        cols = _resolve_dim_namespace_refs(
-            [expr],
-            {"v3.customer": "t2"},
-        )
+        _resolve_dim_namespace_refs([expr], {"v3.customer": "t2"})
         assert str(expr) == "SUM(amount)"
-        assert cols == {}
 
     def test_walks_nested_expression(self):
         """The walk reaches into function args / CASE branches."""
@@ -961,15 +948,11 @@ class TestResolveDimNamespaceRefs:
             "SUM(CASE WHEN amount >= v3.customer.threshold "
             "THEN v3.customer.tier ELSE 'x' END)",
         )
-        cols = _resolve_dim_namespace_refs(
-            [expr],
-            {"v3.customer": "t2"},
-        )
+        _resolve_dim_namespace_refs([expr], {"v3.customer": "t2"})
         rendered = str(expr)
         assert "v3.customer." not in rendered
         assert "t2.threshold" in rendered
         assert "t2.tier" in rendered
-        assert cols == {"v3.customer": {"threshold", "tier"}}
 
 
 class TestBuildComponentExpression:
@@ -2348,247 +2331,67 @@ class TestAnalyzeGrainGroups:
         assert result[0].parent_node.name == "v3.my_parent"
 
 
-class TestCollectCteNodesAndNeededColumns:
+class TestCollectCteNodes:
     """
-    Tests for collect_cte_nodes_and_needed_columns.
+    Tests for ``collect_cte_nodes``, which decides which nodes get a CTE.
 
-    Focuses on the case where a dimension node's SQL references another
-    dimension node via a table alias, and columns used through that alias
-    must be included in the referenced node's CTE projection.
+    What each of those CTEs projects is settled later, on the assembled query,
+    by ``prune_cte_projections``.
     """
 
-    def test_dim_referencing_dim_via_alias(self):
+    def test_parent_and_every_join_hop_get_ctes(self):
         """
-        Columns used by one dimension's SQL from another dimension (via a table
-        alias) must appear in the referenced dimension's needed_columns set.
-
-        Setup:
-          test.fact  --(id)-->  test.dim_a   (requested: x)
-          test.fact  --(id)-->  test.dim_b   (requested: p)
-
-          test.dim_a's SQL:
-            SELECT id, x, b_alias.p, b_alias.q
-            FROM test.source_a
-            CROSS JOIN test.dim_b AS b_alias
-
-        Expected needed columns:
-          test.dim_a: {x, id}          -- x requested, id from join key
-          test.dim_b: {p, q, id, x}    -- p requested, id from join key,
-                                          q pulled in because dim_a selects b_alias.q,
-                                          x because dim_a selects it bare and either
-                                          table in scope could be supplying it
+        The parent node and each dimension on a resolved join path need a CTE,
+        including a hop that is only an intermediate on the way to the target.
         """
-        # --- nodes ---
         fact_node = MagicMock()
         fact_node.name = "test.fact"
         fact_node.type = NodeType.TRANSFORM
-        fact_node.current.query = "SELECT id, val FROM test.source"
-        fact_node.current.dimension_links = []
 
         dim_a_node = MagicMock()
         dim_a_node.name = "test.dim_a"
         dim_a_node.type = NodeType.DIMENSION
-        dim_a_node.current.query = (
-            "SELECT id, x, b_alias.p, b_alias.q "
-            "FROM test.source_a "
-            "CROSS JOIN test.dim_b AS b_alias"
-        )
 
         dim_b_node = MagicMock()
         dim_b_node.name = "test.dim_b"
         dim_b_node.type = NodeType.DIMENSION
-        dim_b_node.current.query = "SELECT id, p, q, r FROM test.source_b"
 
-        # --- dimension links ---
-        link_fact_to_dim_a = MagicMock()
-        link_fact_to_dim_a.dimension = dim_a_node
-        link_fact_to_dim_a.join_sql = "test.fact.id = test.dim_a.id"
-        link_fact_to_dim_a.node_revision.name = "test.fact"
+        first_hop = MagicMock()
+        first_hop.dimension = dim_a_node
+        second_hop = MagicMock()
+        second_hop.dimension = dim_b_node
 
-        link_fact_to_dim_b = MagicMock()
-        link_fact_to_dim_b.dimension = dim_b_node
-        link_fact_to_dim_b.join_sql = "test.fact.id = test.dim_b.id"
-        link_fact_to_dim_b.node_revision.name = "test.fact"
-
-        # --- context ---
         ctx = MagicMock()
-        ctx.temporal_partition_columns = {}
         ctx.nodes = {"test.dim_a": dim_a_node, "test.dim_b": dim_b_node}
-        ctx.get_parsed_query.side_effect = lambda node: parse(node.current.query)
 
-        # --- resolved dimensions ---
         resolved_dimensions = [
-            ResolvedDimension(
-                original_ref="test.dim_a.x",
-                node_name="test.dim_a",
-                column_name="x",
-                role=None,
-                join_path=JoinPath(
-                    links=[link_fact_to_dim_a],
-                    target_dimension=dim_a_node,
-                ),
-                is_local=False,
-            ),
             ResolvedDimension(
                 original_ref="test.dim_b.p",
                 node_name="test.dim_b",
                 column_name="p",
                 role=None,
                 join_path=JoinPath(
-                    links=[link_fact_to_dim_b],
+                    links=[first_hop, second_hop],
                     target_dimension=dim_b_node,
                 ),
                 is_local=False,
             ),
         ]
 
-        nodes_for_ctes, needed_columns_by_node = collect_cte_nodes_and_needed_columns(
+        assert collect_cte_nodes(
             ctx=ctx,
             parent_node=fact_node,
             resolved_dimensions=resolved_dimensions,
-            grain_col_specs=[],
-            metric_expressions=[],
-        )
+        ) == [fact_node, dim_a_node, dim_b_node]
 
-        assert fact_node in nodes_for_ctes
-        assert dim_a_node in nodes_for_ctes
-        assert dim_b_node in nodes_for_ctes
-
-        assert needed_columns_by_node["test.dim_a"] == {"x", "id"}
-        # q must be present even though it was never explicitly requested —
-        # it's referenced in dim_a's SQL as b_alias.q. x rides along because
-        # dim_a writes it bare; keeping a column dim_b lacks costs nothing.
-        assert needed_columns_by_node["test.dim_b"] == {"p", "q", "id", "x"}
-
-    def test_parent_directly_references_dim_no_alias(self):
-        """
-        Case 1: parent_node's SQL directly selects a column from a dimension
-        node without an alias (test.dim_a.extra_col).  That column must appear
-        in needed_columns_by_node for that dimension even if it was not
-        explicitly requested as a dimension attribute.
-        """
+    def test_local_dimension_adds_no_join_cte(self):
+        """A dimension on the fact itself has no join path to walk."""
         fact_node = MagicMock()
         fact_node.name = "test.fact"
         fact_node.type = NodeType.TRANSFORM
-        # Parent selects test.dim_a.extra_col directly — nobody requests it
-        fact_node.current.query = (
-            "SELECT id, val, test.dim_a.extra_col "
-            "FROM test.source "
-            "JOIN test.dim_a ON test.source.id = test.dim_a.id"
-        )
-        fact_node.current.dimension_links = []
-
-        dim_a_node = MagicMock()
-        dim_a_node.name = "test.dim_a"
-        dim_a_node.type = NodeType.DIMENSION
-        dim_a_node.current.query = "SELECT id, x, extra_col FROM test.src_a"
-
-        link_fact_to_dim_a = MagicMock()
-        link_fact_to_dim_a.dimension = dim_a_node
-        link_fact_to_dim_a.join_sql = "test.fact.id = test.dim_a.id"
-        link_fact_to_dim_a.node_revision.name = "test.fact"
 
         ctx = MagicMock()
-        ctx.temporal_partition_columns = {}
-        ctx.nodes = {"test.dim_a": dim_a_node}
-        ctx.get_parsed_query.side_effect = lambda node: parse(node.current.query)
-
-        resolved_dimensions = [
-            ResolvedDimension(
-                original_ref="test.dim_a.x",
-                node_name="test.dim_a",
-                column_name="x",
-                role=None,
-                join_path=JoinPath(
-                    links=[link_fact_to_dim_a],
-                    target_dimension=dim_a_node,
-                ),
-                is_local=False,
-            ),
-        ]
-
-        _, needed_columns_by_node = collect_cte_nodes_and_needed_columns(
-            ctx=ctx,
-            parent_node=fact_node,
-            resolved_dimensions=resolved_dimensions,
-            grain_col_specs=[],
-            metric_expressions=[],
-        )
-
-        # x requested, id from join key, extra_col from parent's SQL body, and
-        # val because the parent writes it bare with dim_a in scope
-        assert needed_columns_by_node["test.dim_a"] == {"x", "id", "extra_col", "val"}
-
-    def test_source_node_excluded_from_nodes_for_ctes(self):
-        """
-        SOURCE-type nodes must not appear in nodes_for_ctes — they map to
-        physical tables and don't need CTEs.
-        """
-        source_node = MagicMock()
-        source_node.name = "test.src"
-        source_node.type = NodeType.SOURCE
-        source_node.current.dimension_links = []
-
-        ctx = MagicMock()
-        ctx.temporal_partition_columns = {}
         ctx.nodes = {}
-        ctx.get_parsed_query.side_effect = lambda node: parse(node.current.query)
-
-        nodes_for_ctes, needed_columns_by_node = collect_cte_nodes_and_needed_columns(
-            ctx=ctx,
-            parent_node=source_node,
-            resolved_dimensions=[],
-            grain_col_specs=[],
-            metric_expressions=[],
-        )
-
-        assert source_node not in nodes_for_ctes
-        assert needed_columns_by_node == {}
-
-    def test_metric_expressions_contribute_to_parent_needed_cols(self):
-        """
-        Columns referenced inside metric expressions must be included in
-        parent_node's needed columns so filter_cte_projection keeps them.
-        """
-        fact_node = MagicMock()
-        fact_node.name = "test.fact"
-        fact_node.type = NodeType.TRANSFORM
-        fact_node.current.query = "SELECT id, revenue, cost FROM test.src"
-        fact_node.current.dimension_links = []
-
-        ctx = MagicMock()
-        ctx.temporal_partition_columns = {}
-        ctx.nodes = {}
-        ctx.get_parsed_query.side_effect = lambda node: parse(node.current.query)
-
-        metric_expr = parse("SELECT revenue - cost").select.projection[0]
-
-        _, needed_columns_by_node = collect_cte_nodes_and_needed_columns(
-            ctx=ctx,
-            parent_node=fact_node,
-            resolved_dimensions=[],
-            grain_col_specs=[],
-            metric_expressions=[("profit", metric_expr)],
-        )
-
-        assert "revenue" in needed_columns_by_node["test.fact"]
-        assert "cost" in needed_columns_by_node["test.fact"]
-
-    def test_local_dimension_contributes_to_parent_needed_cols(self):
-        """
-        Local dimensions (columns directly on the fact table, no join required)
-        must be added to parent_node's needed columns, not to a joined dim node.
-        """
-        fact_node = MagicMock()
-        fact_node.name = "test.fact"
-        fact_node.type = NodeType.TRANSFORM
-        fact_node.current.query = "SELECT id, val, region FROM test.src"
-        fact_node.current.dimension_links = []
-
-        ctx = MagicMock()
-        ctx.temporal_partition_columns = {}
-        ctx.nodes = {}
-        ctx.get_parsed_query.side_effect = lambda node: parse(node.current.query)
 
         resolved_dimensions = [
             ResolvedDimension(
@@ -2601,12 +2404,130 @@ class TestCollectCteNodesAndNeededColumns:
             ),
         ]
 
-        _, needed_columns_by_node = collect_cte_nodes_and_needed_columns(
+        assert collect_cte_nodes(
             ctx=ctx,
             parent_node=fact_node,
             resolved_dimensions=resolved_dimensions,
-            grain_col_specs=[],
-            metric_expressions=[],
+        ) == [fact_node]
+
+    def test_source_node_excluded(self):
+        """
+        SOURCE-type nodes must not appear in nodes_for_ctes — they map to
+        physical tables and don't need CTEs.
+        """
+        source_node = MagicMock()
+        source_node.name = "test.src"
+        source_node.type = NodeType.SOURCE
+
+        ctx = MagicMock()
+        ctx.nodes = {}
+
+        assert (
+            collect_cte_nodes(
+                ctx=ctx,
+                parent_node=source_node,
+                resolved_dimensions=[],
+            )
+            == []
         )
 
-        assert "region" in needed_columns_by_node["test.fact"]
+
+class TestPruneCteProjections:
+    """
+    Tests for ``prune_cte_projections`` on an already-assembled query.
+    """
+
+    @staticmethod
+    def _pruned(sql: str) -> str:
+        query = parse(sql)
+        prune_cte_projections(query)
+        return str(query)
+
+    def test_qualified_reference_keeps_only_what_is_read(self):
+        pruned = self._pruned(
+            "WITH a AS (SELECT id, keep, drop_me FROM t) SELECT x.keep FROM a AS x",
+        )
+        assert "keep" in pruned
+        assert "drop_me" not in pruned
+
+    def test_cte_name_qualifier_resolves_like_an_alias(self):
+        pruned = self._pruned(
+            "WITH a AS (SELECT id, keep, drop_me FROM t) SELECT a.keep FROM a",
+        )
+        assert "keep" in pruned
+        assert "drop_me" not in pruned
+
+    def test_bare_reference_is_kept_in_every_cte_in_scope(self):
+        """
+        Nothing says which side supplies a bare column, so both keep it.
+        """
+        pruned = self._pruned(
+            "WITH a AS (SELECT id, shared, drop_me FROM t1), "
+            "b AS (SELECT id, shared, also_drop FROM t2) "
+            "SELECT shared FROM a JOIN b ON a.id = b.id",
+        )
+        assert pruned.count("shared") == 3
+        assert "drop_me" not in pruned
+        assert "also_drop" not in pruned
+
+    def test_struct_path_keeps_the_first_segment(self):
+        """
+        For ``x.line_item.target_sets`` the producer must project ``line_item``,
+        the segment right after the qualifier — not the leaf.
+        """
+        pruned = self._pruned(
+            "WITH a AS (SELECT line_item, drop_me FROM t) "
+            "SELECT x.line_item.target_sets FROM a AS x",
+        )
+        assert "line_item" in pruned
+        assert "drop_me" not in pruned
+
+    def test_union_arms_are_pruned_together(self):
+        """
+        A set-operation CTE keeps the same positions in every arm, so the arms
+        stay union-compatible.
+        """
+        pruned = self._pruned(
+            "WITH a AS ("
+            "SELECT id, keep, drop_me FROM t1 "
+            "UNION ALL "
+            "SELECT id, keep, drop_me FROM t2"
+            ") SELECT x.keep FROM a AS x",
+        )
+        assert pruned.count("keep") == 3
+        assert "drop_me" not in pruned
+
+    def test_star_passes_its_own_demand_through(self):
+        """
+        A star re-exposes whatever its source has, so a CTE that stars a source
+        asks of it exactly what its own readers ask.
+        """
+        pruned = self._pruned(
+            "WITH a AS (SELECT id, keep, drop_me FROM t), "
+            "b AS (SELECT * FROM a) "
+            "SELECT y.keep FROM b AS y",
+        )
+        assert "keep" in pruned
+        assert "drop_me" not in pruned
+
+    def test_star_with_unknown_demand_keeps_everything(self):
+        """
+        The outer select has no readers to narrow it, so a star there leaves its
+        source whole.
+        """
+        pruned = self._pruned(
+            "WITH a AS (SELECT id, keep, untouched FROM t) SELECT * FROM a",
+        )
+        assert "untouched" in pruned
+
+    def test_group_by_position_is_renumbered(self):
+        pruned = self._pruned(
+            "WITH a AS (SELECT drop_me, keep, COUNT(1) AS n FROM t GROUP BY 2) "
+            "SELECT x.keep, x.n FROM a AS x",
+        )
+        # ``drop_me`` sits at position 1 and no GROUP BY entry points at it.
+        assert "drop_me" not in pruned
+        assert "GROUP BY  1" in pruned
+
+    def test_query_without_ctes_is_untouched(self):
+        assert self._pruned("SELECT a FROM t") == str(parse("SELECT a FROM t"))
