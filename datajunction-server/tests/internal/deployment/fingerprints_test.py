@@ -5,8 +5,8 @@ import pytest
 
 from datajunction_server.internal.deployment.fingerprints import (
     SEMANTIC_PARENT_RESOLVERS,
+    SemanticFingerprintGraph,
     _candidate_parts,
-    _compute_merkle_fingerprints,
     _parent_candidates,
     _resolved_proposed_specs,
     build_deployment_fingerprints,
@@ -26,6 +26,7 @@ from datajunction_server.models.semantic_fingerprint import (
     UNKNOWN_SEMANTIC_FINGERPRINT,
     SemanticFingerprint,
 )
+from datajunction_server.semantic_fingerprints.engine import local_node_fingerprint
 
 
 def source_spec(
@@ -139,21 +140,35 @@ def test_merkle_fingerprints_propagate_changes_through_all_descendants():
         query="SELECT COUNT(*) FROM ${prefix}transform",
     )
     specs = spec_map(source, transform, metric)
-    original = _compute_merkle_fingerprints(
-        specs,
-        specs,
-        ignored_parse_errors=set(),
-    )
+    original = SemanticFingerprintGraph(specs).fingerprints()
 
     changed_source = source.model_copy(update={"table": "changed"})
     changed_specs = {**specs, changed_source.rendered_name: changed_source}
-    changed = _compute_merkle_fingerprints(
-        changed_specs,
-        changed_specs,
-        ignored_parse_errors=set(),
-    )
+    changed = SemanticFingerprintGraph(changed_specs).fingerprints()
 
     assert all(original[name] != changed[name] for name in specs)
+
+
+def test_graph_fingerprint_uses_its_parent_snapshot():
+    orders_v1 = source_spec("orders", table="orders_v1")
+    orders_v2 = orders_v1.model_copy(update={"table": "orders_v2"})
+    revenue = transform_spec(
+        "revenue",
+        "SELECT * FROM ${prefix}orders",
+    )
+
+    current = SemanticFingerprintGraph(spec_map(orders_v1, revenue))
+    proposed = SemanticFingerprintGraph(spec_map(orders_v2, revenue))
+
+    current_fingerprint = current.fingerprint(revenue.rendered_name)
+    assert current.fingerprint(revenue.rendered_name) is current_fingerprint
+    assert current_fingerprint != proposed.fingerprint(
+        revenue.rendered_name,
+    )
+    assert (
+        SemanticFingerprintGraph(spec_map(revenue)).fingerprint(revenue.rendered_name)
+        == UNKNOWN_SEMANTIC_FINGERPRINT
+    )
 
 
 def test_merkle_fingerprints_support_deep_dependency_chains():
@@ -179,7 +194,7 @@ def test_merkle_fingerprints_support_deep_dependency_chains():
 
     target = "deep.node_1099"
     assert (
-        _compute_merkle_fingerprints(specs, [target], set())[target]
+        SemanticFingerprintGraph(specs).fingerprint(target)
         != UNKNOWN_SEMANTIC_FINGERPRINT
     )
 
@@ -199,7 +214,7 @@ def test_unavailable_fingerprint_propagates_to_dependents(name: str, query: str)
     )
     specs = spec_map(unavailable, dependent)
 
-    assert _compute_merkle_fingerprints(specs, specs, set()) == {
+    assert SemanticFingerprintGraph(specs).fingerprints() == {
         unavailable.rendered_name: UNKNOWN_SEMANTIC_FINGERPRINT,
         dependent.rendered_name: UNKNOWN_SEMANTIC_FINGERPRINT,
     }
@@ -217,14 +232,10 @@ def test_direct_required_dimension_paths_use_persisted_identity():
     authored_specs = spec_map(parent, authored)
     persisted_specs = spec_map(parent, persisted)
 
-    assert _compute_merkle_fingerprints(
-        authored_specs,
-        [authored.rendered_name],
-        set(),
-    ) == _compute_merkle_fingerprints(
-        persisted_specs,
-        [persisted.rendered_name],
-        set(),
+    assert SemanticFingerprintGraph(authored_specs).fingerprint(
+        authored.rendered_name,
+    ) == SemanticFingerprintGraph(persisted_specs).fingerprint(
+        persisted.rendered_name,
     )
 
     dimension = DimensionSpec(namespace="ns", name="dimension", query="SELECT 1")
@@ -247,14 +258,10 @@ def test_direct_required_dimension_paths_use_persisted_identity():
     )
     authored_specs = spec_map(parent, dimension, base_metric, authored_derived)
     persisted_specs = spec_map(parent, dimension, base_metric, persisted_derived)
-    assert _compute_merkle_fingerprints(
-        authored_specs,
-        [authored_derived.rendered_name],
-        set(),
-    ) == _compute_merkle_fingerprints(
-        persisted_specs,
-        [persisted_derived.rendered_name],
-        set(),
+    assert SemanticFingerprintGraph(authored_specs).fingerprint(
+        authored_derived.rendered_name,
+    ) == SemanticFingerprintGraph(persisted_specs).fingerprint(
+        persisted_derived.rendered_name,
     )
 
 
@@ -268,12 +275,10 @@ def test_cycle_hashing_is_stable_and_propagates_member_changes():
         namespace="cycle",
     )
     specs = spec_map(first, second, third, downstream)
-    original = _compute_merkle_fingerprints(specs, specs, set())
-    reversed_input = _compute_merkle_fingerprints(
+    original = SemanticFingerprintGraph(specs).fingerprints()
+    reversed_input = SemanticFingerprintGraph(
         dict(reversed(list(specs.items()))),
-        reversed(list(specs)),
-        set(),
-    )
+    ).fingerprints()
     assert original == reversed_input
     assert all(
         fingerprint != UNKNOWN_SEMANTIC_FINGERPRINT for fingerprint in original.values()
@@ -284,23 +289,21 @@ def test_cycle_hashing_is_stable_and_propagates_member_changes():
         **specs,
         changed_second.rendered_name: changed_second,
     }
-    changed = _compute_merkle_fingerprints(changed_specs, changed_specs, set())
+    changed = SemanticFingerprintGraph(changed_specs).fingerprints()
     assert all(original[name] != changed[name] for name in specs)
 
     broken_third = linked_dimension("third")
     broken_specs = {**specs, broken_third.rendered_name: broken_third}
-    broken = _compute_merkle_fingerprints(broken_specs, broken_specs, set())
+    broken = SemanticFingerprintGraph(broken_specs).fingerprints()
     assert all(original[name] != broken[name] for name in specs)
 
 
 def test_self_link_and_external_parent_cycles_have_stable_hashes():
     self_link = linked_dimension("self", "self")
     assert (
-        _compute_merkle_fingerprints(
+        SemanticFingerprintGraph(
             {self_link.rendered_name: self_link},
-            [self_link.rendered_name],
-            set(),
-        )[self_link.rendered_name]
+        ).fingerprint(self_link.rendered_name)
         != UNKNOWN_SEMANTIC_FINGERPRINT
     )
 
@@ -316,21 +319,21 @@ def test_self_link_and_external_parent_cycles_have_stable_hashes():
     )
     second = linked_dimension("second", "first")
     specs = spec_map(parent, first, second)
-    original = _compute_merkle_fingerprints(specs, specs, set())
+    original = SemanticFingerprintGraph(specs).fingerprints()
     changed_parent = parent.model_copy(update={"table": "changed"})
     changed_specs = {**specs, changed_parent.rendered_name: changed_parent}
-    changed = _compute_merkle_fingerprints(changed_specs, changed_specs, set())
+    changed = SemanticFingerprintGraph(changed_specs).fingerprints()
     assert all(original[name] != changed[name] for name in specs)
 
 
 @pytest.mark.parametrize("query", ["SELECT (", "SELECT * FROM missing.parent"])
-def test_deleted_legacy_node_can_omit_unavailable_fingerprint(query: str):
+def test_deleted_legacy_node_returns_unknown_without_failure(query: str):
     legacy = transform_spec("legacy", query)
-    assert _compute_merkle_fingerprints(
+    graph = SemanticFingerprintGraph(
         {legacy.rendered_name: legacy},
-        [legacy.rendered_name],
         ignored_parse_errors={legacy.rendered_name},
-    ) == {legacy.rendered_name: UNKNOWN_SEMANTIC_FINGERPRINT}
+    )
+    assert graph.fingerprint(legacy.rendered_name) == UNKNOWN_SEMANTIC_FINGERPRINT
 
 
 def test_fingerprint_build_failures_are_unavailable():
@@ -347,12 +350,16 @@ def test_fingerprint_build_failures_are_unavailable():
     invalid_source.columns[0].type = object()  # type: ignore[assignment]
     specs = spec_map(invalid_metric, invalid_source)
 
-    assert _compute_merkle_fingerprints(specs, [], set()) == {}
-    assert _compute_merkle_fingerprints(specs, specs, set()) == {
+    graph = SemanticFingerprintGraph(specs)
+    assert graph.fingerprints([]) == {}
+    assert graph.fingerprints() == {
         invalid_metric.rendered_name: UNKNOWN_SEMANTIC_FINGERPRINT,
         invalid_source.rendered_name: UNKNOWN_SEMANTIC_FINGERPRINT,
     }
-    assert _compute_merkle_fingerprints(specs, specs, set(specs)) == {
+    assert SemanticFingerprintGraph(
+        specs,
+        ignored_parse_errors=set(specs),
+    ).fingerprints() == {
         invalid_metric.rendered_name: UNKNOWN_SEMANTIC_FINGERPRINT,
         invalid_source.rendered_name: UNKNOWN_SEMANTIC_FINGERPRINT,
     }
@@ -378,9 +385,9 @@ def test_proposed_sources_reuse_resolved_columns_and_remove_deletes():
         {deleted.rendered_name},
     )
 
-    assert resolved[source.rendered_name].semantic_fingerprint() == (
-        source.semantic_fingerprint()
-    )
+    assert local_node_fingerprint(
+        resolved[source.rendered_name],
+    ) == local_node_fingerprint(source)
     assert deleted.rendered_name not in resolved
 
 
@@ -399,11 +406,12 @@ async def test_build_deployment_fingerprints_without_external_parents():
     )
 
     assert current == {}
+    graph = SemanticFingerprintGraph(spec_map(source, transform))
     source_fingerprint = proposed[source.rendered_name]
     assert isinstance(source_fingerprint, SemanticFingerprint)
-    assert source_fingerprint == source.semantic_fingerprint()
-    assert proposed[transform.rendered_name] == transform.semantic_fingerprint(
-        parent_fingerprints=[source_fingerprint],
+    assert source_fingerprint == graph.fingerprint(source.rendered_name)
+    assert proposed[transform.rendered_name] == graph.fingerprint(
+        transform.rendered_name,
     )
 
 
@@ -421,7 +429,7 @@ async def test_build_deployment_fingerprints_loads_external_ancestors(session):
     )
 
     assert proposed[transform.rendered_name] != UNKNOWN_SEMANTIC_FINGERPRINT
-    assert proposed[transform.rendered_name] != transform.semantic_fingerprint()
+    assert proposed[transform.rendered_name] != local_node_fingerprint(transform)
 
     unavailable = [
         transform_spec("missing_child", "SELECT * FROM missing.parent"),

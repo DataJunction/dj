@@ -21,9 +21,14 @@ from datajunction_server.models.deployment import (
 )
 from datajunction_server.models.node import NodeType
 from datajunction_server.models.semantic_fingerprint import (
+    LATEST_SEMANTIC_FINGERPRINT_VERSION,
     UNKNOWN_SEMANTIC_FINGERPRINT,
     SemanticFingerprint,
     SemanticFingerprintValue,
+)
+from datajunction_server.semantic_fingerprints.engine import (
+    compose_node_fingerprint,
+    local_node_fingerprint,
 )
 from datajunction_server.semantic_fingerprints.merkle import (
     cycle_component_fingerprint,
@@ -225,13 +230,11 @@ def _resolved_proposed_specs(
 
 def _compute_merkle_fingerprints(
     specs: dict[str, NodeSpec],
-    target_names: Iterable[str],
     ignored_parse_errors: set[str],
     parent_cache: ParentCandidateCache | None = None,
+    *,
+    version: int = LATEST_SEMANTIC_FINGERPRINT_VERSION,
 ) -> FingerprintMap:
-    target_names = set(target_names)
-    if not target_names:
-        return {}
     parent_cache = parent_cache if parent_cache is not None else {}
     graph: dict[str, list[str]] = {}
     failed_names: set[str] = set()
@@ -334,9 +337,9 @@ def _compute_merkle_fingerprints(
                 try:
                     if not is_cycle:
                         component_results[component_index] = {
-                            members[0]: fingerprint_specs[
-                                members[0]
-                            ].semantic_fingerprint(
+                            members[0]: compose_node_fingerprint(
+                                fingerprint_specs[members[0]],
+                                version,
                                 parent_fingerprints=[
                                     edge[2] for edge in external_edges
                                 ],
@@ -344,7 +347,10 @@ def _compute_merkle_fingerprints(
                         }
                     else:
                         local_fingerprints = {
-                            name: fingerprint_specs[name].semantic_fingerprint()
+                            name: local_node_fingerprint(
+                                fingerprint_specs[name],
+                                version,
+                            )
                             for name in members
                         }
                         internal_edges = [
@@ -360,7 +366,9 @@ def _compute_merkle_fingerprints(
                             external_edges,
                         )
                         component_results[component_index] = {
-                            name: fingerprint_specs[name].semantic_fingerprint(
+                            name: compose_node_fingerprint(
+                                fingerprint_specs[name],
+                                version,
                                 parent_fingerprints=[component_fingerprint],
                             )
                             for name in members
@@ -384,11 +392,52 @@ def _compute_merkle_fingerprints(
     if processed != len(components):  # pragma: no cover
         raise RuntimeError("SCC condensation graph contains a cycle")
 
-    return {
-        name: component_results[component_by_name[name]][name]
-        for name in target_names
-        if name in specs
-    }
+    return {name: component_results[component_by_name[name]][name] for name in specs}
+
+
+class SemanticFingerprintGraph:
+    """Semantic fingerprints evaluated within one graph snapshot."""
+
+    def __init__(
+        self,
+        specs: dict[str, NodeSpec],
+        *,
+        ignored_parse_errors: set[str] | None = None,
+        parent_cache: ParentCandidateCache | None = None,
+        version: int = LATEST_SEMANTIC_FINGERPRINT_VERSION,
+    ):
+        self._specs = dict(specs)
+        self._ignored_parse_errors = set(ignored_parse_errors or ())
+        self._parent_cache = parent_cache if parent_cache is not None else {}
+        self._version = version
+        self._fingerprints: FingerprintMap | None = None
+
+    def fingerprint(self, name: str) -> SemanticFingerprintValue:
+        """Return one node's fingerprint in this graph snapshot."""
+        return self._evaluate()[name]
+
+    def fingerprints(
+        self,
+        names: Iterable[str] | None = None,
+    ) -> FingerprintMap:
+        """Return fingerprints for selected nodes in this graph snapshot."""
+        target_names = list(self._specs if names is None else names)
+        if not target_names:
+            return {}
+        fingerprints = self._evaluate()
+        return {
+            name: fingerprints[name] for name in target_names if name in fingerprints
+        }
+
+    def _evaluate(self) -> FingerprintMap:
+        if self._fingerprints is None:
+            self._fingerprints = _compute_merkle_fingerprints(
+                self._specs,
+                self._ignored_parse_errors,
+                self._parent_cache,
+                version=self._version,
+            )
+        return self._fingerprints
 
 
 async def build_deployment_fingerprints(
@@ -398,6 +447,7 @@ async def build_deployment_fingerprints(
     deleted_specs: Iterable[NodeSpec],
     *,
     additional_target_names: Iterable[str] = (),
+    version: int = LATEST_SEMANTIC_FINGERPRINT_VERSION,
 ) -> tuple[FingerprintMap, FingerprintMap]:
     proposed_specs = list(proposed_specs)
     additional_target_names = set(additional_target_names)
@@ -437,18 +487,21 @@ async def build_deployment_fingerprints(
         parent_cache=parent_cache,
     )
     external.update(target_specs)
-    current_graph = {**external, **existing_specs}
-    proposed_graph = {**external, **proposed}
-    current = _compute_merkle_fingerprints(
-        current_graph,
-        deleted_names | additional_target_names,
+    current_graph = SemanticFingerprintGraph(
+        {**external, **existing_specs},
         ignored_parse_errors=deleted_names,
         parent_cache=parent_cache,
+        version=version,
     )
-    proposed_hashes = _compute_merkle_fingerprints(
-        proposed_graph,
-        submitted_names | additional_target_names,
-        ignored_parse_errors=set(),
+    proposed_graph = SemanticFingerprintGraph(
+        {**external, **proposed},
         parent_cache=parent_cache,
+        version=version,
+    )
+    current = current_graph.fingerprints(
+        deleted_names | additional_target_names,
+    )
+    proposed_hashes = proposed_graph.fingerprints(
+        submitted_names | additional_target_names,
     )
     return current, proposed_hashes
