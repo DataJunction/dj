@@ -21,6 +21,7 @@ from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import fast_parse_mode
 from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.utils import SEPARATOR
 
 logger = logging.getLogger(__name__)
@@ -106,7 +107,11 @@ def classify_parents(
     return resolved, missing
 
 
-def extract_node_graph(nodes: list[NodeSpec]) -> dict[str, list[str]]:
+def extract_node_graph(
+    nodes: list[NodeSpec],
+    *,
+    tolerate_parse_errors: bool = False,
+) -> dict[str, list[str]]:
     """
     Extract the node graph from a list of nodes.
 
@@ -118,8 +123,13 @@ def extract_node_graph(nodes: list[NodeSpec]) -> dict[str, list[str]]:
     logger.info("Extracting node graph for %d nodes", len(nodes))
     dependencies_map: dict[str, list[str]] = {}
     for node in nodes:
-        with fast_parse_mode():
-            name, deps, parsed = _find_upstreams_for_node(node)
+        try:
+            with fast_parse_mode():
+                name, deps, parsed = _find_upstreams_for_node(node)
+        except DJParseException:
+            if not tolerate_parse_errors:
+                raise
+            name, deps, parsed = node.rendered_name, [], None
         dependencies_map[name] = deps
         if parsed is not None:
             node._query_ast = parsed
