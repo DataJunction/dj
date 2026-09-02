@@ -155,6 +155,13 @@ def extract_columns_referenced_from_node(
     columns appear as ``alias.col``) and unaliased references (where columns
     appear as ``node_short_name.col`` or ``full.node.name.col``).
 
+    A column written with no qualifier at all counts too, as long as the node
+    appears somewhere in the query as a table. Which table such a column belongs
+    to is only knowable after compilation, and callers use this set to decide
+    what a CTE must keep projecting: claiming a column the node does not have is
+    a no-op, while missing one the node does have emits SQL that cannot run. So
+    an unqualified column is charged to every node the query reads from.
+
     Args:
         query_ast: The parsed query to scan.
         node_name: Full node name (e.g. ``common.dimensions.xp.max_observation_end``).
@@ -185,6 +192,9 @@ def extract_columns_referenced_from_node(
         # (e.g. "alias.column_name") without requiring col.table to be set,
         # since that is only populated after compilation.
         col_id = col.identifier()
+        if SEPARATOR not in col_id:
+            result.add(col_id)
+            continue
         for prefix in prefixes:
             if col_id.startswith(prefix + SEPARATOR):
                 result.add(get_short_name(col_id))

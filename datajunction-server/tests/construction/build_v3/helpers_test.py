@@ -2373,8 +2373,10 @@ class TestCollectCteNodesAndNeededColumns:
 
         Expected needed columns:
           test.dim_a: {x, id}          -- x requested, id from join key
-          test.dim_b: {p, q, id}       -- p requested, id from join key,
-                                          q pulled in because dim_a selects b_alias.q
+          test.dim_b: {p, q, id, x}    -- p requested, id from join key,
+                                          q pulled in because dim_a selects b_alias.q,
+                                          x because dim_a selects it bare and either
+                                          table in scope could be supplying it
         """
         # --- nodes ---
         fact_node = MagicMock()
@@ -2454,8 +2456,9 @@ class TestCollectCteNodesAndNeededColumns:
 
         assert needed_columns_by_node["test.dim_a"] == {"x", "id"}
         # q must be present even though it was never explicitly requested —
-        # it's referenced in dim_a's SQL as b_alias.q
-        assert needed_columns_by_node["test.dim_b"] == {"p", "q", "id"}
+        # it's referenced in dim_a's SQL as b_alias.q. x rides along because
+        # dim_a writes it bare; keeping a column dim_b lacks costs nothing.
+        assert needed_columns_by_node["test.dim_b"] == {"p", "q", "id", "x"}
 
     def test_parent_directly_references_dim_no_alias(self):
         """
@@ -2512,8 +2515,9 @@ class TestCollectCteNodesAndNeededColumns:
             metric_expressions=[],
         )
 
-        # x requested, id from join key, extra_col from parent's SQL body
-        assert needed_columns_by_node["test.dim_a"] == {"x", "id", "extra_col"}
+        # x requested, id from join key, extra_col from parent's SQL body, and
+        # val because the parent writes it bare with dim_a in scope
+        assert needed_columns_by_node["test.dim_a"] == {"x", "id", "extra_col", "val"}
 
     def test_source_node_excluded_from_nodes_for_ctes(self):
         """
