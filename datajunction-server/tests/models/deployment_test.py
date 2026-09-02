@@ -1488,6 +1488,155 @@ def test_cube_spec_rejects_empty_materialization_list():
     )
 
 
+def test_cube_spec_rejects_conflicting_druid_clusters():
+    """
+    Two blocks naming different clusters would split one datasource across both, which
+    no downstream service is in a position to notice.
+    """
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        _cube_declaring(
+            [
+                MaterializationSpec(
+                    schedule="59 23 * * *",
+                    platform={"druid_cluster": "druid_a"},
+                ),
+                MaterializationSpec(
+                    schedule="0 6 * * *",
+                    strategy=MaterializationStrategy.FULL,
+                    platform={"druid_cluster": "druid_b"},
+                ),
+            ],
+        )
+    assert exc_info.value.message == (
+        "Cube `my_cube` declares materializations on more than one Druid cluster "
+        "(`druid_a`, `druid_b`). All of a cube's materializations write the same "
+        "Druid datasource, so they must agree on `platform.druid_cluster` or leave "
+        "it unset."
+    )
+
+
+def test_cube_spec_accepts_one_druid_cluster_twice():
+    """Two blocks landing in the same cluster are exactly what the check allows."""
+    spec = _cube_declaring(
+        [
+            MaterializationSpec(
+                schedule="59 23 * * *",
+                platform={"druid_cluster": "druid_a"},
+            ),
+            MaterializationSpec(
+                schedule="0 6 * * *",
+                strategy=MaterializationStrategy.FULL,
+                platform={"druid_cluster": "druid_a", "queue": "adhoc"},
+            ),
+        ],
+    )
+    assert [block.platform for block in spec.declared_materializations] == [
+        {"druid_cluster": "druid_a"},
+        {"druid_cluster": "druid_a", "queue": "adhoc"},
+    ]
+
+
+def test_cube_spec_accepts_an_undeclared_druid_cluster():
+    """
+    A block with no cluster of its own takes the deployment's default, so it cannot
+    disagree with the block that does name one -- whether it carries a `platform`
+    without the key or omits `platform` altogether.
+    """
+    spec = _cube_declaring(
+        [
+            MaterializationSpec(
+                schedule="59 23 * * *",
+                platform={"druid_cluster": "druid_a"},
+            ),
+            MaterializationSpec(
+                schedule="0 6 * * *",
+                strategy=MaterializationStrategy.FULL,
+                platform={"queue": "adhoc"},
+            ),
+        ],
+    )
+    assert [block.platform for block in spec.declared_materializations] == [
+        {"druid_cluster": "druid_a"},
+        {"queue": "adhoc"},
+    ]
+
+    without_platform = _cube_declaring(
+        [
+            MaterializationSpec(
+                schedule="59 23 * * *",
+                platform={"druid_cluster": "druid_a"},
+            ),
+            MaterializationSpec(
+                schedule="0 6 * * *",
+                strategy=MaterializationStrategy.FULL,
+            ),
+        ],
+    )
+    assert [block.platform for block in without_platform.declared_materializations] == [
+        {"druid_cluster": "druid_a"},
+        None,
+    ]
+
+
+def test_cube_spec_scalar_block_names_its_cluster():
+    """One block is one cluster, so the scalar form has nothing to disagree with."""
+    spec = _cube_declaring(
+        MaterializationSpec(
+            schedule="59 23 * * *",
+            platform={"druid_cluster": "druid_a"},
+        ),
+    )
+    assert spec.declared_materializations == [
+        MaterializationSpec(
+            schedule="59 23 * * *",
+            platform={"druid_cluster": "druid_a"},
+        ),
+    ]
+
+
+def test_cube_spec_reads_a_druid_cluster_as_text():
+    """
+    `platform` is free-form, so a cluster written as something other than a string is
+    compared on its text and reported the same way. Two spellings of one value are
+    consequently the same cluster.
+    """
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        _cube_declaring(
+            [
+                MaterializationSpec(
+                    schedule="59 23 * * *",
+                    platform={"druid_cluster": 1},
+                ),
+                MaterializationSpec(
+                    schedule="0 6 * * *",
+                    strategy=MaterializationStrategy.FULL,
+                    platform={"druid_cluster": "druid_a"},
+                ),
+            ],
+        )
+    assert exc_info.value.message == (
+        "Cube `my_cube` declares materializations on more than one Druid cluster "
+        "(`1`, `druid_a`). All of a cube's materializations write the same Druid "
+        "datasource, so they must agree on `platform.druid_cluster` or leave it "
+        "unset."
+    )
+
+    one_cluster = _cube_declaring(
+        [
+            MaterializationSpec(schedule="59 23 * * *", platform={"druid_cluster": 1}),
+            MaterializationSpec(
+                schedule="0 6 * * *",
+                strategy=MaterializationStrategy.FULL,
+                platform={"druid_cluster": "1"},
+            ),
+        ],
+    )
+    assert [block.platform for block in one_cluster.declared_materializations] == [
+        {"druid_cluster": 1},
+        {"druid_cluster": "1"},
+    ]
+
+
 def test_cube_spec_incremental_entry_in_a_list_still_needs_a_partition():
     """The partition requirement is per entry, not per cube."""
     with pytest.raises(DJInvalidDeploymentConfig) as exc_info:

@@ -353,7 +353,8 @@ class MaterializationSpec(BaseModel):
     # Spark config for this materialization's stages.
     spark: SparkSpec | None = None
 
-    # Carried to the query service verbatim. DJ reads no key out of it.
+    # Carried to the query service verbatim. DJ reads a single key out of it,
+    # `druid_cluster`, and only to refuse a cube whose blocks disagree on it.
     platform: dict[str, Any] | None = None
 
     def rendered(self, namespace: str | None) -> "MaterializationSpec":
@@ -1237,6 +1238,36 @@ class CubeSpec(NodeSpec):
                     "materialization but no temporal partition. Add `partition: "
                     "{type: temporal, ...}` to the cube column that partitions it, "
                     "or use `strategy: full`."
+                ),
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_druid_cluster(self) -> "CubeSpec":
+        """
+        Every materialization a cube declares writes the same Druid datasource, since
+        the datasource name comes from the cube, its version and its grain and not from
+        the strategy. Two blocks naming different clusters would therefore split the
+        cube's data across both while availability is posted for one, so a cube has to
+        settle on one cluster. A block naming none is asking for the deployment default
+        and conflicts with nothing. `platform` is free-form, so values are compared as
+        text rather than assumed to be strings.
+        """
+        clusters = sorted(
+            {
+                str(cluster)
+                for block in self.declared_materializations
+                if (cluster := (block.platform or {}).get("druid_cluster")) is not None
+            },
+        )
+        if len(clusters) > 1:
+            named = ", ".join(f"`{cluster}`" for cluster in clusters)
+            raise DJInvalidDeploymentConfig(
+                message=(
+                    f"Cube `{self.name}` declares materializations on more than one "
+                    f"Druid cluster ({named}). All of a cube's materializations write "
+                    "the same Druid datasource, so they must agree on "
+                    "`platform.druid_cluster` or leave it unset."
                 ),
             )
         return self
