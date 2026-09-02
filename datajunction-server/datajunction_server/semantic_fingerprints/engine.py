@@ -23,20 +23,35 @@ _BUILDERS: dict[int, Callable[..., SemanticFingerprint]] = {
 }
 
 
-def fingerprint_node(
+def compose_node_fingerprint(
     spec: NodeSpec,
     version: int = LATEST_SEMANTIC_FINGERPRINT_VERSION,
     *,
-    parent_fingerprints: Iterable[SemanticFingerprint] = (),
+    parent_fingerprints: Iterable[SemanticFingerprint],
     resolved_columns: list[ColumnSpec] | None = None,
 ) -> SemanticFingerprint:
-    """Return a fingerprint of a node's semantic definition."""
+    """Compose a node fingerprint from its definition and parent fingerprints."""
     builder = _BUILDERS.get(version)
     if builder is None:
         raise ValueError(f"Unsupported semantic fingerprint version: {version}")
     return builder(
         spec,
         parent_fingerprints,
+        resolved_columns=resolved_columns,
+    )
+
+
+def local_node_fingerprint(
+    spec: NodeSpec,
+    version: int = LATEST_SEMANTIC_FINGERPRINT_VERSION,
+    *,
+    resolved_columns: list[ColumnSpec] | None = None,
+) -> SemanticFingerprint:
+    """Fingerprint a node definition without graph parents."""
+    return compose_node_fingerprint(
+        spec,
+        version,
+        parent_fingerprints=(),
         resolved_columns=resolved_columns,
     )
 

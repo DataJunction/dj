@@ -40,10 +40,6 @@ from datajunction_server.models.node import (
     NodeType,
 )
 from datajunction_server.models.partition import Granularity, PartitionType
-from datajunction_server.models.semantic_fingerprint import (
-    LATEST_SEMANTIC_FINGERPRINT_VERSION,
-    SemanticFingerprint,
-)
 from datajunction_server.models.unit import (
     Unit,
     legacy_unit_to_structured,
@@ -700,23 +696,6 @@ class NodeSpec(NamespacedSpec):
         prefix = f"{self.namespace}{SEPARATOR}" if self.namespace else ""
         rendered_json = json.dumps(raw).replace("${prefix}", prefix)
         return self.__class__.model_validate_json(rendered_json)
-
-    def semantic_fingerprint(
-        self,
-        version: int = LATEST_SEMANTIC_FINGERPRINT_VERSION,
-        *,
-        parent_fingerprints: Iterable[SemanticFingerprint] = (),
-        resolved_columns: list[ColumnSpec] | None = None,
-    ) -> SemanticFingerprint:
-        """Return a fingerprint of this node's semantic definition."""
-        from datajunction_server.semantic_fingerprints import fingerprint_node
-
-        return fingerprint_node(
-            self,
-            version,
-            parent_fingerprints=parent_fingerprints,
-            resolved_columns=resolved_columns,
-        )
 
     def semantic_diff(
         self,

@@ -30,7 +30,6 @@ from datajunction_server.models.deployment import (
     PartitionSpec,
     PartitionType,
     PreAggSpec,
-    SemanticFingerprint,
     SourceSpec,
     TagSpec,
     TransformSpec,
@@ -39,17 +38,22 @@ from datajunction_server.models.deployment import (
     eq_or_fallback,
     fold_change_tiers,
 )
+from datajunction_server.models.materialization import (
+    CoverageSpec,
+    MaterializationStrategy,
+)
+from datajunction_server.models.node import MetricUnit, NodeMode, NodeType
+from datajunction_server.models.semantic_fingerprint import SemanticFingerprint
+from datajunction_server.semantic_fingerprints.engine import (
+    compose_node_fingerprint,
+    local_node_fingerprint,
+)
 from datajunction_server.semantic_fingerprints.normalization import (
     canonical_json,
     normalize_sequence,
     normalize_value,
 )
 from datajunction_server.semantic_fingerprints.v1 import semantic_fields
-from datajunction_server.models.materialization import (
-    CoverageSpec,
-    MaterializationStrategy,
-)
-from datajunction_server.models.node import MetricUnit, NodeMode, NodeType
 
 
 def test_source_spec():
@@ -1695,7 +1699,7 @@ def semantic_specs() -> dict[str, NodeSpec]:
 
 
 def fingerprint(spec: NodeSpec) -> SemanticFingerprint:
-    return spec.semantic_fingerprint()
+    return local_node_fingerprint(spec)
 
 
 GOLDEN_FINGERPRINTS = {
@@ -1720,9 +1724,10 @@ def test_semantic_fingerprint_is_independent_of_python_hash_seed():
     script = """
 from datajunction_server.api.main import app
 from datajunction_server.models.deployment import ColumnSpec, SourceSpec
+from datajunction_server.semantic_fingerprints.engine import local_node_fingerprint
 spec = SourceSpec(name="s", catalog="c", schema_="s", table="t",
     columns=[ColumnSpec(name="id", attributes=["z", "primary_key", "a"])])
-print(spec.semantic_fingerprint().digest)
+print(local_node_fingerprint(spec).digest)
 """
 
     def digest_for(seed):
@@ -1744,7 +1749,8 @@ def test_semantic_fingerprint_normalizes_empty_and_resolved_source_columns():
     duplicated = SourceSpec(**common, columns=[*columns, columns[0].model_copy()])
 
     assert fingerprint(unspecified) == fingerprint(empty)
-    assert unspecified.semantic_fingerprint(
+    assert local_node_fingerprint(
+        unspecified,
         resolved_columns=columns,
     ) == fingerprint(resolved)
     assert fingerprint(resolved) == fingerprint(duplicated)
@@ -2121,7 +2127,7 @@ def test_semantic_fingerprint_rejects_unknown_version():
     with pytest.raises(ValidationError):
         SemanticFingerprint(version=2, digest="a" * 64)
     with pytest.raises(ValueError, match="Unsupported semantic fingerprint version: 2"):
-        semantic_specs()["source"].semantic_fingerprint(version=2)
+        local_node_fingerprint(semantic_specs()["source"], version=2)
 
 
 def test_semantic_fingerprint_combines_sorted_parent_hashes():
@@ -2131,23 +2137,28 @@ def test_semantic_fingerprint_combines_sorted_parent_hashes():
     first_hash = fingerprint(first)
     second_hash = fingerprint(second)
 
-    expected = node.semantic_fingerprint(
+    expected = compose_node_fingerprint(
+        node,
         parent_fingerprints=[first_hash, second_hash],
     )
-    assert expected == node.semantic_fingerprint(
+    assert expected == compose_node_fingerprint(
+        node,
         parent_fingerprints=[second_hash, first_hash, first_hash],
     )
-    assert expected != node.semantic_fingerprint(
+    assert expected != compose_node_fingerprint(
+        node,
         parent_fingerprints=[
             first_hash,
-            SourceSpec(
-                name="second",
-                catalog="c",
-                schema_="s",
-                table="changed",
-            ).semantic_fingerprint(),
+            fingerprint(
+                SourceSpec(
+                    name="second",
+                    catalog="c",
+                    schema_="s",
+                    table="changed",
+                ),
+            ),
         ],
     )
     mismatched = SemanticFingerprint.model_construct(version=2, digest="b" * 64)
     with pytest.raises(ValueError, match="Parent fingerprint version"):
-        node.semantic_fingerprint(parent_fingerprints=[mismatched])
+        compose_node_fingerprint(node, parent_fingerprints=[mismatched])
