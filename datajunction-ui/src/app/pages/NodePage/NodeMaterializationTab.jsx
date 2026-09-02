@@ -43,8 +43,10 @@ export default function NodeMaterializationTab({
 
   const materializationsByRevision = useMemo(() => {
     return filteredMaterializations.reduce((acc, mat) => {
-      // Extract version from materialization config
-      const matVersion = mat.config?.cube?.version || node?.version;
+      // `config.cube.version` is absent for most job types (e.g. Druid cube
+      // jobs), so it silently grouped every materialization under the current
+      // node version regardless of which revision it actually belongs to.
+      const matVersion = mat.node_version || node?.version;
 
       if (!acc[matVersion]) {
         acc[matVersion] = [];
@@ -137,7 +139,7 @@ export default function NodeMaterializationTab({
     // Determine which versions have only inactive materializations
     const versionHasOnlyInactive = {};
     rawMaterializations.forEach(mat => {
-      const matVersion = mat.config?.cube?.version || node.version;
+      const matVersion = mat.node_version || node.version;
       if (!versionHasOnlyInactive[matVersion]) {
         versionHasOnlyInactive[matVersion] = {
           hasActive: false,
@@ -205,7 +207,7 @@ export default function NodeMaterializationTab({
 
     // Check if latest version has any materializations (including inactive ones)
     const hasLatestVersionMaterialization = rawMaterializations.some(mat => {
-      const matVersion = mat.config?.cube?.version || node?.version;
+      const matVersion = mat.node_version || node?.version;
       return matVersion === node?.version;
     });
 

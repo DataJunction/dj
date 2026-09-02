@@ -288,6 +288,12 @@ class MaterializationConfigInfoUnified(
     Materialization config + info
     """
 
+    # The node revision's own version string, not derivable from `config` for every
+    # job type (e.g. DruidCubeMaterializationJob's config has no `cube` field), so a
+    # caller listing materializations `include_all_revisions=True` can tell which
+    # revision each one belongs to without a separate lookup.
+    node_version: str
+
 
 class SparkConf(RootModel):
     """Spark configuration"""

@@ -1030,6 +1030,7 @@ def get_node_revision_materialization(
                 MaterializationConfigInfoUnified(
                     **materialization_config_output.model_dump(),
                     **info.model_dump(),
+                    node_version=node_revision.version,
                 ),
             )
     return materializations
