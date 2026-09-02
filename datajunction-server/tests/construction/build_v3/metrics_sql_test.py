@@ -5,10 +5,17 @@ from . import assert_sql_equal
 
 class TestMetricsSQLBasic:
     @pytest.mark.asyncio
+    async def test_dimension_only_query_requires_dimensions(self, client_with_build_v3):
+        response = await client_with_build_v3.get("/sql/dimensions/v3/")
+
+        assert response.status_code == 422
+        assert "at least one dimension" in response.json()["message"].lower()
+
+    @pytest.mark.asyncio
     async def test_dimension_only_query(self, client_with_build_v3):
         """Attributes from one dimension produce their distinct combinations."""
         response = await client_with_build_v3.get(
-            "/sql/metrics/v3/",
+            "/sql/dimensions/v3/",
             params={
                 "dimensions": ["v3.customer.name", "v3.customer.email"],
                 "filters": ["v3.customer.name != 'Unknown'"],
@@ -49,12 +56,110 @@ class TestMetricsSQLBasic:
         ]
 
     @pytest.mark.asyncio
+    async def test_cube_scoped_dimension_query(self, client_with_build_v3):
+        """Cube metrics scope values; cube and request filters combine."""
+        create = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.filtered_revenue_cube",
+                "metrics": ["v3.total_revenue"],
+                "dimensions": [
+                    "v3.product.category",
+                    "v3.product.subcategory",
+                ],
+                "filters": ["v3.product.category = 'Electronics'"],
+                "mode": "published",
+                "description": "Filtered cube for dimension value SQL",
+            },
+        )
+        assert create.status_code == 201, create.json()
+
+        response = await client_with_build_v3.get(
+            "/sql/dimensions/v3/",
+            params={
+                "dimensions": ["v3.product.category"],
+                "filters": ["v3.product.subcategory = 'Smartphones'"],
+                "cube": "v3.filtered_revenue_cube",
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            SELECT DISTINCT dimension_values.category
+            FROM (
+              WITH v3_order_details AS (
+                SELECT oi.product_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+              ),
+              v3_product AS (
+                SELECT product_id, category, subcategory
+                FROM default.v3.products
+                WHERE category = 'Electronics' AND subcategory = 'Smartphones'
+              ),
+              order_details_0 AS (
+                SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                WHERE t2.category = 'Electronics'
+                  AND t2.subcategory = 'Smartphones'
+                GROUP BY t2.category
+              )
+              SELECT order_details_0.category AS category,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+              FROM order_details_0
+              WHERE order_details_0.category = 'Electronics'
+              GROUP BY order_details_0.category
+            ) AS dimension_values
+            """,
+        )
+        assert [column["semantic_entity"] for column in response.json()["columns"]] == [
+            "v3.product.category",
+        ]
+
+        availability = await client_with_build_v3.post(
+            "/data/v3.filtered_revenue_cube/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "filtered_revenue_cube",
+                "valid_through_ts": 1010129120,
+            },
+        )
+        assert availability.status_code in (200, 201), availability.json()
+
+        materialized = await client_with_build_v3.get(
+            "/sql/dimensions/v3/",
+            params={
+                "dimensions": ["v3.product.category"],
+                "cube": "v3.filtered_revenue_cube",
+                "dialect": "druid",
+            },
+        )
+        assert materialized.status_code == 200, materialized.json()
+        assert "filtered_revenue_cube" in materialized.json()["sql"]
+        assert "default.v3.products" not in materialized.json()["sql"]
+
+        response = await client_with_build_v3.get(
+            "/sql/dimensions/v3/",
+            params={
+                "dimensions": ["v3.customer.name[customer]"],
+                "cube": "v3.filtered_revenue_cube",
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert "v3_customer" in response.json()["sql"]
+        assert "category = 'Electronics'" in response.json()["sql"]
+        assert "filtered_revenue_cube" not in response.json()["sql"]
+
+    @pytest.mark.asyncio
     async def test_dimension_only_query_rejects_multiple_nodes(
         self,
         client_with_build_v3,
     ):
         response = await client_with_build_v3.get(
-            "/sql/metrics/v3/",
+            "/sql/dimensions/v3/",
             params={
                 "dimensions": ["v3.customer.name", "v3.product.category"],
             },
@@ -64,14 +169,109 @@ class TestMetricsSQLBasic:
         assert "exactly one node" in response.json()["message"]
 
     @pytest.mark.asyncio
-    async def test_dimension_only_query_from_transform(self, client_with_build_v3):
+    async def test_dimension_only_query_ignores_unknown_cube(
+        self,
+        client_with_build_v3,
+    ):
         response = await client_with_build_v3.get(
-            "/sql/metrics/v3/",
-            params={"dimensions": ["v3.order_details.status"]},
+            "/sql/dimensions/v3/",
+            params={
+                "dimensions": ["v3.customer.name"],
+                "cube": "v3.missing_cube",
+            },
         )
 
         assert response.status_code == 200, response.json()
         assert "DISTINCT" in response.json()["sql"]
+
+    @pytest.mark.asyncio
+    async def test_dimension_only_query_from_transform(self, client_with_build_v3):
+        response = await client_with_build_v3.get(
+            "/sql/dimensions/v3/",
+            params={"dimensions": ["v3.order_details.status"]},
+        )
+
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH v3_order_details AS (
+                SELECT o.order_id, oi.line_number, o.customer_id, o.order_date,
+                    o.from_location_id, o.to_location_id, o.status, oi.product_id,
+                    oi.quantity, oi.unit_price,
+                    oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT DISTINCT status
+            FROM v3_order_details
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_dimension_only_query_rejects_missing_node_with_explicit_dialect(
+        self,
+        client_with_build_v3,
+    ):
+        response = await client_with_build_v3.get(
+            "/sql/dimensions/v3/",
+            params={
+                "dimensions": ["missing.dimension.attribute"],
+                "dialect": "trino",
+            },
+        )
+
+        assert response.status_code == 422, response.json()
+        assert "does not exist" in response.json()["message"]
+
+    @pytest.mark.asyncio
+    async def test_dimension_only_query_rejects_missing_attribute(
+        self,
+        client_with_build_v3,
+    ):
+        response = await client_with_build_v3.get(
+            "/sql/dimensions/v3/",
+            params={
+                "dimensions": ["v3.customer.missing"],
+                "dialect": "trino",
+            },
+        )
+
+        assert response.status_code == 422, response.json()
+        assert "does not contain columns" in response.json()["message"]
+
+    @pytest.mark.asyncio
+    async def test_dimension_only_query_rejects_metric_node(
+        self,
+        client_with_build_v3,
+    ):
+        response = await client_with_build_v3.get(
+            "/sql/dimensions/v3/",
+            params={
+                "dimensions": ["v3.total_revenue.value"],
+                "dialect": "trino",
+            },
+        )
+
+        assert response.status_code == 422, response.json()
+        assert "cannot select attributes" in response.json()["message"]
+
+    @pytest.mark.asyncio
+    async def test_dimension_only_query_aliases_roles_and_accepts_parameters(
+        self,
+        client_with_build_v3,
+    ):
+        response = await client_with_build_v3.get(
+            "/sql/dimensions/v3/",
+            params={
+                "dimensions": ["v3.customer.name[buyer]"],
+                "query_params": '{"unused": "value"}',
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["columns"][0]["name"] == "name_buyer"
+        assert "name AS name_buyer" in response.json()["sql"]
 
     @pytest.mark.asyncio
     async def test_basic_metrics_sql(self, client_with_build_v3):

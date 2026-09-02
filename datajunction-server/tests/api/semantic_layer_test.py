@@ -476,6 +476,16 @@ async def test_generate_sql_rejects_limit_over_max(client: AsyncClient):
     assert str(MAX_ROW_LIMIT) in resp.json()["detail"]
 
 
+@pytest.mark.asyncio
+async def test_generate_sql_rejects_empty_query(client: AsyncClient):
+    resp = await client.post(
+        "/semantic/views/any_view/sql",
+        json={"query": {}},
+    )
+    assert resp.status_code == 400, resp.text
+    assert "at least one metric or dimension" in resp.json()["detail"]
+
+
 # ---------------------------------------------------------------------------
 # get_view unknown-view 404 (the ``cube_node is None`` branch)
 # ---------------------------------------------------------------------------

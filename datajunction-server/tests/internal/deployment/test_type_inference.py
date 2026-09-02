@@ -2491,6 +2491,18 @@ class TestUnresolvedNamespaceDiagnostic:
 class TestCoverageGaps:
     """Tests targeting specific uncovered branches in type_inference.py."""
 
+    def test_unresolved_references_are_deduplicated(self):
+        result = validate_node_query(
+            "SELECT missing + missing AS doubled FROM default.orders",
+            _col_map(ORDERS_COLS),
+        )
+
+        assert any(
+            "Unresolved column reference(s): missing." in error
+            for error in result.errors
+        )
+        assert not any("missing, missing" in error for error in result.errors)
+
     def test_inline_table_parens_with_alias_list_resolves_columns(self):
         """(VALUES (1), (2)) AS t(x) — parenthesized-VALUES + alias list
         currently parses with both node.alias and node.name None, so the

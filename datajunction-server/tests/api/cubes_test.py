@@ -1235,32 +1235,6 @@ async def test_cube_filters_merged_with_request_filters(
 
 
 @pytest.mark.asyncio
-async def test_cube_filters_applied_to_metricless_queries(
-    client_with_repairs_cube: AsyncClient,
-):
-    """Metricless cube queries preserve stored filters or reject cross-node ones."""
-    response = await client_with_repairs_cube.get(
-        "/sql/metrics/v3/",
-        params={
-            "dimensions": ["default.hard_hat.state"],
-            "cube": "default.repairs_cube",
-        },
-    )
-    assert response.status_code == 200
-    assert "state = 'AZ'" in response.json()["sql"]
-
-    response = await client_with_repairs_cube.get(
-        "/sql/metrics/v3/",
-        params={
-            "dimensions": ["default.dispatcher.company_name"],
-            "cube": "default.repairs_cube",
-        },
-    )
-    assert response.status_code == 422
-    assert "exactly one node" in response.json()["message"]
-
-
-@pytest.mark.asyncio
 async def test_cube_filters_applied_in_v3_sql_via_cube_param(
     client_with_repairs_cube: AsyncClient,
 ):

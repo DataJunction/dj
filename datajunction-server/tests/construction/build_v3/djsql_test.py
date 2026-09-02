@@ -7,6 +7,8 @@ to executable SQL using the build_v3 metrics SQL builder.
 
 import pytest
 
+from datajunction_server.api.djsql import _build_djsql_query
+
 from . import assert_sql_equal
 
 
@@ -296,9 +298,7 @@ class TestDJSQLValidation:
 
     @pytest.mark.asyncio
     async def test_no_metrics_in_select(self, client_with_build_v3):
-        """
-        Test that DJ SQL requires at least one metric.
-        """
+        """Dimension-only queries use the dimensions pseudo-table."""
         response = await client_with_build_v3.get(
             "/djsql/",
             params={
@@ -311,8 +311,84 @@ class TestDJSQLValidation:
             },
         )
 
-        assert response.status_code == 422  # Validation error - no metrics
-        assert "metric" in response.json()["message"].lower()
+        assert response.status_code == 422
+        assert "require at least one metric" in response.json()["message"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("include_group_by", [False, True])
+    async def test_dimensions_pseudo_table(
+        self,
+        client_with_build_v3,
+        include_group_by,
+    ):
+        group_by = "GROUP BY v3.customer.name" if include_group_by else ""
+        response = await client_with_build_v3.get(
+            "/djsql/",
+            params={
+                "query": f"""
+                    SELECT v3.customer.name
+                    FROM dimensions
+                    WHERE v3.customer.name != 'Unknown'
+                    {group_by}
+                    ORDER BY v3.customer.name DESC
+                    LIMIT 5
+                """,
+                "dialect": "spark",
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH v3_customer AS (
+                SELECT customer_id, name, email, registration_date, location_id
+                FROM default.v3.customers
+            )
+            SELECT DISTINCT name
+            FROM v3_customer
+            WHERE name != 'Unknown'
+            ORDER BY name DESC
+            LIMIT 5
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_dimensions_pseudo_table_rejects_mismatched_group_by(
+        self,
+        client_with_build_v3,
+    ):
+        response = await client_with_build_v3.get(
+            "/djsql/",
+            params={
+                "query": """
+                    SELECT v3.customer.name
+                    FROM dimensions
+                    GROUP BY v3.customer.email
+                """,
+            },
+        )
+
+        assert response.status_code == 422
+        assert "must match" in response.json()["message"]
+
+    @pytest.mark.asyncio
+    async def test_dimensions_pseudo_table_shared_data_path(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        generated, execution = await _build_djsql_query(
+            session=session,
+            query="SELECT v3.customer.name FROM dimensions",
+            use_materialized=True,
+            engine_name=None,
+            engine_version=None,
+        )
+
+        assert "DISTINCT" in generated.sql
+        assert generated.columns[0].semantic_name == "v3.customer.name"
+        assert execution.catalog_name == "default"
 
     @pytest.mark.asyncio
     async def test_column_not_in_group_by(self, client_with_build_v3):

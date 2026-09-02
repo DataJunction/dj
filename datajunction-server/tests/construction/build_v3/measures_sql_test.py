@@ -120,11 +120,8 @@ class TestMeasuresSQLEndpoint:
         assert response.status_code >= 400
 
     @pytest.mark.asyncio
-    async def test_metrics_v3_no_metrics_returns_distinct_dimensions(
-        self,
-        client_with_build_v3,
-    ):
-        """GET /sql/metrics/v3/ supports dimension-only queries."""
+    async def test_metrics_v3_no_metrics_raises_422(self, client_with_build_v3):
+        """GET /sql/metrics/v3/ requires at least one metric."""
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
             params={
@@ -132,8 +129,8 @@ class TestMeasuresSQLEndpoint:
                 "dimensions": ["v3.order_details.status"],
             },
         )
-        assert response.status_code == 200
-        assert "DISTINCT" in response.json()["sql"]
+        assert response.status_code == 422
+        assert "metric" in response.json()["message"].lower()
 
     @pytest.mark.asyncio
     async def test_nonexistent_metric_raises_error(self, client_with_build_v3):

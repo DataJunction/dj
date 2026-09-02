@@ -13,6 +13,7 @@ dim-link resolution.
 """
 
 import logging
+from copy import deepcopy
 from typing import Any, cast
 
 from sqlalchemy import select
@@ -79,6 +80,47 @@ from datajunction_server.sql.parsing import ast
 logger = logging.getLogger(__name__)
 
 
+def project_dimension_values_sql(
+    generated: GeneratedSQL,
+    dimensions: list[str],
+    orderby: list[str] | None = None,
+    limit: int | None = None,
+) -> GeneratedSQL:
+    """Project distinct dimensions from a fact-scoped metrics query."""
+    columns_by_name = {column.semantic_name: column for column in generated.columns}
+    columns = [columns_by_name[dimension] for dimension in dimensions]
+
+    inner = deepcopy(generated.query)
+    inner.parenthesized = True
+    inner.alias = ast.Name("dimension_values")
+    inner.as_ = True
+    query = ast.Query(
+        select=ast.Select(
+            projection=[
+                ast.Column(
+                    name=ast.Name(column.name),
+                    _table=ast.Table(ast.Name("dimension_values")),
+                )
+                for column in columns
+            ],
+            from_=ast.From(relations=[ast.Relation(primary=inner)]),
+            quantifier="DISTINCT",
+        ),
+    )
+    return apply_orderby_limit(
+        GeneratedSQL(
+            query=query,
+            columns=columns,
+            dialect=generated.dialect,
+            cube_name=generated.cube_name,
+            scan_estimate=generated.scan_estimate,
+            warnings=generated.warnings,
+        ),
+        orderby,
+        limit,
+    )
+
+
 def build_dimension_sql_v3(
     ctx: BuildContext,
     orderby: list[str] | None = None,
@@ -95,7 +137,11 @@ def build_dimension_sql_v3(
         )
 
     node_name = refs[0].node_name
-    dimension_node = ctx.nodes[node_name]
+    dimension_node = ctx.nodes.get(node_name)
+    if dimension_node is None:
+        raise DJInvalidInputException(f"Dimension node `{node_name}` does not exist")
+    # Direct-domain queries need a relational node. Metrics are aggregate
+    # expressions, while unmaterialized cubes have no query body of their own.
     if dimension_node.type not in {
         NodeType.SOURCE,
         NodeType.TRANSFORM,
