@@ -2502,6 +2502,18 @@ class TestPruneCteProjections:
         assert pruned.count("keep") == 3
         assert "drop_me" not in pruned
 
+    @pytest.mark.parametrize("kind", ["UNION", "INTERSECT", "EXCEPT"])
+    def test_dedup_set_operation_arms_are_left_whole(self, kind: str):
+        """
+        For every set op but UNION ALL the projected row is the dedup key, so
+        dropping a column changes which rows survive.
+        """
+        sql = (
+            f"WITH a AS (SELECT id, keep, drop_me FROM t1 {kind} "
+            f"SELECT id, keep, drop_me FROM t2) SELECT x.keep FROM a AS x"
+        )
+        assert self._pruned(sql) == str(parse(sql))
+
     def test_star_passes_its_own_demand_through(self):
         """
         A star re-exposes whatever its source has, so a CTE that stars a source

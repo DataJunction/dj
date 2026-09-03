@@ -938,6 +938,21 @@ def _set_op_arms(select: ast.SelectExpression) -> list[ast.SelectExpression]:
     return arms
 
 
+def _dedups_rows(select: ast.SelectExpression) -> bool:
+    """
+    Whether a set operation makes the whole projected row the match key.
+
+    Only UNION ALL passes its arms' rows through untouched. Every other kind
+    compares complete rows to dedup or to match, so dropping a column folds
+    together rows that were distinct and silently changes the row count.
+    """
+    return any(
+        " ".join((arm.set_op.kind or "").upper().split()) != "UNION ALL"
+        for arm in _set_op_arms(select)
+        if arm.set_op is not None
+    )
+
+
 def _arm_parts(arm: ast.SelectExpression) -> list[ast.Node]:
     """The clauses of one arm, excluding the arms unioned after it."""
     return [
@@ -1073,6 +1088,9 @@ def prune_cte_projections(query: ast.Query) -> None:
 
     for key in _consumers_first(scopes, cte_names):
         scope = scopes[key]
+        if key and _dedups_rows(scope.select):
+            # Its row is its match key, so it also can't narrow what it stars.
+            unprunable.add(key)
         if key and live[key] and key not in unprunable:
             arms = _set_op_arms(scope.select)
             if len(arms) == 1:
