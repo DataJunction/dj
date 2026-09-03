@@ -8,7 +8,7 @@ from unittest import mock
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
 
 import datajunction_server.internal.materializations
@@ -17,10 +17,12 @@ from datajunction_server.api.deployments import (
     _normalize_repo_path,
 )
 from datajunction_server.database.availabilitystate import AvailabilityState
+from datajunction_server.database.column import Column as DBColumn
 from datajunction_server.database.materialization import Materialization
-from datajunction_server.database.node import Node, NodeRelationship
+from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
 from datajunction_server.database.tag import Tag
 from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.internal.deployment.orchestrator import DeploymentOrchestrator
 from datajunction_server.internal.git.github_service import GitHubServiceError
 from datajunction_server.models import access
 from datajunction_server.models.deployment import (
@@ -10349,3 +10351,194 @@ class TestCrossParentRatioDeployment:
         response = await client.get(f"/nodes/{namespace}.fd_ratio_cross/")
         assert response.status_code == 200, response.json()
         assert response.json()["status"] == "valid"
+
+
+def _clone_column_list(model, **overrides: str) -> tuple[str, str]:
+    """Quoted column names and the SELECT list that clones a row of `model`."""
+    names = [c.name for c in model.__table__.columns if c.name != "id"]
+    return (
+        ", ".join(f'"{name}"' for name in names),
+        ", ".join(overrides.get(name, f'r."{name}"') for name in names),
+    )
+
+
+async def commit_competing_revision(
+    session_factory,
+    node_name: str,
+    version: str,
+    advance_current: bool = True,
+):
+    """Commit a revision at `version` for `node_name` from another session.
+
+    Stands in for the deployment that wins a race: it clones the node's current
+    revision, and its columns, at the version an in-flight deployment has already
+    planned, and moves `Node.current_version` onto it. Raw SQL so nothing lands in
+    the deploying session's identity map. `advance_current` off leaves
+    `Node.current_version` behind the revision it just wrote.
+    """
+    session = await session_factory()
+    current_revision = (
+        "SELECT rev.id FROM noderevision rev JOIN node n ON n.id = rev.node_id "
+        "WHERE n.name = :name AND rev.version = n.current_version"
+    )
+    names, values = _clone_column_list(NodeRevision, version=f"'{version}'")
+    new_id = (
+        await session.execute(
+            text(
+                f"INSERT INTO noderevision ({names}) SELECT {values} "  # noqa: S608
+                f"FROM noderevision r WHERE r.id = ({current_revision}) RETURNING id",
+            ),
+            {"name": node_name},
+        )
+    ).scalar_one()
+    names, values = _clone_column_list(DBColumn, node_revision_id=str(new_id))
+    await session.execute(
+        text(
+            f'INSERT INTO "column" ({names}) SELECT {values} FROM "column" r '  # noqa: S608
+            f"WHERE r.node_revision_id = ({current_revision})",
+        ),
+        {"name": node_name},
+    )
+    if advance_current:
+        await session.execute(
+            text("UPDATE node SET current_version = :version WHERE name = :name"),
+            {"version": version, "name": node_name},
+        )
+    await session.commit()
+    await session.close()
+
+
+@pytest.mark.xdist_group(name="deployments")
+class TestConcurrentDeploymentVersionBump:
+    """Two deployments to one namespace that overlap in time.
+
+    A deployment plans against a snapshot of `Node.current_version`. When another
+    deployment commits between that snapshot and the revision insert, every version
+    the loser planned is already taken and the bulk insert dies on
+    uq_noderevision_version, failing the whole deploy. The version written has to
+    come from committed state at write time, not from the plan-time snapshot.
+    """
+
+    @pytest.fixture
+    def cube(self):
+        return CubeSpec(
+            name="default.repairs_cube",
+            display_name="Repairs Cube",
+            description="Cube for analyzing repair orders",
+            dimensions=["${prefix}default.hard_hat.state"],
+            metrics=["${prefix}default.avg_length_of_employment"],
+            owners=["dj"],
+        )
+
+    @pytest.fixture
+    def nodes_list(
+        self,
+        cube,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+    ):
+        return [
+            default_hard_hats,
+            default_hard_hat,
+            default_us_states,
+            default_us_state,
+            default_avg_length_of_employment,
+            cube,
+        ]
+
+    @pytest.mark.asyncio
+    async def test_deploy_bumps_from_committed_version_not_snapshot(
+        self,
+        client,
+        session_factory,
+        cube,
+        nodes_list,
+        default_avg_length_of_employment,
+    ):
+        """
+        Both deployments carry a description-only edit off v1.0, so both compute
+        v1.1. The loser must land v1.2 -- the version after the one the winner
+        committed -- for the regular node and the cube alike, rather than failing
+        the user's deploy on uq_noderevision_version.
+        """
+        namespace = "deploy_version_race"
+        metric_name = f"{namespace}.default.avg_length_of_employment"
+        cube_name = f"{namespace}.default.repairs_cube"
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success", data
+
+        # The winner commits v1.1 for both nodes after the deployment below has
+        # planned, but before it writes any revision.
+        original = DeploymentOrchestrator._execute_deployment_plan
+
+        async def winning_deploy_commits_first(orchestrator, plan):
+            await commit_competing_revision(session_factory, metric_name, "v1.1")
+            await commit_competing_revision(session_factory, cube_name, "v1.1")
+            return await original(orchestrator, plan)
+
+        default_avg_length_of_employment.description = "Average length of employment!"
+        cube.description = "Cube for analyzing repair orders, revised"
+        with patch.object(
+            DeploymentOrchestrator,
+            "_execute_deployment_plan",
+            winning_deploy_commits_first,
+        ):
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(namespace=namespace, nodes=nodes_list),
+            )
+        assert data["status"] == "success", data
+
+        assert (await client.get(f"/nodes/{metric_name}/")).json()["version"] == "v1.2"
+        assert (await client.get(f"/nodes/{cube_name}/")).json()["version"] == "v1.2"
+
+    @pytest.mark.asyncio
+    async def test_deploy_bumps_past_highest_revision(
+        self,
+        client,
+        session_factory,
+        cube,
+        nodes_list,
+        default_avg_length_of_employment,
+    ):
+        """
+        A node whose `current_version` lags its highest revision must still earn a
+        free version. v10.0 exists while `current_version` says v9.0, so the deploy
+        has to bump past v10.0 -- which also means comparing versions semantically,
+        since v9.0 sorts above v10.0 as a string. The cloned revisions carry no
+        required-dimension or cube-element rows, so the re-deploy reads as major.
+        """
+        namespace = "deploy_version_strand"
+        metric_name = f"{namespace}.default.avg_length_of_employment"
+        cube_name = f"{namespace}.default.repairs_cube"
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success", data
+
+        for name in (metric_name, cube_name):
+            await commit_competing_revision(session_factory, name, "v9.0")
+            await commit_competing_revision(
+                session_factory,
+                name,
+                "v10.0",
+                advance_current=False,
+            )
+
+        default_avg_length_of_employment.description = "Average length of employment!"
+        cube.description = "Cube for analyzing repair orders, revised"
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success", data
+
+        assert (await client.get(f"/nodes/{metric_name}/")).json()["version"] == "v11.0"
+        assert (await client.get(f"/nodes/{cube_name}/")).json()["version"] == "v11.0"
