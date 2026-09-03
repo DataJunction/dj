@@ -1,5 +1,9 @@
 import json
+import os
+import subprocess
+import sys
 from datetime import date
+from decimal import Decimal
 
 import pytest
 from pydantic import ValidationError
@@ -39,6 +43,17 @@ from datajunction_server.models.materialization import (
     MaterializationStrategy,
 )
 from datajunction_server.models.node import MetricUnit, NodeMode, NodeType
+from datajunction_server.models.semantic_fingerprint import SemanticFingerprint
+from datajunction_server.semantic_fingerprints.engine import (
+    compose_node_fingerprint,
+    local_node_fingerprint,
+)
+from datajunction_server.semantic_fingerprints.normalization import (
+    canonical_json,
+    normalize_sequence,
+    normalize_value,
+)
+from datajunction_server.semantic_fingerprints.v1 import semantic_fields
 
 
 def test_source_spec():
@@ -885,6 +900,12 @@ def test_every_spec_field_has_an_explicit_change_tier():
         if spec_class.unclassified_fields()
     }
     assert unclassified == {}
+    unclassified_order = {
+        spec_class.__name__: spec_class.unclassified_list_order_fields()
+        for spec_class in all_node_spec_classes()
+        if spec_class.unclassified_list_order_fields()
+    }
+    assert unclassified_order == {}
 
 
 def test_change_tier_lookup_walks_the_mro():
@@ -906,7 +927,7 @@ def test_change_tier_lookup_walks_the_mro():
     assert TransformSpec.field_change_tier("primary_key") == ChangeTier.MAJOR
     assert TransformSpec.field_change_tier("tags") == ChangeTier.MINOR
     assert TransformSpec.order_sensitive_fields() == []
-    assert CubeSpec.order_sensitive_fields() == ["metrics", "dimensions", "filters"]
+    assert CubeSpec.order_sensitive_fields() == ["metrics", "dimensions"]
 
 
 def test_fold_change_tiers():
@@ -995,7 +1016,7 @@ def test_cube_spec_order_diff():
     assert one.order_diff(
         a_cube(dimensions=["ns.d.two", "ns.d.one"], filters=["x = 1", "y = 2"]),
     ) == ["dimensions"]
-    assert one.order_diff(a_cube(filters=["y = 2", "x = 1"])) == ["filters"]
+    assert one.order_diff(a_cube(filters=["y = 2", "x = 1"])) == []
     # A set change is not a reorder — diff() reports that one instead.
     assert one.order_diff(a_cube(metrics=["ns.a"], filters=["x = 1", "y = 2"])) == []
     assert one.diff(a_cube(metrics=["ns.a"], filters=["x = 1", "y = 2"])) == ["metrics"]
@@ -1629,3 +1650,515 @@ def test_a_schema_namespace_outside_the_deployment_is_rejected(outside):
             ],
         )
     assert "not 'shared' or beneath it" in str(exc_info.value)
+
+
+def semantic_specs() -> dict[str, NodeSpec]:
+    """Representative inputs for each concrete node type."""
+    return {
+        "source": SourceSpec(
+            namespace="analytics",
+            name="orders",
+            catalog="warehouse",
+            schema="sales",
+            table="orders",
+            columns=[ColumnSpec(name="order_id", type="bigint")],
+            primary_key=["order_id"],
+        ),
+        "transform": TransformSpec(
+            namespace="analytics",
+            name="clean_orders",
+            query=(
+                "SELECT order_id AS id, amount FROM ${prefix}orders WHERE amount > 0"
+            ),
+        ),
+        "dimension": DimensionSpec(
+            namespace="analytics",
+            name="order",
+            query="SELECT order_id, status FROM ${prefix}orders",
+        ),
+        "metric": MetricSpec(
+            namespace="analytics",
+            name="total_amount",
+            query="SELECT SUM(amount) AS value FROM ${prefix}orders",
+            required_dimensions=["${prefix}order.status"],
+        ),
+        "cube": CubeSpec(
+            namespace="analytics",
+            name="order_cube",
+            metrics=["${prefix}total_amount", "${prefix}order_count"],
+            dimensions=["${prefix}order.status", "${prefix}order.order_id"],
+            filters=["${prefix}order.status != 'cancelled'", "amount > 0"],
+            columns=[
+                ColumnSpec(
+                    name="${prefix}order.status",
+                    partition=PartitionSpec(type=PartitionType.CATEGORICAL),
+                ),
+            ],
+        ),
+    }
+
+
+def fingerprint(spec: NodeSpec) -> SemanticFingerprint:
+    return local_node_fingerprint(spec)
+
+
+GOLDEN_FINGERPRINTS = {
+    "source": "71dcbc388988c2bdd850670427710384687b58565ee38ca392dc220adfed868d",
+    "transform": "978e692880c7bcfb1bd78ece85895a1ec1558e85377b064a8dac3f3719cff2a5",
+    "dimension": "f7b3c87a61fdadf9997432fd9334befdf43f2488874ef555e3f7d4c4ba86e3e1",
+    "metric": "a3fde7af5dbd00d194805af33fc213bca52244c7cdedf1f7363ec52d2f6d4116",
+    "cube": "9b0a56d974d1e3769bc2db94e2cfbae7a6a4839f664eebd2a4387ef112ceea81",
+}
+
+
+@pytest.mark.parametrize("node_type", GOLDEN_FINGERPRINTS)
+def test_semantic_fingerprint_golden_digests(node_type):
+    spec = semantic_specs()[node_type]
+    result = fingerprint(spec)
+    assert result == SemanticFingerprint(digest=GOLDEN_FINGERPRINTS[node_type])
+    assert result == fingerprint(spec)
+    assert result.version == 1
+
+
+def test_semantic_fingerprint_is_independent_of_python_hash_seed():
+    script = """
+from datajunction_server.api.main import app
+from datajunction_server.models.deployment import ColumnSpec, SourceSpec
+from datajunction_server.semantic_fingerprints.engine import local_node_fingerprint
+spec = SourceSpec(name="s", catalog="c", schema_="s", table="t",
+    columns=[ColumnSpec(name="id", attributes=["z", "primary_key", "a"])])
+print(local_node_fingerprint(spec).digest)
+"""
+
+    def digest_for(seed):
+        return subprocess.check_output(
+            [sys.executable, "-c", script],
+            env={**os.environ, "PYTHONHASHSEED": seed},
+            text=True,
+        ).splitlines()[-1]
+
+    assert digest_for("1") == digest_for("42")
+
+
+def test_semantic_fingerprint_normalizes_empty_and_resolved_source_columns():
+    common = {"name": "source", "catalog": "c", "schema_": "s", "table": "t"}
+    unspecified = SourceSpec(**common, columns=None)
+    empty = SourceSpec(**common, columns=[])
+    columns = [ColumnSpec(name="id", type="bigint")]
+    resolved = SourceSpec(**common, columns=columns)
+    duplicated = SourceSpec(**common, columns=[*columns, columns[0].model_copy()])
+
+    assert fingerprint(unspecified) == fingerprint(empty)
+    assert local_node_fingerprint(
+        unspecified,
+        resolved_columns=columns,
+    ) == fingerprint(resolved)
+    assert fingerprint(resolved) == fingerprint(duplicated)
+    assert fingerprint(
+        CubeSpec(name="cube", metrics=[], dimensions=[], filters=None),
+    ) == fingerprint(CubeSpec(name="cube", metrics=[], dimensions=[], filters=[]))
+
+
+def test_semantic_fingerprint_normalized_values_are_stable():
+    first = {"outer": {"a": 1, "b": 2}, "value": 3}
+    second = {"value": 3, "outer": {"b": 2, "a": 1}}
+    assert canonical_json(normalize_value(first)) == canonical_json(
+        normalize_value(second),
+    )
+    with pytest.raises(TypeError, match="string keys"):
+        normalize_value({1: "value"})
+    assert normalize_sequence(
+        [1, 2],
+        preserve_order=True,
+    ) != normalize_sequence(
+        [2, 1],
+        preserve_order=True,
+    )
+    with pytest.raises(TypeError, match="Unsupported"):
+        normalize_value({"bad": object()})
+    with pytest.raises(ValueError, match="must be finite"):
+        normalize_value({"bad": float("nan")})
+    with pytest.raises(ValueError, match="must be finite"):
+        normalize_value(Decimal("NaN"))
+    assert normalize_value(True) is True
+    assert normalize_value(1.5) == 1.5
+    assert normalize_value(Decimal("1.0")) == 1
+    assert normalize_value(Decimal("1.50")) == {"decimal": "1.5"}
+
+
+def test_semantic_fingerprint_normalizes_equivalent_numbers():
+    assert normalize_value({"value": 1}) == normalize_value({"value": 1.0})
+    assert normalize_value({"value": -0.0}) == normalize_value({"value": 0})
+
+    sql_integer = TransformSpec(name="sql_number", query="SELECT 1")
+    sql_integral_float = TransformSpec(name="sql_number", query="SELECT 1.0")
+    assert sql_integer.semantic_diff(sql_integral_float) == ([], [])
+    assert fingerprint(sql_integer) == fingerprint(sql_integral_float)
+
+
+@pytest.mark.parametrize(
+    "spec_type",
+    [SourceSpec, TransformSpec, DimensionSpec, MetricSpec, CubeSpec],
+)
+def test_semantic_fingerprint_v1_projection_is_explicit(spec_type):
+    current_major_fields = {
+        field
+        for field, field_info in spec_type.model_fields.items()
+        if field not in {"name", "namespace", "node_type"}
+        and field_info.exclude is not True
+        and spec_type.field_change_tier(field) == ChangeTier.MAJOR
+    }
+    assert set(semantic_fields(spec_type)) == current_major_fields
+
+
+def test_semantic_fingerprint_v1_rejects_unregistered_spec_type():
+    with pytest.raises(TypeError, match="No semantic fingerprint fields for NodeSpec"):
+        semantic_fields(NodeSpec)
+
+
+def test_semantic_fingerprint_renders_prefixes_and_normalizes_sql():
+    from datajunction_server.models.dialect import Dialect
+    from datajunction_server.sql.parsing.ast import render_for_dialect
+
+    parameterized = TransformSpec(
+        namespace="analytics",
+        name="orders",
+        query="SELECT\n id AS order_id\nFROM ${prefix}raw_orders",
+    )
+    rendered = TransformSpec(
+        namespace="analytics",
+        name="orders",
+        query="SELECT id AS order_id FROM analytics.raw_orders",
+    )
+    assert parameterized.query_ast.compare(rendered.query_ast)
+    assert fingerprint(parameterized) == fingerprint(rendered)
+    dialect_query = TransformSpec(
+        name="dialect",
+        query="SELECT COLLECT_LIST(value) AS values FROM source",
+    )
+    dialect_fingerprint = fingerprint(dialect_query)
+    with render_for_dialect(Dialect.TRINO):
+        assert fingerprint(parameterized) == fingerprint(rendered)
+        assert fingerprint(dialect_query) == dialect_fingerprint
+        assert fingerprint(
+            TransformSpec(
+                name="typed",
+                query="SELECT CAST(value AS DECIMAL(10, 2)) FROM source",
+            ),
+        ).digest
+    assert fingerprint(TransformSpec(name="blank", query="")).digest
+    explicit = TransformSpec(name="orders", query="SELECT id AS order_id FROM raw")
+    implicit = TransformSpec(name="orders", query="SELECT id order_id FROM raw")
+    assert not explicit.query_ast.compare(implicit.query_ast)
+    assert fingerprint(explicit) != fingerprint(implicit)
+
+
+def test_semantic_diff_and_fingerprint_share_change_rules():
+    original = TransformSpec(name="node", query="SELECT id AS value FROM source")
+    formatted = TransformSpec(
+        name="node",
+        query=" SELECT  id AS value\nFROM source ",
+    )
+    changed, reordered = original.semantic_diff(formatted)
+    assert (changed, reordered) == ([], [])
+    assert TransformSpec.change_tier(changed, reordered) == ChangeTier.NONE
+    assert fingerprint(original) == fingerprint(formatted)
+
+    source = SourceSpec(
+        name="source",
+        catalog="c",
+        schema_="s",
+        table="t",
+        columns=[ColumnSpec(name="id", type="bigint")],
+    )
+    source_changed = source.model_copy(deep=True)
+    source_changed.columns[0].type = "string"
+    changed, reordered = source.semantic_diff(source_changed)
+    assert (changed, reordered) == (["columns"], [])
+    assert SourceSpec.change_tier(changed, reordered) == ChangeTier.MAJOR
+    assert fingerprint(source) != fingerprint(source_changed)
+    assert source.semantic_diff(original) == (["node_type"], [])
+
+    cube = CubeSpec(name="cube", metrics=["a", "b"], dimensions=[])
+    reordered_cube = cube.model_copy(update={"metrics": ["b", "a", "a"]})
+    changed, reordered = cube.semantic_diff(reordered_cube)
+    assert (changed, reordered) == ([], ["metrics"])
+    assert CubeSpec.change_tier(changed, reordered) == ChangeTier.MINOR
+    assert fingerprint(cube) == fingerprint(reordered_cube)
+
+    legacy_metric = MetricSpec(
+        name="metric",
+        query="SELECT 1",
+        unit="dollar",
+    )
+    structured_metric = MetricSpec(
+        name="metric",
+        query="SELECT 1",
+        direction="neutral",
+        unit={"kind": "currency", "code": "USD"},
+    )
+    assert legacy_metric.semantic_diff(structured_metric) == ([], [])
+    changed, reordered = MetricSpec(
+        name="metric",
+        query="SELECT 1",
+    ).semantic_diff(legacy_metric)
+    assert (changed, reordered) == (["unit_enum"], [])
+    assert MetricSpec.change_tier(changed, reordered) == ChangeTier.MINOR
+
+
+def test_semantic_diff_compares_unparseable_queries_as_raw_sql():
+    original = TransformSpec(name="node", query="SELECT (")
+    same = TransformSpec(name="node", query="SELECT (")
+    changed = TransformSpec(name="node", query="SELECT )")
+
+    assert original.semantic_diff(same) == ([], [])
+    assert original.semantic_diff(changed) == (["query"], [])
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("owners", ["other"]),
+        ("display_name", "Orders"),
+        ("description", "Updated description"),
+        ("tags", ["certified"]),
+        ("mode", NodeMode.DRAFT),
+        ("custom_metadata", {"team": "analytics"}),
+    ],
+)
+def test_minor_base_node_fields_preserve_semantic_fingerprint(field, value):
+    original = semantic_specs()["source"]
+    changed = original.model_copy(update={field: value})
+    assert type(original).field_change_tier(field) == ChangeTier.MINOR
+    assert fingerprint(original) == fingerprint(changed)
+
+
+def test_metric_presentation_fields_preserve_semantic_fingerprint():
+    baseline = MetricSpec(name="metric", query="SELECT 1")
+    presentations = [
+        MetricSpec(
+            name="metric",
+            query="SELECT 1",
+            direction="higher_is_better",
+            unit="dollar",
+            significant_digits=3,
+            min_decimal_exponent=-2,
+            max_decimal_exponent=4,
+        ),
+        MetricSpec(
+            name="metric",
+            query="SELECT 1",
+            unit={"kind": "currency", "code": "USD"},
+        ),
+    ]
+    fields = (
+        set(MetricSpec.model_fields)
+        - set(NodeSpec.model_fields)
+        - {
+            "query",
+            "columns",
+            "required_dimensions",
+        }
+    )
+    assert all(
+        MetricSpec.field_change_tier(field) == ChangeTier.MINOR for field in fields
+    )
+    assert all(fingerprint(spec) == fingerprint(baseline) for spec in presentations)
+
+
+@pytest.mark.parametrize(
+    ("node_type", "field", "value"),
+    [
+        ("source", "catalog", "other"),
+        ("source", "schema_", "other"),
+        ("source", "table", "other"),
+        ("source", "primary_key", ["amount"]),
+        ("transform", "query", "SELECT amount FROM analytics.orders"),
+        ("dimension", "query", "SELECT order_id FROM analytics.orders"),
+        ("metric", "query", "SELECT COUNT(*) AS value FROM analytics.orders"),
+        ("metric", "required_dimensions", ["analytics.order.order_id"]),
+        ("cube", "metrics", ["analytics.order_count"]),
+        ("cube", "dimensions", ["analytics.order.order_id"]),
+        ("cube", "filters", ["amount >= 0"]),
+    ],
+)
+def test_major_node_fields_change_semantic_fingerprint(node_type, field, value):
+    original = semantic_specs()[node_type]
+    changed = original.model_copy(update={field: value})
+    assert type(original).field_change_tier(field) == ChangeTier.MAJOR
+    assert fingerprint(original) != fingerprint(changed)
+
+
+def test_semantic_fingerprint_column_rules_match_equality():
+    source = SourceSpec(
+        name="source",
+        catalog="c",
+        schema_="s",
+        table="t",
+        columns=[
+            ColumnSpec(name="id", type="bigint", attributes=["primary_key", "id"]),
+            ColumnSpec(name="value", type="string"),
+        ],
+    )
+    source_reordered = source.model_copy(deep=True)
+    source_reordered.columns = list(reversed(source_reordered.columns or []))
+    source_reordered.columns[1].attributes = ["id", "primary_key"]
+    source_type_changed = source.model_copy(deep=True)
+    source_type_changed.columns[0].type = "integer"
+    assert eq_columns(source.columns, source_reordered.columns)
+    assert fingerprint(source) == fingerprint(source_reordered)
+    assert not eq_columns(source.columns, source_type_changed.columns)
+    assert fingerprint(source) != fingerprint(source_type_changed)
+
+    for spec_class in (TransformSpec, DimensionSpec):
+        original = spec_class(
+            name="derived",
+            query="SELECT id FROM source",
+            columns=[ColumnSpec(name="id", type="bigint")],
+        )
+        inferred_type_changed = original.model_copy(deep=True)
+        inferred_type_changed.columns[0].type = "string"
+        metadata_changed = original.model_copy(deep=True)
+        metadata_changed.columns[0].attributes = ["identifier"]
+        assert eq_columns(original.columns, inferred_type_changed.columns, False)
+        assert fingerprint(original) == fingerprint(inferred_type_changed)
+        assert not eq_columns(original.columns, metadata_changed.columns, False)
+        assert fingerprint(original) != fingerprint(metadata_changed)
+
+
+def test_semantic_fingerprint_dimension_link_rules_match_equality():
+    from datajunction_server.models.dimensionlink import SparkJoinStrategy
+
+    links = [
+        DimensionReferenceLinkSpec(
+            node_column="customer_id",
+            dimension="${prefix}customer.id",
+            role="customer",
+        ),
+        DimensionJoinLinkSpec(
+            dimension_node="${prefix}date",
+            join_on="${prefix}orders.date_id = ${prefix}date.id",
+            role="date",
+        ),
+    ]
+    original = TransformSpec(
+        namespace="analytics",
+        name="orders",
+        query="SELECT 1",
+        dimension_links=links,
+    )
+    reordered = original.model_copy(update={"dimension_links": list(reversed(links))})
+    changed = original.model_copy(deep=True)
+    changed.dimension_links[0].role = "buyer"
+    hint_changed = original.model_copy(
+        update={
+            "dimension_links": [
+                links[0],
+                links[1].model_copy(
+                    update={"spark_hints": SparkJoinStrategy.BROADCAST},
+                ),
+            ],
+        },
+    )
+    assert original == reordered
+    assert fingerprint(original) == fingerprint(reordered)
+    assert original == hint_changed
+    assert fingerprint(original) == fingerprint(hint_changed)
+    assert original != changed
+    assert fingerprint(original) != fingerprint(changed)
+
+
+def test_semantic_fingerprint_normalizes_primary_keys_and_cube_ordering():
+    source = semantic_specs()["source"]
+    assert fingerprint(source) == fingerprint(
+        source.model_copy(
+            update={"primary_key": ["order_id", "order_id"]},
+        ),
+    )
+
+    cube = semantic_specs()["cube"]
+    reordered = cube.model_copy(deep=True)
+    reordered.metrics.reverse()
+    reordered.dimensions.reverse()
+    reordered.filters = list(reversed(reordered.filters or []))
+    assert fingerprint(cube) == fingerprint(reordered)
+    metric = MetricSpec(
+        name="metric",
+        query="SELECT 1",
+        required_dimensions=["one", "two"],
+    )
+    reordered_metric = metric.model_copy(
+        update={"required_dimensions": ["two", "one", "one"]},
+    )
+    assert metric == reordered_metric
+    assert metric.semantic_diff(reordered_metric) == ([], [])
+    assert fingerprint(metric) == fingerprint(reordered_metric)
+    assert MetricSpec.field_change_tier("columns") == ChangeTier.NONE
+    assert fingerprint(cube) == fingerprint(
+        cube.model_copy(
+            update={"metrics": [*cube.metrics, "${prefix}order_count"]},
+        ),
+    )
+    assert fingerprint(cube) != fingerprint(
+        cube.model_copy(
+            update={"metrics": [*cube.metrics, "${prefix}average_amount"]},
+        ),
+    )
+    assert fingerprint(cube) != fingerprint(
+        cube.model_copy(
+            update={"filters": ["amount > 1"]},
+        ),
+    )
+    partition_changed = cube.model_copy(deep=True)
+    partition_changed.columns[0].partition.type = PartitionType.TEMPORAL
+    assert fingerprint(cube) != fingerprint(partition_changed)
+
+
+@pytest.mark.parametrize(
+    "digest",
+    ["a" * 63, "a" * 65, "A" * 64, "g" * 64],
+)
+def test_semantic_fingerprint_digest_validation(digest):
+    with pytest.raises(ValidationError):
+        SemanticFingerprint(digest=digest)
+
+
+def test_semantic_fingerprint_rejects_unknown_version():
+    with pytest.raises(ValidationError):
+        SemanticFingerprint(version=2, digest="a" * 64)
+    with pytest.raises(ValueError, match="Unsupported semantic fingerprint version: 2"):
+        local_node_fingerprint(semantic_specs()["source"], version=2)
+
+
+def test_semantic_fingerprint_combines_sorted_parent_hashes():
+    node = TransformSpec(name="node", query="SELECT id FROM parent")
+    first = SourceSpec(name="first", catalog="c", schema_="s", table="first")
+    second = SourceSpec(name="second", catalog="c", schema_="s", table="second")
+    first_hash = fingerprint(first)
+    second_hash = fingerprint(second)
+
+    expected = compose_node_fingerprint(
+        node,
+        parent_fingerprints=[first_hash, second_hash],
+    )
+    assert expected == compose_node_fingerprint(
+        node,
+        parent_fingerprints=[second_hash, first_hash, first_hash],
+    )
+    assert expected != compose_node_fingerprint(
+        node,
+        parent_fingerprints=[
+            first_hash,
+            fingerprint(
+                SourceSpec(
+                    name="second",
+                    catalog="c",
+                    schema_="s",
+                    table="changed",
+                ),
+            ),
+        ],
+    )
+    mismatched = SemanticFingerprint.model_construct(version=2, digest="b" * 64)
+    with pytest.raises(ValueError, match="Parent fingerprint version"):
+        compose_node_fingerprint(node, parent_fingerprints=[mismatched])

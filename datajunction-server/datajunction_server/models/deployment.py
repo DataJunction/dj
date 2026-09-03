@@ -19,7 +19,6 @@ from datajunction_server.errors import (
     DJInvalidDeploymentConfig,
     DJInvalidInputException,
 )
-from datajunction_server.models.base import labelize
 from datajunction_server.models.dimensionlink import (
     JoinCardinality,
     JoinType,
@@ -493,10 +492,13 @@ class DimensionLinkSpec(BaseModel):
     role: str | None = None
     namespace: str | None = Field(default=None, exclude=True)
 
+    def _comparison_key(self) -> tuple[Any, ...]:
+        return (self.type, self.role)
+
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, DimensionLinkSpec):
             return False  # pragma: no cover
-        return self.type == other.type and self.role == other.role
+        return self._comparison_key() == other._comparison_key()
 
 
 class DimensionJoinLinkSpec(DimensionLinkSpec):
@@ -537,30 +539,17 @@ class DimensionJoinLinkSpec(DimensionLinkSpec):
         )
 
     def __hash__(self) -> int:
-        return hash(
-            (
-                self.type,
-                self.role,
-                self.rendered_dimension_node,
-                self.join_type,
-                self.join_cardinality,
-                self.rendered_join_on,
-                self.node_column,
-                self.default_value,
-            ),
-        )
+        return hash(self._comparison_key())
 
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, DimensionJoinLinkSpec):
-            return False  # pragma: no cover
+    def _comparison_key(self) -> tuple[Any, ...]:
         return (
-            super().__eq__(other)
-            and self.rendered_dimension_node == other.rendered_dimension_node
-            and self.join_type == other.join_type
-            and self.join_cardinality == other.join_cardinality
-            and self.rendered_join_on == other.rendered_join_on
-            and self.node_column == other.node_column
-            and self.default_value == other.default_value
+            *super()._comparison_key(),
+            self.rendered_dimension_node,
+            self.join_type,
+            self.join_cardinality,
+            self.rendered_join_on,
+            self.node_column,
+            self.default_value,
         )
 
 
@@ -590,24 +579,14 @@ class DimensionReferenceLinkSpec(DimensionLinkSpec):
         return self.dimension.rsplit(".", 1)[-1]
 
     def __hash__(self) -> int:
-        return hash(
-            (
-                self.type,
-                self.role,
-                self.rendered_dimension_node,
-                self.dimension_attribute,
-                self.node_column,
-            ),
-        )
+        return hash(self._comparison_key())
 
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, DimensionReferenceLinkSpec):
-            return False
+    def _comparison_key(self) -> tuple[Any, ...]:
         return (
-            super().__eq__(other)
-            and self.rendered_dimension_node == other.rendered_dimension_node
-            and self.dimension_attribute == other.dimension_attribute
-            and self.node_column == other.node_column
+            *super()._comparison_key(),
+            self.rendered_dimension_node,
+            self.dimension_attribute,
+            self.node_column,
         )
 
 
@@ -662,8 +641,10 @@ class NodeSpec(NamespacedSpec):
     # anything. Fields absent here are not order-sensitive, so reordering them is
     # not a change at all. `diff()` compares list fields as sets and cannot see a
     # reorder on its own, which is why `order_diff()` exists alongside it.
-    FIELD_ORDER_CHANGE_TIERS: ClassVar[dict[str, ChangeTier]] = {}
-
+    FIELD_ORDER_CHANGE_TIERS: ClassVar[dict[str, ChangeTier]] = {
+        "owners": ChangeTier.NONE,
+        "tags": ChangeTier.NONE,
+    }
     _query_ast: Any | None = PrivateAttr(default=None)
     # Internal: marks specs from already-validated sources (e.g., branch copies)
     # that can skip expensive SQL parsing and validation
@@ -736,6 +717,25 @@ class NodeSpec(NamespacedSpec):
         rendered_json = json.dumps(raw).replace("${prefix}", prefix)
         return self.__class__.model_validate_json(rendered_json)
 
+    def semantic_diff(
+        self,
+        other: "NodeSpec",
+        *,
+        resolved_columns: list[ColumnSpec] | None = None,
+        other_resolved_columns: list[ColumnSpec] | None = None,
+    ) -> tuple[list[str], list[str]]:
+        """Compare two specs using the same normalized values as fingerprints."""
+        from datajunction_server.semantic_fingerprints import (
+            semantic_diff as compare_semantics,
+        )
+
+        return compare_semantics(
+            self,
+            other,
+            resolved_columns=resolved_columns,
+            other_resolved_columns=other_resolved_columns,
+        )
+
     def diff(self, other: "NodeSpec") -> list[str]:
         """
         Return a list of fields that differ between this and another NodeSpec.
@@ -789,6 +789,11 @@ class NodeSpec(NamespacedSpec):
         return cls._declared_tier("FIELD_CHANGE_TIERS", field) is not None
 
     @classmethod
+    def has_explicit_order_change_tier(cls, field: str) -> bool:
+        """Whether some class in the MRO classifies reordering `field`."""
+        return cls._declared_tier("FIELD_ORDER_CHANGE_TIERS", field) is not None
+
+    @classmethod
     def unclassified_fields(cls) -> list[str]:
         """Fields on this spec class that nobody classified. Should always be empty."""
         return [
@@ -798,12 +803,30 @@ class NodeSpec(NamespacedSpec):
         ]
 
     @classmethod
+    def unclassified_list_order_fields(cls) -> list[str]:
+        """List fields without an explicit order classification."""
+        from datajunction_server.semantic_fingerprints.normalization import (
+            annotation_contains_list,
+        )
+
+        return [
+            field
+            for field, field_info in cls.model_fields.items()
+            if annotation_contains_list(field_info.annotation)
+            and not cls.has_explicit_order_change_tier(field)
+        ]
+
+    @classmethod
     def order_sensitive_fields(cls) -> list[str]:
-        """Fields for which some class in the MRO classifies a reorder."""
+        """Fields whose declared reorder tier is not NONE."""
         fields: dict[str, None] = {}
         for klass in cls.__mro__:
-            for field in klass.__dict__.get("FIELD_ORDER_CHANGE_TIERS", {}):
-                fields.setdefault(field, None)
+            for field, tier in klass.__dict__.get(
+                "FIELD_ORDER_CHANGE_TIERS",
+                {},
+            ).items():
+                if tier != ChangeTier.NONE:
+                    fields.setdefault(field, None)
         return list(fields)
 
     @classmethod
@@ -862,6 +885,11 @@ class LinkableNodeSpec(NodeSpec):
         "dimension_links": ChangeTier.MAJOR,
         "primary_key": ChangeTier.MAJOR,
     }
+    FIELD_ORDER_CHANGE_TIERS: ClassVar[dict[str, ChangeTier]] = {
+        "columns": ChangeTier.NONE,
+        "dimension_links": ChangeTier.NONE,
+        "primary_key": ChangeTier.NONE,
+    }
 
     @model_validator(mode="after")
     def set_namespaces(self):
@@ -884,21 +912,25 @@ class LinkableNodeSpec(NodeSpec):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, LinkableNodeSpec):
             return False  # pragma: no cover
-        dimension_links_equal = sorted(
-            self.dimension_links or [],
-            key=lambda link: (link.rendered_dimension_node, link.role or ""),
-        ) == sorted(
-            other.dimension_links or [],
-            key=lambda link: (link.rendered_dimension_node, link.role or ""),
+        from datajunction_server.semantic_fingerprints.normalization import (
+            normalize_dimension_links,
         )
+
         return (
             super().__eq__(other)
             and eq_columns(
                 self.columns,
                 other.columns,
-                compare_types=True if self.node_type == NodeType.SOURCE else False,
+                compare_types=self.node_type == NodeType.SOURCE,
             )
-            and dimension_links_equal
+            and normalize_dimension_links(
+                self.dimension_links,
+                preserve_order=False,
+            )
+            == normalize_dimension_links(
+                other.dimension_links,
+                preserve_order=False,
+            )
             and set(self.primary_key or []) == set(other.primary_key or [])
         )
 
@@ -1003,7 +1035,7 @@ class MetricSpec(NodeSpec):
 
     FIELD_CHANGE_TIERS: ClassVar[dict[str, ChangeTier]] = {
         "query": ChangeTier.MAJOR,
-        "columns": ChangeTier.MAJOR,
+        "columns": ChangeTier.NONE,
         # Required dimensions constrain which queries the metric can answer.
         "required_dimensions": ChangeTier.MAJOR,
         # Everything below is presentation metadata on the metric's single output
@@ -1015,6 +1047,10 @@ class MetricSpec(NodeSpec):
         "significant_digits": ChangeTier.MINOR,
         "min_decimal_exponent": ChangeTier.MINOR,
         "max_decimal_exponent": ChangeTier.MINOR,
+    }
+    FIELD_ORDER_CHANGE_TIERS: ClassVar[dict[str, ChangeTier]] = {
+        "columns": ChangeTier.NONE,
+        "required_dimensions": ChangeTier.NONE,
     }
 
     # Class-level adapter used by __init__ to eagerly validate structured
@@ -1057,7 +1093,7 @@ class MetricSpec(NodeSpec):
     @property
     def unit(self) -> str | dict | None:
         """
-        Return the canonical metric unit value for serialization.
+        Return the normalized metric unit value for serialization.
 
         Returns:
           - `None` if no unit is set.
@@ -1069,7 +1105,7 @@ class MetricSpec(NodeSpec):
         shape should read `column.unit` on the metric's output column.
         """
         if self.unit_structured is not None:
-            # Canonical dict shape (JSON-friendly, no None values).
+            # Normalized dict shape (JSON-friendly, no None values).
             return unit_to_dict(self.unit_structured)
         if self.unit_enum is None or self.unit_enum == MetricUnit.UNKNOWN:
             return None
@@ -1096,14 +1132,14 @@ class MetricSpec(NodeSpec):
         base["unit"] = self.unit
         return base
 
-    def _canonical_unit(self) -> "Unit | None":
+    def _normalized_unit(self) -> "Unit | None":
         """
-        Reduce both legacy and structured inputs to the same canonical Unit
+        Reduce both legacy and structured inputs to the same normalized Unit
         instance for equality comparisons. Returns None when the metric has
         no unit (or only the UNKNOWN sentinel). Two specs that author the
         same conceptual unit via different input shapes (`unit: dollar` vs
         `unit: {kind: currency, code: USD}`) produce equal frozen Unit
-        instances — so __eq__ doesn't falsely report drift between YAML and
+        instances, so __eq__ doesn't falsely report drift between YAML and
         DB-roundtripped specs.
         """
         if self.unit_structured is not None:
@@ -1115,12 +1151,23 @@ class MetricSpec(NodeSpec):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, MetricSpec):
             return False
+        from datajunction_server.semantic_fingerprints.normalization import (
+            normalize_sequence,
+        )
+
         return (
             super().__eq__(other)
             and self.query_ast.compare(other.query_ast)
-            and (self.required_dimensions or []) == (other.required_dimensions or [])
+            and normalize_sequence(
+                self.rendered_required_dimensions,
+                preserve_order=False,
+            )
+            == normalize_sequence(
+                other.rendered_required_dimensions,
+                preserve_order=False,
+            )
             and eq_or_fallback(self.direction, other.direction, MetricDirection.NEUTRAL)
-            and self._canonical_unit() == other._canonical_unit()
+            and self._normalized_unit() == other._normalized_unit()
             and self.significant_digits == other.significant_digits
             and self.min_decimal_exponent == other.min_decimal_exponent
             and self.max_decimal_exponent == other.max_decimal_exponent
@@ -1197,6 +1244,8 @@ class CubeSpec(NodeSpec):
         # Filters are ANDed together, so their ordering carries no meaning at all
         # and reordering them is genuinely a no-op.
         "filters": ChangeTier.NONE,
+        "columns": ChangeTier.NONE,
+        "materialization": ChangeTier.NONE,
     }
 
     @field_validator("materialization", mode="before")
@@ -1318,15 +1367,13 @@ class CubeSpec(NodeSpec):
 
         # Compare only partition config for user-specified columns.
         # Cube element columns (types, order, attributes) are auto-derived and ignored.
-        incoming_partitions = {
-            col.name: col.partition for col in self.rendered_columns if col.partition
-        }
-        existing_partitions = {
-            col.name: col.partition
-            for col in (other.rendered_columns or [])
-            if col.partition
-        }
-        return incoming_partitions == existing_partitions
+        from datajunction_server.semantic_fingerprints.normalization import (
+            normalize_cube_columns,
+        )
+
+        return normalize_cube_columns(
+            self.rendered_columns,
+        ) == normalize_cube_columns(other.rendered_columns)
 
 
 NodeUnion = Annotated[
@@ -1386,7 +1433,7 @@ def diff(
     """
     return [
         field
-        for field in one.model_fields.keys()
+        for field in one.model_fields
         if field not in (ignore_fields or [])
         and hasattr(one, field)
         and hasattr(two, field)
@@ -1687,6 +1734,8 @@ def eq_columns(
       - If a column is missing display_name or description, it's treated as empty string.
     If the compare_types flag is False, the column types will not be compared.
     """
+    from datajunction_server.semantic_fingerprints.normalization import normalize_column
+
     a_map = {col.name: col for col in a or []}
     b_map = {col.name: col for col in b or []}
     # For source nodes (compare_types=True), column additions and removals from
@@ -1695,39 +1744,19 @@ def eq_columns(
     if compare_types and a and b and set(a_map.keys()) != set(b_map.keys()):
         return False
     a_cols, b_cols = [], []
-    for col_name in set(a_map.keys()).union(set(b_map.keys())):
-        a_col = a_map.get(col_name).model_copy() if a_map.get(col_name) else None  # type: ignore
-        b_col = b_map.get(col_name).model_copy() if b_map.get(col_name) else None  # type: ignore
-        if not a_col:
-            a_col = ColumnSpec(
-                name=col_name,
-                display_name=labelize(col_name),
-                type=b_col.type if b_col else "",
-                attributes=[],
-            )
-        if not a_col.display_name:
-            a_col.display_name = labelize(col_name)
-        if not a_col.description:
-            a_col.description = ""
-        if not b_col:
-            b_col = ColumnSpec(  # pragma: no cover
-                name=col_name,
-                display_name=labelize(col_name),
-                type=a_col.type if a_col else "",
-                attributes=[],
-            )
-        if not b_col.display_name:
-            b_col.display_name = labelize(col_name)
-        if not b_col.description:  # pragma: no cover
-            b_col.description = ""
-        if not compare_types:
-            a_col.type = ""
-            b_col.type = ""
-        # Remove primary_key from copies for comparison
-        if "primary_key" in a_col.attributes:
-            a_col.attributes = list(set(a_col.attributes) - {"primary_key"})
-        if "primary_key" in b_col.attributes:
-            b_col.attributes = list(set(b_col.attributes) - {"primary_key"})
+    for col_name in sorted(set(a_map).union(b_map)):
+        a_col = normalize_column(
+            a_map.get(col_name),
+            col_name,
+            b_map[col_name].type if col_name in b_map else "",
+            compare_types,
+        )
+        b_col = normalize_column(
+            b_map.get(col_name),
+            col_name,
+            a_map[col_name].type if col_name in a_map else "",
+            compare_types,
+        )
         a_cols.append(a_col)
         b_cols.append(b_col)
     return a_cols == b_cols
