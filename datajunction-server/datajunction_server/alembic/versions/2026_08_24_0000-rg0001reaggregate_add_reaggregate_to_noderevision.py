@@ -2,7 +2,7 @@
 Add reaggregate column to noderevision
 
 Revision ID: rg0001reaggregate
-Revises: nsboundaryflag1
+Revises: cm0003dropowner
 Create Date: 2026-08-24 00:00:00.000000+00:00
 """
 
@@ -11,7 +11,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "rg0001reaggregate"
-down_revision = "nsboundaryflag1"
+down_revision = "cm0003dropowner"
 branch_labels = None
 depends_on = None
 
