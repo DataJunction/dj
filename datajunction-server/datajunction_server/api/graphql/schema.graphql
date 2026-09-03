@@ -150,6 +150,11 @@ type DimensionLink {
   defaultValue: String
 }
 
+type DimensionReaggregateRule {
+  dimension: String!
+  fn: ReaggregationFunction!
+}
+
 type Engine {
   name: String!
   version: String!
@@ -718,6 +723,24 @@ type Query {
   listNamespaces: [Namespace!]!
 }
 
+type ReaggregateSpec {
+  fn: ReaggregationFunction
+  weight: String
+  rules: [DimensionReaggregateRule!]!
+}
+
+enum ReaggregationFunction {
+  AUTO
+  NONE
+  SUM
+  AVG
+  WEIGHTED_AVG
+  LAST_VALUE
+  FIRST_VALUE
+  MIN
+  MAX
+}
+
 type SemanticEntity {
   name: String!
 
@@ -733,29 +756,6 @@ enum SemanticType {
   METRIC
   DIMENSION
   TIMESTAMP
-}
-
-type DimensionReaggregateRule {
-  dimension: String!
-  fn: ReaggregationFunction!
-}
-
-enum ReaggregationFunction {
-  AUTO
-  NONE
-  SUM
-  AVG
-  WEIGHTED_AVG
-  LAST_VALUE
-  FIRST_VALUE
-  MIN
-  MAX
-}
-
-type ReaggregateSpec {
-  fn: ReaggregationFunction
-  weight: String
-  rules: [DimensionReaggregateRule!]!
 }
 
 type Tag {
