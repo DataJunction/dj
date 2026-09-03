@@ -2514,6 +2514,26 @@ class TestPruneCteProjections:
         )
         assert self._pruned(sql) == str(parse(sql))
 
+    def test_distinct_projection_is_left_whole(self):
+        """
+        The projection is the dedup key, so no column is free to go.
+        """
+        sql = (
+            "WITH a AS (SELECT DISTINCT id, keep, drop_me FROM t) "
+            "SELECT x.keep FROM a AS x"
+        )
+        assert self._pruned(sql) == str(parse(sql))
+
+    def test_source_starred_under_distinct_is_left_whole(self):
+        """
+        Narrowing what the star exposes would narrow the dedup key with it.
+        """
+        sql = (
+            "WITH s AS (SELECT id, keep, other FROM t), "
+            "d AS (SELECT DISTINCT * FROM s) SELECT d.keep FROM d"
+        )
+        assert self._pruned(sql) == str(parse(sql))
+
     def test_projection_name_matches_case_insensitively(self):
         """
         Every target dialect reads ``x.region`` off a ``Region`` projection.

@@ -940,16 +940,20 @@ def _set_op_arms(select: ast.SelectExpression) -> list[ast.SelectExpression]:
 
 def _dedups_rows(select: ast.SelectExpression) -> bool:
     """
-    Whether a set operation makes the whole projected row the match key.
+    Whether the whole projected row is the select's match key.
 
-    Only UNION ALL passes its arms' rows through untouched. Every other kind
-    compares complete rows to dedup or to match, so dropping a column folds
-    together rows that were distinct and silently changes the row count.
+    DISTINCT compares complete rows, and so does every set operation but
+    UNION ALL — the one kind that passes its arms' rows through untouched.
+    Dropping a column then folds together rows that were distinct and
+    silently changes the row count.
     """
     return any(
-        " ".join((arm.set_op.kind or "").upper().split()) != "UNION ALL"
+        (arm.quantifier or "").upper() == "DISTINCT"
+        or (
+            arm.set_op is not None
+            and " ".join((arm.set_op.kind or "").upper().split()) != "UNION ALL"
+        )
         for arm in _set_op_arms(select)
-        if arm.set_op is not None
     )
 
 
