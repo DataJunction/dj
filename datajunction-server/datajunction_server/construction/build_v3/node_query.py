@@ -43,7 +43,7 @@ from datajunction_server.construction.build_v3.measures import (
     build_dimension_joins,
     build_filter_column_aliases,
     build_outer_where,
-    collect_cte_nodes_and_needed_columns,
+    collect_cte_nodes,
     outer_only_filter_refs,
 )
 from datajunction_server.construction.build_v3.types import (
@@ -404,19 +404,12 @@ def _build_with_dimensions(
     those CTEs via ``PushdownFilters`` (handled inside ``collect_node_ctes``);
     everything else is applied at the outer ``WHERE``.
     """
-    # ``collect_cte_nodes_and_needed_columns`` walks every link in every
-    # resolved dim's ``join_path`` and adds each intermediate hop's
-    # dimension to the CTE list — exactly what we need for multi-hop
-    # chains where a dim link routes through an intermediate transform/dim.
-    # Reused from measures.py so we don't drift.  We pass empty grain /
-    # metric args because non-metric nodes don't decompose into components.
-    nodes_for_ctes, _needed_columns = collect_cte_nodes_and_needed_columns(
-        ctx,
-        starting,
-        resolved_dims,
-        grain_col_specs=[],
-        metric_expressions=[],
-    )
+    # ``collect_cte_nodes`` walks every link in every resolved dim's
+    # ``join_path`` and adds each intermediate hop's dimension to the CTE
+    # list — exactly what we need for multi-hop chains where a dim link
+    # routes through an intermediate transform/dim.  Reused from measures.py
+    # so we don't drift.
+    nodes_for_ctes = collect_cte_nodes(ctx, starting, resolved_dims)
 
     # Build the filter-column-alias map up front so ``PushdownFilters``
     # can resolve user filter refs to the right CTE columns.
@@ -430,10 +423,10 @@ def _build_with_dimensions(
     )
 
     # ``collect_node_ctes`` skips sources (they get inlined as physical refs)
-    # and produces bodies in dep order. We deliberately don't pass
-    # ``needed_columns_by_node`` — the v3 metric path uses it for column
-    # trimming, but for ``/sql/{node}`` we want each node's full projection
-    # in the CTE so the user gets every column the node defines.
+    # and produces bodies in dep order. We deliberately don't prune the
+    # projections afterwards — the v3 metric path trims columns, but for
+    # ``/sql/{node}`` we want each node's full projection in the CTE so the
+    # user gets every column the node defines.
     cte_pairs, _, _ = collect_node_ctes(
         ctx,
         nodes_for_ctes,

@@ -20,7 +20,10 @@ from datajunction_server.construction.build_v3.types import (
     GrainGroupSQL,
     PushdownFilters,
 )
-from datajunction_server.construction.build_v3.utils import get_cte_name
+from datajunction_server.construction.build_v3.utils import (
+    column_table_name,
+    get_cte_name,
+)
 from datajunction_server.database.node import Node
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.decompose import wrap_divisions_in_nullif
@@ -800,65 +803,357 @@ def filter_cte_projection(
     if not query_ast.select.projection:  # pragma: no cover
         return query_ast
 
-    projection = query_ast.select.projection
+    _apply_keep_positions(
+        query_ast.select,
+        _keep_positions(query_ast.select, columns_to_select),
+    )
+    return query_ast
 
-    def _col_name(expr: object) -> str | None:
-        if isinstance(expr, ast.Alias):
-            return str(expr.alias.name) if expr.alias else None
-        if isinstance(expr, ast.Column):
-            return str(expr.alias.name) if expr.alias else str(expr.name.name)
+
+def _is_star(expr: object) -> bool:
+    """Whether a projection entry is ``*`` or ``<alias>.*``."""
+    if isinstance(expr, ast.Wildcard):
+        return True
+    return isinstance(expr, ast.Column) and str(expr.name.name) == "*"
+
+
+def _projection_name(expr: object) -> str | None:
+    """The output name of one projection entry, or ``None`` if it has none."""
+    if isinstance(expr, ast.Alias):
+        return str(expr.alias.name) if expr.alias else None
+    if _is_star(expr):
+        # A star stands for whatever its source has; it names nothing itself.
         return None
+    if isinstance(expr, ast.Column):
+        return str(expr.alias.name) if expr.alias else str(expr.name.name)
+    return None
 
-    # Protect columns that GROUP BY depends on so we never prune them.
-    # Positional references (integers) protect the column at that SELECT position;
-    # named references protect by column name.
-    effective_cols = set(columns_to_select)
-    positional_refs: set[int] = set()  # 1-indexed positions from GROUP BY
-    for item in query_ast.select.group_by:
+
+def _output_alias_clauses(select: ast.SelectExpression) -> list[ast.Node]:
+    """
+    The clauses that may name the select's own output, one expression each.
+
+    GROUP BY, HAVING and ORDER BY can all address a projection entry by the
+    alias it is given or by its position. WHERE deliberately does not appear:
+    a column it uses resolves against the FROM, not against the projection, so
+    a column only the WHERE reads is still free to go.
+    """
+    parts: list[ast.Node] = list(select.group_by)
+    if select.having is not None:
+        parts.append(select.having)
+    if select.organization is not None:
+        parts.extend(item.expr for item in select.organization.order)
+        parts.extend(item.expr for item in select.organization.sort)
+    return parts
+
+
+def _keep_positions(
+    select: ast.SelectExpression,
+    columns_to_select: set[str],
+) -> set[int]:
+    """
+    The 1-indexed projection positions a select must keep.
+
+    A position survives when its output name is wanted downstream, when a
+    clause that can address the projection names or points at it, or when it
+    has no readable output name. Names are matched without regard to case,
+    the way every dialect DJ targets resolves them.
+
+    Under DISTINCT every position survives: the projection is the dedup key, so
+    narrowing it folds together rows that were distinct and silently changes
+    the row count.
+    """
+    projection = select.projection
+    if (select.quantifier or "").upper() == "DISTINCT":
+        return set(range(1, len(projection) + 1))
+
+    effective_cols = {name.casefold() for name in columns_to_select}
+    for item in _output_alias_clauses(select):
         if isinstance(item, ast.Number) and isinstance(item.value, int):
             pos = int(item.value)
             if 1 <= pos <= len(projection):
-                positional_refs.add(pos)
-                if name := _col_name(projection[pos - 1]):
-                    effective_cols.add(name)
-        elif isinstance(item, ast.Column):
-            name = str(item.alias.name) if item.alias else str(item.name.name)
-            effective_cols.add(name)
+                if name := _projection_name(projection[pos - 1]):
+                    effective_cols.add(name.casefold())
+            continue
+        for column in item.find_all(ast.Column):
+            named = column.alias.name if column.alias else column.name.name
+            effective_cols.add(str(named).casefold())
 
-    # Build the filtered projection, tracking old to new position for renumbering.
+    keep: set[int] = set()
+    for i, expr in enumerate(projection):
+        col_name = _projection_name(expr)
+        if col_name is None or col_name.casefold() in effective_cols:
+            keep.add(i + 1)
+    return keep
+
+
+def _apply_keep_positions(select: ast.SelectExpression, keep: set[int]) -> None:
+    """
+    Drop projection entries outside ``keep`` and renumber positional references.
+
+    GROUP BY and ORDER BY positions are renumbered rather than rewritten to
+    alias names, which is invalid in dialects like Trino. Left alone they would
+    quietly point at whichever column slid into that slot. An empty result
+    leaves the projection alone: an empty SELECT is never an improvement.
+    """
     new_projection = []
     old_to_new: dict[int, int] = {}  # 1-indexed old pos to 1-indexed new pos
-    for i, expr in enumerate(projection):
-        old_pos = i + 1
-        col_name = _col_name(expr)
-        if col_name is None:  # pragma: no cover
-            # Keep expressions we can't analyze (defensive)
+    for i, expr in enumerate(select.projection):
+        if i + 1 in keep:
             new_projection.append(expr)
-            old_to_new[old_pos] = len(new_projection)
-        elif col_name in effective_cols:
-            new_projection.append(expr)
-            old_to_new[old_pos] = len(new_projection)
-        # else: pruned — no mapping entry
+            old_to_new[i + 1] = len(new_projection)
 
-    # If we filtered everything, keep original (shouldn't happen)
     if new_projection:
-        query_ast.select.projection = new_projection
+        select.projection = new_projection
 
-    # Renumber positional GROUP BY references if any columns were removed before them.
-    if positional_refs:
-        new_group_by: list[ast.Expression] = []
-        for item in query_ast.select.group_by:
-            if isinstance(item, ast.Number) and isinstance(item.value, int):
-                old_pos = int(item.value)
-                new_pos = old_to_new.get(old_pos, old_pos)
-                new_group_by.append(
-                    ast.Number(value=new_pos) if new_pos != old_pos else item,
+    new_group_by: list[ast.Expression] = []
+    for item in select.group_by:
+        if isinstance(item, ast.Number) and isinstance(item.value, int):
+            old_pos = int(item.value)
+            new_pos = old_to_new.get(old_pos, old_pos)
+            new_group_by.append(
+                ast.Number(value=new_pos) if new_pos != old_pos else item,
+            )
+        else:
+            new_group_by.append(item)
+    select.group_by = new_group_by
+
+    if select.organization is not None:
+        for sort_item in (*select.organization.order, *select.organization.sort):
+            position = sort_item.expr
+            if isinstance(position, ast.Number) and isinstance(position.value, int):
+                position.value = old_to_new.get(
+                    int(position.value),
+                    int(position.value),
                 )
-            else:
-                new_group_by.append(item)
-        query_ast.select.group_by = new_group_by
 
-    return query_ast
+
+def _set_op_arms(select: ast.SelectExpression) -> list[ast.SelectExpression]:
+    """Each arm of a set operation, or the select itself when there is none."""
+    arms = []
+    arm: ast.SelectExpression | None = select
+    while arm is not None:
+        arms.append(arm)
+        arm = arm.set_op.right if arm.set_op else None
+    return arms
+
+
+def _compares_whole_rows(select: ast.SelectExpression) -> bool:
+    """
+    Whether this select picks its rows by comparing them against each other.
+
+    DISTINCT does — it keeps a row only if no earlier row equals it. So does
+    every set operation but UNION ALL: UNION, INTERSECT, EXCEPT, EXCEPT ALL
+    and MINUS all decide a row's fate by looking at the other arm's rows.
+    UNION ALL alone just concatenates, and is the one safe kind. Read per
+    arm, so an arm that is itself DISTINCT under a UNION ALL counts too.
+
+    This matters because pruning rests on an unread column being free to
+    drop, and a row-to-row comparison uses every column projected, read or
+    not. Drop ``drop_me`` from
+
+        SELECT grp, keep, drop_me FROM t WHERE id <= 2
+        UNION
+        SELECT grp, keep, drop_me FROM t WHERE id >= 3
+
+    and two rows fold into one, so SUM(keep) answers 30 where it owes 40.
+    Nothing raises; the number just gets quieter.
+
+    Callers put such a scope in ``unprunable``, which keeps its projection
+    whole and stops a narrowed demand reaching a source it stars.
+    """
+    return any(
+        (arm.quantifier or "").upper() == "DISTINCT"
+        or (
+            arm.set_op is not None
+            and " ".join((arm.set_op.kind or "").upper().split()) != "UNION ALL"
+        )
+        for arm in _set_op_arms(select)
+    )
+
+
+def _arm_parts(arm: ast.SelectExpression) -> list[ast.Node]:
+    """The clauses of one arm, excluding the arms unioned after it."""
+    return [
+        *arm.projection,
+        *arm.group_by,
+        *arm.lateral_views,
+        *([arm.from_] if arm.from_ else []),
+        *([arm.where] if arm.where else []),
+        *([arm.having] if arm.having else []),
+        *([arm.organization] if arm.organization else []),
+    ]
+
+
+def _table_alias(table: ast.Table) -> ast.Name | None:
+    """The alias a table carries, whether on the table itself or wrapping it."""
+    if table.alias:
+        return table.alias
+    if isinstance(table.parent, ast.Alias):
+        return table.parent.alias
+    return None
+
+
+def _arm_sources(arm: ast.SelectExpression, cte_names: set[str]) -> dict[str, str]:
+    """
+    Map every qualifier an arm can use for a CTE to that CTE's name.
+
+    A table can be addressed by its alias or by the CTE name itself, so both
+    land in the map.
+    """
+    sources: dict[str, str] = {}
+    for part in _arm_parts(arm):
+        for table in part.find_all(ast.Table):
+            name = table.name.identifier(quotes=False)
+            if name in cte_names:
+                sources[name] = name
+                if alias := _table_alias(table):
+                    sources[alias.identifier(quotes=False)] = name
+    return sources
+
+
+def _record_arm_demands(
+    arm: ast.SelectExpression,
+    sources: dict[str, str],
+    live: dict[str, set[str]],
+) -> None:
+    """
+    Charge each column an arm reads to the CTE that has to project it.
+
+    A qualified reference goes to the CTE its qualifier names, and the column
+    wanted there is the segment right after the qualifier — for a struct path
+    like ``p.line_item.target_sets`` the producer projects ``line_item``, not
+    the leaf. A reference with no qualifier we recognize goes to every CTE in
+    scope: which one supplies it is only knowable after compilation, and
+    keeping a name a CTE does not have is a no-op.
+
+    A qualifier reaches us two ways. Dotted into the name is the parsed form,
+    and it can carry further struct segments. Hung off the column as a table is
+    what the builder produces for its own projections and GROUP BY, and there
+    the column name stands alone.
+    """
+    bare_targets = set(sources.values())
+    for part in _arm_parts(arm):
+        for column in part.find_all(ast.Column):
+            segments = column.identifier(quotes=False).split(SEPARATOR)
+            qualifier = segments[0] if len(segments) > 1 else None
+            wanted = segments[1] if len(segments) > 1 else segments[0]
+            if qualifier is None:
+                qualifier = column_table_name(column)
+            if qualifier in sources:
+                live[sources[qualifier]].add(wanted)
+            else:
+                for target in bare_targets:
+                    live[target].add(wanted)
+
+
+def _scopes_readers_first(
+    scopes: dict[str, ast.Query],
+    cte_names: set[str],
+) -> list[str]:
+    """
+    Topologically sort the scopes based on read order.
+
+    A CTE is only reached once every scope reading it has been, so the demand
+    on it is complete by then. Pruning a reader only narrows what it asks of
+    its own sources, so one pass in this order settles every projection.
+
+    Returns the CTE names plus ``""`` for the outer select. No scope reads
+    the outer select, so it always comes first.
+    """
+    reads: dict[str, set[str]] = {}
+    for key, scope in scopes.items():
+        producers: set[str] = set()
+        for arm in _set_op_arms(scope.select):
+            producers.update(_arm_sources(arm, cte_names).values())
+        producers.discard(key)
+        reads[key] = producers
+
+    remaining = dict.fromkeys(scopes, 0)
+    for producers in reads.values():
+        for producer in producers:
+            remaining[producer] += 1
+
+    ready = [key for key, count in remaining.items() if not count]
+    order: list[str] = []
+    while ready:
+        key = ready.pop()
+        order.append(key)
+        for producer in reads[key]:
+            remaining[producer] -= 1
+            if not remaining[producer]:
+                ready.append(producer)
+
+    if len(order) < len(scopes):  # pragma: no cover
+        # A reference cycle among CTEs; fall back to declaration order reversed.
+        settled = set(order)
+        order.extend(key for key in reversed(list(scopes)) if key not in settled)
+    return order
+
+
+def prune_cte_projections(query: ast.Query) -> None:
+    """
+    Prune unused columns from the query, once it's fully assembled.
+
+    1. Topologically sort the scopes based on read order (the CTEs plus the
+       outer select, keyed ``""``, which is the answer and so never pruned),
+       readers before what they read — :func:`_scopes_readers_first`.
+    2. Walk that order once, keeping two records: ``live[cte]``, columns used
+       by a downstream scope, and ``unprunable``, for CTEs that cannot be
+       pruned.
+    3. At each scope: mark it unprunable if it compares whole rows
+       (:func:`_compares_whole_rows`), prune to what it actually needs, then
+       add the columns it reads to each of its sources' ``live``.
+
+    Pruning a scope before recording its reads is what makes one pass enough:
+    trimming a reader narrows what it goes on to ask of the CTEs beneath it.
+    Using ``*`` makes its source unprunable, unless the star's own scope has
+    demand to pass down. A reference whose qualifier names no CTE in scope is
+    added to every CTE in scope — which one supplies it needs compilation to
+    know, and asking a CTE for a name it has not got is a no-op.
+    """
+    ctes = {cte.alias_or_name.name: cte for cte in query.ctes}
+    if not ctes:
+        return
+    cte_names = set(ctes)
+    # The outer select is a scope too, and the only one nothing else reads.
+    scopes: dict[str, ast.Query] = {"": query, **ctes}
+
+    live: dict[str, set[str]] = {name: set() for name in cte_names}
+    unprunable: set[str] = set()
+
+    for key in _scopes_readers_first(scopes, cte_names):
+        scope = scopes[key]
+        if key and _compares_whole_rows(scope.select):
+            # Its row is its match key, so it also can't narrow what it stars.
+            unprunable.add(key)
+        if key and live[key] and key not in unprunable:
+            arms = _set_op_arms(scope.select)
+            if len(arms) == 1:
+                filter_cte_projection(scope, live[key])
+            else:
+                # Arms are unioned by position, so they all keep the same ones.
+                keep: set[int] = set()
+                for arm in arms:
+                    keep.update(_keep_positions(arm, live[key]))
+                for arm in arms:
+                    _apply_keep_positions(arm, keep)
+
+        for arm in _set_op_arms(scope.select):
+            sources = _arm_sources(arm, cte_names)
+            _record_arm_demands(arm, sources, live)
+            if not any(_is_star(item) for item in arm.projection):
+                continue
+            # A star names no columns of its own: it re-exposes whatever its
+            # source has. So a CTE that stars a source passes its own demand
+            # straight through. Where that demand is unknown — the outer
+            # select, or a CTE nobody reads — the source keeps everything.
+            starred = set(sources.values())
+            if key and key not in unprunable and live[key]:
+                for target in starred:
+                    live[target].update(live[key])
+            else:
+                unprunable.update(starred)
 
 
 def flatten_inner_ctes(
@@ -2072,7 +2367,6 @@ def _build_select_projection_map(
 def collect_node_ctes(
     ctx: BuildContext,
     nodes_to_include: list[Node],
-    needed_columns_by_node: dict[str, set[str]] | None = None,
     injected_filters: dict[str, ast.Expression] | None = None,
     pushdown: PushdownFilters | None = None,
 ) -> tuple[list[tuple[str, ast.Query]], list[str], dict[str, set[str]]]:
@@ -2091,8 +2385,6 @@ def collect_node_ctes(
     Args:
         ctx: Build context
         nodes_to_include: List of nodes to create CTEs for
-        needed_columns_by_node: Optional dict of node_name -> set of column names
-            If provided, CTEs will only select the needed columns.
         injected_filters: Optional dict of node_name -> filter expression to inject
             as a WHERE clause into that node's CTE. Used to push temporal partition
             filters down into upstream CTEs (e.g. a date-spine) rather than applying
@@ -2207,14 +2499,6 @@ def collect_node_ctes(
             cte_names,
             inner_cte_renames,
         )
-
-        # Apply column filtering if specified
-        needed_cols = None
-        if needed_columns_by_node:  # pragma: no branch
-            needed_cols = needed_columns_by_node.get(node.name)
-
-        if needed_cols and not _cte_has_set_operation(query_ast):  # pragma: no branch
-            query_ast = filter_cte_projection(query_ast, needed_cols)
 
         # Inject filters into this CTE's WHERE clause from two sources:
         # (1) Temporal/explicit filters targeted at this node by name

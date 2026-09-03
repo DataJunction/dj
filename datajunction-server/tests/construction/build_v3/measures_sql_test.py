@@ -3679,16 +3679,7 @@ class TestTemporalFilterPushdown:
             WITH v3_order_details AS (
               SELECT
                 o.order_id,
-                oi.line_number,
-                o.customer_id,
-                o.order_date,
-                o.from_location_id,
-                o.to_location_id,
-                o.status,
-                oi.product_id,
-                oi.quantity,
-                oi.unit_price,
-                oi.quantity * oi.unit_price AS line_total
+                o.order_date
               FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             ),
             v3_orders_by_date AS (
@@ -6202,8 +6193,7 @@ class TestOuterJoinFilterSafety:
             WITH v3_dates_with_orders AS (
                 SELECT
                     d.date_id,
-                    o.order_id,
-                    o.status
+                    o.order_id
                 FROM (SELECT * FROM default.v3.orders o WHERE o.status = 'completed') o
                 RIGHT OUTER JOIN default.v3.dates d ON o.order_date = d.date_id
             )
@@ -6320,16 +6310,9 @@ class TestUpstreamFilterOnlyPushdown:
             v3_order_details AS (
                 SELECT
                     o.order_id,
-                    oi.line_number,
-                    o.customer_id,
-                    o.order_date,
-                    o.from_location_id,
-                    o.to_location_id,
-                    o.status,
                     oi.product_id,
                     oi.quantity,
-                    oi.unit_price,
-                    oi.quantity * oi.unit_price AS line_total
+                    oi.unit_price
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
                 WHERE oi.product_id = 7
@@ -6337,7 +6320,6 @@ class TestUpstreamFilterOnlyPushdown:
             v3_order_details_wrapper_filter_only AS (
                 SELECT
                     order_id,
-                    product_id,
                     quantity * unit_price AS line_total
                 FROM v3_order_details
                 WHERE product_id = 7
@@ -6579,7 +6561,7 @@ class TestUpstreamFilterOnlyPushdown:
             sql,
             """
             WITH v3_status_events AS (
-                SELECT log_id, raw_status AS event_status
+                SELECT log_id
                 FROM default.v3.status_log
                 WHERE raw_status = 'OPEN'
             )
@@ -6858,17 +6840,11 @@ class TestUpstreamFilterOnlyPushdown:
             ),
             v3_order_details AS (
                 SELECT
-                    o.order_id,
-                    oi.line_number,
                     o.customer_id,
                     o.order_date,
-                    o.from_location_id,
-                    o.to_location_id,
-                    o.status,
                     oi.product_id,
                     oi.quantity,
-                    oi.unit_price,
-                    oi.quantity * oi.unit_price AS line_total
+                    oi.unit_price
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
                 WHERE oi.product_id = 7
@@ -6877,7 +6853,6 @@ class TestUpstreamFilterOnlyPushdown:
                 SELECT
                     customer_id,
                     order_date,
-                    product_id,
                     quantity * unit_price AS line_total
                 FROM v3_order_details
                 WHERE product_id = 7
@@ -7956,7 +7931,7 @@ class TestFilterPushdownScope:
             sql,
             """
             WITH v3_events_with_date AS (
-              SELECT account_id, event_type, audit_date
+              SELECT account_id, event_type
               FROM default.v3.audit_log_txlink_unlinked AS s
               WHERE audit_date >= 20260101
             ),
@@ -8055,7 +8030,7 @@ class TestFilterPushdownScope:
             sql,
             """
             WITH v3_events_double_link AS (
-              SELECT account_id, event_type, audit_date
+              SELECT account_id, event_type
               FROM default.v3.audit_log_txlinkdouble AS s
               WHERE audit_date >= 20260101
                 AND s.audit_date >= 20260101
@@ -9074,7 +9049,7 @@ class TestParentCteFilterLanding:
             """
             WITH
             v3_events_by_window_multi AS (
-                SELECT e.account_id, e.event_date, e.value, w.window
+                SELECT e.account_id, e.value, w.window
                 FROM default.v3.events_multi_filter AS e
                 CROSS JOIN default.v3.obs_windows AS w
                 WHERE w.window IN ('1-35') AND e.event_date >= 20260101
@@ -9156,11 +9131,11 @@ class TestParentCteFilterLanding:
             """
             WITH
             v3_events_union AS (
-                SELECT account_id, event_date, value, 'a' AS branch
+                SELECT value, 'a' AS branch
                 FROM default.v3.events_setop
                 WHERE event_date >= 20260101
                 UNION ALL
-                SELECT account_id, event_date, value, 'b' AS branch
+                SELECT value, 'b' AS branch
                 FROM default.v3.events_setop
             )
             SELECT t1.branch, SUM(t1.value) value_sum_HASH
@@ -9429,7 +9404,7 @@ class TestParentCteFilterLanding:
             sql,
             """
             WITH v3_events_with_side AS (
-              SELECT e.account_id, s.measure_date
+              SELECT e.account_id
               FROM default.v3.events_left_join_primary AS e
               LEFT JOIN (
                 SELECT *
@@ -9547,7 +9522,7 @@ class TestParentCteFilterLanding:
             sql,
             """
             WITH v3_events_with_nested_self AS (
-              SELECT a.account_id, a.event_date
+              SELECT a.account_id
               FROM default.v3.events_nested_self_ref AS a
               LEFT JOIN (
                 SELECT rev.account_id, rev.lifecycle_id
@@ -9746,7 +9721,7 @@ class TestParentCteFilterLanding:
               WHERE column_b = 20260101
             ),
             v3_fact_transform_dual AS (
-              SELECT account_id, column_a, value
+              SELECT account_id, value
               FROM default.v3.fact_dual
               WHERE column_a = 20260101
             )
@@ -10469,7 +10444,7 @@ class TestParentCteFilterLanding:
               WHERE window_label = 'demo'
             ),
             v3_alias_collide_xform AS (
-              SELECT a.account_id, a.window_label
+              SELECT a.account_id
               FROM (
                 SELECT a.account_id, a.event_date, a.value, w.window_label
                 FROM default.v3.events_alias_collide AS a
