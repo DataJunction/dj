@@ -938,14 +938,29 @@ def _set_op_arms(select: ast.SelectExpression) -> list[ast.SelectExpression]:
     return arms
 
 
-def _dedups_rows(select: ast.SelectExpression) -> bool:
+def _compares_whole_rows(select: ast.SelectExpression) -> bool:
     """
-    Whether the whole projected row is the select's match key.
+    Whether this select picks its rows by comparing them against each other.
 
-    DISTINCT compares complete rows, and so does every set operation but
-    UNION ALL — the one kind that passes its arms' rows through untouched.
-    Dropping a column then folds together rows that were distinct and
-    silently changes the row count.
+    DISTINCT does — it keeps a row only if no earlier row equals it. So does
+    every set operation but UNION ALL: UNION, INTERSECT, EXCEPT, EXCEPT ALL
+    and MINUS all decide a row's fate by looking at the other arm's rows.
+    UNION ALL alone just concatenates, and is the one safe kind. Read per
+    arm, so an arm that is itself DISTINCT under a UNION ALL counts too.
+
+    This matters because pruning rests on an unread column being free to
+    drop, and a row-to-row comparison uses every column projected, read or
+    not. Drop ``drop_me`` from
+
+        SELECT grp, keep, drop_me FROM t WHERE id <= 2
+        UNION
+        SELECT grp, keep, drop_me FROM t WHERE id >= 3
+
+    and two rows fold into one, so SUM(keep) answers 30 where it owes 40.
+    Nothing raises; the number just gets quieter.
+
+    Callers put such a scope in ``unprunable``, which keeps its projection
+    whole and stops a narrowed demand reaching a source it stars.
     """
     return any(
         (arm.quantifier or "").upper() == "DISTINCT"
@@ -1037,14 +1052,14 @@ def _scopes_readers_first(
     cte_names: set[str],
 ) -> list[str]:
     """
-    Topologically sort the scopes on reads, readers ahead of what they read.
+    Topologically sort the scopes based on read order.
 
     A CTE is only reached once every scope reading it has been, so the demand
     on it is complete by then. Pruning a reader only narrows what it asks of
     its own sources, so one pass in this order settles every projection.
 
-    Returns the CTE names plus ``""`` for the outer select, which nothing
-    reads and which therefore always comes first.
+    Returns the CTE names plus ``""`` for the outer select. No scope reads
+    the outer select, so it always comes first.
     """
     reads: dict[str, set[str]] = {}
     for key, scope in scopes.items():
@@ -1078,14 +1093,24 @@ def _scopes_readers_first(
 
 def prune_cte_projections(query: ast.Query) -> None:
     """
-    Trim every CTE in an assembled query to the columns its readers use.
+    Prune unused columns from the query, once it's fully assembled.
 
-    Runs once the query is whole, so each CTE can be asked of the consumers that
-    actually exist rather than of an enumeration of the ways a column might be
-    demanded. Consumers are pruned first, so by the time a CTE is reached the
-    demand on it has already narrowed. Needs no database and no compilation:
-    every table reference is already a CTE name or a physical table, and a
-    CTE's output names read straight off its own projection.
+    1. Topologically sort the scopes based on read order (the CTEs plus the
+       outer select, keyed ``""``, which is the answer and so never pruned),
+       readers before what they read — :func:`_scopes_readers_first`.
+    2. Walk that order once, keeping two records: ``live[cte]``, columns used
+       by a downstream scope, and ``unprunable``, for CTEs that cannot be
+       pruned.
+    3. At each scope: mark it unprunable if it compares whole rows
+       (:func:`_compares_whole_rows`), prune to what it actually needs, then
+       add the columns it reads to each of its sources' ``live``.
+
+    Pruning a scope before recording its reads is what makes one pass enough:
+    trimming a reader narrows what it goes on to ask of the CTEs beneath it.
+    Using ``*`` makes its source unprunable, unless the star's own scope has
+    demand to pass down. A reference whose qualifier names no CTE in scope is
+    added to every CTE in scope — which one supplies it needs compilation to
+    know, and asking a CTE for a name it has not got is a no-op.
     """
     ctes = {cte.alias_or_name.name: cte for cte in query.ctes}
     if not ctes:
@@ -1099,7 +1124,7 @@ def prune_cte_projections(query: ast.Query) -> None:
 
     for key in _scopes_readers_first(scopes, cte_names):
         scope = scopes[key]
-        if key and _dedups_rows(scope.select):
+        if key and _compares_whole_rows(scope.select):
             # Its row is its match key, so it also can't narrow what it stars.
             unprunable.add(key)
         if key and live[key] and key not in unprunable:
