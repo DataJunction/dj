@@ -68,6 +68,7 @@ from datajunction_server.models.node import NodeType
 from datajunction_server.naming import amenable_col_names
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
+from tests.construction.build_v3 import assert_sql_equal
 from tests.construction.build_v3.projection_invariant import (
     unprojected_references,
 )
@@ -1663,6 +1664,19 @@ class TestFilterCteProjection:
         projection = result.select.projection
         assert len(projection) == 2
 
+    def test_distinct_keeps_every_column(self):
+        """
+        The projection is the dedup key, so a direct caller gets it whole.
+
+        ``prune_cte_projections`` settles this earlier for a CTE, so this is
+        the only guard a caller reaching straight for the helper has.
+        """
+        sql = "SELECT DISTINCT col_a, col_b, col_c FROM t"
+
+        result = filter_cte_projection(parse(sql), {"col_a"})
+
+        assert str(result) == str(parse(sql))
+
 
 class TestFilterCteProjectionPositionalGroupBy:
     """Tests for filter_cte_projection with positional GROUP BY handling."""
@@ -2754,6 +2768,55 @@ class TestPruneCteProjectionsExecuted:
         arm = query.ctes[0].select
         assert [str(entry) for entry in arm.projection] == ["id"]
         assert [str(item.expr) for item in arm.organization.order] == ["1"]
+
+    def test_union_producer_keeps_every_column(self):
+        """
+        UNION dedups on the whole row, so a column the reader never names is
+        still part of what makes two rows different. Pruning it merges them.
+        """
+        sql = (
+            "WITH a AS ("
+            "SELECT grp, keep, drop_me FROM t WHERE id <= 2 "
+            "UNION "
+            "SELECT grp, keep, drop_me FROM t WHERE id >= 3"
+            ") SELECT SUM(x.keep) AS s FROM a AS x"
+        )
+        assert self._execute(sql) == [(40,)]
+        pruned, _ = self._prune(sql)
+        assert self._execute(pruned) == [(40,)], pruned
+        assert_sql_equal(pruned, sql)
+
+    def test_except_producer_keeps_every_column(self):
+        """
+        EXCEPT matches on the whole row too, so a narrowed projection removes
+        rows the full comparison would have kept.
+        """
+        sql = (
+            "WITH a AS ("
+            "SELECT grp, keep, drop_me FROM t "
+            "EXCEPT "
+            "SELECT grp, keep, drop_me FROM t WHERE id = 2"
+            ") SELECT SUM(x.keep) AS s FROM a AS x"
+        )
+        assert self._execute(sql) == [(30,)]
+        pruned, _ = self._prune(sql)
+        assert self._execute(pruned) == [(30,)], pruned
+        assert_sql_equal(pruned, sql)
+
+    def test_source_starred_under_distinct_keeps_every_column(self):
+        """
+        The star is what the DISTINCT dedups on, so narrowing the source it
+        draws from narrows the dedup key just as surely.
+        """
+        sql = (
+            "WITH base AS (SELECT grp, keep, drop_me FROM t), "
+            "d AS (SELECT DISTINCT * FROM base) "
+            "SELECT SUM(x.keep) AS s FROM d AS x"
+        )
+        assert self._execute(sql) == [(40,)]
+        pruned, _ = self._prune(sql)
+        assert self._execute(pruned) == [(40,)], pruned
+        assert_sql_equal(pruned, sql)
 
     def test_a_column_only_the_producer_s_where_reads_is_still_dropped(self):
         """
