@@ -1341,6 +1341,27 @@ class CubeSpec(NodeSpec):
             rendered.append(rendered_col)
         return rendered
 
+    @property
+    def matched_rendered_columns(self) -> list["ColumnSpec"]:
+        """
+        The ``columns:`` entries naming a column this cube has, keyed the same way
+        the deploy keys them: `Column.cube_element_name`, so a metric or dimension
+        as written, with its `[role]` suffix. Anything else is never persisted, so
+        comparing it would report a change on every deploy.
+        """
+        cube_columns = set(self.rendered_metrics) | set(self.rendered_dimensions)
+        return [col for col in self.rendered_columns if col.name in cube_columns]
+
+    @property
+    def unmatched_column_names(self) -> list[str]:
+        """
+        Names in ``columns:`` that are not columns of this cube, and so are ignored.
+        """
+        cube_columns = set(self.rendered_metrics) | set(self.rendered_dimensions)
+        return [
+            col.name for col in self.rendered_columns if col.name not in cube_columns
+        ]
+
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, CubeSpec):
             return False
@@ -1372,8 +1393,8 @@ class CubeSpec(NodeSpec):
         )
 
         return normalize_cube_columns(
-            self.rendered_columns,
-        ) == normalize_cube_columns(other.rendered_columns)
+            self.matched_rendered_columns,
+        ) == normalize_cube_columns(other.matched_rendered_columns)
 
 
 NodeUnion = Annotated[
