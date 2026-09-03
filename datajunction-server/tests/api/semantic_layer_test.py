@@ -23,6 +23,7 @@ from datajunction_server.api.semantic_layer import (
     _quote_value,
 )
 from datajunction_server.errors import DJException
+from datajunction_server.models.node_type import NodeType
 
 
 class TestFilterToSql:
@@ -85,16 +86,25 @@ class TestSemanticViewPayloadTypes:
                     cube_element_name="sem.total_amount",
                     type="decimal(18,2)",
                     display_name="Total amount",
+                    description="Gross sales amount",
+                    unit={"kind": "currency", "code": "USD"},
+                    attribute_names=lambda: ["certified"],
                 ),
                 SimpleNamespace(
                     cube_element_name="sem.region.region_id",
                     type="bigint",
                     display_name="Region ID",
+                    description=None,
+                    unit=None,
+                    attribute_names=lambda: ["primary_key"],
                 ),
                 SimpleNamespace(
                     cube_element_name="sem.region.region_name[home]",
                     type="varchar(255)",
                     display_name="Home region name",
+                    description=None,
+                    unit=None,
+                    attribute_names=lambda: [],
                 ),
             ],
             cube_node_metrics=["sem.total_amount"],
@@ -113,10 +123,20 @@ class TestSemanticViewPayloadTypes:
                 "name": "total_amount",
                 "type": "decimal",
                 "definition": "sem.total_amount",
-                "description": None,
+                "description": "Gross sales amount",
                 "aggregation": "OTHER",
                 "metadata": {
                     "display_name": "Total amount",
+                    "semantic_type": "currency",
+                    "unit": {"kind": "currency", "code": "USD"},
+                    "attributes": ["certified"],
+                    "format": {
+                        "preset": "currency",
+                        "precision": None,
+                        "scale": None,
+                    },
+                    "filter": None,
+                    "extensions": None,
                 },
             },
         ]
@@ -131,6 +151,12 @@ class TestSemanticViewPayloadTypes:
                 "grain": None,
                 "metadata": {
                     "display_name": "Region ID",
+                    "semantic_type": "identifier",
+                    "unit": None,
+                    "attributes": ["primary_key"],
+                    "format": None,
+                    "filter": None,
+                    "extensions": None,
                 },
             },
             {
@@ -142,6 +168,12 @@ class TestSemanticViewPayloadTypes:
                 "grain": None,
                 "metadata": {
                     "display_name": "Home region name",
+                    "semantic_type": "category",
+                    "unit": None,
+                    "attributes": None,
+                    "format": None,
+                    "filter": None,
+                    "extensions": None,
                 },
             },
         ]
@@ -169,6 +201,76 @@ class TestSemanticViewPayloadTypes:
 
         assert metrics[0].type == "floating"
         assert dimensions[0].type == "utf8"
+
+    def test_metric_metadata_reads_portable_custom_metadata(self):
+        metric_revision = SimpleNamespace(
+            name="sem.total_amount",
+            type=NodeType.METRIC,
+            custom_metadata={
+                "semantic_layer": {
+                    "display_name": "Net revenue",
+                    "semantic_type": "currency",
+                    "unit": {"kind": "currency", "code": "EUR"},
+                    "attributes": ["certified", "certified"],
+                    "format": {"preset": "currency", "precision": 2},
+                    "filter": {
+                        "kind": "range",
+                        "operators": [">", ">="],
+                        "default_operator": ">=",
+                    },
+                    "extensions": {
+                        "superset": {"d3format": "€,.2f"},
+                        "google_sheets": {
+                            "numberFormat": {
+                                "type": "CURRENCY",
+                                "pattern": "€#,##0.00",
+                            },
+                        },
+                    },
+                    "owner": "finance",
+                },
+            },
+        )
+        cube = SimpleNamespace(
+            columns=[
+                SimpleNamespace(
+                    cube_element_name="sem.total_amount",
+                    type="double",
+                    display_name="Total amount",
+                    description=None,
+                    unit=None,
+                    attribute_names=lambda: [],
+                ),
+            ],
+            cube_elements=[SimpleNamespace(node_revision=metric_revision)],
+            cube_node_metrics=["sem.total_amount"],
+        )
+
+        metadata = _metrics_payload(cube)[0].metadata
+
+        assert metadata is not None
+        assert metadata.model_dump(exclude_none=True) == {
+            "display_name": "Net revenue",
+            "semantic_type": "currency",
+            "unit": {"kind": "currency", "code": "EUR"},
+            "attributes": ["certified"],
+            "format": {"preset": "currency", "precision": 2},
+            "filter": {
+                "kind": "range",
+                "operators": [">", ">="],
+                "default_operator": ">=",
+            },
+            "extensions": {
+                "superset": {"d3format": "€,.2f"},
+                "google_sheets": {
+                    "numberFormat": {
+                        "type": "CURRENCY",
+                        "pattern": "€#,##0.00",
+                    },
+                },
+                "datajunction": {"owner": "finance"},
+            },
+        }
 
     def test_metric_and_dimension_payloads_fallback_when_column_is_missing(self):
         cube = SimpleNamespace(
@@ -318,6 +420,22 @@ async def _setup_cube(client: AsyncClient) -> str:
                 "description": "",
                 "mode": "published",
                 "query": "SELECT SUM(amount) FROM sem.sales",
+                "custom_metadata": {
+                    "semantic_layer": {
+                        "semantic_type": "currency",
+                        "unit": {"kind": "currency", "code": "USD"},
+                        "format": {"preset": "currency", "precision": 2},
+                        "extensions": {
+                            "superset": {"d3format": "$,.2f"},
+                            "google_sheets": {
+                                "numberFormat": {
+                                    "type": "CURRENCY",
+                                    "pattern": "$#,##0.00",
+                                },
+                            },
+                        },
+                    },
+                },
             },
         ),
         200,
@@ -357,7 +475,8 @@ async def test_semantic_endpoints_end_to_end(client: AsyncClient):
         await client.post("/semantic/views/list", json={"runtime_configuration": {}}),
         200,
     )
-    assert any(v["name"] == view for v in resp.json())
+    view_summary = next(v for v in resp.json() if v["name"] == view)
+    assert view_summary["display_name"] == "Sales Cube"
 
     # /views/{view} returns the cube's metrics and dimensions in spec shape.
     resp = await _expect(
@@ -368,8 +487,31 @@ async def test_semantic_endpoints_end_to_end(client: AsyncClient):
         200,
     )
     detail = resp.json()
+    assert detail["display_name"] == "Sales Cube"
     assert {m["id"] for m in detail["metrics"]} == {"sem.total_amount"}
     assert any(d["id"] == "sem.region.region_name" for d in detail["dimensions"])
+    assert detail["metrics"][0]["metadata"] == {
+        "display_name": "Total Amount",
+        "semantic_type": "currency",
+        "unit": {"kind": "currency", "code": "USD"},
+        "format": {"preset": "currency", "precision": 2},
+        "extensions": {
+            "superset": {"d3format": "$,.2f"},
+            "google_sheets": {
+                "numberFormat": {
+                    "type": "CURRENCY",
+                    "pattern": "$#,##0.00",
+                },
+            },
+        },
+    }
+    dimension = next(
+        dim for dim in detail["dimensions"] if dim["id"] == "sem.region.region_name"
+    )
+    assert dimension["metadata"] == {
+        "display_name": "Region Name",
+        "semantic_type": "category",
+    }
 
     # /sql generates physical SQL, pinned to this cube, in the trino dialect.
     resp = await _expect(
@@ -498,7 +640,7 @@ async def test_list_views_djexception_returns_problem(
 ):
     """``Node.find_names`` raising DJException -> problem response in list_views."""
     monkeypatch.setattr(
-        "datajunction_server.api.semantic_layer.Node.find_names",
+        "datajunction_server.api.semantic_layer.Node.find_names_with_display_names",
         AsyncMock(
             side_effect=DJException(message="find blew up", http_status_code=418),
         ),

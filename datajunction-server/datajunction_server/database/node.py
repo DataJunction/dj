@@ -987,6 +987,28 @@ class Node(Base):
         return list(result.scalars().all())
 
     @classmethod
+    async def find_names_with_display_names(
+        cls,
+        session: AsyncSession,
+        prefix: str | None = None,
+        node_type: NodeType | None = None,
+    ) -> list[tuple[str, str | None]]:
+        """Find active node names and display names without ORM hydration."""
+        statement = (
+            select(Node.name, NodeRevision.display_name)
+            .join(
+                NodeRevision,
+                and_(
+                    Node.id == NodeRevision.node_id,
+                    Node.current_version == NodeRevision.version,
+                ),
+            )
+            .where(*cls._find_filters(prefix, node_type))
+        )
+        result = await session.execute(statement)
+        return list(result.tuples().all())
+
+    @classmethod
     async def main_branch_names(
         cls,
         session: AsyncSession,
