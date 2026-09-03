@@ -1032,12 +1032,19 @@ def _record_arm_demands(
                     live[target].add(wanted)
 
 
-def _consumers_first(scopes: dict[str, ast.Query], cte_names: set[str]) -> list[str]:
+def _scopes_readers_first(
+    scopes: dict[str, ast.Query],
+    cte_names: set[str],
+) -> list[str]:
     """
-    Order the scopes so every reader comes before the CTE it reads.
+    Topologically sort the scopes on reads, readers ahead of what they read.
 
-    Pruning a reader only narrows what it asks of its own sources, so one pass
-    in this order is enough to settle every projection.
+    A CTE is only reached once every scope reading it has been, so the demand
+    on it is complete by then. Pruning a reader only narrows what it asks of
+    its own sources, so one pass in this order settles every projection.
+
+    Returns the CTE names plus ``""`` for the outer select, which nothing
+    reads and which therefore always comes first.
     """
     reads: dict[str, set[str]] = {}
     for key, scope in scopes.items():
@@ -1090,7 +1097,7 @@ def prune_cte_projections(query: ast.Query) -> None:
     live: dict[str, set[str]] = {name: set() for name in cte_names}
     unprunable: set[str] = set()
 
-    for key in _consumers_first(scopes, cte_names):
+    for key in _scopes_readers_first(scopes, cte_names):
         scope = scopes[key]
         if key and _dedups_rows(scope.select):
             # Its row is its match key, so it also can't narrow what it stars.
