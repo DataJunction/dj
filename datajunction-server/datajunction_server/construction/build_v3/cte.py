@@ -994,27 +994,55 @@ def _table_alias(table: ast.Table) -> ast.Name | None:
     return None
 
 
-def _arm_sources(arm: ast.SelectExpression, cte_names: set[str]) -> dict[str, str]:
-    """
-    Map every qualifier an arm can use for a CTE to that CTE's name.
+def _joins_naturally(arm: ast.SelectExpression) -> bool:
+    """Whether the arm has a NATURAL JOIN."""
+    return any(join.natural for join in arm.find_all(ast.Join))
 
-    A table can be addressed by its alias or by the CTE name itself, so both
-    land in the map.
+
+def _arm_sources(
+    arm: ast.SelectExpression,
+    cte_names: set[str],
+) -> tuple[dict[str, str], set[str]]:
+    """
+    Resolve the qualifiers an arm uses for CTEs, and name the CTEs it reads.
+
+    FROM a AS x JOIN b over CTEs a and b gives
+    ({"a": "a", "x": "a", "b": "b"}, {"a", "b"}) -- a table answers to its
+    alias and to its own name.
+
+    A qualifier two tables claim is dropped, since a subquery can reuse an
+    alias for another CTE:
+
+        FROM a AS x WHERE EXISTS (SELECT 1 FROM b AS x ...)
+
+    x means a outside and b inside, so it resolves to neither and its columns
+    go to every CTE read. The read set is returned separately so it stays
+    whole when a qualifier drops.
     """
     sources: dict[str, str] = {}
+    shadowed: set[str] = set()
+    read: set[str] = set()
     for part in _arm_parts(arm):
         for table in part.find_all(ast.Table):
             name = table.name.identifier(quotes=False)
-            if name in cte_names:
-                sources[name] = name
-                if alias := _table_alias(table):
-                    sources[alias.identifier(quotes=False)] = name
-    return sources
+            if name not in cte_names:
+                continue
+            read.add(name)
+            qualifiers = [name]
+            if alias := _table_alias(table):
+                qualifiers.append(alias.identifier(quotes=False))
+            for qualifier in qualifiers:
+                if sources.setdefault(qualifier, name) != name:
+                    shadowed.add(qualifier)
+    for qualifier in shadowed:
+        del sources[qualifier]
+    return sources, read
 
 
 def _record_arm_demands(
     arm: ast.SelectExpression,
     sources: dict[str, str],
+    bare_targets: set[str],
     live: dict[str, set[str]],
 ) -> None:
     """
@@ -1031,8 +1059,11 @@ def _record_arm_demands(
     and it can carry further struct segments. Hung off the column as a table is
     what the builder produces for its own projections and GROUP BY, and there
     the column name stands alone.
+
+    A USING column is a column name on the join rather than a column
+    reference, and both sides must project it. JOIN b USING (id) charges id
+    to every CTE in scope, the same as an unqualified reference.
     """
-    bare_targets = set(sources.values())
     for part in _arm_parts(arm):
         for column in part.find_all(ast.Column):
             segments = column.identifier(quotes=False).split(SEPARATOR)
@@ -1043,6 +1074,11 @@ def _record_arm_demands(
             if qualifier in sources:
                 live[sources[qualifier]].add(wanted)
             else:
+                for target in bare_targets:
+                    live[target].add(wanted)
+        for criteria in part.find_all(ast.JoinCriteria):
+            for joined in criteria.using or []:
+                wanted = joined.identifier(quotes=False)
                 for target in bare_targets:
                     live[target].add(wanted)
 
@@ -1065,7 +1101,7 @@ def _scopes_readers_first(
     for key, scope in scopes.items():
         producers: set[str] = set()
         for arm in _set_op_arms(scope.select):
-            producers.update(_arm_sources(arm, cte_names).values())
+            producers.update(_arm_sources(arm, cte_names)[1])
         producers.discard(key)
         reads[key] = producers
 
@@ -1140,15 +1176,18 @@ def prune_cte_projections(query: ast.Query) -> None:
                     _apply_keep_positions(arm, keep)
 
         for arm in _set_op_arms(scope.select):
-            sources = _arm_sources(arm, cte_names)
-            _record_arm_demands(arm, sources, live)
+            sources, read = _arm_sources(arm, cte_names)
+            _record_arm_demands(arm, sources, read, live)
+            if _joins_naturally(arm):
+                # Its join key is the columns both sides share.
+                unprunable.update(read)
             if not any(_is_star(item) for item in arm.projection):
                 continue
             # A star names no columns of its own: it re-exposes whatever its
             # source has. So a CTE that stars a source passes its own demand
             # straight through. Where that demand is unknown — the outer
             # select, or a CTE nobody reads — the source keeps everything.
-            starred = set(sources.values())
+            starred = set(read)
             if key and key not in unprunable and live[key]:
                 for target in starred:
                     live[target].update(live[key])
