@@ -227,6 +227,30 @@ def test_extra_validation() -> None:
         "bound dimensions which are only for metrics."
     )
 
+    node = Node(name="A", type=NodeType.TRANSFORM, current_version="1")
+    node_revision = NodeRevision(
+        name=node.name,
+        type=node.type,
+        node=node,
+        version="1",
+        query="SELECT * FROM B",
+        reaggregate={
+            "rules": [
+                {
+                    "dimension": "B.date_id",
+                    "fn": "last_value",
+                },
+            ],
+        },
+    )
+    with pytest.raises(Exception) as excinfo:
+        node_revision.extra_validation()
+
+    assert str(excinfo.value) == (
+        "Node A of type transform cannot have "
+        "reaggregate settings which are only for metrics."
+    )
+
 
 def test_merging_availability_simple_no_partitions() -> None:
     """

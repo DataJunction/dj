@@ -926,6 +926,64 @@ class TestRequiredDimensions:
         assert "region" in col_names
 
     @pytest.mark.asyncio
+    async def test_prefetch_fetches_reaggregate_dim_node_from_db(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+        dim_node_in_db: Node,
+    ):
+        """_prefetch_required_dimension_nodes includes reaggregate dimensions."""
+        context = self._make_context(session, parent_node)
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT SUM(value) FROM test.parent",
+            reaggregate={
+                "rules": [
+                    {
+                        "dimension": "test.external_dim.region",
+                        "fn": "last_value",
+                    },
+                ],
+            },
+        )
+        validator = NodeSpecBulkValidator(context)
+
+        await validator._prefetch_required_dimension_nodes([spec])
+
+        assert "test.external_dim" in validator._all_dim_nodes
+        fetched = validator._all_dim_nodes["test.external_dim"]
+        assert fetched.current is not None
+        assert {c.name for c in fetched.current.columns} == {"region"}
+
+    @pytest.mark.asyncio
+    async def test_prefetch_skips_short_reaggregate_dimension(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """Short-form reaggregate dimensions do not trigger dimension-node prefetch."""
+        context = self._make_context(session, parent_node)
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT SUM(value) FROM test.parent",
+            reaggregate={
+                "rules": [
+                    {
+                        "dimension": "value",
+                        "fn": "last_value",
+                    },
+                ],
+            },
+        )
+        validator = NodeSpecBulkValidator(context)
+
+        await validator._prefetch_required_dimension_nodes([spec])
+
+        assert set(validator._all_dim_nodes.keys()) == set(
+            context.dependency_nodes.keys(),
+        )
+
+    @pytest.mark.asyncio
     async def test_prefetch_with_no_required_dimensions(
         self,
         session: AsyncSession,

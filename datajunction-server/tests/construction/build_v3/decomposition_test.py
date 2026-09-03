@@ -229,6 +229,7 @@ class TestIsDerivedMetric:
     ("protected_dimension", "requested_dimensions", "expected"),
     [
         ("v3.date.date_id[order]", ["v3.date.date_id[order]"], True),
+        ("v3.date.date_id[order]", ["v3.date.date_id[order]]"], True),
         ("v3.date.date_id[order]", ["v3.date.date_id"], False),
         ("v3.date.date_id[order]", ["v3.date.date_id[ship]"], False),
         ("v3.date.date_id[order]", ["date_id"], False),

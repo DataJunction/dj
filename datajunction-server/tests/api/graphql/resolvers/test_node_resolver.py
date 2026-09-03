@@ -70,6 +70,86 @@ def test_columns_resolver_filters_by_attribute():
     assert result[0].name == "user_id"
 
 
+def test_reaggregate_resolver_returns_none_for_non_metric():
+    """
+    Test that the reaggregate resolver only resolves for metric revisions.
+    """
+    from datajunction_server.api.graphql.scalars.node import NodeRevision
+    from datajunction_server.database import NodeRevision as DBNodeRevision
+    from datajunction_server.models.node_type import NodeType
+
+    db_node_revision = DBNodeRevision(
+        name="source_rev",
+        type=NodeType.SOURCE,
+        version="1",
+        reaggregate={
+            "rules": [
+                {
+                    "dimension": "default.date_dim.date",
+                    "fn": "last_value",
+                },
+            ],
+        },
+    )
+
+    result = NodeRevision.reaggregate(NodeRevision, root=db_node_revision)
+
+    assert result is None
+
+
+def test_reaggregate_resolver_returns_none_for_empty_metric_spec():
+    """
+    Test that the reaggregate resolver returns None for metrics without a spec.
+    """
+    from datajunction_server.api.graphql.scalars.node import NodeRevision
+    from datajunction_server.database import NodeRevision as DBNodeRevision
+    from datajunction_server.models.node_type import NodeType
+
+    db_node_revision = DBNodeRevision(
+        name="metric_rev",
+        type=NodeType.METRIC,
+        version="1",
+        reaggregate=None,
+    )
+
+    result = NodeRevision.reaggregate(NodeRevision, root=db_node_revision)
+
+    assert result is None
+
+
+def test_reaggregate_resolver_returns_metric_spec():
+    """
+    Test that the reaggregate resolver exposes metric reaggregation declarations.
+    """
+    from datajunction_server.api.graphql.scalars.node import NodeRevision
+    from datajunction_server.database import NodeRevision as DBNodeRevision
+    from datajunction_server.models.node_type import NodeType
+    from datajunction_server.models.reaggregate import ReaggregationFunction
+
+    db_node_revision = DBNodeRevision(
+        name="metric_rev",
+        type=NodeType.METRIC,
+        version="1",
+        reaggregate={
+            "rules": [
+                {
+                    "dimension": "default.date_dim.date",
+                    "fn": "last_value",
+                },
+            ],
+        },
+    )
+
+    result = NodeRevision.reaggregate(NodeRevision, root=db_node_revision)
+
+    assert result is not None
+    assert result.fn is None
+    assert result.weight is None
+    assert len(result.rules) == 1
+    assert result.rules[0].dimension == "default.date_dim.date"
+    assert result.rules[0].fn == ReaggregationFunction.LAST_VALUE
+
+
 @pytest.mark.asyncio
 @patch("datajunction_server.api.graphql.resolvers.nodes.DBNode.get_by_name")
 @patch("datajunction_server.api.graphql.resolvers.nodes.load_node_options")
