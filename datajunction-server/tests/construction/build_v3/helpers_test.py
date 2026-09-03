@@ -2514,6 +2514,34 @@ class TestPruneCteProjections:
         )
         assert self._pruned(sql) == str(parse(sql))
 
+    def test_projection_name_matches_case_insensitively(self):
+        """
+        Every target dialect reads ``x.region`` off a ``Region`` projection.
+        """
+        assert self._pruned(
+            "WITH a AS (SELECT Region, drop_me, keep FROM t) "
+            "SELECT x.region, x.keep FROM a AS x",
+        ) == str(
+            parse(
+                "WITH a AS (SELECT Region, keep FROM t) "
+                "SELECT x.region, x.keep FROM a AS x",
+            ),
+        )
+
+    def test_group_by_alias_matches_case_insensitively(self):
+        """
+        A GROUP BY naming ``Total`` holds the ``total`` projection open.
+        """
+        assert self._pruned(
+            "WITH a AS (SELECT keep, drop_me, SUM(n) AS total FROM t GROUP BY Total) "
+            "SELECT x.keep FROM a AS x",
+        ) == str(
+            parse(
+                "WITH a AS (SELECT keep, SUM(n) AS total FROM t GROUP BY Total) "
+                "SELECT x.keep FROM a AS x",
+            ),
+        )
+
     def test_star_passes_its_own_demand_through(self):
         """
         A star re-exposes whatever its source has, so a CTE that stars a source

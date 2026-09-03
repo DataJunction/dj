@@ -856,7 +856,8 @@ def _keep_positions(
 
     A position survives when its output name is wanted downstream, when a
     clause that can address the projection names or points at it, or when it
-    has no readable output name.
+    has no readable output name. Names are matched without regard to case,
+    the way every dialect DJ targets resolves them.
 
     Under DISTINCT every position survives: the projection is the dedup key, so
     narrowing it folds together rows that were distinct and silently changes
@@ -866,23 +867,22 @@ def _keep_positions(
     if (select.quantifier or "").upper() == "DISTINCT":
         return set(range(1, len(projection) + 1))
 
-    effective_cols = set(columns_to_select)
+    effective_cols = {name.casefold() for name in columns_to_select}
     for item in _output_alias_clauses(select):
         if isinstance(item, ast.Number) and isinstance(item.value, int):
             pos = int(item.value)
             if 1 <= pos <= len(projection):
                 if name := _projection_name(projection[pos - 1]):
-                    effective_cols.add(name)
+                    effective_cols.add(name.casefold())
             continue
         for column in item.find_all(ast.Column):
-            effective_cols.add(
-                str(column.alias.name) if column.alias else str(column.name.name),
-            )
+            named = column.alias.name if column.alias else column.name.name
+            effective_cols.add(str(named).casefold())
 
     keep: set[int] = set()
     for i, expr in enumerate(projection):
         col_name = _projection_name(expr)
-        if col_name is None or col_name in effective_cols:
+        if col_name is None or col_name.casefold() in effective_cols:
             keep.add(i + 1)
     return keep
 
