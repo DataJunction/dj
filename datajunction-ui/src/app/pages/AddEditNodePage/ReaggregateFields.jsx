@@ -65,11 +65,7 @@ export const ReaggregateFields = () => {
       <div className="NodeCreationInput NodeModeInput">
         <ErrorMessage name="reaggregate_function" component="span" />
         <label htmlFor="ReaggregateFunction">Semi-Additive Type</label>
-        <Field
-          as="select"
-          name="reaggregate_function"
-          id="ReaggregateFunction"
-        >
+        <Field as="select" name="reaggregate_function" id="ReaggregateFunction">
           <option value=""></option>
           {SEMI_ADDITIVE_FUNCTIONS.map(func => (
             <option value={func} key={func}>
