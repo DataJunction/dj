@@ -85,6 +85,11 @@ class Column(Base):  # type: ignore
         back_populates="column",
         lazy="selectin",
         cascade="all,delete",
+        # A selectin load with no ORDER BY lets the database return a column's
+        # attributes in a different order on each load, which surfaces as a
+        # spurious diff anywhere the list is serialized positionally -- the node
+        # history view being the visible one.
+        order_by="ColumnAttribute.id",
     )
     measure_id: Mapped[int | None] = mapped_column(
         ForeignKey(
