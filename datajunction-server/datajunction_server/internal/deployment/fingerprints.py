@@ -38,40 +38,61 @@ from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.utils import SEPARATOR
 
 FingerprintMap = dict[str, SemanticFingerprintValue]
-ParentCandidates = tuple[frozenset[str], frozenset[str]]
+ParentOptions = tuple[str, ...]
+ParentReferences = tuple[ParentOptions, ...]
+ParentCandidates = tuple[frozenset[str], ParentReferences]
 ParentCandidateCache = dict[int, ParentCandidates]
-ParentResolver = Callable[[NodeSpec], set[str]]
+ParentResolver = Callable[[NodeSpec], ParentReferences]
 logger = logging.getLogger(__name__)
 
 
-def _linkable_parent_candidates(spec: NodeSpec) -> set[str]:
+def _exact_parent_references(names: Iterable[str]) -> ParentReferences:
+    return tuple((name,) for name in sorted(set(names)))
+
+
+def _dimension_parent_options(reference: str) -> ParentOptions:
+    parts = reference.split(SEPARATOR)
+    return tuple(SEPARATOR.join(parts[:end]) for end in range(len(parts) - 1, 1, -1))
+
+
+def _dimension_parent_references(references: Iterable[str]) -> ParentReferences:
+    resolved = []
+    for reference in sorted(set(references)):
+        options = _dimension_parent_options(reference)
+        if options:
+            resolved.append(options)
+    return tuple(resolved)
+
+
+def _linkable_parent_candidates(spec: NodeSpec) -> ParentReferences:
     linkable = spec
     if not isinstance(linkable, LinkableNodeSpec):  # pragma: no cover
         raise TypeError(f"Expected linkable spec, got {type(spec).__name__}")
-    return {link.rendered_dimension_node for link in linkable.dimension_links}
+    return _exact_parent_references(
+        link.rendered_dimension_node for link in linkable.dimension_links
+    )
 
 
-def _metric_parent_candidates(spec: NodeSpec) -> set[str]:
+def _metric_parent_candidates(spec: NodeSpec) -> ParentReferences:
     metric = spec
     if not isinstance(metric, MetricSpec):  # pragma: no cover
         raise TypeError(f"Expected metric spec, got {type(spec).__name__}")
-    return {
-        dimension.rsplit(SEPARATOR, 1)[0]
-        for dimension in metric.rendered_required_dimensions
-        if SEPARATOR in dimension
-    }
+    return _dimension_parent_references(metric.rendered_required_dimensions)
 
 
-def _cube_parent_candidates(spec: NodeSpec) -> set[str]:
+def _cube_parent_candidates(spec: NodeSpec) -> ParentReferences:
     cube = spec
     if not isinstance(cube, CubeSpec):  # pragma: no cover
         raise TypeError(f"Expected cube spec, got {type(spec).__name__}")
-    return {
-        node_name
-        for node_name, _ in extract_dimension_refs_from_filters(
+    filter_references = {
+        f"{node_name}{SEPARATOR}{column_name}"
+        for node_name, column_name in extract_dimension_refs_from_filters(
             cube.rendered_filters,
         )
     }
+    return _dimension_parent_references(
+        [*cube.rendered_dimensions, *filter_references],
+    )
 
 
 SEMANTIC_PARENT_RESOLVERS: dict[type[NodeSpec], ParentResolver] = {
@@ -94,8 +115,12 @@ def _candidate_parts(
             raise TypeError(
                 f"No semantic parent resolver for {type(spec).__name__}",
             )
-        query = extract_node_graph([spec]).get(spec.rendered_name, [])
-        cache[key] = (frozenset(query), frozenset(resolver(spec)))
+        query = (
+            spec.rendered_metrics
+            if isinstance(spec, CubeSpec)
+            else extract_node_graph([spec]).get(spec.rendered_name, [])
+        )
+        cache[key] = (frozenset(query), resolver(spec))
     return cache[key]
 
 
@@ -104,7 +129,47 @@ def _parent_candidates(
     cache: ParentCandidateCache | None = None,
 ) -> set[str]:
     query, extra = _candidate_parts(spec, cache if cache is not None else {})
-    return set(query | extra)
+    return set(query) | {
+        candidate for parent_options in extra for candidate in parent_options
+    }
+
+
+def _is_derived_metric(spec: NodeSpec) -> bool:
+    return (
+        isinstance(spec, MetricSpec)
+        and spec.query_ast is not None
+        and spec.query_ast.select.from_ is None
+    )
+
+
+def _direct_query_parents(
+    spec: NodeSpec,
+    specs: dict[str, NodeSpec],
+    candidates: Iterable[str],
+) -> set[str]:
+    candidate_names = set(candidates)
+    if _is_derived_metric(spec):
+        return {
+            name
+            for name in candidate_names
+            if name in specs and specs[name].node_type == NodeType.METRIC
+        }
+    return candidate_names & specs.keys()
+
+
+def _resolve_parent_references(
+    references: ParentReferences,
+    specs: dict[str, NodeSpec],
+) -> tuple[set[str], set[str]]:
+    resolved = set()
+    unresolved = set()
+    for options in references:
+        parent = next((candidate for candidate in options if candidate in specs), None)
+        if parent is not None:
+            resolved.add(parent)
+        else:
+            unresolved.add(options[0])
+    return resolved, unresolved
 
 
 def _resolved_parent_names(
@@ -114,24 +179,16 @@ def _resolved_parent_names(
 ) -> tuple[list[str], list[str]]:
     query, extra = _candidate_parts(spec, cache)
     query_candidates = set(query)
-    if (
-        isinstance(spec, MetricSpec)
-        and spec.query_ast is not None
-        and spec.query_ast.select.from_ is None
-    ):
-        query_parents = {
-            name
-            for name in query_candidates
-            if name in specs and specs[name].node_type == NodeType.METRIC
-        }
-        unresolved_query: set[str] = set()
-    else:
-        query_parents = query_candidates & specs.keys()
-        unresolved_query = query_candidates - specs.keys()
-
-    extra_candidates = set(extra)
-    resolved = query_parents | (extra_candidates & specs.keys())
-    unresolved = unresolved_query | (extra_candidates - specs.keys())
+    query_parents = _direct_query_parents(spec, specs, query_candidates)
+    unresolved_query = (
+        set() if _is_derived_metric(spec) else query_candidates - specs.keys()
+    )
+    extra_parents, unresolved_extra = _resolve_parent_references(
+        extra,
+        specs,
+    )
+    resolved = query_parents | extra_parents
+    unresolved = unresolved_query | unresolved_extra
     return sorted(resolved), sorted(unresolved)
 
 
@@ -144,21 +201,23 @@ def _spec_with_normalized_required_dimensions(
         return spec
 
     query_candidates, _ = _candidate_parts(spec, cache)
-    if spec.query_ast is not None and spec.query_ast.select.from_ is None:
-        direct_parents = {
-            name
-            for name in query_candidates
-            if name in specs and specs[name].node_type == NodeType.METRIC
-        }
-    else:
-        direct_parents = set(query_candidates) & specs.keys()
+    direct_parents = _direct_query_parents(spec, specs, query_candidates)
 
     required_dimensions = []
     for dimension in spec.rendered_required_dimensions:
-        if SEPARATOR in dimension:
-            node_name, column_name = dimension.rsplit(SEPARATOR, 1)
-            if node_name in direct_parents:
-                dimension = column_name
+        direct_parent = next(
+            (
+                parent
+                for parent in sorted(
+                    direct_parents,
+                    key=lambda name: (-len(name), name),
+                )
+                if dimension.startswith(f"{parent}{SEPARATOR}")
+            ),
+            None,
+        )
+        if direct_parent is not None:
+            dimension = dimension[len(direct_parent) + 1 :]
         required_dimensions.append(dimension)
     return spec.model_copy(update={"required_dimensions": required_dimensions})
 
@@ -238,10 +297,12 @@ def _compute_merkle_fingerprints(
     parent_cache = parent_cache if parent_cache is not None else {}
     graph: dict[str, list[str]] = {}
     failed_names: set[str] = set()
+    fingerprint_specs: dict[str, NodeSpec] = {}
     for name in sorted(specs):
+        spec = specs[name]
         try:
             graph[name], unresolved = _resolved_parent_names(
-                specs[name],
+                spec,
                 specs,
                 parent_cache,
             )
@@ -258,9 +319,6 @@ def _compute_merkle_fingerprints(
             failed_names.add(name)
             if name not in ignored_parse_errors:
                 logger.warning("Fingerprint unavailable for %s: %s", name, exc)
-
-    fingerprint_specs: dict[str, NodeSpec] = {}
-    for name, spec in specs.items():
         try:
             fingerprint_specs[name] = _spec_with_normalized_required_dimensions(
                 spec,

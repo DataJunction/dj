@@ -97,15 +97,11 @@ def test_extract_node_graph(basic_nodes):
     }
 
 
-def test_extract_node_graph_can_tolerate_unparseable_queries():
+def test_extract_node_graph_rejects_unparseable_queries():
     invalid = TransformSpec(name="lunch.mystery_meat", query="SELECT (")
 
     with pytest.raises(DJParseException):
         extract_node_graph([invalid])
-
-    assert extract_node_graph([invalid], tolerate_parse_errors=True) == {
-        "lunch.mystery_meat": [],
-    }
 
 
 def test_graph_complex():

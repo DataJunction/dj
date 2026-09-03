@@ -124,6 +124,18 @@ def test_parent_candidates_follow_oss_semantic_relationships():
         _candidate_parts(NodeSpec(name="unknown", node_type="source"), {})
 
 
+def test_unparseable_cube_filter_remains_in_local_fingerprint():
+    broken = CubeSpec(
+        namespace="ns",
+        name="cube",
+        filters=["not valid sql !!!"],
+    )
+    without_filter = broken.model_copy(update={"filters": []})
+
+    assert _parent_candidates(broken) == set()
+    assert local_node_fingerprint(broken) != local_node_fingerprint(without_filter)
+
+
 def test_merkle_fingerprints_propagate_changes_through_all_descendants():
     source = source_spec(
         "source",
@@ -262,6 +274,69 @@ def test_direct_required_dimension_paths_use_persisted_identity():
         authored_derived.rendered_name,
     ) == SemanticFingerprintGraph(persisted_specs).fingerprint(
         persisted_derived.rendered_name,
+    )
+
+
+def test_nested_required_dimensions_use_existing_node_boundary():
+    parent = source_spec("parent")
+    authored = MetricSpec(
+        namespace="ns",
+        name="metric",
+        query="SELECT COUNT(*) FROM ${prefix}parent",
+        required_dimensions=["${prefix}parent.address.city"],
+    )
+    persisted = authored.model_copy(
+        update={"required_dimensions": ["address.city"]},
+    )
+
+    authored_fingerprint = SemanticFingerprintGraph(
+        spec_map(parent, authored),
+    ).fingerprint(authored.rendered_name)
+    persisted_fingerprint = SemanticFingerprintGraph(
+        spec_map(parent, persisted),
+    ).fingerprint(persisted.rendered_name)
+
+    assert authored_fingerprint != UNKNOWN_SEMANTIC_FINGERPRINT
+    assert authored_fingerprint == persisted_fingerprint
+
+
+def test_nested_cube_dimension_paths_use_existing_node_boundary():
+    dimension = DimensionSpec(namespace="ns", name="dimension", query="SELECT 1")
+    metric = MetricSpec(namespace="ns", name="metric", query="SELECT COUNT(*)")
+    cube = CubeSpec(
+        namespace="ns",
+        name="cube",
+        metrics=["${prefix}metric"],
+        dimensions=["${prefix}dimension.address.city"],
+        filters=["${prefix}dimension.address.city = 'LA'"],
+    )
+    original_specs = spec_map(dimension, metric, cube)
+    original = SemanticFingerprintGraph(original_specs).fingerprint(
+        cube.rendered_name,
+    )
+    changed_dimension = dimension.model_copy(update={"query": "SELECT 2"})
+    changed_specs = {
+        **original_specs,
+        changed_dimension.rendered_name: changed_dimension,
+    }
+
+    assert original != UNKNOWN_SEMANTIC_FINGERPRINT
+    assert original != SemanticFingerprintGraph(changed_specs).fingerprint(
+        cube.rendered_name,
+    )
+
+    missing = cube.model_copy(
+        update={
+            "name": "missing_cube",
+            "dimensions": [],
+            "filters": ["missing.dimension.address.city = 'LA'"],
+        },
+    )
+    assert (
+        SemanticFingerprintGraph(spec_map(metric, missing)).fingerprint(
+            missing.rendered_name,
+        )
+        == UNKNOWN_SEMANTIC_FINGERPRINT
     )
 
 
@@ -444,6 +519,25 @@ async def test_build_deployment_fingerprints_loads_external_ancestors(session):
     assert proposed == {
         spec.rendered_name: UNKNOWN_SEMANTIC_FINGERPRINT for spec in unavailable
     }
+
+    metric = MetricSpec(
+        namespace="ns",
+        name="external_metric",
+        query="SELECT COUNT(*)",
+    )
+    cube = CubeSpec(
+        namespace="ns",
+        name="external_cube",
+        metrics=["${prefix}external_metric"],
+        filters=["default.hard_hat.address.city = 'LA'"],
+    )
+    _, proposed = await build_deployment_fingerprints(
+        session,
+        {},
+        [metric, cube],
+        [],
+    )
+    assert proposed[cube.rendered_name] != UNKNOWN_SEMANTIC_FINGERPRINT
 
     legacy = transform_spec("legacy", "SELECT (")
     current, _ = await build_deployment_fingerprints(

@@ -70,7 +70,7 @@ def extract_dimension_refs_from_filters(
     combined = " AND ".join(f"({filter_})" for filter_ in filters)
     try:
         tree = parse(f"SELECT 1 WHERE {combined}")
-    except Exception:
+    except DJParseException:
         return []
     refs = []
     for column in tree.find_all(ast.Column):
@@ -107,11 +107,7 @@ def classify_parents(
     return resolved, missing
 
 
-def extract_node_graph(
-    nodes: list[NodeSpec],
-    *,
-    tolerate_parse_errors: bool = False,
-) -> dict[str, list[str]]:
+def extract_node_graph(nodes: list[NodeSpec]) -> dict[str, list[str]]:
     """
     Extract the node graph from a list of nodes.
 
@@ -123,13 +119,8 @@ def extract_node_graph(
     logger.info("Extracting node graph for %d nodes", len(nodes))
     dependencies_map: dict[str, list[str]] = {}
     for node in nodes:
-        try:
-            with fast_parse_mode():
-                name, deps, parsed = _find_upstreams_for_node(node)
-        except DJParseException:
-            if not tolerate_parse_errors:
-                raise
-            name, deps, parsed = node.rendered_name, [], None
+        with fast_parse_mode():
+            name, deps, parsed = _find_upstreams_for_node(node)
         dependencies_map[name] = deps
         if parsed is not None:
             node._query_ast = parsed
