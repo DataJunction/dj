@@ -9,6 +9,7 @@ other CTE projects.
 
 import pytest
 
+from tests.construction.build_v3 import assert_sql_equal
 from tests.construction.build_v3.projection_invariant import unprojected_references
 
 
@@ -169,6 +170,43 @@ class TestUnqualifiedColumnsSurvivePruning:
         assert resp.status_code == 200, resp.text
         sql = resp.json()["grain_groups"][0]["sql"]
 
+        # ``parent_dim`` keeps code_a, code_b and code_c: ``child_dim`` names
+        # them bare, and the outer select never asks for them.
+        assert_sql_equal(
+            sql,
+            """
+            WITH cteunqual_fact AS (
+              SELECT item_id, amount FROM default.cteunqual.src_event
+            ),
+            cteunqual_parent_dim AS (
+              SELECT item_id, code_a, code_b, code_c, region
+              FROM default.cteunqual.src_item
+            ),
+            cteunqual_partner_dim AS (
+              SELECT external_item_id, is_special
+              FROM default.cteunqual.src_partner_item
+            ),
+            cteunqual_child_dim AS (
+              SELECT item_id,
+                CASE
+                  WHEN code_a = 'PROMO' THEN 'promo'
+                  WHEN code_b = 'DIRECT' AND code_c = 'OPEN' THEN 'direct'
+                  ELSE 'other'
+                END AS channel
+              FROM cteunqual_parent_dim
+              UNION ALL
+              SELECT external_item_id AS item_id,
+                CASE WHEN is_special THEN 'special' ELSE 'other' END AS channel
+              FROM cteunqual_partner_dim
+            )
+            SELECT t2.region, t3.channel, SUM(t1.amount) AS amount_sum_f9cdc501
+            FROM cteunqual_fact t1
+            LEFT OUTER JOIN cteunqual_parent_dim t2 ON t1.item_id = t2.item_id
+            LEFT OUTER JOIN cteunqual_child_dim t3 ON t1.item_id = t3.item_id
+            GROUP BY t2.region, t3.channel
+            """,
+            normalize_aliases=True,
+        )
         assert unprojected_references(sql) == set(), sql
 
 
@@ -329,4 +367,38 @@ class TestPassThroughColumnSurvivesPruning:
         assert resp.status_code == 200, resp.text
         sql = resp.json()["grain_groups"][0]["sql"]
 
+        # ``parent_dim`` derives ``channel`` and ``child_dim`` passes it
+        # through by bare name, so pruning the parent for ``region`` alone
+        # must not take ``channel`` with it.
+        assert_sql_equal(
+            sql,
+            """
+            WITH ctepassthru_fact AS (
+              SELECT item_id, amount FROM default.ctepassthru.src_event
+            ),
+            ctepassthru_parent_dim AS (
+              SELECT item_id,
+                CASE WHEN code_a = 'PROMO' THEN 'promo' ELSE 'other' END AS channel,
+                region
+              FROM default.ctepassthru.src_item
+            ),
+            ctepassthru_partner_dim AS (
+              SELECT external_item_id, is_special
+              FROM default.ctepassthru.src_partner_item
+            ),
+            ctepassthru_child_dim AS (
+              SELECT item_id, channel FROM ctepassthru_parent_dim
+              UNION ALL
+              SELECT external_item_id AS item_id,
+                CASE WHEN is_special THEN 'special' ELSE 'other' END AS channel
+              FROM ctepassthru_partner_dim
+            )
+            SELECT t2.region, t3.channel, SUM(t1.amount) AS amount_sum_d1ea4ab8
+            FROM ctepassthru_fact t1
+            LEFT OUTER JOIN ctepassthru_parent_dim t2 ON t1.item_id = t2.item_id
+            LEFT OUTER JOIN ctepassthru_child_dim t3 ON t1.item_id = t3.item_id
+            GROUP BY t2.region, t3.channel
+            """,
+            normalize_aliases=True,
+        )
         assert unprojected_references(sql) == set(), sql

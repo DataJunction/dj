@@ -5,6 +5,7 @@ what its upstream CTEs may prune.
 
 import pytest
 
+from tests.construction.build_v3 import assert_sql_equal
 from tests.construction.build_v3.projection_invariant import unprojected_references
 
 
@@ -140,9 +141,29 @@ class TestTransitiveConsumerProjection:
 
         # ``bundles`` is itself pruned to what ``fact`` reads from it, which
         # narrows its own demand on ``item`` — so ``item`` need not keep
-        # ``bundle_id``. What has to hold either way is that nothing reads a
-        # column its producer stopped projecting.
+        # ``bundle_id``. It does keep ``channel``, which the outer select asks
+        # for through a separate join.
+        assert_sql_equal(
+            sql,
+            """
+            WITH ctetrans_item AS (
+              SELECT item_id,
+                CASE WHEN kind_code = 'AUTO' THEN 'auto' ELSE 'manual' END AS channel
+              FROM default.ctetrans.src_item
+            ),
+            ctetrans_bundles AS (
+              SELECT i.item_id FROM ctetrans_item AS i
+            ),
+            ctetrans_fact AS (
+              SELECT e.item_id, e.amount
+              FROM default.ctetrans.src_event AS e
+              LEFT JOIN ctetrans_bundles AS b ON e.item_id = b.item_id
+            )
+            SELECT t2.channel, SUM(t1.amount) AS amount_sum_3ade80bc
+            FROM ctetrans_fact t1
+            LEFT OUTER JOIN ctetrans_item t2 ON t1.item_id = t2.item_id
+            GROUP BY t2.channel
+            """,
+            normalize_aliases=True,
+        )
         assert unprojected_references(sql) == set(), sql
-
-        item_cte = sql.split(f"{ns}_bundles")[0]
-        assert "channel" in item_cte, sql
