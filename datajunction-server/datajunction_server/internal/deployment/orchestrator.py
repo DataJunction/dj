@@ -136,6 +136,7 @@ from datajunction_server.models.unit import (
     structured_to_legacy_unit,
 )
 from datajunction_server.sql.dag import get_metric_parents_map
+from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import (
     SEPARATOR,
@@ -1606,6 +1607,21 @@ class DeploymentOrchestrator:
             external_deps=external_dep_names,
         )
 
+    def _extract_plan_node_graph(
+        self,
+        nodes: list[NodeSpec],
+    ) -> dict[str, list[str]]:
+        if not self.dry_run:
+            return extract_node_graph(nodes)
+
+        node_graph = {}
+        for node in nodes:
+            try:
+                node_graph.update(extract_node_graph([node]))
+            except DJParseException:
+                node_graph[node.rendered_name] = []
+        return node_graph
+
     async def _create_deployment_plan(
         self,
     ) -> tuple[DeploymentPlan, list[DeploymentResult]]:
@@ -1667,9 +1683,8 @@ class DeploymentOrchestrator:
         external_deps: set[str] = set()
         if to_deploy or to_delete:
             with self._timer.phase("  plan: extract node graph") as p:
-                node_graph = extract_node_graph(
+                node_graph = self._extract_plan_node_graph(
                     [node for node in to_deploy if not isinstance(node, CubeSpec)],
-                    tolerate_parse_errors=self.dry_run,
                 )
                 p.append(f"{len(node_graph)} nodes in graph")
             with self._timer.phase("  plan: check external deps") as p:
@@ -1789,9 +1804,8 @@ class DeploymentOrchestrator:
                             existing_node.name,
                         )
 
-                node_graph = extract_node_graph(
+                node_graph = self._extract_plan_node_graph(
                     [node for node in to_deploy if not isinstance(node, CubeSpec)],
-                    tolerate_parse_errors=self.dry_run,
                 )
 
                 # Re-check external deps (should be empty now)
