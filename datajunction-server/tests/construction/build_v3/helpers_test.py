@@ -2619,11 +2619,6 @@ class TestPruneCteProjections:
         return " ".join(str(query).split())
 
     def test_a_shadowed_alias_does_not_prune_the_outer_source(self):
-        """
-        ``x`` names ``a`` outside and ``b`` inside the EXISTS. Resolving it to
-        one of them drops the other's column: charging ``x.keep`` to ``b``
-        prunes ``keep`` out of ``a``, which the outer select still reads.
-        """
         assert self._compact(
             "WITH a AS (SELECT id, keep FROM t1), b AS (SELECT marker FROM t2) "
             "SELECT x.keep, id FROM a AS x "
@@ -2636,10 +2631,6 @@ class TestPruneCteProjections:
         )
 
     def test_using_columns_are_kept_on_both_sides(self):
-        """
-        A ``USING`` column is named nowhere else, so pruning it away leaves the
-        join criteria referring to a column neither side projects.
-        """
         assert self._compact(
             "WITH a AS (SELECT id, keep, drop_me FROM t1), "
             "b AS (SELECT id, marker FROM t2) "
@@ -2650,11 +2641,33 @@ class TestPruneCteProjections:
             "SELECT a.keep FROM a JOIN b USING (id)"
         )
 
+    def test_a_shadowed_alias_resolves_per_select(self):
+        assert self._compact(
+            "WITH a AS (SELECT id, keep FROM t1), "
+            "b AS (SELECT keep, marker FROM t2) "
+            "SELECT x.keep, id FROM a AS x "
+            "WHERE EXISTS (SELECT 1 FROM b AS x WHERE x.marker = 1)",
+        ) == (
+            "WITH a AS ( SELECT id, keep FROM t1 ), "
+            "b AS ( SELECT marker FROM t2 ) "
+            "SELECT x.keep, id FROM a AS x "
+            "WHERE EXISTS (SELECT 1 FROM b AS x WHERE x.marker = 1)"
+        )
+
+    def test_a_subquery_reads_an_outer_alias(self):
+        assert self._compact(
+            "WITH a AS (SELECT id, keep, drop_me FROM t1), "
+            "b AS (SELECT id, ref, marker FROM t2) "
+            "SELECT x.keep FROM a AS x "
+            "WHERE EXISTS (SELECT 1 FROM b WHERE b.ref = x.id)",
+        ) == (
+            "WITH a AS ( SELECT id, keep FROM t1 ), "
+            "b AS ( SELECT ref FROM t2 ) "
+            "SELECT x.keep FROM a AS x "
+            "WHERE EXISTS (SELECT 1 FROM b WHERE b.ref = x.id)"
+        )
+
     def test_a_natural_join_keeps_both_sides_whole(self):
-        """
-        A natural join's criteria is whatever names the two sides share, so a
-        pruned column is not a dropped column -- it is a dropped join key.
-        """
         assert self._compact(
             "WITH a AS (SELECT id, keep FROM t1), "
             "b AS (SELECT id, marker FROM t2) "
