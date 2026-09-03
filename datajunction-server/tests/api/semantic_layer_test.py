@@ -16,6 +16,7 @@ from datajunction_server.api.semantic_layer import (
     MAX_ROW_LIMIT,
     FilterPayload,
     _arrow_type_name,
+    _column_metadata,
     _dimensions_payload,
     _filter_to_sql,
     _generated_column_arrow_type_name,
@@ -136,7 +137,15 @@ class TestSemanticViewPayloadTypes:
                         "scale": None,
                     },
                     "filter": None,
-                    "extensions": None,
+                    "extensions": {
+                        "superset": {"d3format": "$,.2f"},
+                        "google_sheets": {
+                            "numberFormat": {
+                                "type": "CURRENCY",
+                                "pattern": "$#,##0.00",
+                            },
+                        },
+                    },
                 },
             },
         ]
@@ -271,6 +280,138 @@ class TestSemanticViewPayloadTypes:
                 "datajunction": {"owner": "finance"},
             },
         }
+
+    @pytest.mark.parametrize(
+        ("format_metadata", "expected_extensions"),
+        [
+            (
+                {"preset": "number", "precision": 0},
+                {
+                    "superset": {"d3format": ",.0f"},
+                    "google_sheets": {
+                        "numberFormat": {"type": "NUMBER", "pattern": "#,##0"},
+                    },
+                },
+            ),
+            (
+                {"preset": "percentage"},
+                {
+                    "superset": {"d3format": ".2%"},
+                    "google_sheets": {
+                        "numberFormat": {"type": "PERCENT", "pattern": "0.00%"},
+                    },
+                },
+            ),
+            (
+                {"preset": "smart_number"},
+                {"superset": {"d3format": "SMART_NUMBER"}},
+            ),
+        ],
+    )
+    def test_explicit_portable_formats_generate_client_fallbacks(
+        self,
+        format_metadata,
+        expected_extensions,
+    ):
+        column = SimpleNamespace(
+            type="double",
+            display_name="Value",
+            unit=None,
+            attribute_names=lambda: [],
+        )
+
+        metadata = _column_metadata(
+            column,
+            is_metric=True,
+            raw_metadata={"format": format_metadata},
+        )
+
+        assert metadata is not None
+        assert metadata.extensions == expected_extensions
+
+    def test_explicit_client_formats_take_precedence_over_generated_values(self):
+        column = SimpleNamespace(
+            type="double",
+            display_name="Revenue",
+            unit={"kind": "currency", "code": "USD"},
+            attribute_names=lambda: [],
+        )
+
+        metadata = _column_metadata(
+            column,
+            is_metric=True,
+            raw_metadata={
+                "format": {"preset": "currency", "precision": 0},
+                "extensions": {
+                    "superset": {"d3format": "EXPLICIT", "other": True},
+                    "google_sheets": {
+                        "numberFormat": {"type": "TEXT"},
+                        "other": True,
+                    },
+                },
+            },
+        )
+
+        assert metadata is not None
+        assert metadata.extensions == {
+            "superset": {"d3format": "EXPLICIT", "other": True},
+            "google_sheets": {
+                "numberFormat": {"type": "TEXT"},
+                "other": True,
+            },
+        }
+
+    def test_explicit_usd_unit_generates_default_currency_formats(self):
+        column = SimpleNamespace(
+            type="double",
+            display_name="Revenue",
+            unit=None,
+            attribute_names=lambda: [],
+        )
+
+        metadata = _column_metadata(
+            column,
+            is_metric=True,
+            raw_metadata={"unit": {"kind": "currency", "code": "USD"}},
+        )
+
+        assert metadata is not None
+        assert metadata.format is not None
+        assert metadata.format.preset == "currency"
+        assert metadata.extensions == {
+            "superset": {"d3format": "$,.2f"},
+            "google_sheets": {
+                "numberFormat": {
+                    "type": "CURRENCY",
+                    "pattern": "$#,##0.00",
+                },
+            },
+        }
+
+    def test_ambiguous_native_units_do_not_generate_client_formats(self):
+        percentage = SimpleNamespace(
+            type="double",
+            display_name="Percentage",
+            unit={"kind": "percentage"},
+            attribute_names=lambda: [],
+        )
+        euros = SimpleNamespace(
+            type="double",
+            display_name="Revenue",
+            unit={"kind": "currency", "code": "EUR"},
+            attribute_names=lambda: [],
+        )
+
+        percentage_metadata = _column_metadata(percentage, is_metric=True)
+        euro_metadata = _column_metadata(euros, is_metric=True)
+
+        assert percentage_metadata is not None
+        assert percentage_metadata.format is None
+        assert percentage_metadata.extensions is None
+        assert euro_metadata is not None
+        assert euro_metadata.format is not None
+        assert euro_metadata.format.preset == "currency"
+        assert euro_metadata.extensions is None
 
     def test_metric_and_dimension_payloads_fallback_when_column_is_missing(self):
         cube = SimpleNamespace(

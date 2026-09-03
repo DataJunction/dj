@@ -114,11 +114,12 @@ def _semantic_type(
     arrow_type: str,
     *,
     is_metric: bool,
+    unit: Unit | None = None,
 ) -> str:
     """Derive the portable business type from DJ's structured column fields."""
-    unit = unit_to_dict(getattr(column, "unit", None))
-    if unit and "kind" in unit:
-        unit_kind = unit["kind"]
+    unit_data = unit_to_dict(unit or getattr(column, "unit", None))
+    if unit_data and "kind" in unit_data:
+        unit_kind = unit_data["kind"]
         if unit_kind == "time":
             return "duration"
         if unit_kind in {
@@ -147,18 +148,17 @@ def _semantic_type(
     return "category"
 
 
-def _format_metadata(column: Any) -> "FormatMetadata | None":
+def _format_metadata(unit: Unit | None) -> "FormatMetadata | None":
     """Translate units with unambiguous display semantics to portable hints."""
-    unit = unit_to_dict(getattr(column, "unit", None))
-    if not unit or "kind" not in unit:
+    unit_data = unit_to_dict(unit)
+    if not unit_data or "kind" not in unit_data:
         return None
     preset_by_kind = {
         "currency": "currency",
-        "percentage": "percentage",
         "time": "duration",
         "data_size": "data_size",
     }
-    preset = preset_by_kind.get(unit["kind"])
+    preset = preset_by_kind.get(unit_data["kind"])
     return FormatMetadata(preset=preset) if preset else None
 
 
@@ -170,6 +170,69 @@ def _validated_unit(raw_unit: Any) -> Unit | None:
         return _UNIT_ADAPTER.validate_python(raw_unit)
     except ValidationError:
         return None
+
+
+def _fixed_decimal_pattern(prefix: str, precision: int) -> str:
+    """Build a Google Sheets fixed-decimal pattern."""
+    decimals = f".{''.join('0' for _ in range(precision))}" if precision else ""
+    return f"{prefix}#,##0{decimals}"
+
+
+def _client_format_extensions(
+    extensions: dict[str, dict[str, Any]],
+    unit: Unit | None,
+    format_metadata: "FormatMetadata | None",
+    *,
+    format_is_explicit: bool,
+) -> dict[str, dict[str, Any]]:
+    """Fill missing client formats when portable semantics are unambiguous."""
+    if format_metadata is None or format_metadata.preset is None:
+        return extensions
+
+    preset = format_metadata.preset
+    precision = format_metadata.precision
+    if precision is None:
+        precision = 2
+
+    unit_data = unit_to_dict(unit)
+    is_usd = bool(
+        unit_data
+        and unit_data.get("kind") == "currency"
+        and unit_data.get("code") == "USD",
+    )
+
+    d3format: str | None = None
+    number_format: dict[str, str] | None = None
+    if preset == "currency" and is_usd:
+        d3format = f"$,.{precision}f"
+        number_format = {
+            "type": "CURRENCY",
+            "pattern": _fixed_decimal_pattern("$", precision),
+        }
+    elif format_is_explicit and preset == "number":
+        d3format = f",.{precision}f"
+        number_format = {
+            "type": "NUMBER",
+            "pattern": _fixed_decimal_pattern("", precision),
+        }
+    elif format_is_explicit and preset == "percentage":
+        d3format = f".{precision}%"
+        decimals = f".{''.join('0' for _ in range(precision))}" if precision else ""
+        number_format = {
+            "type": "PERCENT",
+            "pattern": f"0{decimals}%",
+        }
+    elif format_is_explicit and preset == "smart_number":
+        d3format = "SMART_NUMBER"
+
+    if d3format is not None:
+        extensions.setdefault("superset", {}).setdefault("d3format", d3format)
+    if number_format is not None:
+        extensions.setdefault("google_sheets", {}).setdefault(
+            "numberFormat",
+            number_format,
+        )
+    return extensions
 
 
 _METADATA_KEYS = {
@@ -279,6 +342,13 @@ def _column_metadata(
 
     raw_unit = raw_metadata.get("unit", unit_to_dict(getattr(column, "unit", None)))
     unit = _validated_unit(raw_unit)
+    resolved_format = format_metadata or _format_metadata(unit)
+    extensions = _client_format_extensions(
+        extensions,
+        unit,
+        resolved_format,
+        format_is_explicit=isinstance(raw_format, Mapping),
+    )
     raw_semantic_type = raw_metadata.get("semantic_type")
     metadata = ColumnMetadata(
         display_name=(
@@ -290,7 +360,12 @@ def _column_metadata(
             raw_semantic_type
             if isinstance(raw_semantic_type, str)
             and raw_semantic_type in ColumnMetadata.allowed_semantic_types()
-            else _semantic_type(column, arrow_type, is_metric=is_metric)
+            else _semantic_type(
+                column,
+                arrow_type,
+                is_metric=is_metric,
+                unit=unit,
+            )
         ),
         unit=unit,
         attributes=(
@@ -299,7 +374,7 @@ def _column_metadata(
             and all(isinstance(value, str) for value in raw_metadata["attributes"])
             else attributes or None
         ),
-        format=format_metadata or _format_metadata(column),
+        format=resolved_format,
         filter=(
             FilterMetadata.from_mapping(raw_metadata["filter"])
             if isinstance(raw_metadata.get("filter"), Mapping)
