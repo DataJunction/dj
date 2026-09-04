@@ -397,6 +397,7 @@ type NodeRevision {
   dimensionLinks: [DimensionLink!]!
   availability: AvailabilityState
   materializations: [MaterializationConfig!]
+  semiAdditive: SemiAdditiveSpec
   primaryKey: [String!]!
   metricMetadata: MetricMetadata
   isDerivedMetric: Boolean!
@@ -731,6 +732,18 @@ enum SemanticType {
   METRIC
   DIMENSION
   TIMESTAMP
+}
+
+enum SemiAdditiveCollapseFunction {
+  LAST_VALUE
+  FIRST_VALUE
+  MIN
+  MAX
+}
+
+type SemiAdditiveSpec {
+  dimension: String!
+  function: SemiAdditiveCollapseFunction!
 }
 
 type Tag {

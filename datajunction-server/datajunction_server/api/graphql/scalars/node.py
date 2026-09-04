@@ -45,6 +45,10 @@ from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node import NodeMode as NodeMode_
 from datajunction_server.models.node import NodeStatus as NodeStatus_
 from datajunction_server.models.node import NodeType as NodeType_
+from datajunction_server.models.semiadditive import (
+    SemiAdditiveCollapseFunction as SemiAdditiveCollapseFunction_,
+)
+from datajunction_server.models.semiadditive import parse_semi_additive_spec
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 
 NodeType = strawberry.enum(NodeType_)
@@ -52,6 +56,7 @@ NodeStatus = strawberry.enum(NodeStatus_)
 NodeMode = strawberry.enum(NodeMode_)
 JoinType = strawberry.enum(JoinType_)
 JoinCardinality = strawberry.enum(JoinCardinality_)
+SemiAdditiveCollapseFunction = strawberry.enum(SemiAdditiveCollapseFunction_)
 
 
 @strawberry.enum
@@ -67,6 +72,16 @@ class NodeCount:
 
     value: str
     count: int
+
+
+@strawberry.type
+class SemiAdditiveSpec:
+    """
+    Semi-additive metric declaration.
+    """
+
+    dimension: str
+    function: SemiAdditiveCollapseFunction  # type: ignore
 
 
 _CUBE_SCALAR_ONLY_FIELDS: frozenset = frozenset(
@@ -409,6 +424,21 @@ class NodeRevision:
 
     # Only metrics will have these fields
     required_dimensions: list[Column] | None = None
+
+    @strawberry.field
+    def semi_additive(self, root: DBNodeRevision) -> SemiAdditiveSpec | None:
+        """
+        Semi-additive metric declaration.
+        """
+        if root.type != NodeType.METRIC:
+            return None
+        spec = parse_semi_additive_spec(root.semi_additive)
+        if not spec:
+            return None
+        return SemiAdditiveSpec(
+            dimension=spec.dimension,
+            function=spec.function,  # type: ignore
+        )
 
     @strawberry.field
     def primary_key(self, root: DBNodeRevision) -> list[str]:

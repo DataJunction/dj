@@ -122,6 +122,7 @@ from datajunction_server.models.node import (
     NodeStatus,
     NodeType,
 )
+from datajunction_server.models.semiadditive import dump_semi_additive_spec
 from datajunction_server.models.unit import (
     AtomicUnit,
     CompoundUnit,
@@ -5367,6 +5368,9 @@ class DeploymentOrchestrator:
                     dependency_nodes,
                 )
                 new_revision.required_dimensions = matched_columns
+            new_revision.semi_additive = dump_semi_additive_spec(
+                metric_spec.rendered_semi_additive,
+            )
         return new_revision
 
     def _resolve_metric_unit(

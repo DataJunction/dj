@@ -40,6 +40,7 @@ from datajunction_server.models.node import (
     NodeType,
 )
 from datajunction_server.models.partition import Granularity, PartitionType
+from datajunction_server.models.semiadditive import SemiAdditiveSpec
 from datajunction_server.models.unit import (
     Unit,
     legacy_unit_to_structured,
@@ -1022,6 +1023,7 @@ class MetricSpec(NodeSpec):
     # Excluded from serialization so it's never exported.
     columns: list[ColumnSpec] | None = Field(default=None, exclude=True)
     required_dimensions: list[str] | None = None  # Field(default_factory=list)
+    semi_additive: SemiAdditiveSpec | None = None
     direction: MetricDirection | None = None
     unit_enum: MetricUnit | None = Field(default=None, exclude=True)
     # Structured unit form at the metric level — peer of `unit_enum`.
@@ -1038,6 +1040,7 @@ class MetricSpec(NodeSpec):
         "columns": ChangeTier.NONE,
         # Required dimensions constrain which queries the metric can answer.
         "required_dimensions": ChangeTier.MAJOR,
+        "semi_additive": ChangeTier.MAJOR,
         # Everything below is presentation metadata on the metric's single output
         # column -- the same set the PATCH path already treats as minor via
         # `metric_metadata` in `create_new_revision_from_existing`.
@@ -1179,6 +1182,22 @@ class MetricSpec(NodeSpec):
             changed.remove("required_dimensions")
         return changed
 
+    @property
+    def rendered_semi_additive(self) -> SemiAdditiveSpec | None:
+        """
+        Semi-additive spec with `${prefix}` resolved to this spec's namespace.
+        """
+        if not self.semi_additive:
+            return None
+        dimension = self.semi_additive.dimension
+        return self.semi_additive.model_copy(
+            update={
+                "dimension": render_prefixes(dimension, self.namespace)
+                if "${prefix}" in dimension
+                else dimension,
+            },
+        )
+
     def model_dump(self, **kwargs):  # pragma: no cover
         base = super().model_dump(**kwargs)
         base["unit"] = self.unit
@@ -1218,6 +1237,7 @@ class MetricSpec(NodeSpec):
                 other.canonical_required_dimensions,
                 preserve_order=False,
             )
+            and self.semi_additive == other.semi_additive
             and eq_or_fallback(self.direction, other.direction, MetricDirection.NEUTRAL)
             and self._normalized_unit() == other._normalized_unit()
             and self.significant_digits == other.significant_digits

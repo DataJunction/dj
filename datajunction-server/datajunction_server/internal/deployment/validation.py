@@ -153,7 +153,7 @@ class NodeSpecBulkValidator:
                 specs_needing_parse.append(spec)
                 spec_indices.append(i)
 
-        # Pre-fetch dimension nodes for required_dimensions validation
+        # Pre-fetch dimension nodes for metric dimension-reference validation
         await self._prefetch_required_dimension_nodes(specs_needing_parse)
 
         # Pre-fetch dimension sets for cross-fact derived metric validation
@@ -520,6 +520,10 @@ class NodeSpecBulkValidator:
             if req_dim_error is not None:
                 errors.append(req_dim_error)
 
+            semi_additive_error = self._check_semi_additive_dimension(spec)
+            if semi_additive_error is not None:
+                errors.append(semi_additive_error)
+
             cross_fact_error = self._check_cross_fact_dimensions(spec)
             if cross_fact_error is not None:
                 errors.append(cross_fact_error)  # pragma: no cover
@@ -655,9 +659,9 @@ class NodeSpecBulkValidator:
         specs: list[NodeSpec],
     ) -> None:
         """
-        Collect all dimension node names referenced via required_dimensions across the
-        batch, fetch any not already in dependency_nodes in a single DB query, and
-        store the combined map in self._all_dim_nodes.
+        Collect all dimension node names referenced via metric-only dimension
+        declarations across the batch, fetch any not already in dependency_nodes in a
+        single DB query, and store the combined map in self._all_dim_nodes.
         """
         req_dim_node_names: set[str] = set()
         for spec in specs:
@@ -667,6 +671,10 @@ class NodeSpecBulkValidator:
                 if SEPARATOR in req_dim:
                     dim_node_name = req_dim.rsplit(SEPARATOR, 1)[0]
                     req_dim_node_names.add(dim_node_name)
+            semi_additive = getattr(spec, "rendered_semi_additive", None)
+            if semi_additive and SEPARATOR in semi_additive.dimension:
+                dim_node_name = semi_additive.dimension.rsplit(SEPARATOR, 1)[0]
+                req_dim_node_names.add(dim_node_name)
 
         self._all_dim_nodes = dict(self.context.dependency_nodes)
 
@@ -778,6 +786,41 @@ class NodeSpecBulkValidator:
                 "required dimensions that are not on parent nodes."
             ),
             debug={"invalid_required_dimensions": list(invalid)},
+        )
+
+    def _check_semi_additive_dimension(self, spec: NodeSpec) -> DJError | None:
+        """
+        Validate that semi_additive.dimension resolves to a real column.
+        """
+        semi_additive = getattr(spec, "rendered_semi_additive", None)
+        if not semi_additive:
+            return None
+
+        dep_names = self.context.node_graph.get(spec.rendered_name, [])
+        parent_columns = [
+            col
+            for dep_name in dep_names
+            for dep_node in [self.context.dependency_nodes.get(dep_name)]
+            if dep_node and dep_node.current
+            for col in dep_node.current.columns
+        ]
+
+        invalid, _ = _resolve_required_dimensions(
+            [semi_additive.dimension],
+            parent_columns,
+            self._all_dim_nodes,
+        )
+
+        if not invalid:
+            return None
+
+        return DJError(
+            code=ErrorCode.INVALID_COLUMN,
+            message=(
+                "Node definition contains references to columns as "
+                "semi-additive dimensions that are not on parent nodes."
+            ),
+            debug={"invalid_semi_additive_dimensions": list(invalid)},
         )
 
     async def _prefetch_metric_dimensions(
