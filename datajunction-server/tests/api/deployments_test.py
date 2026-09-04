@@ -10953,6 +10953,111 @@ class TestRequiredDimensionsRedeployIdempotence:
         assert response.json()["version"] == "v1.0"
 
     @pytest.mark.asyncio
+    async def test_unrelated_edit_preserves_linked_dimension_column(self, client):
+        """Updating a metric for an unrelated reason (not a redeploy noop) must
+        not silently drop a required dimension reached via a dimension_link,
+        when the linked dimension node itself isn't part of this update batch."""
+        namespace = "rd_linked_dim_unrelated_edit"
+
+        def _nodes(description):
+            return [
+                SourceSpec(
+                    name="rd_date_raw",
+                    description="Raw date",
+                    catalog="default",
+                    schema="roads",
+                    table="rd_date_raw",
+                    columns=[ColumnSpec(name="dateint", type="int")],
+                    dimension_links=[],
+                    owners=["dj"],
+                ),
+                DimensionSpec(
+                    name="rd_date_dim",
+                    description="Date dimension",
+                    query="SELECT dateint FROM ${prefix}rd_date_raw",
+                    primary_key=["dateint"],
+                    dimension_links=[],
+                    owners=["dj"],
+                ),
+                SourceSpec(
+                    name="rd_orders_raw",
+                    description="Raw orders",
+                    catalog="default",
+                    schema="roads",
+                    table="rd_orders_raw",
+                    columns=[
+                        ColumnSpec(name="order_id", type="bigint"),
+                        ColumnSpec(name="dateint", type="int"),
+                    ],
+                    dimension_links=[],
+                    owners=["dj"],
+                ),
+                TransformSpec(
+                    name="rd_orders_fact",
+                    description="Orders fact",
+                    query="SELECT order_id, dateint FROM ${prefix}rd_orders_raw",
+                    dimension_links=[
+                        DimensionJoinLinkSpec(
+                            dimension_node="${prefix}rd_date_dim",
+                            join_type="inner",
+                            join_on=(
+                                "${prefix}rd_orders_fact.dateint = "
+                                "${prefix}rd_date_dim.dateint"
+                            ),
+                        ),
+                    ],
+                    owners=["dj"],
+                ),
+                MetricSpec(
+                    name="rd_num_orders",
+                    display_name="Rd Num Orders",
+                    description=description,
+                    query="SELECT count(order_id) FROM ${prefix}rd_orders_fact",
+                    required_dimensions=["${prefix}rd_date_dim.dateint"],
+                    owners=["dj"],
+                ),
+            ]
+
+        metric_name = f"{namespace}.rd_num_orders"
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=_nodes("Number of orders")),
+        )
+        assert data["status"] == "success", data
+        response = await client.get(f"/metrics/{metric_name}/")
+        assert response.status_code == 200, response.json()
+        assert response.json()["required_dimensions"] == ["dateint"]
+
+        # Only the metric's description changes here, so `rd_date_dim` and
+        # `rd_orders_fact` are unchanged and are not part of this update's
+        # deploy-ordering graph load -- required_dimensions must still resolve.
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=_nodes("Number of orders, revised"),
+            ),
+        )
+        assert data["status"] == "success", data
+        assert [
+            result for result in data["results"] if result["name"] == metric_name
+        ] == [
+            {
+                "deploy_type": "node",
+                "message": "Updated metric (v1.1)\n└─ Updated description",
+                "name": metric_name,
+                "operation": "update",
+                "changed_fields": ["description"],
+                "status": "success",
+            },
+        ], data["results"]
+
+        response = await client.get(f"/metrics/{metric_name}/")
+        assert response.status_code == 200, response.json()
+        assert response.json()["required_dimensions"] == ["dateint"]
+
+    @pytest.mark.asyncio
     async def test_metadata_edit_on_qualified_metric_is_minor(self, client):
         """The change tier is folded from `changed_fields`, so a qualified
         required dimension tagging along there drags a metadata-only edit up to
