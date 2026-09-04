@@ -45,17 +45,12 @@ def configure_database_env(db_url: str) -> str:
 
 def mark_template_populated(template_db_url: str) -> None:
     """
-    Record that the template at ``template_db_url`` finished building, via a
-    marker row on the base ``dj`` database -- never on the template itself.
+    Record that the template at `template_db_url` finished building, via a
+    marker row on the base `dj` database, not the template itself.
 
-    ``clone_database_from_template`` (conftest.py) runs
-    ``pg_terminate_backend`` against every connection to the template right
-    before cloning from it, on every clone, from every worker, for the life
-    of the run. A reader that connects straight to the template to check
-    whether it is populated is a legitimate target of that call whenever the
-    timing overlaps. Writing (and later reading) a marker on the base
-    database instead means the check never touches a database name that
-    ``pg_terminate_backend`` is ever aimed at.
+    `clone_database_from_template` calls `pg_terminate_backend` against
+    connections to the template before cloning it, so a reader connected
+    straight to the template risks getting killed as collateral damage.
     """
     template_name = urlparse(template_db_url).path.lstrip("/")
     url = urlparse(template_db_url)

@@ -414,23 +414,12 @@ def database_exists(postgres, dbname: str) -> bool:
 
 def template_is_populated(postgres, dbname: str) -> bool:
     """
-    Whether ``dbname`` exists *and* finished building, per the marker row
-    ``mark_template_populated`` (tests/helpers/template_app.py) writes on the
-    base database once population completes.
+    Whether `dbname` exists and finished building, per the marker row
+    `mark_template_populated` writes on the base database.
 
-    Checked against that marker rather than by connecting to ``dbname``
-    itself: ``clone_database_from_template`` runs ``pg_terminate_backend``
-    against every connection to the template right before cloning from it,
-    on every clone, from every worker, for the life of the run. A check
-    connection made straight to the template is a legitimate target of that
-    call whenever the timing overlaps, and gets killed as collateral damage
-    (psycopg.errors.AdminShutdown) -- a marker on the base database is never
-    a database name ``pg_terminate_backend`` is aimed at.
-
-    Existence alone is not enough even with the marker: a build that died
-    after ``CREATE DATABASE`` but before loading anything (or before this
-    marker existed) leaves a database that looks usable and is not, and on a
-    shared server nothing cleans it up.
+    Checked via the marker instead of connecting to `dbname` directly,
+    since `clone_database_from_template` calls `pg_terminate_backend`
+    against connections to the template before cloning it.
     """
     if not database_exists(postgres, dbname):
         return False
