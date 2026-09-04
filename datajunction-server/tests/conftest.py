@@ -38,6 +38,7 @@ from fastapi_cache import FastAPICache
 from fastapi_cache.backends.inmemory import InMemoryBackend
 from httpx import AsyncClient
 from psycopg import connect
+from psycopg.errors import UndefinedTable
 from pytest_mock import MockerFixture
 from sqlalchemy import event, text
 from sqlalchemy.dialects.postgresql import insert
@@ -413,12 +414,23 @@ def database_exists(postgres, dbname: str) -> bool:
 
 def template_is_populated(postgres, dbname: str) -> bool:
     """
-    Whether ``dbname`` exists *and* actually holds a schema.
+    Whether ``dbname`` exists *and* finished building, per the marker row
+    ``mark_template_populated`` (tests/helpers/template_app.py) writes on the
+    base database once population completes.
 
-    Existence alone is not enough. A build that dies after CREATE DATABASE but
-    before loading anything leaves a database that looks usable and is not, and
-    on a shared server nothing cleans it up -- every later run then fails
-    somewhere downstream with an opaque UndefinedTable.
+    Checked against that marker rather than by connecting to ``dbname``
+    itself: ``clone_database_from_template`` runs ``pg_terminate_backend``
+    against every connection to the template right before cloning from it,
+    on every clone, from every worker, for the life of the run. A check
+    connection made straight to the template is a legitimate target of that
+    call whenever the timing overlaps, and gets killed as collateral damage
+    (psycopg.errors.AdminShutdown) -- a marker on the base database is never
+    a database name ``pg_terminate_backend`` is aimed at.
+
+    Existence alone is not enough even with the marker: a build that died
+    after ``CREATE DATABASE`` but before loading anything (or before this
+    marker existed) leaves a database that looks usable and is not, and on a
+    shared server nothing cleans it up.
     """
     if not database_exists(postgres, dbname):
         return False
@@ -426,15 +438,19 @@ def template_is_populated(postgres, dbname: str) -> bool:
     with connect(
         host=url.hostname,
         port=url.port,
-        dbname=dbname,
+        dbname=url.path.lstrip("/"),
         user=url.username,
         password=url.password,
         autocommit=True,
     ) as conn:
-        row = conn.execute(
-            "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'",
-        ).fetchone()
-    return bool(row and row[0] > 0)
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM test_template_status WHERE template_name = %s",
+                (dbname,),
+            ).fetchone()
+        except UndefinedTable:
+            return False
+    return row is not None
 
 
 def require_shared_template(postgres, dbname: str, how_to_build: str) -> None:
