@@ -178,6 +178,44 @@ async def test_frozen_measure_name_collision_allows_reaggregate_only_difference(
 
 
 @pytest.mark.asyncio
+async def test_reaggregate_rule_is_not_persisted_on_shared_frozen_measure(
+    session: AsyncSession,
+    user: User,
+):
+    """FrozenMeasure.rule stays metric-independent even for semi-additive metrics."""
+    src = await _make_source(
+        session,
+        user,
+        "src_reaggregate_storage",
+        [Column(name="semi_amount", type=ct.DoubleType(), order=0)],
+    )
+    reaggregate = await _make_metric(
+        session,
+        user,
+        "m.semi_amount_snapshot",
+        "SELECT SUM(semi_amount) FROM src_reaggregate_storage",
+        [src],
+        reaggregate={
+            "rules": [
+                {
+                    "dimension": "default.date_dim.date",
+                    "fn": "last_value",
+                },
+            ],
+        },
+    )
+    await session.refresh(reaggregate, ["current"])
+
+    await derive_frozen_measures_bulk(session, [reaggregate.current.id])
+    await session.commit()
+
+    await session.refresh(reaggregate.current, ["frozen_measures"])
+    assert all(
+        fm.rule.reaggregate is None for fm in reaggregate.current.frozen_measures
+    )
+
+
+@pytest.mark.asyncio
 async def test_derived_metric_expands_parent_cache(
     session: AsyncSession,
     user: User,

@@ -9,7 +9,11 @@ from datajunction_server.construction.build_v3.cube_matcher import (
     _reaggregate_dimensions_for_cube_metrics,
     _reaggregate_requirements_for_cube_metrics,
     _reaggregate_requirements_for_decomposed_metrics,
+    _reaggregate_requirements_for_metrics_if_needed,
     build_synthetic_grain_group,
+)
+from datajunction_server.construction.build_v3 import (
+    cube_matcher as cube_matcher_module,
 )
 from datajunction_server.construction.build_v3 import builder as builder_module
 from datajunction_server.construction.build_v3 import metrics as metrics_module
@@ -324,6 +328,82 @@ def test_cube_dimension_coverage_accepts_bare_protected_parent_column():
     assert not _cube_dimension_covers_reaggregate_dimension(
         "order_date",
         "v3.order_details.order_date[ship]",
+    )
+
+
+@pytest.mark.asyncio
+async def test_cube_reaggregate_requirements_skip_full_extract_without_reaggregate(
+    monkeypatch,
+):
+    """No reaggregate in the metric graph skips full component extraction."""
+
+    async def fail_full_extract(*_args, **_kwargs):
+        raise AssertionError("full metric extraction should not run")
+
+    class Result:
+        def all(self):
+            return [("v3.total_revenue", None, None)]
+
+    class Session:
+        async def execute(self, _stmt):
+            return Result()
+
+    monkeypatch.setattr(
+        cube_matcher_module,
+        "_reaggregate_requirements_for_metrics",
+        fail_full_extract,
+    )
+
+    assert (
+        await _reaggregate_requirements_for_metrics_if_needed(
+            Session(),
+            ["v3.total_revenue"],
+            ["v3.product.category"],
+        )
+        == []
+    )
+
+
+@pytest.mark.asyncio
+async def test_cube_reaggregate_requirements_checks_derived_metric_ancestors(
+    monkeypatch,
+):
+    """Derived metrics still use full extraction when an ancestor has reaggregate."""
+    expected = [("v3.balance_index", "v3.date.date_id", ReaggregationFunction.MAX)]
+
+    async def full_extract(*_args, **_kwargs):
+        return expected
+
+    class Result:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def all(self):
+            return self.rows
+
+    class Session:
+        def __init__(self):
+            self.calls = 0
+
+        async def execute(self, _stmt):
+            self.calls += 1
+            if self.calls == 1:
+                return Result([("v3.balance_index", None, "v3.daily_balance")])
+            return Result([("v3.daily_balance", {"rules": []}, None)])
+
+    monkeypatch.setattr(
+        cube_matcher_module,
+        "_reaggregate_requirements_for_metrics",
+        full_extract,
+    )
+
+    assert (
+        await _reaggregate_requirements_for_metrics_if_needed(
+            Session(),
+            ["v3.balance_index"],
+            ["v3.product.category"],
+        )
+        == expected
     )
 
 

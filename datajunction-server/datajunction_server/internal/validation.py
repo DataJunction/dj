@@ -374,7 +374,7 @@ async def validate_node_data(
                 parent_columns,
             )
             invalid_reaggregate_functions = unsupported_dimension_reaggregate_functions(
-                reaggregate_spec
+                reaggregate_spec,
             )
     except MissingGreenlet:
         invalid_required_dimensions = set()

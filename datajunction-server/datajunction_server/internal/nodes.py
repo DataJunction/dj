@@ -1031,7 +1031,7 @@ async def derive_frozen_measures_bulk(
                     upstream_revision_id=upstream_revision_id,
                     expression=measure.expression,
                     aggregation=measure.aggregation,
-                    rule=measure.rule,
+                    rule=_frozen_measure_rule(measure.rule),
                     used_by_node_revisions=[],
                 )
                 session.add(frozen_measure)
@@ -1044,6 +1044,13 @@ async def derive_frozen_measures_bulk(
 def _aggregation_rule_identity(rule: DecomposeAggregationRule) -> dict[str, Any]:
     """Return the stable JSON shape used for frozen-measure rule comparison."""
     return rule.model_dump(mode="json", exclude_none=True, exclude={"reaggregate"})
+
+
+def _frozen_measure_rule(rule: DecomposeAggregationRule) -> DecomposeAggregationRule:
+    """
+    Return the metric-independent rule persisted on a shared frozen measure.
+    """
+    return rule.model_copy(update={"reaggregate": None})
 
 
 def _raise_if_frozen_measure_conflicts(
