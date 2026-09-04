@@ -1133,33 +1133,40 @@ class MetricSpec(NodeSpec):
         Required dimensions rewritten so the two ways of naming the same column
         compare equal.
 
-        A column on one of the metric's own parents can be authored either way,
-        and only the bare form is ever exported, so those fold down. Anything
-        else is left alone. For a metric reading from ``ns.orders_fact``::
+        The export side (`NodeRevision.to_spec`) always emits the
+        fully-qualified `node.column` form, so a qualified entry here already
+        is canonical and is left untouched -- there's no need to reason about
+        which node counts as a "parent" to fold it down, which is exactly the
+        asymmetry that made this comparison unreliable for a required
+        dimension reached via a dimension link rather than a direct query
+        parent. A bare column name is only ever an author-facing shorthand for
+        a column on one of the metric's own (direct, single) query parents, so
+        it's upgraded to the same qualified form when that parent is
+        unambiguous:
 
-            ns.orders_fact.currency_code  ->  currency_code   (a parent's column)
-            currency_code                 ->  currency_code   (already bare)
-            ns.date_dim.dateint           ->  ns.date_dim.dateint  (not a parent)
+            ns.date_dim.dateint  ->  ns.date_dim.dateint  (already canonical)
+            currency_code        ->  ns.orders_fact.currency_code  (single parent)
+            currency_code        ->  currency_code  (zero or multiple parents: ambiguous, left as-is)
 
         Parents come from the spec's own query, so this needs no session.
         """
+        required_dims = self.rendered_required_dimensions
+        if all(SEPARATOR in required_dim for required_dim in required_dims):
+            return required_dims
+
         from datajunction_server.internal.deployment.utils import (
             extract_upstream_candidates,
         )
-
-        required_dims = self.rendered_required_dimensions
-        if not any(SEPARATOR in required_dim for required_dim in required_dims):
-            return required_dims
 
         parents = (
             extract_upstream_candidates(self.query_ast, is_metric=True)
             if self.query_ast is not None
             else set()
         )
+        sole_parent = next(iter(parents)) if len(parents) == 1 else None
         return [
-            required_dim.rsplit(SEPARATOR, 1)[1]
-            if SEPARATOR in required_dim
-            and required_dim.rsplit(SEPARATOR, 1)[0] in parents
+            f"{sole_parent}{SEPARATOR}{required_dim}"
+            if SEPARATOR not in required_dim and sole_parent is not None
             else required_dim
             for required_dim in required_dims
         ]

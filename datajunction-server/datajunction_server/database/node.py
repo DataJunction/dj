@@ -659,23 +659,17 @@ class Node(Base):
                 legacy_from_md,
             )
 
-            # A required dimension that is a direct column on a parent node is
-            # exported as its bare column name (portable as-is). One that lives on
-            # a node elsewhere on the graph (e.g. a linked dimension) is exported
-            # as its fully-qualified `node.column` path, so a re-deploy into a
-            # different namespace can still find it — the bare name would fail to
-            # resolve against the parents. Prefix parameterization (`${prefix}`) is
-            # applied later, in get_node_specs_for_export, and only for in-deploy
-            # nodes. Only touch ``parents`` when there are required dims to classify.
-            required_dimensions_spec: list[str] = []
-            if self.current.required_dimensions:
-                parent_names = {parent.name for parent in self.current.parents}
-                required_dimensions_spec = sorted(
-                    col.name
-                    if col.node_revision.name in parent_names
-                    else col.full_name()
-                    for col in self.current.required_dimensions
-                )
+            # Every required dimension is exported as its fully-qualified
+            # `node.column` path, whether it's a direct parent's column or one
+            # reached via a dimension link -- so a re-deploy into a different
+            # namespace can still find it, and so the two sides of a diff never
+            # have to agree on which node counts as a "parent" to compare equal
+            # (see `MetricSpec.canonical_required_dimensions`). Prefix
+            # parameterization (`${prefix}`) is applied later, in
+            # get_node_specs_for_export, and only for in-deploy nodes.
+            required_dimensions_spec: list[str] = sorted(
+                col.full_name() for col in self.current.required_dimensions
+            )
             extra_kwargs.update(
                 required_dimensions=required_dimensions_spec,
                 direction=self.current.metric_metadata.direction

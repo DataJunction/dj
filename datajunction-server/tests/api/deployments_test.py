@@ -10809,6 +10809,150 @@ class TestRequiredDimensionsRedeployIdempotence:
         assert response.json()["version"] == "v1.0"
 
     @pytest.mark.asyncio
+    async def test_redeploy_is_noop_for_linked_dimension_column_multi_segment_namespace(
+        self,
+        client,
+    ):
+        """Same shape as `test_redeploy_is_noop_for_linked_dimension_column`, but
+        under a dotted (git-branch-shaped) namespace and with the parent having
+        several dimension_links, reproducing the real semantic-shared churn on
+        `can_stream_accounts_28d` / `dt_date_d_v2.dateint`."""
+        namespace = "rd_multi.linked_dim_branch"
+
+        def _nodes():
+            return [
+                SourceSpec(
+                    name="rd_date_raw",
+                    description="Raw date",
+                    catalog="default",
+                    schema="roads",
+                    table="rd_date_raw",
+                    columns=[ColumnSpec(name="dateint", type="int")],
+                    dimension_links=[],
+                    owners=["dj"],
+                ),
+                DimensionSpec(
+                    name="rd_date_dim",
+                    description="Date dimension",
+                    query="SELECT dateint FROM ${prefix}rd_date_raw",
+                    primary_key=["dateint"],
+                    dimension_links=[],
+                    owners=["dj"],
+                ),
+                SourceSpec(
+                    name="rd_geo_raw",
+                    description="Raw geo",
+                    catalog="default",
+                    schema="roads",
+                    table="rd_geo_raw",
+                    columns=[ColumnSpec(name="country_iso_code", type="string")],
+                    dimension_links=[],
+                    owners=["dj"],
+                ),
+                DimensionSpec(
+                    name="rd_geo_dim",
+                    description="Geo dimension",
+                    query="SELECT country_iso_code FROM ${prefix}rd_geo_raw",
+                    primary_key=["country_iso_code"],
+                    dimension_links=[],
+                    owners=["dj"],
+                ),
+                SourceSpec(
+                    name="rd_orders_raw",
+                    description="Raw orders",
+                    catalog="default",
+                    schema="roads",
+                    table="rd_orders_raw",
+                    columns=[
+                        ColumnSpec(name="order_id", type="bigint"),
+                        ColumnSpec(name="account_id", type="bigint"),
+                        ColumnSpec(name="dateint", type="int"),
+                        ColumnSpec(name="country_iso_code", type="string"),
+                    ],
+                    dimension_links=[],
+                    owners=["dj"],
+                ),
+                TransformSpec(
+                    name="rd_orders_fact",
+                    description="Orders fact",
+                    query=(
+                        "SELECT order_id, account_id, dateint, country_iso_code "
+                        "FROM ${prefix}rd_orders_raw"
+                    ),
+                    dimension_links=[
+                        DimensionJoinLinkSpec(
+                            dimension_node="${prefix}rd_date_dim",
+                            join_type="left",
+                            join_on=(
+                                "${prefix}rd_orders_fact.dateint = "
+                                "${prefix}rd_date_dim.dateint"
+                            ),
+                        ),
+                        DimensionJoinLinkSpec(
+                            dimension_node="${prefix}rd_date_dim",
+                            join_type="left",
+                            join_on=(
+                                "${prefix}rd_orders_fact.account_id = "
+                                "${prefix}rd_date_dim.dateint"
+                            ),
+                            role="rd_account_signup_date",
+                        ),
+                        DimensionJoinLinkSpec(
+                            dimension_node="${prefix}rd_geo_dim",
+                            join_type="left",
+                            join_on=(
+                                "${prefix}rd_orders_fact.country_iso_code = "
+                                "${prefix}rd_geo_dim.country_iso_code"
+                            ),
+                            role="rd_signup_country",
+                        ),
+                    ],
+                    owners=["dj"],
+                ),
+                MetricSpec(
+                    name="rd_num_orders",
+                    display_name="Rd Num Orders",
+                    description="Number of orders",
+                    query="SELECT count(order_id) FROM ${prefix}rd_orders_fact",
+                    required_dimensions=["${prefix}rd_date_dim.dateint"],
+                    owners=["dj"],
+                ),
+            ]
+
+        metric_name = f"{namespace}.rd_num_orders"
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=_nodes()),
+        )
+        assert data["status"] == "success", data
+        response = await client.get(f"/nodes/{metric_name}/")
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v1.0"
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=_nodes()),
+        )
+        assert data["status"] == "success", data
+        assert [
+            result for result in data["results"] if result["name"] == metric_name
+        ] == [
+            {
+                "deploy_type": "node",
+                "message": "Unchanged",
+                "name": metric_name,
+                "operation": "noop",
+                "changed_fields": [],
+                "status": "skipped",
+            },
+        ], data["results"]
+
+        response = await client.get(f"/nodes/{metric_name}/")
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v1.0"
+
+    @pytest.mark.asyncio
     async def test_metadata_edit_on_qualified_metric_is_minor(self, client):
         """The change tier is folded from `changed_fields`, so a qualified
         required dimension tagging along there drags a metadata-only edit up to
@@ -10845,3 +10989,102 @@ class TestRequiredDimensionsRedeployIdempotence:
         response = await client.get(f"/nodes/{metric_name}/")
         assert response.status_code == 200, response.json()
         assert response.json()["version"] == "v1.1"
+
+    @pytest.mark.asyncio
+    async def test_redeploy_is_noop_for_linked_dimension_column(self, client):
+        """A required dimension one hop out via a dimension_link (not a direct
+        query parent) should also redeploy as a noop. Reproduces the churn seen
+        with `${prefix}dt_date_d_v2.dateint`-shaped required dimensions."""
+        namespace = "rd_linked_dim"
+
+        def _nodes():
+            return [
+                SourceSpec(
+                    name="rd_date_raw",
+                    description="Raw date",
+                    catalog="default",
+                    schema="roads",
+                    table="rd_date_raw",
+                    columns=[ColumnSpec(name="dateint", type="int")],
+                    dimension_links=[],
+                    owners=["dj"],
+                ),
+                DimensionSpec(
+                    name="rd_date_dim",
+                    description="Date dimension",
+                    query="SELECT dateint FROM ${prefix}rd_date_raw",
+                    primary_key=["dateint"],
+                    dimension_links=[],
+                    owners=["dj"],
+                ),
+                SourceSpec(
+                    name="rd_orders_raw",
+                    description="Raw orders",
+                    catalog="default",
+                    schema="roads",
+                    table="rd_orders_raw",
+                    columns=[
+                        ColumnSpec(name="order_id", type="bigint"),
+                        ColumnSpec(name="dateint", type="int"),
+                    ],
+                    dimension_links=[],
+                    owners=["dj"],
+                ),
+                TransformSpec(
+                    name="rd_orders_fact",
+                    description="Orders fact",
+                    query="SELECT order_id, dateint FROM ${prefix}rd_orders_raw",
+                    dimension_links=[
+                        DimensionJoinLinkSpec(
+                            dimension_node="${prefix}rd_date_dim",
+                            join_type="inner",
+                            join_on=(
+                                "${prefix}rd_orders_fact.dateint = "
+                                "${prefix}rd_date_dim.dateint"
+                            ),
+                        ),
+                    ],
+                    owners=["dj"],
+                ),
+                MetricSpec(
+                    name="rd_num_orders",
+                    display_name="Rd Num Orders",
+                    description="Number of orders",
+                    query="SELECT count(order_id) FROM ${prefix}rd_orders_fact",
+                    required_dimensions=["${prefix}rd_date_dim.dateint"],
+                    owners=["dj"],
+                ),
+            ]
+
+        metric_name = f"{namespace}.rd_num_orders"
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=_nodes()),
+        )
+        assert data["status"] == "success", data
+        response = await client.get(f"/nodes/{metric_name}/")
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v1.0"
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=_nodes()),
+        )
+        assert data["status"] == "success", data
+        assert [
+            result for result in data["results"] if result["name"] == metric_name
+        ] == [
+            {
+                "deploy_type": "node",
+                "message": "Unchanged",
+                "name": metric_name,
+                "operation": "noop",
+                "changed_fields": [],
+                "status": "skipped",
+            },
+        ], data["results"]
+
+        response = await client.get(f"/nodes/{metric_name}/")
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v1.0"
