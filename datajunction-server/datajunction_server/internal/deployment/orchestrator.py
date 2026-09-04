@@ -123,6 +123,7 @@ from datajunction_server.models.node import (
     NodeStatus,
     NodeType,
 )
+from datajunction_server.models.reaggregate import dump_reaggregate_spec
 from datajunction_server.models.unit import (
     AtomicUnit,
     CompoundUnit,
@@ -5338,6 +5339,9 @@ class DeploymentOrchestrator:
                     dependency_nodes,
                 )
                 new_revision.required_dimensions = matched_columns
+            new_revision.reaggregate = dump_reaggregate_spec(
+                metric_spec.rendered_reaggregate,
+            )
         return new_revision
 
     def _resolve_metric_unit(

@@ -2,11 +2,14 @@
 Tests for ``datajunction_server.sql.decompose``.
 """
 
+from types import SimpleNamespace
+
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
+from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.cube_materialization import (
     Aggregability,
     AggregationRule,
@@ -14,6 +17,10 @@ from datajunction_server.models.cube_materialization import (
 )
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.reaggregate import (
+    DimensionReaggregateRule,
+    ReaggregationFunction,
+)
 from datajunction_server.sql import functions as dj_functions
 from datajunction_server.sql.decompose import (
     DUPLICATION_INVARIANT_AGGREGATIONS,
@@ -62,7 +69,12 @@ async def create_metric(session: AsyncSession, current_user, parent_node):
     """Fixture to create a metric node with a query."""
     created_metrics: list[NodeRevision] = []
 
-    async def _create(query: str, name: str | None = None, parent=None):
+    async def _create(
+        query: str,
+        name: str | None = None,
+        parent=None,
+        reaggregate: dict[str, object] | None = None,
+    ):
         parent_to_use = parent if parent else parent_node
         metric_name = name or f"test_metric_{len(created_metrics)}"
 
@@ -81,6 +93,7 @@ async def create_metric(session: AsyncSession, current_user, parent_node):
             name=metric_name,
             type=NodeType.METRIC,
             query=query,
+            reaggregate=reaggregate,
             created_by_id=current_user.id,
         )
         session.add(metric_rev)
@@ -118,6 +131,77 @@ async def test_simple_sum(session: AsyncSession, create_metric):
         str(derived_sql),
         "SELECT SUM(sales_amount_sum_b5a3cefe) FROM parent_node",
     )
+
+
+@pytest.mark.asyncio
+async def test_reaggregate_sum_attaches_spec(session: AsyncSession, create_metric):
+    """
+    Semi-additive declarations attach to the single extracted base measure.
+    """
+    metric_rev = await create_metric(
+        "SELECT SUM(account_balance) FROM parent_node",
+        reaggregate={
+            "rules": [
+                {
+                    "dimension": "default.date_dim.date",
+                    "fn": "last_value",
+                },
+            ],
+        },
+    )
+
+    extractor = MetricComponentExtractor(metric_rev.id)
+    measures, derived_sql = await extractor.extract(session)
+
+    expected_spec = DimensionReaggregateRule(
+        dimension="default.date_dim.date",
+        fn=ReaggregationFunction.LAST_VALUE,
+    )
+    assert measures == [
+        MetricComponent(
+            name="account_balance_sum_8e611a76",
+            expression="account_balance",
+            aggregation="SUM",
+            merge="SUM",
+            rule=AggregationRule(
+                type=Aggregability.FULL,
+                reaggregate=expected_spec,
+            ),
+        ),
+    ]
+    assert_sql_equal(
+        str(derived_sql),
+        "SELECT SUM(account_balance_sum_8e611a76) FROM parent_node",
+    )
+
+
+@pytest.mark.asyncio
+async def test_reaggregate_multiple_rules_not_supported(
+    session: AsyncSession,
+    create_metric,
+):
+    """
+    V1 semi-additive metrics support one dimension-specific rule.
+    """
+    metric_rev = await create_metric(
+        "SELECT SUM(account_balance) FROM parent_node",
+        reaggregate={
+            "rules": [
+                {
+                    "dimension": "default.date_dim.date",
+                    "fn": "last_value",
+                },
+                {
+                    "dimension": "default.region_dim.region",
+                    "fn": "first_value",
+                },
+            ],
+        },
+    )
+
+    extractor = MetricComponentExtractor(metric_rev.id)
+    with pytest.raises(DJInvalidInputException, match="exactly one rule"):
+        await extractor.extract(session)
 
 
 @pytest.mark.asyncio
@@ -855,6 +939,50 @@ async def test_unsupported_aggregation_function(session: AsyncSession, create_me
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("query", "match"),
+    [
+        (
+            "SELECT AVG(sales_amount) FROM parent_node",
+            "exactly one component",
+        ),
+        (
+            "SELECT COUNT(DISTINCT user_id) FROM parent_node",
+            "one non-distinct fully-aggregatable component",
+        ),
+        (
+            "SELECT MEDIAN(sales_amount) FROM parent_node",
+            "decomposable aggregation",
+        ),
+    ],
+)
+async def test_unsupported_reaggregate_shapes(
+    session: AsyncSession,
+    create_metric,
+    query: str,
+    match: str,
+):
+    """
+    V1 semi-additive metrics only support one ordinary decomposable component.
+    """
+    metric_rev = await create_metric(
+        query,
+        reaggregate={
+            "rules": [
+                {
+                    "dimension": "default.date_dim.date",
+                    "fn": "last_value",
+                },
+            ],
+        },
+    )
+
+    extractor = MetricComponentExtractor(metric_rev.id)
+    with pytest.raises(DJInvalidInputException, match=match):
+        await extractor.extract(session)
+
+
+@pytest.mark.asyncio
 async def test_count_if(session: AsyncSession, create_metric):
     """
     Test decomposition for count_if.
@@ -1539,7 +1667,12 @@ async def create_derived_metric(clean_session: AsyncSession, clean_current_user)
     session = clean_session
     current_user = clean_current_user
 
-    async def _create(name: str, query: str, base_metric_nodes: list[Node]):
+    async def _create(
+        name: str,
+        query: str,
+        base_metric_nodes: list[Node],
+        reaggregate: dict[str, object] | None = None,
+    ):
         metric_node = Node(
             name=name,
             type=NodeType.METRIC,
@@ -1555,6 +1688,7 @@ async def create_derived_metric(clean_session: AsyncSession, clean_current_user)
             name=name,
             type=NodeType.METRIC,
             query=query,
+            reaggregate=reaggregate,
             created_by_id=current_user.id,
         )
         session.add(metric_rev)
@@ -1569,6 +1703,116 @@ async def create_derived_metric(clean_session: AsyncSession, clean_current_user)
         return metric_node, metric_rev
 
     return _create
+
+
+@pytest.mark.asyncio
+async def test_derived_metric_reaggregate_not_supported_db_load(
+    clean_session: AsyncSession,
+    create_base_metric,
+    create_derived_metric,
+):
+    """
+    Semi-additive declarations are currently limited to base metrics.
+    """
+    session = clean_session
+    balance_node, _ = await create_base_metric(
+        "default.balance",
+        "SELECT SUM(account_balance) FROM parent_node",
+    )
+    _, derived_rev = await create_derived_metric(
+        "default.double_balance",
+        "SELECT default.balance * 2",
+        [balance_node],
+        reaggregate={
+            "rules": [
+                {
+                    "dimension": "default.date_dim.date",
+                    "fn": "last_value",
+                },
+            ],
+        },
+    )
+
+    extractor = MetricComponentExtractor(derived_rev.id)
+    with pytest.raises(
+        DJInvalidInputException,
+        match="Derived metric `default.double_balance` declares reaggregate",
+    ):
+        await extractor.extract(session)
+
+
+def test_derived_metric_reaggregate_not_supported_cache_load():
+    """
+    Cache-based extraction enforces the same base-metric-only constraint.
+    """
+    reaggregate = {
+        "rules": [
+            {
+                "dimension": "default.date_dim.date",
+                "fn": "last_value",
+            },
+        ],
+    }
+    base_node = SimpleNamespace(
+        name="default.balance",
+        type=NodeType.METRIC,
+        current=SimpleNamespace(
+            query="SELECT SUM(account_balance) FROM parent_node",
+            reaggregate=None,
+        ),
+    )
+    derived_node = SimpleNamespace(
+        name="default.double_balance",
+        type=NodeType.METRIC,
+        current=SimpleNamespace(
+            query="SELECT default.balance * 2",
+            reaggregate=reaggregate,
+        ),
+    )
+
+    extractor = MetricComponentExtractor(0)
+    with pytest.raises(
+        DJInvalidInputException,
+        match="Derived metric `default.double_balance` declares reaggregate",
+    ):
+        extractor._build_metric_data_from_cache(
+            derived_node,
+            {
+                "default.balance": base_node,
+                "default.double_balance": derived_node,
+            },
+            {"default.double_balance": ["default.balance"]},
+        )
+
+
+def test_normalize_aliases_leaves_other_namespaces_qualified():
+    """
+    Alias normalization only strips the primary parent alias from column refs.
+    """
+    extractor = MetricComponentExtractor(0)
+    query = parse("SELECT p.value, other.value FROM parent_node p")
+
+    normalized = extractor._normalize_aliases(query)
+
+    assert_sql_equal(str(normalized), "SELECT value, other.value FROM parent_node")
+
+
+def test_substitute_metric_references_ignores_non_metric_columns():
+    """
+    Derived metric substitution leaves ordinary columns in place.
+    """
+    extractor = MetricComponentExtractor(0)
+    query = parse("SELECT default.balance + raw_value FROM parent_node")
+
+    substituted = extractor._substitute_metric_references(
+        query,
+        {"default.balance": ([], "SUM(balance)")},
+    )
+
+    assert_sql_equal(
+        str(substituted),
+        "SELECT SUM(balance) + raw_value FROM parent_node",
+    )
 
 
 @pytest.mark.asyncio

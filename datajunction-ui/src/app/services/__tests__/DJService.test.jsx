@@ -182,6 +182,59 @@ describe('DataJunctionAPI', () => {
     });
   });
 
+  it('calls createNode with semi-additive metadata correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({}));
+    await DataJunctionAPI.createNode(
+      'metric',
+      'default.daily_balance',
+      'Daily Balance',
+      'Daily balance',
+      'SELECT sum(balance) FROM default.accounts',
+      'published',
+      'default',
+      null,
+      undefined,
+      undefined,
+      undefined,
+      null,
+      {
+        rules: [
+          {
+            dimension: 'v3.date.date_id[order]',
+            fn: 'last_value',
+          },
+        ],
+      },
+    );
+    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/nodes/metric`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: 'default.daily_balance',
+        display_name: 'Daily Balance',
+        description: 'Daily balance',
+        query: 'SELECT sum(balance) FROM default.accounts',
+        mode: 'published',
+        namespace: 'default',
+        primary_key: null,
+        metric_metadata: null,
+        required_dimensions: undefined,
+        custom_metadata: null,
+        reaggregate: {
+          rules: [
+            {
+              dimension: 'v3.date.date_id[order]',
+              fn: 'last_value',
+            },
+          ],
+        },
+      }),
+      credentials: 'include',
+    });
+  });
+
   it('calls patchNode correctly', async () => {
     const sampleArgs = [
       'name',
@@ -231,6 +284,65 @@ describe('DataJunctionAPI', () => {
       json: { message: 'Update failed' },
       status: 500,
     });
+  });
+
+  it('calls patchNode with semi-additive metadata correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({}));
+    await DataJunctionAPI.patchNode(
+      'default.daily_balance',
+      'Daily Balance',
+      'Daily balance',
+      'SELECT sum(balance) FROM default.accounts',
+      'published',
+      null,
+      'neutral',
+      'unitless',
+      5,
+      [],
+      ['dj'],
+      null,
+      {
+        rules: [
+          {
+            dimension: 'v3.date.date_id[order]',
+            fn: 'last_value',
+          },
+        ],
+      },
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/nodes/default.daily_balance`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          display_name: 'Daily Balance',
+          description: 'Daily balance',
+          query: 'SELECT sum(balance) FROM default.accounts',
+          mode: 'published',
+          primary_key: null,
+          metric_metadata: {
+            direction: 'neutral',
+            unit: 'unitless',
+            significant_digits: 5,
+          },
+          required_dimensions: [],
+          owners: ['dj'],
+          custom_metadata: null,
+          reaggregate: {
+            rules: [
+              {
+                dimension: 'v3.date.date_id[order]',
+                fn: 'last_value',
+              },
+            ],
+          },
+        }),
+        credentials: 'include',
+      },
+    );
   });
 
   it('calls createCube correctly', async () => {
@@ -1265,6 +1377,7 @@ describe('DataJunctionAPI', () => {
       }),
     );
     await DataJunctionAPI.getMetric('default.num_repair_orders');
+    const requestBody = JSON.parse(fetch.mock.calls[0][1].body);
     expect(fetch).toHaveBeenCalledWith(
       `${DJ_URL}/graphql`,
       expect.objectContaining({
@@ -1275,6 +1388,13 @@ describe('DataJunctionAPI', () => {
         },
       }),
     );
+    expect(requestBody.variables).toEqual({
+      name: 'default.num_repair_orders',
+    });
+    expect(requestBody.query).toContain('reaggregate');
+    expect(requestBody.query).toContain('dimension');
+    expect(requestBody.query).toContain('rules');
+    expect(requestBody.query).toContain('fn');
   });
 
   it('calls notebookExportCube correctly', async () => {
@@ -1892,7 +2012,13 @@ describe('DataJunctionAPI', () => {
     );
 
     const result = await DataJunctionAPI.getNodeForEditing('default.node1');
+    const requestBody = JSON.parse(fetch.mock.calls[0][1].body);
     expect(result).toHaveProperty('name', 'default.node1');
+    expect(requestBody.variables).toEqual({ name: 'default.node1' });
+    expect(requestBody.query).toContain('reaggregate');
+    expect(requestBody.query).toContain('dimension');
+    expect(requestBody.query).toContain('rules');
+    expect(requestBody.query).toContain('fn');
   });
 
   it('returns null when getNodeForEditing finds no nodes', async () => {

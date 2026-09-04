@@ -12,9 +12,13 @@ import logging
 
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, load_only, noload, selectinload
+from sqlalchemy.orm import aliased, joinedload, load_only, noload, selectinload
 
-from datajunction_server.construction.build_v3.decomposition import is_derived_metric
+from datajunction_server.construction.build_v3.decomposition import (
+    _reaggregate_dimension_requested,
+    is_derived_metric,
+    missing_reaggregate_dimensions,
+)
 from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
 from datajunction_server.construction.build_v3.filters import (
     parse_and_resolve_filters,
@@ -36,14 +40,19 @@ from datajunction_server.construction.build_v3.utils import (
 )
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column
-from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
 from datajunction_server.database.partition import Partition
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.instrumentation.provider import timed
 from datajunction_server.models.decompose import Aggregability
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.reaggregate import (
+    ReaggregationFunction,
+    dimension_reaggregate_rules,
+)
 from datajunction_server.naming import amenable_name
+from datajunction_server.sql.decompose import MetricComponentExtractor
 from datajunction_server.sql.parsing import ast
 
 logger = logging.getLogger(__name__)
@@ -53,6 +62,327 @@ logger = logging.getLogger(__name__)
 # parsed: coverage can't be proven, so cube matching must fail SAFE (reject the
 # cube and fall back) rather than fail open and emit invalid SQL.
 _FILTER_COVERAGE_UNKNOWN = object()
+ReaggregateRequirement = tuple[str, str, ReaggregationFunction]
+
+
+def _split_dimension_ref(ref: str) -> tuple[str, str | None]:
+    """
+    Return a dimension ref without role suffix and the role suffix, if present.
+    """
+    if "[" not in ref:
+        return ref, None
+    base, role = ref.rsplit("[", 1)
+    return base, role.rstrip("]")
+
+
+def _cube_dimension_covers_reaggregate_dimension(
+    protected_dimension: str,
+    cube_dimension: str,
+) -> bool:
+    """
+    Return whether a cube dimension materializes a protected dimension.
+    """
+    if _reaggregate_dimension_requested(protected_dimension, [cube_dimension]):
+        return True
+
+    protected_base, protected_role = _split_dimension_ref(protected_dimension)
+    cube_base, cube_role = _split_dimension_ref(cube_dimension)
+    if protected_role != cube_role:
+        return False
+
+    # Deployment validation allows a metric to author the protected dimension as
+    # a bare parent column (the same form required_dimensions accepts). Cubes
+    # expose dimensions as fully-qualified element names, so compare the short
+    # column name for that narrow compatibility case.
+    if "." not in protected_base:
+        return protected_base == cube_base.rsplit(".", 1)[-1]
+    return False
+
+
+def _missing_reaggregate_requirements(
+    requirements: list[ReaggregateRequirement],
+    cube_dims: set[str],
+) -> list[ReaggregateRequirement]:
+    """
+    Reaggregate requirements not covered by a cube's materialized dimensions.
+    """
+    return [
+        requirement
+        for requirement in requirements
+        if not any(
+            _cube_dimension_covers_reaggregate_dimension(
+                requirement[1],
+                cube_dim,
+            )
+            for cube_dim in cube_dims
+        )
+    ]
+
+
+async def _metric_graph_has_reaggregate(
+    session: AsyncSession,
+    metrics: list[str],
+) -> bool:
+    """
+    Cheaply test whether requested metrics or metric ancestors use reaggregate.
+    """
+    seen: set[str] = set()
+    pending = set(metrics)
+    ParentNode = aliased(Node)
+
+    while pending:
+        batch = sorted(pending - seen)
+        if not batch:
+            break
+        seen.update(batch)
+        result = await session.execute(
+            select(
+                Node.name,
+                NodeRevision.reaggregate,
+                ParentNode.name.label("parent_name"),
+            )
+            .select_from(Node)
+            .join(
+                NodeRevision,
+                and_(
+                    Node.id == NodeRevision.node_id,
+                    Node.current_version == NodeRevision.version,
+                ),
+            )
+            .outerjoin(NodeRelationship, NodeRelationship.child_id == NodeRevision.id)
+            .outerjoin(
+                ParentNode,
+                and_(
+                    NodeRelationship.parent_id == ParentNode.id,
+                    ParentNode.type == NodeType.METRIC,
+                ),
+            )
+            .where(Node.name.in_(batch))
+            .where(Node.type == NodeType.METRIC),
+        )
+        for _, reaggregate, parent_name in result.all():
+            if reaggregate:
+                return True
+            if parent_name and parent_name not in seen:
+                pending.add(parent_name)
+
+    return False
+
+
+async def _reaggregate_requirements_for_metrics_if_needed(
+    session: AsyncSession,
+    metrics: list[str],
+    dimensions: list[str],
+) -> list[ReaggregateRequirement]:
+    """
+    Run full metric decomposition only when reaggregate is possible.
+    """
+    if not await _metric_graph_has_reaggregate(session, metrics):
+        return []
+    return await _reaggregate_requirements_for_metrics(session, metrics, dimensions)
+
+
+def _reaggregate_requirements_for_cube_metrics(
+    cube: NodeRevision,
+    metrics: list[str],
+    requested_dimensions: list[str],
+) -> list[ReaggregateRequirement]:
+    """
+    Reaggregation requirements that are absent from the output grain.
+    """
+    requirements: list[ReaggregateRequirement] = []
+    metric_names = set(metrics)
+    for metric_revision in cube.metric_node_revisions():
+        if (
+            not metric_revision
+            or metric_revision.name not in metric_names
+            or not metric_revision.reaggregate
+        ):
+            continue
+        for rule in dimension_reaggregate_rules(metric_revision.reaggregate):
+            if not _reaggregate_dimension_requested(
+                rule.dimension,
+                requested_dimensions,
+            ):
+                requirements.append(
+                    (
+                        metric_revision.name,
+                        rule.dimension,
+                        rule.fn,
+                    ),
+                )
+    return requirements
+
+
+async def _reaggregate_requirements_for_metrics(
+    session: AsyncSession,
+    metrics: list[str],
+    requested_dimensions: list[str],
+) -> list[ReaggregateRequirement]:
+    """
+    Reaggregation requirements from full metric decomposition.
+
+    Direct cube metadata only sees the metrics declared on the cube. Decomposition
+    also catches derived metrics whose base components carry reaggregate rules.
+    """
+    requirements: list[ReaggregateRequirement] = []
+    for metric_name in metrics:
+        extractor = await MetricComponentExtractor.from_node_name(
+            metric_name,
+            session,
+        )
+        components, _ = await extractor.extract(session)
+        for component in components:
+            reaggregate = component.rule.reaggregate
+            if (
+                reaggregate
+                and not _reaggregate_dimension_requested(
+                    reaggregate.dimension,
+                    requested_dimensions,
+                )
+                and (
+                    metric_name,
+                    reaggregate.dimension,
+                    reaggregate.fn,
+                )
+                not in requirements
+            ):
+                requirements.append(
+                    (
+                        metric_name,
+                        reaggregate.dimension,
+                        reaggregate.fn,
+                    ),
+                )
+    return requirements
+
+
+def _reaggregate_requirements_for_decomposed_metrics(
+    decomposed_metrics: dict[str, DecomposedMetricInfo],
+    metrics: list[str],
+    requested_dimensions: list[str],
+) -> list[ReaggregateRequirement]:
+    """
+    Reaggregation requirements from already-decomposed planner context.
+    """
+    requirements: list[ReaggregateRequirement] = []
+    metric_names = set(metrics)
+    for metric_name, decomposed in decomposed_metrics.items():
+        if metric_name not in metric_names:
+            continue
+        for component in decomposed.components:
+            reaggregate = component.rule.reaggregate
+            if reaggregate and not _reaggregate_dimension_requested(
+                reaggregate.dimension,
+                requested_dimensions,
+            ):
+                requirement = (
+                    metric_name,
+                    reaggregate.dimension,
+                    reaggregate.fn,
+                )
+                if requirement not in requirements:
+                    requirements.append(requirement)
+    return requirements
+
+
+def _reaggregate_dimensions_for_cube_metrics(
+    cube: NodeRevision,
+    metrics: list[str],
+    requested_dimensions: list[str],
+) -> list[str]:
+    """
+    Protected dimensions a cube must materialize for semi-additive rollups.
+    """
+    required: list[str] = []
+    for _, dimension, _ in _reaggregate_requirements_for_cube_metrics(
+        cube,
+        metrics,
+        requested_dimensions,
+    ):
+        if dimension not in required:
+            required.append(dimension)
+    return required
+
+
+def _format_reaggregate_requirements(
+    requirements: list[ReaggregateRequirement],
+) -> list[str]:
+    """Human-readable semi-additive requirements for error messages."""
+    return [
+        f"{metric} -> {dimension} ({function.value})"
+        for metric, dimension, function in requirements
+    ]
+
+
+def validate_cube_covers_reaggregate_dimensions(
+    cube: NodeRevision,
+    metrics: list[str],
+    dimensions: list[str],
+    *,
+    decomposed_metrics: dict[str, DecomposedMetricInfo] | None = None,
+    additional_requirements: list[ReaggregateRequirement] | None = None,
+    usage: str = "Cube",
+    http_status_code: int = 422,
+) -> None:
+    """
+    Fail loud when a materialized cube cannot safely serve semi-additive metrics.
+
+    V1 materialized cube usage is only safe for semi-additive metrics when the
+    cube itself retains the protected dimension. Otherwise querying the cube can
+    silently merge across that dimension with the wrong Druid aggregator.
+    """
+    requirements = _reaggregate_requirements_for_cube_metrics(
+        cube,
+        metrics,
+        dimensions,
+    )
+    if decomposed_metrics is not None:
+        for requirement in _reaggregate_requirements_for_decomposed_metrics(
+            decomposed_metrics,
+            metrics,
+            dimensions,
+        ):
+            if requirement not in requirements:
+                requirements.append(requirement)
+    for requirement in additional_requirements or []:
+        if requirement not in requirements:
+            requirements.append(requirement)
+
+    cube_dims = set(cube.cube_dimensions())
+    missing_requirements = _missing_reaggregate_requirements(requirements, cube_dims)
+    if not missing_requirements:
+        return
+
+    raise DJInvalidInputException(
+        f"{usage} `{cube.name}` cannot safely use materialized semi-additive "
+        "metric(s) because it does not materialize protected dimension(s) "
+        f"{_format_reaggregate_requirements(missing_requirements)}. "
+        "Add the protected dimension to the cube, or run the query with "
+        "use_materialized=false.",
+        http_status_code=http_status_code,
+    )
+
+
+def validate_cube_reaggregate_materialization(
+    cube: NodeRevision,
+    decomposed_metrics: dict[str, DecomposedMetricInfo] | None = None,
+) -> None:
+    """
+    Guard Druid cube materialization from baking in semi-additive misaggregation.
+
+    V1 does not materialize collapsed semi-additive metrics unless the cube grain
+    includes the protected dimension. This avoids generating a Druid metricsSpec
+    that sums first/last/min/max collapse inputs across the protected dimension.
+    """
+    validate_cube_covers_reaggregate_dimensions(
+        cube,
+        cube.cube_node_metrics,
+        cube.cube_node_dimensions,
+        decomposed_metrics=decomposed_metrics,
+        usage="Cube",
+        http_status_code=400,
+    )
 
 
 async def _required_filter_dimensions(
@@ -190,7 +520,15 @@ async def find_matching_cube(
 
     result = await session.execute(statement)
     candidate_cubes = result.unique().scalars().all()
-
+    reaggregate_requirements = (
+        await _reaggregate_requirements_for_metrics_if_needed(
+            session,
+            metrics,
+            dimensions,
+        )
+        if candidate_cubes
+        else []
+    )
     # Find the best matching cube (smallest grain that covers all dimensions)
     best_match: NodeRevision | None = None
     best_grain_size = float("inf")
@@ -214,10 +552,30 @@ async def find_matching_cube(
         # Druid SQL referencing a missing column).
         cube_dims = set(cube_rev.cube_dimensions())
 
-        if not required_dims.issubset(cube_dims):
+        missing_required_dims = required_dims - cube_dims
+        cube_reaggregate_requirements = _reaggregate_requirements_for_cube_metrics(
+            cube_rev,
+            metrics,
+            dimensions,
+        )
+        for requirement in reaggregate_requirements:
+            if requirement not in cube_reaggregate_requirements:
+                cube_reaggregate_requirements.append(requirement)
+        missing_reaggregate_requirements = _missing_reaggregate_requirements(
+            cube_reaggregate_requirements,
+            cube_dims,
+        )
+        if missing_required_dims:
             logger.debug(
                 f"[BuildV3] Cube {cube_rev.name} dims {cube_dims} "
                 f"don't cover required {required_dims}",
+            )
+            continue
+        if missing_reaggregate_requirements:
+            logger.debug(
+                f"[BuildV3] Cube {cube_rev.name} dims {cube_dims} "
+                f"don't cover reaggregate requirements "
+                f"{_format_reaggregate_requirements(missing_reaggregate_requirements)}",
             )
             continue
 
@@ -244,6 +602,7 @@ async def validate_pinned_cube_covers_filters(
     cube: NodeRevision,
     dimensions: list[str],
     filters: list[str] | None,
+    metrics: list[str] | None = None,
 ) -> None:
     """
     Ensure an explicitly pinned cube covers every filtered dimension.
@@ -277,6 +636,18 @@ async def validate_pinned_cube_covers_filters(
             "dimension, or pick a cube that materializes it.",
             http_status_code=422,
         )
+
+    validate_cube_covers_reaggregate_dimensions(
+        cube,
+        metrics or cube.cube_node_metrics,
+        dimensions,
+        additional_requirements=await _reaggregate_requirements_for_metrics_if_needed(
+            session,
+            metrics or cube.cube_node_metrics,
+            dimensions,
+        ),
+        usage="Pinned cube",
+    )
 
 
 async def resolve_dialect_and_engine_for_metrics(
@@ -465,6 +836,13 @@ def build_sql_from_cube_impl(
     Returns:
         GeneratedSQL with the query and column metadata.
     """
+    validate_cube_covers_reaggregate_dimensions(
+        cube,
+        ctx.metrics,
+        ctx.dimensions,
+        decomposed_metrics=ctx.decomposed_metrics,
+    )
+
     # Build synthetic GrainGroupSQL for cube table
     # This applies all filters in the cube CTE's WHERE clause
     synthetic_grain_group = build_synthetic_grain_group(
@@ -640,13 +1018,27 @@ def build_synthetic_grain_group(
     # (filter-only dimensions were added by add_dimensions_from_filters() in setup_build_context)
     dimension_aliases: dict[str, str] = {}
 
-    # Add all dimensions (requested + filter-only). We need all dimensions
+    output_dimensions = [
+        dim for dim in ctx.dimensions if dim not in ctx.filter_dimensions
+    ]
+    internal_reaggregate_dimensions = missing_reaggregate_dimensions(
+        decomposed_metrics.values(),
+        output_dimensions,
+    )
+
+    # Add all dimensions (requested + filter-only + internal semi-additive
+    # protected dimensions). We need all dimensions
     # in the cube SELECT for proper filter resolution.
     # dim_short_names holds the alias (short name) used everywhere outside the CTE.
     # dim_physical_names holds the actual column name in the Druid table (may differ).
     dim_short_names = []
     dim_physical_names = []
-    for dim_ref in ctx.dimensions:
+    dimension_to_alias: dict[str, str] = {}
+    dimension_refs = list(ctx.dimensions)
+    for dim_ref in internal_reaggregate_dimensions:
+        if dim_ref not in dimension_refs:
+            dimension_refs.append(dim_ref)
+    for dim_ref in dimension_refs:
         parsed_dim = parse_dimension_ref(dim_ref)
         short_name = parsed_dim.column_name
         if parsed_dim.role:
@@ -662,6 +1054,7 @@ def build_synthetic_grain_group(
         # the WHERE is applied directly on the cube table, so we must reference
         # the physical column (e.g. common_DOT_..._DOT_dateint) not the alias.
         dimension_aliases[dim_ref] = physical_name
+        dimension_to_alias[dim_ref] = short_name
         grain_group_columns.append(
             ColumnMetadata(
                 name=short_name,
@@ -735,6 +1128,17 @@ def build_synthetic_grain_group(
         if metric_node and not is_derived_metric(ctx, metric_node):
             base_metrics.append(metric_name)
 
+    reaggregate_dimension_aliases: dict[str, str] = {}
+    internal_reaggregate_dimension_set = set(internal_reaggregate_dimensions)
+    for comp in all_components:
+        if (
+            comp.rule.reaggregate
+            and comp.rule.reaggregate.dimension in internal_reaggregate_dimension_set
+        ):
+            reaggregate_dimension_aliases[comp.name] = dimension_to_alias[
+                comp.rule.reaggregate.dimension
+            ]
+
     # Create the synthetic GrainGroupSQL
     # Note: We use a placeholder parent_name since the cube combines multiple parents
     return GrainGroupSQL(
@@ -745,6 +1149,7 @@ def build_synthetic_grain_group(
         metrics=base_metrics,  # Only base metrics, not derived
         parent_name=cube.name,  # Use cube name as parent
         component_aliases=component_aliases,
+        reaggregate_dimension_aliases=reaggregate_dimension_aliases,
         is_merged=False,
         components=all_components,
         dialect=ctx.dialect,

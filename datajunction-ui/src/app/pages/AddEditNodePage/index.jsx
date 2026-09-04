@@ -27,6 +27,7 @@ import { RequiredDimensionsSelect } from './RequiredDimensionsSelect';
 import LoadingIcon from '../../icons/LoadingIcon';
 import { ColumnsSelect } from './ColumnsSelect';
 import { CustomMetadataField } from './CustomMetadataField';
+import { ReaggregateFields } from './ReaggregateFields';
 
 class Action {
   static Add = new Action('add');
@@ -71,6 +72,9 @@ export function AddEditNodePage({ extensions = {} }) {
     mode: 'published',
     owners: [],
     custom_metadata: '',
+    reaggregate_dimension: '',
+    reaggregate_function: '',
+    had_reaggregate: false,
   };
 
   const validator = values => {
@@ -91,6 +95,14 @@ export function AddEditNodePage({ extensions = {} }) {
     }
     if (values.type !== 'metric' && !values.query) {
       errors.query = 'Required';
+    }
+    if (values.type === 'metric') {
+      if (values.reaggregate_dimension && !values.reaggregate_function) {
+        errors.reaggregate_function = 'Required';
+      }
+      if (values.reaggregate_function && !values.reaggregate_dimension) {
+        errors.reaggregate_dimension = 'Required';
+      }
     }
     return errors;
   };
@@ -161,8 +173,28 @@ export function AddEditNodePage({ extensions = {} }) {
     return `SELECT ${aggregateExpression}`;
   };
 
+  const buildReaggregateSpec = values => {
+    if (values.reaggregate_dimension && values.reaggregate_function) {
+      return {
+        rules: [
+          {
+            dimension: values.reaggregate_dimension,
+            fn: values.reaggregate_function,
+          },
+        ],
+      };
+    }
+    return values.had_reaggregate ? null : undefined;
+  };
+
+  const firstReaggregateRule = reaggregate => reaggregate?.rules?.[0];
+
+  const normalizeReaggregateFunction = reaggregateFunction =>
+    reaggregateFunction ? reaggregateFunction.toLowerCase() : '';
+
   const createNode = async (values, setStatus) => {
-    const { status, json } = await djClient.createNode(
+    const reaggregate = buildReaggregateSpec(values);
+    const createNodeArgs = [
       nodeType,
       values.name,
       values.display_name,
@@ -180,7 +212,11 @@ export function AddEditNodePage({ extensions = {} }) {
         ? values.required_dimensions
         : undefined,
       parseCustomMetadata(values.custom_metadata),
-    );
+    ];
+    if (reaggregate !== undefined) {
+      createNodeArgs.push(reaggregate);
+    }
+    const { status, json } = await djClient.createNode(...createNodeArgs);
     if (status === 200 || status === 201) {
       if (values.tags) {
         await djClient.tagsNode(values.name, values.tags);
@@ -201,7 +237,8 @@ export function AddEditNodePage({ extensions = {} }) {
   };
 
   const patchNode = async (values, setStatus) => {
-    const { status, json } = await djClient.patchNode(
+    const reaggregate = buildReaggregateSpec(values);
+    const patchNodeArgs = [
       values.name,
       values.display_name,
       values.description,
@@ -219,7 +256,11 @@ export function AddEditNodePage({ extensions = {} }) {
         : undefined,
       values.owners,
       parseCustomMetadata(values.custom_metadata),
-    );
+    ];
+    if (reaggregate !== undefined) {
+      patchNodeArgs.push(reaggregate);
+    }
+    const { status, json } = await djClient.patchNode(...patchNodeArgs);
     const tagsResponse = await djClient.tagsNode(
       values.name,
       values.tags.map(tag => tag),
@@ -296,6 +337,12 @@ export function AddEditNodePage({ extensions = {} }) {
           required_dimensions: node.current.requiredDimensions.map(
             dim => dim.name,
           ),
+          reaggregate_dimension:
+            firstReaggregateRule(node.current.reaggregate)?.dimension || '',
+          reaggregate_function: normalizeReaggregateFunction(
+            firstReaggregateRule(node.current.reaggregate)?.fn,
+          ),
+          had_reaggregate: Boolean(node.current.reaggregate),
           upstream_node: '', // Derived metrics have no upstream node
           aggregate_expression: derivedExpression,
         };
@@ -310,6 +357,12 @@ export function AddEditNodePage({ extensions = {} }) {
           required_dimensions: node.current.requiredDimensions.map(
             dim => dim.name,
           ),
+          reaggregate_dimension:
+            firstReaggregateRule(node.current.reaggregate)?.dimension || '',
+          reaggregate_function: normalizeReaggregateFunction(
+            firstReaggregateRule(node.current.reaggregate)?.fn,
+          ),
+          had_reaggregate: Boolean(node.current.reaggregate),
           upstream_node: nonMetricParent?.name || '',
           aggregate_expression: node.current.metricMetadata?.expression,
         };
@@ -360,6 +413,9 @@ export function AddEditNodePage({ extensions = {} }) {
       'metric_direction',
       'significant_digits',
       'required_dimensions',
+      'reaggregate_dimension',
+      'reaggregate_function',
+      'had_reaggregate',
       'owners',
       'custom_metadata',
     ];
@@ -495,16 +551,21 @@ export function AddEditNodePage({ extensions = {} }) {
                   if (action === Action.Edit) {
                     const data = await getExistingNodeData(name);
                     runValidityChecks(data, setNode, setMessage);
-                    updateFieldsWithNodeData(
-                      data,
-                      setFieldValue,
-                      setNode,
-                      setSelectTags,
-                      setSelectPrimaryKey,
-                      setSelectUpstreamNode,
-                      setSelectRequiredDims,
-                      setSelectOwners,
-                    );
+                    if (
+                      data.message === undefined &&
+                      nodeCanBeEdited(data.type)
+                    ) {
+                      updateFieldsWithNodeData(
+                        data,
+                        setFieldValue,
+                        setNode,
+                        setSelectTags,
+                        setSelectPrimaryKey,
+                        setSelectUpstreamNode,
+                        setSelectRequiredDims,
+                        setSelectOwners,
+                      );
+                    }
                   }
                 };
                 fetchData().catch(console.error);
@@ -560,7 +621,10 @@ export function AddEditNodePage({ extensions = {} }) {
                           />
                         )}
                         {(nodeType === 'metric' || node.type === 'metric') && (
-                          <MetricMetadataFields />
+                          <>
+                            <MetricMetadataFields />
+                            <ReaggregateFields />
+                          </>
                         )}
                       </div>
 

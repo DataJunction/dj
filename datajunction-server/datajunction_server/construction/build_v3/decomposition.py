@@ -9,6 +9,8 @@ layers. This check should happen during metric creation/update validation.
 
 from __future__ import annotations
 
+from collections import defaultdict
+from collections.abc import Iterable
 from typing import cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +28,7 @@ from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.decompose import MetricComponentExtractor
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.utils import SEPARATOR
 
 
 async def decompose_and_group_metrics(
@@ -322,6 +325,76 @@ def get_native_grain(node: Node) -> list[str]:
     return pk_columns
 
 
+def _dimension_ref_base(ref: str) -> str:
+    """Return a dimension ref without its role suffix."""
+    return ref.split("[", 1)[0]
+
+
+def _dimension_ref_role(ref: str) -> str | None:
+    """Return the role suffix for a dimension ref, if any."""
+    if "[" not in ref:
+        return None
+    return ref.rsplit("[", 1)[1].rstrip("]")
+
+
+def _dimension_ref_column(ref: str) -> str:
+    """Return the column part of a fully qualified or local dimension ref."""
+    return _dimension_ref_base(ref).rsplit(SEPARATOR, 1)[-1]
+
+
+def _reaggregate_dimension_requested(
+    protected_dimension: str,
+    requested_dimensions: list[str],
+) -> bool:
+    """
+    Whether the protected dimension is already in the requested output grain.
+
+    Role-qualified dimensions only count when the role matches exactly. Coarser
+    dimensions on the same node do not count.
+    """
+    protected_base = _dimension_ref_base(protected_dimension)
+    protected_role = _dimension_ref_role(protected_dimension)
+    protected_col = _dimension_ref_column(protected_dimension)
+    for requested in requested_dimensions:
+        requested_base = _dimension_ref_base(requested)
+        requested_role = _dimension_ref_role(requested)
+        if requested == protected_dimension:
+            return True
+        if requested_base == protected_base and requested_role == protected_role:
+            return True
+        if (
+            protected_role is None
+            and requested_role is None
+            and requested == protected_col
+        ):
+            return True
+    return False
+
+
+def missing_reaggregate_dimensions(
+    decomposed_metrics: Iterable[DecomposedMetricInfo],
+    requested_dimensions: list[str],
+) -> list[str]:
+    """
+    Protected dimensions needed as internal grain but absent from output grain.
+    """
+    missing: list[str] = []
+    for decomposed in decomposed_metrics:
+        for component in decomposed.components:
+            if not component.rule.reaggregate:
+                continue
+            dimension = component.rule.reaggregate.dimension
+            if (
+                not _reaggregate_dimension_requested(
+                    dimension,
+                    requested_dimensions,
+                )
+                and dimension not in missing
+            ):
+                missing.append(dimension)
+    return missing
+
+
 def analyze_grain_groups(
     metric_group: MetricGroup,
     requested_dimensions: list[str],
@@ -341,7 +414,7 @@ def analyze_grain_groups(
 
     Args:
         metric_group: MetricGroup with decomposed metrics
-        requested_dimensions: Dimensions requested by user (column names only)
+        requested_dimensions: Dimension refs requested by the user
 
     Returns:
         List of GrainGroups, one per unique grain
@@ -349,10 +422,14 @@ def analyze_grain_groups(
     parent_node = metric_group.parent_node
 
     # Group components by their effective grain
-    # Key: (aggregability, tuple of additional grain columns)
+    # Key: (aggregability, tuple of additional grain columns, tuple of internal dimensions)
     grain_buckets: dict[
-        tuple[Aggregability, tuple[str, ...]],
+        tuple[Aggregability, tuple[str, ...], tuple[str, ...]],
         list[tuple[Node, MetricComponent]],
+    ] = {}
+    reaggregate_component_dimensions: dict[
+        tuple[Aggregability, tuple[str, ...], tuple[str, ...]],
+        dict[str, str],
     ] = {}
 
     # Track non-decomposable metrics (those with no components)
@@ -369,29 +446,50 @@ def analyze_grain_groups(
             agg_type = component.rule.type
 
             # Explicitly type the key to satisfy mypy
-            key: tuple[Aggregability, tuple[str, ...]]
+            key: tuple[Aggregability, tuple[str, ...], tuple[str, ...]]
+            reaggregate_dimension = (
+                component.rule.reaggregate.dimension
+                if (
+                    component.rule.reaggregate
+                    and not _reaggregate_dimension_requested(
+                        component.rule.reaggregate.dimension,
+                        requested_dimensions,
+                    )
+                )
+                else None
+            )
+            internal_dimensions = (
+                (reaggregate_dimension,) if reaggregate_dimension else ()
+            )
             if agg_type == Aggregability.FULL:
-                # FULL: no additional grain columns needed
-                key = (Aggregability.FULL, ())
+                # FULL: no additional grain columns needed, unless a semi-additive
+                # component must keep its protected dimension as internal grain.
+                key = (Aggregability.FULL, (), internal_dimensions)
             elif agg_type == Aggregability.LIMITED:
                 # LIMITED: add level columns to grain
                 level_cols = tuple(sorted(component.rule.level or []))
-                key = (Aggregability.LIMITED, level_cols)
+                key = (Aggregability.LIMITED, level_cols, internal_dimensions)
             else:  # NONE
                 # NONE: use native grain (PK columns)
                 native_grain = get_native_grain(parent_node)
                 key = (
                     Aggregability.NONE,
                     tuple(sorted(native_grain)),
+                    internal_dimensions,
                 )  # pragma: no cover
 
             if key not in grain_buckets:
                 grain_buckets[key] = []
             grain_buckets[key].append((decomposed.metric_node, component))
+            if reaggregate_dimension:
+                reaggregate_component_dimensions.setdefault(key, {})[component.name] = (
+                    reaggregate_dimension
+                )
 
     # Convert buckets to GrainGroup objects
     grain_groups = []
-    for (agg_type, grain_cols), components in grain_buckets.items():
+    for bucket_key, components in grain_buckets.items():
+        agg_type, grain_cols, _internal_dimensions = bucket_key
         # Map each grain expression to its SQL alias.
         # LIMITED: alias comes from component.grain_alias (_make_component decides:
         #   plain column maps to the bare name, complex expr maps to component.name).
@@ -412,6 +510,10 @@ def analyze_grain_groups(
                 grain_columns=list(grain_cols),
                 components=components,
                 grain_col_aliases=grain_col_aliases,
+                reaggregate_component_dimensions=reaggregate_component_dimensions.get(
+                    bucket_key,
+                    {},
+                ),
             ),
         )
 
@@ -470,9 +572,10 @@ def merge_grain_groups(grain_groups: list[GrainGroup]) -> list[GrainGroup]:
     Returns:
         List of grain groups with compatible groups merged
     """
-    from collections import defaultdict
-
-    # Group by parent node name
+    # Group by parent node name first, then by the internal grain needed for
+    # semi-additive collapse. LIMITED/NONE groups must not be merged into a
+    # semi-additive FULL group, because their extra grain columns would make the
+    # protected-dimension bucket contain multiple rows and corrupt MAX_BY/MIN_BY.
     by_parent: dict[str, list[GrainGroup]] = defaultdict(list)
     for gg in grain_groups:
         by_parent[gg.parent_node.name].append(gg)
@@ -483,6 +586,12 @@ def merge_grain_groups(grain_groups: list[GrainGroup]) -> list[GrainGroup]:
         if len(parent_groups) == 1:
             # Only one group for this parent - no merge needed
             merged_groups.append(parent_groups[0])
+        elif any(group.reaggregate_component_dimensions for group in parent_groups):
+            # Keep semi-additive groups isolated. Merging a protected-dimension
+            # group with another grain can add rows inside the protected bucket,
+            # which makes MAX_BY/MIN_BY pick one lower-grain row instead of the
+            # already-aggregated value at that protected grain.
+            merged_groups.extend(parent_groups)
         else:
             # Multiple groups for same parent - merge them
             merged = _merge_parent_grain_groups(parent_groups)
@@ -520,12 +629,16 @@ def _merge_parent_grain_groups(groups: list[GrainGroup]) -> GrainGroup:
     # Collect all components and track their original aggregabilities
     all_components: list[tuple[Node, MetricComponent]] = []
     component_aggregabilities: dict[str, Aggregability] = {}
+    reaggregate_component_dimensions: dict[str, str] = {}
 
     for gg in groups:
         for metric_node, component in gg.components:
             all_components.append((metric_node, component))
             # Track original aggregability for each component
             component_aggregabilities[component.name] = gg.aggregability
+        reaggregate_component_dimensions.update(
+            gg.reaggregate_component_dimensions,
+        )
 
     # Carry over non-decomposable metrics from every contributing group.
     # Without this, merging a NONE group into a FULL/LIMITED neighbor
@@ -559,5 +672,6 @@ def _merge_parent_grain_groups(groups: list[GrainGroup]) -> GrainGroup:
         is_merged=True,
         component_aggregabilities=component_aggregabilities,
         grain_col_aliases=merged_grain_col_aliases,
+        reaggregate_component_dimensions=reaggregate_component_dimensions,
         non_decomposable_metrics=all_non_decomposable,
     )

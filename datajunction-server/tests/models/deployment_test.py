@@ -1706,7 +1706,7 @@ GOLDEN_FINGERPRINTS = {
     "source": "71dcbc388988c2bdd850670427710384687b58565ee38ca392dc220adfed868d",
     "transform": "978e692880c7bcfb1bd78ece85895a1ec1558e85377b064a8dac3f3719cff2a5",
     "dimension": "f7b3c87a61fdadf9997432fd9334befdf43f2488874ef555e3f7d4c4ba86e3e1",
-    "metric": "a3fde7af5dbd00d194805af33fc213bca52244c7cdedf1f7363ec52d2f6d4116",
+    "metric": "f0b5356d75b1f6a39a2809581a9167b9e1298a41980ee8e83040cf6bd0996851",
     "cube": "9b0a56d974d1e3769bc2db94e2cfbae7a6a4839f664eebd2a4387ef112ceea81",
 }
 
@@ -1853,6 +1853,38 @@ def test_semantic_fingerprint_renders_prefixes_and_normalizes_sql():
     assert fingerprint(explicit) != fingerprint(implicit)
 
 
+def test_metric_spec_equality_compares_rendered_reaggregate():
+    """Parameterized reaggregate dimensions should not cause perpetual deploys."""
+    parameterized = MetricSpec(
+        namespace="analytics",
+        name="daily_balance",
+        query="SELECT SUM(balance) FROM analytics.daily_balances",
+        reaggregate={
+            "rules": [
+                {
+                    "dimension": "${prefix}date.date_id[order]",
+                    "fn": "last_value",
+                },
+            ],
+        },
+    )
+    rendered = MetricSpec(
+        namespace="analytics",
+        name="daily_balance",
+        query="SELECT SUM(balance) FROM analytics.daily_balances",
+        reaggregate={
+            "rules": [
+                {
+                    "dimension": "analytics.date.date_id[order]",
+                    "fn": "last_value",
+                },
+            ],
+        },
+    )
+
+    assert parameterized == rendered
+
+
 def test_semantic_diff_and_fingerprint_share_change_rules():
     original = TransformSpec(name="node", query="SELECT id AS value FROM source")
     formatted = TransformSpec(
@@ -1958,6 +1990,7 @@ def test_metric_presentation_fields_preserve_semantic_fingerprint():
             "query",
             "columns",
             "required_dimensions",
+            "reaggregate",
         }
     )
     assert all(

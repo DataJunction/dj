@@ -794,6 +794,97 @@ class TestRequiredDimensions:
         assert "no_such_col" in err.debug["invalid_required_dimensions"]
 
     @pytest.mark.asyncio
+    async def test_valid_reaggregate_dimension_full_path(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """reaggregate.rules[].dimension full-path column found in dim nodes is valid."""
+        dim_node = self._make_dim_node("test.dim", ["dateint"])
+        context = self._make_context(session, parent_node)
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT SUM(value) FROM test.parent",
+            reaggregate={
+                "rules": [
+                    {
+                        "dimension": "test.dim.dateint",
+                        "fn": "last_value",
+                    },
+                ],
+            },
+        )
+        validator = NodeSpecBulkValidator(context)
+        validator._all_dim_nodes = {**context.dependency_nodes, "test.dim": dim_node}
+        result = validator.validate_query_node(spec)
+
+        assert result.status == NodeStatus.VALID
+        error_codes = [e.code for e in result.errors]
+        assert ErrorCode.INVALID_COLUMN not in error_codes
+
+    @pytest.mark.asyncio
+    async def test_invalid_reaggregate_dimension_column(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """reaggregate.rules[].dimension full-path column absent from dim node is invalid."""
+        dim_node = self._make_dim_node("test.dim", ["dateint"])
+        context = self._make_context(session, parent_node)
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT SUM(value) FROM test.parent",
+            reaggregate={
+                "rules": [
+                    {
+                        "dimension": "test.dim.nonexistent_col",
+                        "fn": "last_value",
+                    },
+                ],
+            },
+        )
+        validator = NodeSpecBulkValidator(context)
+        validator._all_dim_nodes = {**context.dependency_nodes, "test.dim": dim_node}
+        result = validator.validate_query_node(spec)
+
+        assert result.status == NodeStatus.INVALID
+        err = next(e for e in result.errors if e.code == ErrorCode.INVALID_COLUMN)
+        assert err.debug is not None
+        assert "test.dim.nonexistent_col" in err.debug["invalid_reaggregate_dimensions"]
+
+    @pytest.mark.asyncio
+    async def test_invalid_reaggregate_function(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """unsupported dimension-specific reaggregate functions are invalid."""
+        context = self._make_context(session, parent_node)
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT SUM(value) FROM test.parent",
+            reaggregate={
+                "rules": [
+                    {
+                        "dimension": "id",
+                        "fn": "sum",
+                    },
+                ],
+            },
+        )
+        validator = NodeSpecBulkValidator(context)
+        validator._all_dim_nodes = dict(context.dependency_nodes)
+        result = validator.validate_query_node(spec)
+
+        assert result.status == NodeStatus.INVALID
+        err = next(
+            e
+            for e in result.errors
+            if e.code == ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION
+        )
+        assert err.debug == {"invalid_reaggregate_functions": ["sum"]}
+
+    @pytest.mark.asyncio
     async def test_no_required_dimensions_is_noop(
         self,
         session: AsyncSession,
@@ -865,6 +956,64 @@ class TestRequiredDimensions:
         assert fetched.current is not None
         col_names = {c.name for c in fetched.current.columns}
         assert "region" in col_names
+
+    @pytest.mark.asyncio
+    async def test_prefetch_fetches_reaggregate_dim_node_from_db(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+        dim_node_in_db: Node,
+    ):
+        """_prefetch_required_dimension_nodes includes reaggregate dimensions."""
+        context = self._make_context(session, parent_node)
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT SUM(value) FROM test.parent",
+            reaggregate={
+                "rules": [
+                    {
+                        "dimension": "test.external_dim.region",
+                        "fn": "last_value",
+                    },
+                ],
+            },
+        )
+        validator = NodeSpecBulkValidator(context)
+
+        await validator._prefetch_required_dimension_nodes([spec])
+
+        assert "test.external_dim" in validator._all_dim_nodes
+        fetched = validator._all_dim_nodes["test.external_dim"]
+        assert fetched.current is not None
+        assert {c.name for c in fetched.current.columns} == {"region"}
+
+    @pytest.mark.asyncio
+    async def test_prefetch_skips_short_reaggregate_dimension(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """Short-form reaggregate dimensions do not trigger dimension-node prefetch."""
+        context = self._make_context(session, parent_node)
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT SUM(value) FROM test.parent",
+            reaggregate={
+                "rules": [
+                    {
+                        "dimension": "value",
+                        "fn": "last_value",
+                    },
+                ],
+            },
+        )
+        validator = NodeSpecBulkValidator(context)
+
+        await validator._prefetch_required_dimension_nodes([spec])
+
+        assert set(validator._all_dim_nodes.keys()) == set(
+            context.dependency_nodes.keys(),
+        )
 
     @pytest.mark.asyncio
     async def test_prefetch_with_no_required_dimensions(

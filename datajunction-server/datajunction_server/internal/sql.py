@@ -242,6 +242,7 @@ async def generate_metrics_sql(
                 matched_cube,
                 dimensions,
                 merged_filters,
+                metrics,
             )
 
     # Auto-resolve dialect if not explicitly provided.

@@ -88,6 +88,7 @@ from datajunction_server.internal.custom_metadata import custom_metadata_clause
 from datajunction_server.models.custom_metadata import CustomMetadataFilter
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionType
+from datajunction_server.models.reaggregate import parse_reaggregate_spec
 from datajunction_server.models.unit import (
     AtomicUnit,
     CompoundUnit,
@@ -665,6 +666,7 @@ class Node(Base):
             )
             extra_kwargs.update(
                 required_dimensions=required_dimensions_spec,
+                reaggregate=parse_reaggregate_spec(self.current.reaggregate),
                 direction=self.current.metric_metadata.direction
                 if self.current.metric_metadata
                 else None,
@@ -1708,6 +1710,14 @@ class NodeRevision(
         uselist=False,
     )
 
+    # Declares how a metric should roll up across dimensions.
+    # Stored as JSON here and validated at the API/deployment boundaries.
+    reaggregate: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON,
+        nullable=True,
+        default=None,
+    )
+
     # Filters that are always applied when generating SQL for a cube node
     cube_filters: Mapped[list[str] | None] = mapped_column(
         JSON,
@@ -2052,6 +2062,12 @@ class NodeRevision(
             raise DJInvalidInputException(
                 f"Node {self.name} of type {self.type} cannot have "
                 "bound dimensions which are only for metrics.",
+            )
+
+        if self.type != NodeType.METRIC and self.reaggregate:
+            raise DJInvalidInputException(
+                f"Node {self.name} of type {self.type} cannot have "
+                "reaggregate settings which are only for metrics.",
             )
 
         if self.type == NodeType.METRIC:
