@@ -369,6 +369,50 @@ async def generate_dimensions_sql(
     return project_dimension_values_sql(generated, dimensions, orderby, limit)
 
 
+def build_row_count_sql(
+    generated: "BuildV3GeneratedSQL",
+) -> "BuildV3GeneratedSQL":
+    """Wrap generated SQL in ``COUNT(*)`` before dialect rendering."""
+    from copy import deepcopy
+
+    from datajunction_server.construction.build_v3.types import (
+        ColumnMetadata as V3ColumnMetadata,
+        GeneratedSQL as V3GeneratedSQL,
+    )
+
+    inner = deepcopy(generated.query)
+    inner.parenthesized = True
+    inner.alias = ast.Name("semantic_query")
+    inner.as_ = True
+
+    count = ast.Function(
+        name=ast.Name("COUNT"),
+        args=[ast.Column(name=ast.Name("*"))],
+    ).set_alias(ast.Name("COUNT", quote_style='"'))
+    count.set_as(True)
+    query = ast.Query(
+        select=ast.Select(
+            projection=[count],
+            from_=ast.From(relations=[ast.Relation(primary=inner)]),
+        ),
+    )
+    return V3GeneratedSQL(
+        query=query,
+        columns=[
+            V3ColumnMetadata(
+                name="COUNT",
+                semantic_name="COUNT",
+                type="bigint",
+                semantic_type="metric",
+            ),
+        ],
+        dialect=generated.dialect,
+        cube_name=generated.cube_name,
+        scan_estimate=generated.scan_estimate,
+        warnings=generated.warnings,
+    )
+
+
 async def build_sql_for_multiple_metrics(
     session: AsyncSession,
     metrics: list[str],

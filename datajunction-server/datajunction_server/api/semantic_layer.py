@@ -22,6 +22,7 @@ from datajunction_server.database.user import User
 from datajunction_server.errors import DJException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.sql import (
+    build_row_count_sql,
     generate_dimensions_sql,
     generate_metrics_sql,
 )
@@ -185,11 +186,25 @@ def _view_payload(cube: NodeRevision) -> "ViewDetail":
 # Filter / order translation (spec QueryPayload -> DJ build_metrics_sql args)
 # ---------------------------------------------------------------------------
 
-# Comparison operators accepted for filters; anything else (IN/LIKE/…) is rejected.
+# Comparison operators accepted for filters. These cover the portable operators
+# used by the semantic-layer spec; pattern matching remains unsupported.
 _ALLOWED_OPERATORS = frozenset(
-    {"=", "!=", ">", "<", ">=", "<=", "IS NULL", "IS NOT NULL"},
+    {
+        "=",
+        "!=",
+        ">",
+        "<",
+        ">=",
+        "<=",
+        "IN",
+        "NOT IN",
+        "BETWEEN",
+        "IS NULL",
+        "IS NOT NULL",
+    },
 )
 _NULLARY_OPERATORS = frozenset({"IS NULL", "IS NOT NULL"})
+_COLLECTION_OPERATORS = frozenset({"IN", "NOT IN"})
 
 
 def _quote_value(value: Any) -> str:
@@ -220,6 +235,22 @@ def _filter_to_sql(flt: "FilterPayload") -> str:
         )
     if op in _NULLARY_OPERATORS:
         return f"{flt.column} {op}"
+    if op in _COLLECTION_OPERATORS:
+        if not isinstance(flt.value, (list, tuple, set, frozenset)) or not flt.value:
+            raise DJException(
+                message=f"Filter operator {flt.operator} requires a non-empty list",
+                http_status_code=400,
+            )
+        values = ", ".join(_quote_value(value) for value in flt.value)
+        return f"{flt.column} {op} ({values})"
+    if op == "BETWEEN":
+        if not isinstance(flt.value, (list, tuple)) or len(flt.value) != 2:
+            raise DJException(
+                message="Filter operator BETWEEN requires exactly two values",
+                http_status_code=400,
+            )
+        start, end = (_quote_value(value) for value in flt.value)
+        return f"{flt.column} BETWEEN {start} AND {end}"
     return f"{flt.column} {op} {_quote_value(flt.value)}"
 
 
@@ -260,7 +291,16 @@ class QueryPayload(BaseModel):
 class QueryRequest(BaseModel):
     """Body for POST /views/{view_name}/sql (backs the spec's /query)."""
 
+    additional_configuration: dict[str, Any] = Field(default_factory=dict)
     query: QueryPayload
+
+
+class ValuesRequest(BaseModel):
+    """Body for POST /views/{view_name}/values."""
+
+    additional_configuration: dict[str, Any] = Field(default_factory=dict)
+    dimension: str
+    filters: list[FilterPayload] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -387,6 +427,7 @@ async def _generate_sql(
     session: AsyncSession,
     payload: QueryPayload,
     cube_rev: NodeRevision,
+    row_count: bool = False,
 ) -> GeneratedSQLResponse:
     """Generate physical SQL pinned to this cube (``matched_cube=cube_rev``), so
     we don't let ``find_matching_cube`` pick a different/differently-filtered
@@ -422,6 +463,8 @@ async def _generate_sql(
             limit=limit,
             endpoint="/semantic-layer/views/sql",
         )
+    if row_count:
+        generated_sql = build_row_count_sql(generated_sql)
     # ``generated_sql.sql`` renders via ``to_sql(query, dialect)``, which already
     # applies DJ's dialect rules and transpiles to the resolved dialect, so it is
     # execution-ready for the caller (which runs it directly). We return the
@@ -438,15 +481,13 @@ async def _generate_sql(
     )
 
 
-@router.post("/views/{view_name}/sql", response_model=GeneratedSQLResponse)
-async def generate_query_sql(
+async def _generate_view_sql(
     view_name: str,
-    body: QueryRequest,
-    session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
+    payload: QueryPayload,
+    session: AsyncSession,
+    row_count: bool = False,
 ) -> GeneratedSQLResponse | JSONResponse:
-    """Generate physical SQL for a view query."""
-    payload = body.query
+    """Validate and generate SQL for a semantic view query."""
     if payload.offset:
         return _problem(
             400,
@@ -483,7 +524,72 @@ async def generate_query_sql(
                 f"metrics={bad_metrics} dimensions={bad_dims} "
                 f"filter_columns={bad_filters}",
             )
-        result = await _generate_sql(session, payload, cube_rev)
+        result = await _generate_sql(session, payload, cube_rev, row_count=row_count)
     except DJException as exc:
         return _problem(exc.http_status_code or 400, exc.message)
     return result
+
+
+@router.post("/views/{view_name}/sql", response_model=GeneratedSQLResponse)
+async def generate_query_sql(
+    view_name: str,
+    body: QueryRequest,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> GeneratedSQLResponse | JSONResponse:
+    """Generate physical SQL for a view query."""
+    return await _generate_view_sql(view_name, body.query, session)
+
+
+@router.post("/views/{view_name}/row-count", response_model=GeneratedSQLResponse)
+async def generate_row_count_sql(
+    view_name: str,
+    body: QueryRequest,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> GeneratedSQLResponse | JSONResponse:
+    """Generate SQL that counts the rows returned by a semantic query."""
+    return await _generate_view_sql(view_name, body.query, session, row_count=True)
+
+
+@router.post("/views/{view_name}/values", response_model=GeneratedSQLResponse)
+async def generate_values_sql(
+    view_name: str,
+    body: ValuesRequest,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> GeneratedSQLResponse | JSONResponse:
+    """Generate SQL for a dimension's distinct values, optionally filtered."""
+    try:
+        cube_node = await Node.get_cube_by_name(session, view_name)
+    except DJException as exc:
+        return _problem(exc.http_status_code or 400, exc.message)
+    if cube_node is None or cube_node.current is None:
+        return _problem(404, f"View `{view_name}` does not exist.")
+
+    cube_rev = cube_node.current
+    if body.dimension not in cube_rev.cube_node_dimensions:
+        return _problem(
+            400,
+            f"View `{view_name}` does not contain dimension `{body.dimension}`.",
+        )
+
+    bad_filters = [
+        flt.column
+        for flt in body.filters
+        if flt.column and flt.column not in cube_rev.cube_node_dimensions
+    ]
+    if bad_filters:
+        return _problem(
+            400,
+            f"View `{view_name}` does not contain filter dimensions: {bad_filters}",
+        )
+
+    query = QueryPayload(
+        dimensions=[body.dimension],
+        filters=body.filters,
+    )
+    try:
+        return await _generate_sql(session, query, cube_rev)
+    except DJException as exc:
+        return _problem(exc.http_status_code or 400, exc.message)
