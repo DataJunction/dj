@@ -2611,6 +2611,73 @@ class TestPruneCteProjections:
     def test_query_without_ctes_is_untouched(self):
         assert self._pruned("SELECT a FROM t") == str(parse("SELECT a FROM t"))
 
+    @staticmethod
+    def _compact(sql: str) -> str:
+        """The pruned SQL with runs of whitespace collapsed to one space."""
+        query = parse(sql)
+        prune_cte_projections(query)
+        return " ".join(str(query).split())
+
+    def test_a_shadowed_alias_does_not_prune_the_outer_source(self):
+        assert self._compact(
+            "WITH a AS (SELECT id, keep FROM t1), b AS (SELECT marker FROM t2) "
+            "SELECT x.keep, id FROM a AS x "
+            "WHERE EXISTS (SELECT 1 FROM b AS x WHERE x.marker = 1)",
+        ) == (
+            "WITH a AS ( SELECT id, keep FROM t1 ), "
+            "b AS ( SELECT marker FROM t2 ) "
+            "SELECT x.keep, id FROM a AS x "
+            "WHERE EXISTS (SELECT 1 FROM b AS x WHERE x.marker = 1)"
+        )
+
+    def test_using_columns_are_kept_on_both_sides(self):
+        assert self._compact(
+            "WITH a AS (SELECT id, keep, drop_me FROM t1), "
+            "b AS (SELECT id, marker FROM t2) "
+            "SELECT a.keep FROM a JOIN b USING (id)",
+        ) == (
+            "WITH a AS ( SELECT id, keep FROM t1 ), "
+            "b AS ( SELECT id FROM t2 ) "
+            "SELECT a.keep FROM a JOIN b USING (id)"
+        )
+
+    def test_a_shadowed_alias_resolves_per_select(self):
+        assert self._compact(
+            "WITH a AS (SELECT id, keep FROM t1), "
+            "b AS (SELECT keep, marker FROM t2) "
+            "SELECT x.keep, id FROM a AS x "
+            "WHERE EXISTS (SELECT 1 FROM b AS x WHERE x.marker = 1)",
+        ) == (
+            "WITH a AS ( SELECT id, keep FROM t1 ), "
+            "b AS ( SELECT marker FROM t2 ) "
+            "SELECT x.keep, id FROM a AS x "
+            "WHERE EXISTS (SELECT 1 FROM b AS x WHERE x.marker = 1)"
+        )
+
+    def test_a_subquery_reads_an_outer_alias(self):
+        assert self._compact(
+            "WITH a AS (SELECT id, keep, drop_me FROM t1), "
+            "b AS (SELECT id, ref, marker FROM t2) "
+            "SELECT x.keep FROM a AS x "
+            "WHERE EXISTS (SELECT 1 FROM b WHERE b.ref = x.id)",
+        ) == (
+            "WITH a AS ( SELECT id, keep FROM t1 ), "
+            "b AS ( SELECT ref FROM t2 ) "
+            "SELECT x.keep FROM a AS x "
+            "WHERE EXISTS (SELECT 1 FROM b WHERE b.ref = x.id)"
+        )
+
+    def test_a_natural_join_keeps_both_sides_whole(self):
+        assert self._compact(
+            "WITH a AS (SELECT id, keep FROM t1), "
+            "b AS (SELECT id, marker FROM t2) "
+            "SELECT a.keep FROM a NATURAL JOIN b",
+        ) == (
+            "WITH a AS ( SELECT id, keep FROM t1 ), "
+            "b AS ( SELECT id, marker FROM t2 ) "
+            "SELECT a.keep FROM a NATURAL JOIN b"
+        )
+
 
 class TestProjectionInvariantOracle:
     """
