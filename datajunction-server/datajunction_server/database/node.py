@@ -64,7 +64,6 @@ from datajunction_server.errors import (
 from datajunction_server.models.base import labelize
 from datajunction_server.models.deployment import (
     CubeSpec,
-    DimensionReferenceLinkSpec,
     DimensionSpec,
     MaterializationSpec,
     MetricSpec,
@@ -612,31 +611,11 @@ class Node(Base):
                 link.to_spec()
                 for link in self.current.dimension_links  # type: ignore
             ]
-            # Local import: construction.build_v3.dimensions imports Node from
-            # this module, so this can't be a module-level import.
-            from datajunction_server.construction.build_v3.dimensions import (
-                parse_dimension_ref,
-            )
-
-            ref_link_specs = []
-            for col in sorted_columns:
-                if not (col.dimension_id and col.dimension_column):
-                    continue
-                # `col.dimension_column` carries an optional "[role]" suffix
-                # (set by _create_or_update_dimension_link); split it back out
-                # into `role` so this round-trips to the same spec the role
-                # was authored with, rather than a bare-role, bracket-suffixed
-                # one that never compares equal to it.
-                ref = parse_dimension_ref(
-                    f"{col.dimension.name}{SEPARATOR}{col.dimension_column}",
-                )
-                ref_link_specs.append(
-                    DimensionReferenceLinkSpec(
-                        node_column=col.name,
-                        dimension=f"{ref.node_name}{SEPARATOR}{ref.column_name}",
-                        role=ref.role,
-                    ),
-                )
+            ref_link_specs = [
+                col.to_reference_link_spec()
+                for col in sorted_columns
+                if col.dimension_id and col.dimension_column
+            ]
             col_specs = [col.to_spec() for col in sorted_columns]
             extra_kwargs.update(
                 primary_key=[

@@ -137,6 +137,31 @@ class Column(Base):  # type: ignore
             unit=self.unit,
         )
 
+    def to_reference_link_spec(self):
+        """Build the DimensionReferenceLinkSpec for this column's reference
+        dimension link. Only valid when dimension_id and dimension_column
+        are set (i.e. this column has a reference-type dimension link).
+        """
+        from datajunction_server.construction.build_v3.dimensions import (
+            parse_dimension_ref,
+        )
+        from datajunction_server.models.deployment import DimensionReferenceLinkSpec
+        from datajunction_server.utils import SEPARATOR
+
+        # `dimension_column` carries an optional "[role]" suffix (set by
+        # _create_or_update_dimension_link); parse_dimension_ref splits it
+        # back out into `role` so this round-trips to the same spec the role
+        # was authored with, rather than a bare-role, bracket-suffixed one
+        # that never compares equal to it.
+        ref = parse_dimension_ref(
+            f"{self.dimension.name}{SEPARATOR}{self.dimension_column}",
+        )
+        return DimensionReferenceLinkSpec(
+            node_column=self.name,
+            dimension=f"{ref.node_name}{SEPARATOR}{ref.column_name}",
+            role=ref.role,
+        )
+
     def identifier(self) -> tuple[str, ColumnType]:
         """
         Unique identifier for this column.
