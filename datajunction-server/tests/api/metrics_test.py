@@ -3,6 +3,7 @@ Tests for the metrics API.
 """
 
 from unittest.mock import patch
+from uuid import uuid4
 
 import pytest
 import pytest_asyncio
@@ -492,6 +493,82 @@ async def test_read_metrics(module__client_with_roads: AsyncClient) -> None:
         "AS default_DOT_discounted_orders_rate"
     )
     assert data["custom_metadata"] is None
+
+
+@pytest.mark.asyncio
+async def test_metric_semi_additive_roundtrip_and_validation(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    Semi-additive declarations round-trip and validate their protected dimension.
+    """
+    metric_name = f"default.semi_additive_repairs_{uuid4().hex}"
+    response = await client_with_roads.post(
+        "/nodes/metric/",
+        json={
+            "name": metric_name,
+            "description": "Repair orders with semi-additive declaration",
+            "query": "SELECT COUNT(repair_order_id) FROM default.repair_orders_fact",
+            "mode": "published",
+            "semi_additive": {
+                "dimension": "repair_order_id",
+                "function": "last_value",
+            },
+        },
+    )
+    assert response.status_code in (200, 201), response.json()
+    assert response.json()["semi_additive"] == {
+        "dimension": "repair_order_id",
+        "function": "last_value",
+    }
+
+    response = await client_with_roads.get(f"/nodes/{metric_name}/")
+    assert response.status_code == 200
+    assert response.json()["semi_additive"] == {
+        "dimension": "repair_order_id",
+        "function": "last_value",
+    }
+
+    response = await client_with_roads.get(f"/metrics/{metric_name}/")
+    assert response.status_code == 200
+    assert response.json()["semi_additive"] == {
+        "dimension": "repair_order_id",
+        "function": "last_value",
+    }
+
+    invalid_metric_name = f"default.invalid_semi_additive_{uuid4().hex}"
+    response = await client_with_roads.post(
+        "/nodes/metric/",
+        json={
+            "name": invalid_metric_name,
+            "description": "Invalid semi-additive declaration",
+            "query": "SELECT COUNT(repair_order_id) FROM default.repair_orders_fact",
+            "mode": "published",
+            "semi_additive": {
+                "dimension": "default.repair_orders_fact.nope",
+                "function": "last_value",
+            },
+        },
+    )
+    assert response.status_code == 422
+    assert response.json() == {
+        "message": "Node definition contains references to "
+        "columns as semi-additive dimensions that are not on parent nodes.",
+        "errors": [
+            {
+                "code": "INVALID_COLUMN",
+                "message": "Node definition contains references to columns "
+                "as semi-additive dimensions that are not on parent nodes.",
+                "debug": {
+                    "invalid_semi_additive_dimensions": [
+                        "default.repair_orders_fact.nope",
+                    ],
+                },
+                "context": "",
+            },
+        ],
+        "warnings": [],
+    }
 
 
 @pytest_asyncio.fixture(scope="module")

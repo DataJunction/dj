@@ -33,6 +33,7 @@ from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import MaterializationConfigOutput
 from datajunction_server.models.node_type import NodeNameOutput, NodeType
 from datajunction_server.models.partition import PartitionOutput
+from datajunction_server.models.semiadditive import SemiAdditiveSpec
 from datajunction_server.models.tag import TagMinimum, TagOutput
 from datajunction_server.models.unit import (
     AtomicUnit,
@@ -878,6 +879,7 @@ class MetricNodeFields(BaseModel):
     """
 
     required_dimensions: list[str] | None = None
+    semi_additive: SemiAdditiveSpec | None = None
     metric_metadata: MetricMetadataInput | None = None
 
 
@@ -1033,6 +1035,7 @@ class NodeRevisionOutput(BaseModel):
     materializations: list[MaterializationConfigOutput]
     parents: list[NodeNameOutput]
     metric_metadata: MetricMetadataOutput | None = None
+    semi_additive: SemiAdditiveSpec | None = None
     dimension_links: list[LinkDimensionOutput] | None = None
     custom_metadata: dict | None = None
 
@@ -1065,6 +1068,7 @@ class NodeOutput(GenericNodeOutputModel):
     materializations: list[MaterializationConfigOutput]
     parents: list[NodeNameOutput]
     metric_metadata: MetricMetadataOutput | None = None
+    semi_additive: SemiAdditiveSpec | None = None
     dimension_links: list[LinkDimensionOutput] = Field(default_factory=list)
     created_at: UTCDatetime
     created_by: UserNameOnly | None = None
