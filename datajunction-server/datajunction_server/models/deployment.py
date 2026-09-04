@@ -1133,17 +1133,6 @@ class MetricSpec(NodeSpec):
         Required dimensions rewritten so the two ways of naming the same column
         compare equal.
 
-        The export side (`NodeRevision.to_spec`) always emits the
-        fully-qualified `node.column` form, so a qualified entry here already
-        is canonical and is left untouched -- there's no need to reason about
-        which node counts as a "parent" to fold it down, which is exactly the
-        asymmetry that made this comparison unreliable for a required
-        dimension reached via a dimension link rather than a direct query
-        parent. A bare column name is only ever an author-facing shorthand for
-        a column on one of the metric's own (direct, single) query parents, so
-        it's upgraded to the same qualified form when that parent is
-        unambiguous:
-
             ns.date_dim.dateint  ->  ns.date_dim.dateint  (already canonical)
             currency_code        ->  ns.orders_fact.currency_code  (single parent)
             currency_code        ->  currency_code  (zero or multiple parents: ambiguous, left as-is)
