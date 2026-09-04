@@ -12,7 +12,7 @@ import logging
 
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, load_only, noload, selectinload
+from sqlalchemy.orm import aliased, joinedload, load_only, noload, selectinload
 
 from datajunction_server.construction.build_v3.decomposition import (
     _reaggregate_dimension_requested,
@@ -40,7 +40,7 @@ from datajunction_server.construction.build_v3.utils import (
 )
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column
-from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
 from datajunction_server.database.partition import Partition
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.instrumentation.provider import timed
@@ -117,6 +117,69 @@ def _missing_reaggregate_requirements(
             for cube_dim in cube_dims
         )
     ]
+
+
+async def _metric_graph_has_reaggregate(
+    session: AsyncSession,
+    metrics: list[str],
+) -> bool:
+    """
+    Cheaply test whether requested metrics or metric ancestors use reaggregate.
+    """
+    seen: set[str] = set()
+    pending = set(metrics)
+    ParentNode = aliased(Node)
+
+    while pending:
+        batch = sorted(pending - seen)
+        if not batch:
+            break
+        seen.update(batch)
+        result = await session.execute(
+            select(
+                Node.name,
+                NodeRevision.reaggregate,
+                ParentNode.name.label("parent_name"),
+            )
+            .select_from(Node)
+            .join(
+                NodeRevision,
+                and_(
+                    Node.id == NodeRevision.node_id,
+                    Node.current_version == NodeRevision.version,
+                ),
+            )
+            .outerjoin(NodeRelationship, NodeRelationship.child_id == NodeRevision.id)
+            .outerjoin(
+                ParentNode,
+                and_(
+                    NodeRelationship.parent_id == ParentNode.id,
+                    ParentNode.type == NodeType.METRIC,
+                ),
+            )
+            .where(Node.name.in_(batch))
+            .where(Node.type == NodeType.METRIC),
+        )
+        for _, reaggregate, parent_name in result.all():
+            if reaggregate:
+                return True
+            if parent_name and parent_name not in seen:
+                pending.add(parent_name)
+
+    return False
+
+
+async def _reaggregate_requirements_for_metrics_if_needed(
+    session: AsyncSession,
+    metrics: list[str],
+    dimensions: list[str],
+) -> list[ReaggregateRequirement]:
+    """
+    Run full metric decomposition only when reaggregate is possible.
+    """
+    if not await _metric_graph_has_reaggregate(session, metrics):
+        return []
+    return await _reaggregate_requirements_for_metrics(session, metrics, dimensions)
 
 
 def _reaggregate_requirements_for_cube_metrics(
@@ -458,7 +521,7 @@ async def find_matching_cube(
     result = await session.execute(statement)
     candidate_cubes = result.unique().scalars().all()
     reaggregate_requirements = (
-        await _reaggregate_requirements_for_metrics(
+        await _reaggregate_requirements_for_metrics_if_needed(
             session,
             metrics,
             dimensions,
@@ -578,7 +641,7 @@ async def validate_pinned_cube_covers_filters(
         cube,
         metrics or cube.cube_node_metrics,
         dimensions,
-        additional_requirements=await _reaggregate_requirements_for_metrics(
+        additional_requirements=await _reaggregate_requirements_for_metrics_if_needed(
             session,
             metrics or cube.cube_node_metrics,
             dimensions,

@@ -114,20 +114,19 @@ def _replace_reaggregate_merge_expression(
     For example, ``SUM(balance) / 100`` should become
     ``MAX_BY(balance_sum, date_id) / 100``, not just ``MAX_BY(...)``.
     """
-    expr_ast = combiner_ast
-    search_root = (
-        combiner_ast.child if isinstance(combiner_ast, ast.Alias) else expr_ast
+    expr_ast = (
+        cast(ast.Expression, combiner_ast.child)
+        if isinstance(combiner_ast, ast.Alias)
+        else combiner_ast
     )
     target_function = merge_function.upper()
 
-    for func in list(search_root.find_all(ast.Function)):
+    for func in list(expr_ast.find_all(ast.Function)):
         if func.name.name.upper() == target_function and _references_component(
-            func, component_name
+            func,
+            component_name,
         ):
-            if func is search_root:
-                if isinstance(combiner_ast, ast.Alias):  # pragma: no cover
-                    combiner_ast.child = collapse_expr
-                    return combiner_ast
+            if func is expr_ast:
                 return collapse_expr
             if func.parent:
                 func.parent.replace(from_=func, to=collapse_expr)
