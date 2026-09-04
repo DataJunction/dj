@@ -8218,6 +8218,174 @@ class TestDeploymentHistoryTracking:
 
 
 @pytest.mark.xdist_group(name="deployments")
+class TestCubeRedeployIdempotence:
+    """A cube spec deployed twice must not churn a new version."""
+
+    @pytest.mark.asyncio
+    async def test_partitioned_cube_redeploy_is_a_noop(
+        self,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+    ):
+        """
+        Deploying an unchanged cube that declares a column partition is a noop.
+
+        The cube branch of the deployment diff compares the partitions on the
+        incoming spec's columns against the partitions on the existing spec's.
+        If a declared partition never lands on the stored cube column, the two
+        sides can never agree, so every deploy reports ``columns`` changed --
+        and ``columns`` is unclassified, so it bumps a MAJOR version. The cube
+        then gains a version on every deploy of the namespace forever, with
+        nothing about it having changed.
+        """
+        namespace = "cube_redeploy_idempotence"
+        cube = CubeSpec(
+            name="${prefix}default.repairs_cube",
+            display_name="Repairs Cube",
+            description="Cube for analyzing repair orders",
+            dimensions=[
+                "${prefix}default.hard_hat.state",
+                "${prefix}default.hard_hat.hire_date",
+            ],
+            metrics=["${prefix}default.avg_length_of_employment"],
+            owners=["dj"],
+            columns=[
+                ColumnSpec(
+                    name="${prefix}default.hard_hat.hire_date",
+                    partition=PartitionSpec(
+                        type=PartitionType.TEMPORAL,
+                        granularity=Granularity.DAY,
+                        format="yyyyMMdd",
+                    ),
+                ),
+            ],
+        )
+        upstreams = [
+            default_hard_hats,
+            default_hard_hat,
+            default_us_states,
+            default_us_state,
+            default_avg_length_of_employment,
+        ]
+
+        def deployment() -> DeploymentSpec:
+            return DeploymentSpec(
+                namespace=namespace,
+                nodes=[spec.model_copy(deep=True) for spec in upstreams]
+                + [cube.model_copy(deep=True)],
+            )
+
+        first = await deploy_and_wait(client, deployment())
+        assert first["status"] == "success", first["results"]
+
+        cube_name = f"{namespace}.default.repairs_cube"
+        version_after_first = (await client.get(f"/nodes/{cube_name}/")).json()[
+            "version"
+        ]
+
+        second = await deploy_and_wait(client, deployment())
+        assert second["status"] == "success", second
+        cube_result = next(
+            result for result in second["results"] if result["name"] == cube_name
+        )
+        assert cube_result["changed_fields"] == [], cube_result["message"]
+        assert cube_result["operation"] == "noop"
+
+        version_after_second = (await client.get(f"/nodes/{cube_name}/")).json()[
+            "version"
+        ]
+        assert version_after_second == version_after_first
+
+    @pytest.mark.asyncio
+    async def test_partition_on_a_non_cube_column_does_not_churn(
+        self,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+    ):
+        """
+        A partition declared on a name that is not one of the cube's columns must
+        not make every redeploy look like a change.
+
+        ``rendered_columns`` keeps whatever the spec declared, but only names that
+        match a real cube column can be persisted. A declaration that matches
+        nothing therefore sits in ``incoming_partitions`` and never appears in
+        ``existing_partitions``, so the two can never agree: each deploy reports
+        ``columns`` changed, and because ``columns`` is unclassified it takes a
+        MAJOR version. The cube then gains a version on every deploy forever.
+        """
+        namespace = "cube_redeploy_phantom_partition"
+        cube = CubeSpec(
+            name="${prefix}default.repairs_cube",
+            display_name="Repairs Cube",
+            description="Cube for analyzing repair orders",
+            dimensions=[
+                "${prefix}default.hard_hat.state",
+                "${prefix}default.hard_hat.hire_date",
+            ],
+            metrics=["${prefix}default.avg_length_of_employment"],
+            owners=["dj"],
+            columns=[
+                ColumnSpec(
+                    # Deliberately not a cube column: the cube's column is
+                    # ``default.hard_hat.hire_date``, fully qualified.
+                    name="hire_date",
+                    partition=PartitionSpec(
+                        type=PartitionType.TEMPORAL,
+                        granularity=Granularity.DAY,
+                        format="yyyyMMdd",
+                    ),
+                ),
+            ],
+        )
+        upstreams = [
+            default_hard_hats,
+            default_hard_hat,
+            default_us_states,
+            default_us_state,
+            default_avg_length_of_employment,
+        ]
+
+        def deployment() -> DeploymentSpec:
+            return DeploymentSpec(
+                namespace=namespace,
+                nodes=[spec.model_copy(deep=True) for spec in upstreams]
+                + [cube.model_copy(deep=True)],
+            )
+
+        first = await deploy_and_wait(client, deployment())
+        assert first["status"] == "success", first["results"]
+
+        cube_name = f"{namespace}.default.repairs_cube"
+        version_after_first = (await client.get(f"/nodes/{cube_name}/")).json()[
+            "version"
+        ]
+
+        second = await deploy_and_wait(client, deployment())
+        cube_result = next(
+            result for result in second["results"] if result["name"] == cube_name
+        )
+        assert cube_result["changed_fields"] == [], cube_result["message"]
+
+        version_after_second = (await client.get(f"/nodes/{cube_name}/")).json()[
+            "version"
+        ]
+        assert version_after_second == version_after_first
+
+        # The declaration is ignored, but the author is told it is.
+        assert any(
+            "declares column 'hire_date'" in warning["message"]
+            for warning in second["warnings"]
+        ), second["warnings"]
+
+
 class TestDeploymentColumnOrdering:
     """Tests for column ordering in deployments"""
 

@@ -414,6 +414,28 @@ class DeploymentOrchestrator:
                 return author
         return self.context.current_user.username
 
+    def _warn_about_unmatched_cube_columns(self) -> None:
+        """
+        Warn about `columns:` entries naming no column of the cube. The comparison
+        ignores them; without this the partition the author declared would just
+        silently do nothing.
+        """
+        for spec in self.deployment_spec.nodes:
+            if not isinstance(spec, CubeSpec):
+                continue
+            for unmatched in spec.unmatched_column_names:
+                self.warnings.append(
+                    DJError(
+                        code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                        message=(
+                            f"Cube '{spec.name}' declares column '{unmatched}', "
+                            f"which is not one of its columns, so the settings on "
+                            f"it have no effect. A cube's columns are its metrics "
+                            f"and dimensions, named exactly as they appear there."
+                        ),
+                    ),
+                )
+
     async def execute(self) -> DeploymentExecuteResult:
         """
         Validate and deploy all resources and nodes into the specified namespace.
@@ -438,6 +460,8 @@ class DeploymentOrchestrator:
             len(self.deployment_spec.nodes),
             self.deployment_spec.namespace,
         )
+
+        self._warn_about_unmatched_cube_columns()
 
         result = DeploymentExecuteResult(results=[], downstream_impacts=[])
         try:
@@ -4984,17 +5008,13 @@ class DeploymentOrchestrator:
             existing_node_spec,
             CubeSpec,
         ):
-            incoming_partitions = {
-                col.name: col.partition
-                for col in result.spec.rendered_columns
-                if col.partition
-            }
-            existing_partitions = {
-                col.name: col.partition
-                for col in existing_node_spec.rendered_columns
-                if col.partition
-            }
-            if incoming_partitions != existing_partitions:
+            from datajunction_server.semantic_fingerprints.normalization import (
+                normalize_cube_columns,
+            )
+
+            if normalize_cube_columns(
+                result.spec.matched_rendered_columns,
+            ) != normalize_cube_columns(existing_node_spec.matched_rendered_columns):
                 changed_fields = changed_fields + ["columns"]
 
         if changed_fields:
