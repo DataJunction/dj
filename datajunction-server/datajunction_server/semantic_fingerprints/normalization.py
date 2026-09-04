@@ -211,6 +211,28 @@ def normalize_field(
     )
 
 
+def _normalize_comparison_field(
+    spec: NodeSpec,
+    field: str,
+    *,
+    resolved_columns: list[ColumnSpec] | None,
+    preserve_order: bool = False,
+) -> Any:
+    """Normalize change detection without altering versioned fingerprints."""
+    if field == "required_dimensions" and isinstance(spec, MetricSpec):
+        try:
+            value = spec.canonical_required_dimensions
+        except DJParseException:
+            value = spec.rendered_required_dimensions
+        return normalize_sequence(value, preserve_order=preserve_order)
+    return normalize_field(
+        spec,
+        field,
+        resolved_columns=resolved_columns,
+        preserve_order=preserve_order,
+    )
+
+
 def semantic_diff(
     one: NodeSpec,
     two: NodeSpec,
@@ -239,12 +261,12 @@ def semantic_diff(
             continue
 
         try:
-            left = normalize_field(
+            left = _normalize_comparison_field(
                 rendered_one,
                 field,
                 resolved_columns=resolved_columns,
             )
-            right = normalize_field(
+            right = _normalize_comparison_field(
                 rendered_two,
                 field,
                 resolved_columns=other_resolved_columns,
@@ -260,13 +282,13 @@ def semantic_diff(
 
         if type(rendered_two).field_order_change_tier(field) == ChangeTier.NONE:
             continue
-        left_ordered = normalize_field(
+        left_ordered = _normalize_comparison_field(
             rendered_one,
             field,
             resolved_columns=resolved_columns,
             preserve_order=True,
         )
-        right_ordered = normalize_field(
+        right_ordered = _normalize_comparison_field(
             rendered_two,
             field,
             resolved_columns=other_resolved_columns,

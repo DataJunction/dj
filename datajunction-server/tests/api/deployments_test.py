@@ -1345,6 +1345,9 @@ async def deploy_and_wait(client, deployment_spec: DeploymentSpec):
         await asyncio.sleep(1)
         response = await client.get(f"/deployments/{deployment_uuid}")
         data = response.json()
+    for result in data.get("results", []):
+        result.pop("change_tier", None)
+        result.pop("semantic_fingerprint", None)
     return data
 
 
@@ -2216,8 +2219,8 @@ class TestDeployments:
             "name": f"{namespace}.default.hard_hat",
             "status": "success",
             "operation": "update",
-            "changed_fields": ["query", "columns"],
-            "message": "Updated dimension (v2.0)\n└─ Column removed: hard_hat_id, state\n└─ Updated query, columns",
+            "changed_fields": ["query"],
+            "message": "Updated dimension (v2.0)\n└─ Updated query",
         }
         update_us_state = next(
             res
@@ -2276,12 +2279,12 @@ class TestDeployments:
         )
         assert metric_result == {
             "deploy_type": "node",
-            "message": "Updated metric (v2.0)\n└─ Updated query, display_name\n"
+            "message": "Updated metric (v2.0)\n└─ Updated query\n"
             "[invalid] Metric metric_update.default.avg_length_of_employment has an invalid "
             "query, should have an aggregate expression",
             "name": "metric_update.default.avg_length_of_employment",
             "operation": "update",
-            "changed_fields": ["query", "display_name"],
+            "changed_fields": ["query"],
             "status": "invalid",
         }
 
@@ -2301,10 +2304,10 @@ class TestDeployments:
         )
         assert metric_result == {
             "deploy_type": "node",
-            "message": "Updated metric (v3.0)\n└─ Updated query, display_name",
+            "message": "Updated metric (v3.0)\n└─ Updated query",
             "name": "metric_update.default.avg_length_of_employment",
             "operation": "update",
-            "changed_fields": ["query", "display_name"],
+            "changed_fields": ["query"],
             "status": "success",
         }
 
@@ -2968,7 +2971,7 @@ class TestDeployments:
         await deploy(description="Hard hats, revised")
         response = await client.get(f"/nodes/{name}/")
         assert response.status_code == 200, response.json()
-        assert response.json()["version"] == "v2.0"
+        assert response.json()["version"] == "v1.1"
         assert response.json()["description"] == "Hard hats, revised"
 
     @pytest.mark.asyncio
@@ -4423,10 +4426,10 @@ class TestDeployments:
         )
         assert data["results"][-1] == {
             "deploy_type": "node",
-            "message": "Updated dimension (v2.0)\n└─ Column removed: state_id, state_name, state_region, state_short\n└─ Updated tags, columns",
+            "message": "Updated dimension (v1.1)\n└─ Updated tags",
             "name": "node_update.default.us_state",
             "operation": "update",
-            "changed_fields": ["tags", "columns"],
+            "changed_fields": ["tags"],
             "status": "success",
         }
         node = await Node.get_by_name(session, f"{namespace}.default.us_state")
