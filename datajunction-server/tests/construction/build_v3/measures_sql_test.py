@@ -121,7 +121,7 @@ class TestMeasuresSQLEndpoint:
 
     @pytest.mark.asyncio
     async def test_metrics_v3_no_metrics_raises_422(self, client_with_build_v3):
-        """GET /sql/metrics/v3/ with no metrics must return 422, not a 500 IndexError."""
+        """GET /sql/metrics/v3/ requires at least one metric."""
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
             params={

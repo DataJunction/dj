@@ -21,7 +21,10 @@ from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
-from datajunction_server.internal.sql import generate_metrics_sql
+from datajunction_server.internal.sql import (
+    generate_dimensions_sql,
+    generate_metrics_sql,
+)
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import get_current_user, get_session
 
@@ -398,22 +401,27 @@ async def _generate_sql(
 
     request_filters = [_filter_to_sql(f) for f in payload.filters]
 
-    # Delegate to the shared metrics-SQL core (the same helper ``/sql/metrics/v3``
-    # uses). Pinning the view's cube via ``matched_cube`` makes the dialect
-    # resolve from that cube's own availability and applies its stored
-    # ``cube_filters``; ``dialect=None`` lets the helper do that resolution.
-    generated_sql = await generate_metrics_sql(
-        session,
-        metrics=payload.metrics,
-        dimensions=payload.dimensions,
-        filters=request_filters,
-        matched_cube=cube_rev,
-        orderby=orderby,
-        limit=limit,
-        use_materialized=True,
-        dialect=None,
-        endpoint="/semantic-layer/views/sql",
-    )
+    if payload.metrics:
+        generated_sql = await generate_metrics_sql(
+            session,
+            metrics=payload.metrics,
+            dimensions=payload.dimensions,
+            filters=request_filters,
+            matched_cube=cube_rev,
+            orderby=orderby,
+            limit=limit,
+            endpoint="/semantic-layer/views/sql",
+        )
+    else:
+        generated_sql = await generate_dimensions_sql(
+            session,
+            dimensions=payload.dimensions,
+            filters=request_filters,
+            matched_cube=cube_rev,
+            orderby=orderby,
+            limit=limit,
+            endpoint="/semantic-layer/views/sql",
+        )
     # ``generated_sql.sql`` renders via ``to_sql(query, dialect)``, which already
     # applies DJ's dialect rules and transpiles to the resolved dialect, so it is
     # execution-ready for the caller (which runs it directly). We return the
@@ -451,12 +459,8 @@ async def generate_query_sql(
             400,
             f"`limit` {payload.limit} exceeds the maximum of {MAX_ROW_LIMIT}.",
         )
-    if not payload.metrics:
-        return _problem(
-            400,
-            "A query must request at least one metric. Dimension-only queries "
-            "(distinct values) are not supported on this endpoint.",
-        )
+    if not payload.metrics and not payload.dimensions:
+        return _problem(400, "A query must request at least one metric or dimension.")
     try:
         cube_node = await Node.get_cube_by_name(session, view_name)
         if cube_node is None or cube_node.current is None:

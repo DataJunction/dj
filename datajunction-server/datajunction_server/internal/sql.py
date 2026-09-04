@@ -188,6 +188,8 @@ async def generate_metrics_sql(
     dialect: Dialect | None = None,
     query_parameters: dict[str, Any] | None = None,
     endpoint: str = "/sql/metrics/v3/",
+    populate_cube_metrics: bool = True,
+    query_type: str | None = None,
 ) -> "BuildV3GeneratedSQL":
     """
     Shared core for the "generate SQL for specific metrics" flow, used by both the
@@ -198,8 +200,8 @@ async def generate_metrics_sql(
         provided, load the cube directly (pins it so ``find_matching_cube`` can't
         pick a different / differently-filtered materialization).
       - If a cube revision is in play, prepend its stored ``cube_filters`` to the
-        request filters (and fall back to the cube's full metric/dimension set for
-        a bare cube query with no explicit metrics/dimensions).
+        request filters. Metrics callers also fall back to the cube's metrics when
+        none are explicit; dimensions callers disable that behavior.
       - If ``dialect`` is None, auto-resolve it via
         ``resolve_dialect_and_engine_for_metrics``; adopt that resolver's cube only
         when no cube was otherwise provided (mirrors the canonical endpoint).
@@ -227,7 +229,7 @@ async def generate_metrics_sql(
     if matched_cube is not None:
         if matched_cube.cube_filters:
             merged_filters = list(matched_cube.cube_filters) + merged_filters
-        if not metrics:
+        if not metrics and populate_cube_metrics:
             metrics = matched_cube.cube_node_metrics
             if not dimensions:
                 dimensions = matched_cube.cube_node_dimensions
@@ -236,7 +238,7 @@ async def generate_metrics_sql(
         # cube will actually back the build (materialized, Druid or auto-dialect),
         # verify it covers every filtered dimension so we fail loud here instead
         # of emitting Druid SQL that references a column the cube table lacks.
-        if use_materialized and dialect in (None, Dialect.DRUID):
+        if metrics and use_materialized and dialect in (None, Dialect.DRUID):
             await validate_pinned_cube_covers_filters(
                 session,
                 matched_cube,
@@ -252,7 +254,7 @@ async def generate_metrics_sql(
             metrics=metrics,
             dimensions=dimensions,
             use_materialized=use_materialized,
-            matched_cube=matched_cube,
+            matched_cube=matched_cube if metrics else None,
             filters=merged_filters,
         )
         resolved_dialect = execution_ctx.dialect
@@ -274,7 +276,8 @@ async def generate_metrics_sql(
     )
 
     elapsed_ms = (time.monotonic() - _t0) * 1000
-    _tags = {"query_type": "metrics", "query_version": "v3"}
+    query_type = query_type or ("metrics" if metrics else "dimensions")
+    _tags = {"query_type": query_type, "query_version": "v3"}
     provider = get_metrics_provider()
     provider.timer("dj.sql.build_latency_ms", elapsed_ms, _tags)
     provider.counter("dj.sql.requests", tags=_tags)
@@ -289,7 +292,7 @@ async def generate_metrics_sql(
         elapsed_ms,
         extra={
             "endpoint": endpoint,
-            "query_type": "metrics",
+            "query_type": query_type,
             "query_version": "v3",
             "metrics": metrics,
             "dimensions": dimensions,
@@ -298,6 +301,72 @@ async def generate_metrics_sql(
         },
     )
     return result
+
+
+async def generate_dimensions_sql(
+    session: AsyncSession,
+    *,
+    dimensions: list[str],
+    filters: list[str] | None = None,
+    cube: str | None = None,
+    matched_cube: NodeRevision | None = None,
+    orderby: list[str] | None = None,
+    limit: int | None = None,
+    use_materialized: bool = True,
+    dialect: Dialect | None = None,
+    query_parameters: dict[str, Any] | None = None,
+    endpoint: str = "/sql/dimensions/v3/",
+) -> "BuildV3GeneratedSQL":
+    """Generate direct-domain or cube-scoped distinct dimension values."""
+    if cube and matched_cube is None:
+        cube_node = await Node.get_cube_by_name(session, cube)
+        if cube_node:
+            matched_cube = cube_node.current
+
+    if matched_cube is None:
+        return await generate_metrics_sql(
+            session,
+            metrics=[],
+            dimensions=dimensions,
+            filters=filters,
+            orderby=orderby,
+            limit=limit,
+            use_materialized=use_materialized,
+            dialect=dialect,
+            query_parameters=query_parameters,
+            endpoint=endpoint,
+            populate_cube_metrics=False,
+            query_type="dimensions",
+        )
+
+    from datajunction_server.construction.build_v3.node_query import (
+        project_dimension_values_sql,
+    )
+    from datajunction_server.construction.build_v3.utils import (
+        extract_filter_dimension_refs,
+    )
+
+    cube_filters = list(matched_cube.cube_filters or [])
+    merged_filters = cube_filters + list(filters or [])
+    required_dimensions = set(dimensions) | set(
+        extract_filter_dimension_refs(merged_filters),
+    )
+    cube_covers_query = required_dimensions.issubset(
+        set(matched_cube.cube_node_dimensions),
+    )
+    generated = await generate_metrics_sql(
+        session,
+        metrics=list(matched_cube.cube_node_metrics),
+        dimensions=dimensions,
+        filters=filters if cube_covers_query else merged_filters,
+        matched_cube=matched_cube if cube_covers_query else None,
+        use_materialized=use_materialized,
+        dialect=dialect,
+        query_parameters=query_parameters,
+        endpoint=endpoint,
+        query_type="dimensions",
+    )
+    return project_dimension_values_sql(generated, dimensions, orderby, limit)
 
 
 async def build_sql_for_multiple_metrics(
