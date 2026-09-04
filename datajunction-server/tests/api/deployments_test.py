@@ -10542,3 +10542,138 @@ class TestConcurrentDeploymentVersionBump:
 
         assert (await client.get(f"/nodes/{metric_name}/")).json()["version"] == "v11.0"
         assert (await client.get(f"/nodes/{cube_name}/")).json()["version"] == "v11.0"
+
+
+@pytest.mark.xdist_group(name="deployments")
+class TestRequiredDimensionsRedeployIdempotence:
+    """A metric whose `required_dimensions` point at a column on its own parent
+    re-deploys as a noop, whichever of the two accepted spellings it was
+    authored in. The bare case is the control: it passed before the fix too,
+    since the bare name is what the export already emits."""
+
+    def _nodes(self, required_dimensions):
+        return [
+            SourceSpec(
+                name="rd_orders_raw",
+                description="Raw orders",
+                catalog="default",
+                schema="roads",
+                table="rd_orders_raw",
+                columns=[
+                    ColumnSpec(name="order_id", type="bigint"),
+                    ColumnSpec(name="currency_code", type="string"),
+                ],
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            TransformSpec(
+                name="rd_orders_fact",
+                description="Orders fact",
+                query="SELECT order_id, currency_code FROM ${prefix}rd_orders_raw",
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            MetricSpec(
+                name="rd_num_orders",
+                # Named so an inferred display_name doesn't turn up in `changed_fields`.
+                display_name="Rd Num Orders",
+                description="Number of orders",
+                query="SELECT count(order_id) FROM ${prefix}rd_orders_fact",
+                required_dimensions=required_dimensions,
+                owners=["dj"],
+            ),
+        ]
+
+    @pytest.mark.parametrize(
+        "namespace, required_dimensions",
+        [
+            ("rd_bare", ["currency_code"]),
+            ("rd_qualified", ["${prefix}rd_orders_fact.currency_code"]),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_redeploy_is_noop(self, client, namespace, required_dimensions):
+        nodes = self._nodes(required_dimensions)
+        metric_name = f"{namespace}.rd_num_orders"
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert data["status"] == "success", data
+        assert [
+            result for result in data["results"] if result["name"] == metric_name
+        ] == [
+            {
+                "deploy_type": "node",
+                "message": "Created metric (v1.0)",
+                "name": metric_name,
+                "operation": "create",
+                "changed_fields": [],
+                "status": "success",
+            },
+        ]
+
+        response = await client.get(f"/nodes/{metric_name}/")
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v1.0"
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=self._nodes(required_dimensions)),
+        )
+        assert data["status"] == "success", data
+        assert [
+            result for result in data["results"] if result["name"] == metric_name
+        ] == [
+            {
+                "deploy_type": "node",
+                "message": "Unchanged",
+                "name": metric_name,
+                "operation": "noop",
+                "changed_fields": [],
+                "status": "skipped",
+            },
+        ]
+
+        response = await client.get(f"/nodes/{metric_name}/")
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v1.0"
+
+    @pytest.mark.asyncio
+    async def test_metadata_edit_on_qualified_metric_is_minor(self, client):
+        """The change tier is folded from `changed_fields`, so a qualified
+        required dimension tagging along there drags a metadata-only edit up to
+        MAJOR."""
+        namespace = "rd_qualified_minor"
+        nodes = self._nodes(["${prefix}rd_orders_fact.currency_code"])
+        metric_name = f"{namespace}.rd_num_orders"
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert data["status"] == "success", data
+
+        nodes[-1].description = "Number of orders, revised"
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert data["status"] == "success", data
+        assert [
+            result for result in data["results"] if result["name"] == metric_name
+        ] == [
+            {
+                "deploy_type": "node",
+                "message": "Updated metric (v1.1)\n└─ Updated description",
+                "name": metric_name,
+                "operation": "update",
+                "changed_fields": ["description"],
+                "status": "success",
+            },
+        ]
+
+        response = await client.get(f"/nodes/{metric_name}/")
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v1.1"
