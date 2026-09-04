@@ -994,45 +994,101 @@ def _table_alias(table: ast.Table) -> ast.Name | None:
     return None
 
 
-def _arm_sources(arm: ast.SelectExpression, cte_names: set[str]) -> dict[str, str]:
-    """
-    Map every qualifier an arm can use for a CTE to that CTE's name.
+def _joins_naturally(arm: ast.SelectExpression) -> bool:
+    """Whether the arm has a NATURAL JOIN."""
+    return any(join.natural for join in arm.find_all(ast.Join))
 
-    A table can be addressed by its alias or by the CTE name itself, so both
-    land in the map.
+
+def _enclosing_selects(
+    node: ast.Node,
+    outermost: ast.SelectExpression,
+) -> list[ast.SelectExpression]:
+    """The selects a node sits in, innermost first, ending at outermost."""
+    chain: list[ast.SelectExpression] = []
+    current = node.parent
+    while current is not None:
+        if isinstance(current, ast.SelectExpression):
+            chain.append(current)
+            if current is outermost:
+                break
+        current = current.parent
+    return chain
+
+
+def _select_bindings(
+    arm: ast.SelectExpression,
+    cte_names: set[str],
+) -> tuple[dict[ast.SelectExpression, dict[str, str]], set[str]]:
     """
-    sources: dict[str, str] = {}
+    Map each select to its CTE bindings, and the CTEs the statement reads.
+
+    A select's map covers only its own FROM, keyed by alias and table name, so
+    a subquery reusing an alias shadows the outer binding instead of
+    overwriting it:
+
+        FROM a AS x WHERE EXISTS (SELECT 1 FROM b AS x ...)
+        {outer: {"a": "a", "x": "a"}, EXISTS: {"b": "b", "x": "b"}}
+    """
+    bindings: dict[ast.SelectExpression, dict[str, str]] = {arm: {}}
+    read: set[str] = set()
     for part in _arm_parts(arm):
         for table in part.find_all(ast.Table):
             name = table.name.identifier(quotes=False)
-            if name in cte_names:
-                sources[name] = name
-                if alias := _table_alias(table):
-                    sources[alias.identifier(quotes=False)] = name
-    return sources
+            if name not in cte_names:
+                continue
+            read.add(name)
+            owner = _enclosing_selects(table, arm)
+            # Detached tables go in the outermost map.
+            bound = bindings.setdefault(owner[0] if owner else arm, {})
+            bound[name] = name
+            if alias := _table_alias(table):
+                bound[alias.identifier(quotes=False)] = name
+    return bindings, read
 
 
-def _record_arm_demands(
+def _record_column_use(
+    node: ast.Node,
+    qualifier: str | None,
+    wanted: str,
     arm: ast.SelectExpression,
-    sources: dict[str, str],
+    bindings: dict[ast.SelectExpression, dict[str, str]],
+    read: set[str],
     live: dict[str, set[str]],
 ) -> None:
     """
-    Charge each column an arm reads to the CTE that has to project it.
+    Resolve a column to its CTE and mark it live.
+    """
+    if qualifier is not None:
+        for select in _enclosing_selects(node, arm):
+            bound = bindings.get(select, {}).get(qualifier)
+            if bound is not None:
+                live[bound].add(wanted)
+                return
+    for target in read:
+        live[target].add(wanted)
 
-    A qualified reference goes to the CTE its qualifier names, and the column
-    wanted there is the segment right after the qualifier — for a struct path
-    like ``p.line_item.target_sets`` the producer projects ``line_item``, not
-    the leaf. A reference with no qualifier we recognize goes to every CTE in
-    scope: which one supplies it is only knowable after compilation, and
-    keeping a name a CTE does not have is a no-op.
+
+def _record_select_uses(
+    arm: ast.SelectExpression,
+    bindings: dict[ast.SelectExpression, dict[str, str]],
+    read: set[str],
+    live: dict[str, set[str]],
+) -> None:
+    """
+    Resolve every column a select reads to its CTE and mark it live.
+
+    The column wanted is the segment right after the qualifier -- for a struct
+    path like p.line_item.target_sets the producer projects line_item, not the
+    leaf.
 
     A qualifier reaches us two ways. Dotted into the name is the parsed form,
     and it can carry further struct segments. Hung off the column as a table is
     what the builder produces for its own projections and GROUP BY, and there
     the column name stands alone.
+
+    When a column is referenced in USING, both sides of the join must project
+    it.
     """
-    bare_targets = set(sources.values())
     for part in _arm_parts(arm):
         for column in part.find_all(ast.Column):
             segments = column.identifier(quotes=False).split(SEPARATOR)
@@ -1040,11 +1096,26 @@ def _record_arm_demands(
             wanted = segments[1] if len(segments) > 1 else segments[0]
             if qualifier is None:
                 qualifier = column_table_name(column)
-            if qualifier in sources:
-                live[sources[qualifier]].add(wanted)
-            else:
-                for target in bare_targets:
-                    live[target].add(wanted)
+            _record_column_use(
+                column,
+                qualifier,
+                wanted,
+                arm,
+                bindings,
+                read,
+                live,
+            )
+        for criteria in part.find_all(ast.JoinCriteria):
+            for joined in criteria.using or []:
+                _record_column_use(
+                    criteria,
+                    None,
+                    joined.identifier(quotes=False),
+                    arm,
+                    bindings,
+                    read,
+                    live,
+                )
 
 
 def _scopes_readers_first(
@@ -1065,7 +1136,7 @@ def _scopes_readers_first(
     for key, scope in scopes.items():
         producers: set[str] = set()
         for arm in _set_op_arms(scope.select):
-            producers.update(_arm_sources(arm, cte_names).values())
+            producers.update(_select_bindings(arm, cte_names)[1])
         producers.discard(key)
         reads[key] = producers
 
@@ -1140,15 +1211,18 @@ def prune_cte_projections(query: ast.Query) -> None:
                     _apply_keep_positions(arm, keep)
 
         for arm in _set_op_arms(scope.select):
-            sources = _arm_sources(arm, cte_names)
-            _record_arm_demands(arm, sources, live)
+            bindings, read = _select_bindings(arm, cte_names)
+            _record_select_uses(arm, bindings, read, live)
+            if _joins_naturally(arm):
+                # Its join key is the columns both sides share.
+                unprunable.update(read)
             if not any(_is_star(item) for item in arm.projection):
                 continue
             # A star names no columns of its own: it re-exposes whatever its
             # source has. So a CTE that stars a source passes its own demand
             # straight through. Where that demand is unknown — the outer
             # select, or a CTE nobody reads — the source keeps everything.
-            starred = set(sources.values())
+            starred = set(read)
             if key and key not in unprunable and live[key]:
                 for target in starred:
                     live[target].update(live[key])
