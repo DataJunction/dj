@@ -659,14 +659,7 @@ class Node(Base):
                 legacy_from_md,
             )
 
-            # Every required dimension is exported as its fully-qualified
-            # `node.column` path, whether it's a direct parent's column or one
-            # reached via a dimension link -- so a re-deploy into a different
-            # namespace can still find it, and so the two sides of a diff never
-            # have to agree on which node counts as a "parent" to compare equal
-            # (see `MetricSpec.canonical_required_dimensions`). Prefix
-            # parameterization (`${prefix}`) is applied later, in
-            # get_node_specs_for_export, and only for in-deploy nodes.
+            # Every required dimension is exported as its fully-qualified `node.column` path.
             required_dimensions_spec: list[str] = sorted(
                 col.full_name() for col in self.current.required_dimensions
             )
