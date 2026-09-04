@@ -317,7 +317,9 @@ def _resolve_required_dimensions(
     invalid_required_dimensions: set[str] = set()
     matched_columns: list[Column] = []
 
-    parent_col_map = {col.name: col for col in parent_columns}
+    parent_cols_by_name: dict[str, list[Column]] = {}
+    for col in parent_columns:
+        parent_cols_by_name.setdefault(col.name, []).append(col)
 
     # Separate full paths from short names
     # full_paths: {dim_node_name: [(full_path, col_name), ...]}
@@ -337,10 +339,13 @@ def _resolve_required_dimensions(
             short_names.append(required_dim)
 
     for short_name in short_names:
-        if short_name in parent_col_map:
-            matched_columns.append(parent_col_map[short_name])
+        matches = parent_cols_by_name.get(short_name, [])
+        if len(matches) == 1:
+            matched_columns.append(matches[0])
         else:
-            invalid_required_dimensions.add(short_name)  # pragma: no cover
+            # No match, or the same short name exists on more than one direct
+            # parent -- ambiguous, so it must be qualified as `node.column`.
+            invalid_required_dimensions.add(short_name)
 
     for dim_node_name, paths in full_paths.items():
         dim_node = dim_nodes.get(dim_node_name)
