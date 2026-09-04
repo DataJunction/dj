@@ -4402,7 +4402,23 @@ class TestCopyNodesToNamespace:
             assert response.status_code == HTTPStatus.CREATED
             data = response.json()
             assert data["branch"]["namespace"] == "copy_test.feature_copy"
-            assert data["deployment_results"] == [
+            assert all(
+                result["change_tier"] == "major"
+                for result in data["deployment_results"]
+            )
+            assert all(
+                result["semantic_fingerprint"]["version"] == 1
+                for result in data["deployment_results"]
+            )
+            deployment_results = [
+                {
+                    key: value
+                    for key, value in result.items()
+                    if key not in {"change_tier", "semantic_fingerprint"}
+                }
+                for result in data["deployment_results"]
+            ]
+            assert deployment_results == [
                 {
                     "deploy_type": "node",
                     "message": "Created source (v1.0)",
