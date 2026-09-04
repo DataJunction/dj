@@ -21,6 +21,43 @@ class ReaggregationFunction(StrEnum):
     MAX = "max"
 
 
+DIMENSION_REAGGREGATE_FUNCTIONS = frozenset(
+    {
+        ReaggregationFunction.LAST_VALUE,
+        ReaggregationFunction.FIRST_VALUE,
+        ReaggregationFunction.MIN,
+        ReaggregationFunction.MAX,
+    },
+)
+
+
+def is_supported_dimension_reaggregate_function(
+    function: ReaggregationFunction,
+) -> bool:
+    """
+    Return whether a function can collapse across a protected dimension.
+    """
+    return function in DIMENSION_REAGGREGATE_FUNCTIONS
+
+
+def unsupported_dimension_reaggregate_functions(
+    spec: "ReaggregateSpec | dict | None",
+) -> list[str]:
+    """
+    Unsupported dimension-specific collapse functions in a reaggregate spec.
+    """
+    reaggregate = parse_reaggregate_spec(spec)
+    if not reaggregate:
+        return []
+    return sorted(
+        {
+            rule.fn.value
+            for rule in reaggregate.rules
+            if not is_supported_dimension_reaggregate_function(rule.fn)
+        },
+    )
+
+
 class DimensionReaggregateRule(BaseModel):
     """
     Dimension-specific metric reaggregation rule.

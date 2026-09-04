@@ -1090,6 +1090,63 @@ async def test_validate_node_data_v2_flags_invalid_reaggregate_dimensions(
 
 
 @pytest.mark.asyncio
+async def test_validate_node_data_v2_flags_unsupported_reaggregate_function(
+    session: AsyncSession,
+    user: User,
+):
+    """dimension-specific reaggregate only accepts supported collapse functions."""
+    from datajunction_server.errors import ErrorCode
+    from datajunction_server.internal.validation import validate_node_data_v2
+
+    source = Node(
+        name="test.v2_reagg_fn_parent",
+        type=NodeType.SOURCE,
+        created_by_id=user.id,
+        current_version="v1.0",
+    )
+    source_rev = NodeRevision(
+        name="test.v2_reagg_fn_parent",
+        display_name="reaggregate function parent",
+        type=NodeType.SOURCE,
+        query=None,
+        status=NodeStatus.VALID,
+        version="v1.0",
+        node=source,
+        columns=[
+            Column(name="id", type=ct.BigIntType(), order=0),
+            Column(name="order_date", type=ct.BigIntType(), order=1),
+        ],
+        created_by_id=user.id,
+    )
+    session.add_all([source, source_rev])
+    await session.commit()
+
+    child = NodeRevision(
+        name="test.v2_reagg_fn_child",
+        display_name="reaggregate function child",
+        type=NodeType.METRIC,
+        query="SELECT SUM(id) FROM test.v2_reagg_fn_parent",
+        status=NodeStatus.VALID,
+        reaggregate={
+            "rules": [
+                {
+                    "dimension": "order_date",
+                    "fn": "sum",
+                },
+            ],
+        },
+    )
+    validator = await validate_node_data_v2(child, session)
+
+    assert validator.status == NodeStatus.INVALID
+    assert any(
+        err.code == ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION
+        and err.debug == {"invalid_reaggregate_functions": ["sum"]}
+        for err in validator.errors
+    ), [(e.code, e.message, e.debug) for e in validator.errors]
+
+
+@pytest.mark.asyncio
 async def test_validate_node_data_v2_cross_fact_metrics_no_shared_dims(
     session: AsyncSession,
     user: User,

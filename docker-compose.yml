@@ -106,7 +106,13 @@ services:
     stdin_open: true
     volumes:
       - ./datajunction-ui:/usr/src/app/
-      - ./datajunction-ui/node_modules:/usr/src/app/node_modules
+      # Keep platform-specific packages inside Docker. `nocopy` prevents the
+      # host's macOS node_modules from seeding this Linux volume.
+      - type: volume
+        source: djui_node_modules
+        target: /usr/src/app/node_modules
+        volume:
+          nocopy: true
     environment:
       - NODE_OPTIONS=--max-old-space-size=4096
       - WATCHPACK_POLLING=true
@@ -327,3 +333,4 @@ services:
 
 volumes:
   postgres_metadata:
+  djui_node_modules:

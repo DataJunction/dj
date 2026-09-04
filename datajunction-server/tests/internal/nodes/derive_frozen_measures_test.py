@@ -16,7 +16,6 @@ from datajunction_server.database.column import Column
 from datajunction_server.database.measure import FrozenMeasure
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import OAuthProvider, User
-from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.nodes import derive_frozen_measures_bulk
 from datajunction_server.models.node import NodeStatus
 from datajunction_server.models.node_type import NodeType
@@ -127,11 +126,11 @@ async def test_base_metric_populates_derived_expression_and_measure(
 
 
 @pytest.mark.asyncio
-async def test_frozen_measure_name_collision_with_different_rule_raises(
+async def test_frozen_measure_name_collision_allows_reaggregate_only_difference(
     session: AsyncSession,
     user: User,
 ):
-    """A same-name component cannot reuse a FrozenMeasure with different rules."""
+    """Metric-level reaggregate metadata does not change measure identity."""
     src = await _make_source(
         session,
         user,
@@ -163,19 +162,19 @@ async def test_frozen_measure_name_collision_with_different_rule_raises(
     await session.refresh(reaggregate, ["current"])
     await session.refresh(additive, ["current"])
 
-    await derive_frozen_measures_bulk(session, [reaggregate.current.id])
+    await derive_frozen_measures_bulk(session, [additive.current.id])
     await session.commit()
 
-    await session.refresh(reaggregate.current, ["frozen_measures"])
-    assert any(
-        fm.rule.reaggregate is not None for fm in reaggregate.current.frozen_measures
-    )
+    await session.refresh(additive.current, ["frozen_measures"])
+    assert all(fm.rule.reaggregate is None for fm in additive.current.frozen_measures)
 
-    with pytest.raises(
-        DJInvalidInputException,
-        match="different expression, aggregation, or aggregation rule",
-    ):
-        await derive_frozen_measures_bulk(session, [additive.current.id])
+    await derive_frozen_measures_bulk(session, [reaggregate.current.id])
+    await session.commit()
+    await session.refresh(reaggregate.current, ["frozen_measures"])
+
+    assert {fm.name for fm in additive.current.frozen_measures} == {
+        fm.name for fm in reaggregate.current.frozen_measures
+    }
 
 
 @pytest.mark.asyncio

@@ -9,6 +9,7 @@ layers. This check should happen during metric creation/update validation.
 
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Iterable
 from typing import cast
 
@@ -571,9 +572,10 @@ def merge_grain_groups(grain_groups: list[GrainGroup]) -> list[GrainGroup]:
     Returns:
         List of grain groups with compatible groups merged
     """
-    from collections import defaultdict
-
-    # Group by parent node name
+    # Group by parent node name first, then by the internal grain needed for
+    # semi-additive collapse. LIMITED/NONE groups must not be merged into a
+    # semi-additive FULL group, because their extra grain columns would make the
+    # protected-dimension bucket contain multiple rows and corrupt MAX_BY/MIN_BY.
     by_parent: dict[str, list[GrainGroup]] = defaultdict(list)
     for gg in grain_groups:
         by_parent[gg.parent_node.name].append(gg)
@@ -584,6 +586,12 @@ def merge_grain_groups(grain_groups: list[GrainGroup]) -> list[GrainGroup]:
         if len(parent_groups) == 1:
             # Only one group for this parent - no merge needed
             merged_groups.append(parent_groups[0])
+        elif any(group.reaggregate_component_dimensions for group in parent_groups):
+            # Keep semi-additive groups isolated. Merging a protected-dimension
+            # group with another grain can add rows inside the protected bucket,
+            # which makes MAX_BY/MIN_BY pick one lower-grain row instead of the
+            # already-aggregated value at that protected grain.
+            merged_groups.extend(parent_groups)
         else:
             # Multiple groups for same parent - merge them
             merged = _merge_parent_grain_groups(parent_groups)
