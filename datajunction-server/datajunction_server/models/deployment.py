@@ -1127,6 +1127,58 @@ class MetricSpec(NodeSpec):
             for required_dim in (self.required_dimensions or [])
         ]
 
+    @property
+    def canonical_required_dimensions(self) -> list[str]:
+        """
+        Required dimensions rewritten so the two ways of naming the same column
+        compare equal.
+
+        A column on one of the metric's own parents can be authored either way,
+        and only the bare form is ever exported, so those fold down. Anything
+        else is left alone. For a metric reading from ``ns.orders_fact``::
+
+            ns.orders_fact.currency_code  ->  currency_code   (a parent's column)
+            currency_code                 ->  currency_code   (already bare)
+            ns.date_dim.dateint           ->  ns.date_dim.dateint  (not a parent)
+
+        Parents come from the spec's own query, so this needs no session.
+        """
+        from datajunction_server.internal.deployment.utils import (
+            extract_upstream_candidates,
+        )
+
+        required_dims = self.rendered_required_dimensions
+        if not any(SEPARATOR in required_dim for required_dim in required_dims):
+            return required_dims
+
+        parents = (
+            extract_upstream_candidates(self.query_ast, is_metric=True)
+            if self.query_ast is not None
+            else set()
+        )
+        return [
+            required_dim.rsplit(SEPARATOR, 1)[1]
+            if SEPARATOR in required_dim
+            and required_dim.rsplit(SEPARATOR, 1)[0] in parents
+            else required_dim
+            for required_dim in required_dims
+        ]
+
+    def diff(self, other: "NodeSpec") -> list[str]:
+        """
+        Diffs `required_dimensions` on its canonical form, so the two spellings
+        of a parent column don't read as a change and inflate the change tier.
+        """
+        changed = super().diff(other)
+        if (
+            "required_dimensions" in changed
+            and isinstance(other, MetricSpec)
+            and set(self.canonical_required_dimensions)
+            == set(other.canonical_required_dimensions)
+        ):
+            changed.remove("required_dimensions")
+        return changed
+
     def model_dump(self, **kwargs):  # pragma: no cover
         base = super().model_dump(**kwargs)
         base["unit"] = self.unit
@@ -1159,11 +1211,11 @@ class MetricSpec(NodeSpec):
             super().__eq__(other)
             and self.query_ast.compare(other.query_ast)
             and normalize_sequence(
-                self.rendered_required_dimensions,
+                self.canonical_required_dimensions,
                 preserve_order=False,
             )
             == normalize_sequence(
-                other.rendered_required_dimensions,
+                other.canonical_required_dimensions,
                 preserve_order=False,
             )
             and eq_or_fallback(self.direction, other.direction, MetricDirection.NEUTRAL)
@@ -1341,6 +1393,27 @@ class CubeSpec(NodeSpec):
             rendered.append(rendered_col)
         return rendered
 
+    @property
+    def matched_rendered_columns(self) -> list["ColumnSpec"]:
+        """
+        The ``columns:`` entries naming a column this cube has, keyed the same way
+        the deploy keys them: `Column.cube_element_name`, so a metric or dimension
+        as written, with its `[role]` suffix. Anything else is never persisted, so
+        comparing it would report a change on every deploy.
+        """
+        cube_columns = set(self.rendered_metrics) | set(self.rendered_dimensions)
+        return [col for col in self.rendered_columns if col.name in cube_columns]
+
+    @property
+    def unmatched_column_names(self) -> list[str]:
+        """
+        Names in ``columns:`` that are not columns of this cube, and so are ignored.
+        """
+        cube_columns = set(self.rendered_metrics) | set(self.rendered_dimensions)
+        return [
+            col.name for col in self.rendered_columns if col.name not in cube_columns
+        ]
+
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, CubeSpec):
             return False
@@ -1372,8 +1445,8 @@ class CubeSpec(NodeSpec):
         )
 
         return normalize_cube_columns(
-            self.rendered_columns,
-        ) == normalize_cube_columns(other.rendered_columns)
+            self.matched_rendered_columns,
+        ) == normalize_cube_columns(other.matched_rendered_columns)
 
 
 NodeUnion = Annotated[

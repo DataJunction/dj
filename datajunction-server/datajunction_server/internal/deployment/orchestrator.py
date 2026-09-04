@@ -134,11 +134,18 @@ from datajunction_server.sql.dag import get_metric_parents_map
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import (
     SEPARATOR,
+    Version,
     get_namespace_from_name,
     get_settings,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _version_key(version: str) -> tuple[int, int]:
+    """A version as a sortable pair, so v10.0 outranks v9.0."""
+    parsed = Version.parse(version)
+    return parsed.major, parsed.minor
 
 
 def _diff_column_metadata(
@@ -378,6 +385,28 @@ class DeploymentOrchestrator:
                 return author
         return self.context.current_user.username
 
+    def _warn_about_unmatched_cube_columns(self) -> None:
+        """
+        Warn about `columns:` entries naming no column of the cube. The comparison
+        ignores them; without this the partition the author declared would just
+        silently do nothing.
+        """
+        for spec in self.deployment_spec.nodes:
+            if not isinstance(spec, CubeSpec):
+                continue
+            for unmatched in spec.unmatched_column_names:
+                self.warnings.append(
+                    DJError(
+                        code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                        message=(
+                            f"Cube '{spec.name}' declares column '{unmatched}', "
+                            f"which is not one of its columns, so the settings on "
+                            f"it have no effect. A cube's columns are its metrics "
+                            f"and dimensions, named exactly as they appear there."
+                        ),
+                    ),
+                )
+
     async def execute(self) -> DeploymentExecuteResult:
         """
         Validate and deploy all resources and nodes into the specified namespace.
@@ -402,6 +431,8 @@ class DeploymentOrchestrator:
             len(self.deployment_spec.nodes),
             self.deployment_spec.namespace,
         )
+
+        self._warn_about_unmatched_cube_columns()
 
         result = DeploymentExecuteResult(results=[], downstream_impacts=[])
         try:
@@ -3687,6 +3718,13 @@ class DeploymentOrchestrator:
         """Create cube nodes and revisions from validation results without re-validation"""
         nodes, revisions = [], []
         deployment_results = []
+        await self._lock_versions(
+            [
+                node
+                for result in validation_results
+                if (node := self.registry.nodes.get(result.spec.rendered_name))
+            ],
+        )
 
         for result in validation_results:
             cube_spec = cast(CubeSpec, result.spec)
@@ -4733,6 +4771,13 @@ class DeploymentOrchestrator:
     ) -> tuple[list[Node], list[NodeRevision], list[DeploymentResult]]:
         nodes, revisions = [], []
         deployment_results = []
+        await self._lock_versions(
+            [
+                node
+                for result in validation_results
+                if (node := self.registry.nodes.get(result.spec.rendered_name))
+            ],
+        )
         # Use no_autoflush to prevent premature flushing mid-loop (columns without
         # node_revision_id, nodes without IDs). The caller (bulk_deploy_nodes_in_level)
         # does a single session.flush() after collecting all objects.
@@ -4934,17 +4979,13 @@ class DeploymentOrchestrator:
             existing_node_spec,
             CubeSpec,
         ):
-            incoming_partitions = {
-                col.name: col.partition
-                for col in result.spec.rendered_columns
-                if col.partition
-            }
-            existing_partitions = {
-                col.name: col.partition
-                for col in existing_node_spec.rendered_columns
-                if col.partition
-            }
-            if incoming_partitions != existing_partitions:
+            from datajunction_server.semantic_fingerprints.normalization import (
+                normalize_cube_columns,
+            )
+
+            if normalize_cube_columns(
+                result.spec.matched_rendered_columns,
+            ) != normalize_cube_columns(existing_node_spec.matched_rendered_columns):
                 changed_fields = changed_fields + ["columns"]
 
         if changed_fields:
@@ -4980,6 +5021,50 @@ class DeploymentOrchestrator:
         unfloored, since there a NONE tier can write nothing at all.
         """
         return bump_version(current_version, max(change_tier, ChangeTier.MINOR))
+
+    async def _lock_versions(self, existing: list[Node]) -> None:
+        """Refresh each node's `current_version` from committed state, under a lock.
+
+        A deployment plans against a snapshot, so one that commits in between can
+        take the versions this one planned and the revision insert then fails on
+        `uq_noderevision_version`. Holding the row locks means a concurrent writer
+        has either already committed, or waits behind this deployment.
+
+        We take the highest of `current_version` and the node's revisions, so a
+        node whose `current_version` lags its revisions still earns one of its own.
+        `_version_key` does the comparing: as strings, v10.0 sorts below v9.0.
+        """
+        node_ids = [node.id for node in existing]
+        if not node_ids or self.dry_run:
+            return
+        # no_autoflush: the caller is mid-build on revisions whose columns have no
+        # node_revision_id yet, and a query would otherwise flush them.
+        with self.session.no_autoflush:
+            highest = dict(
+                (
+                    await self.session.execute(
+                        select(Node.id, Node.current_version)
+                        .where(Node.id.in_(node_ids))
+                        .order_by(Node.id)  # a stable lock order between deploys
+                        .with_for_update(),
+                    )
+                ).all(),
+            )
+            revisions = (
+                await self.session.execute(
+                    select(NodeRevision.node_id, NodeRevision.version).where(
+                        NodeRevision.node_id.in_(node_ids),
+                    ),
+                )
+            ).all()
+        for node_id, version in revisions:
+            # A node deleted between planning and the lock has no row to raise,
+            # though its revisions can still come back from the query above.
+            locked = highest.get(node_id)
+            if locked is not None and _version_key(version) > _version_key(locked):
+                highest[node_id] = version
+        for node in existing:
+            node.current_version = highest.get(node.id, node.current_version)
 
     def _create_or_update_node(
         self,

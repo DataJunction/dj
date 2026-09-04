@@ -178,7 +178,7 @@ def normalize_field(
         )
     if field == "columns":
         if isinstance(spec, CubeSpec):
-            return normalize_cube_columns(spec.rendered_columns)
+            return normalize_cube_columns(spec.matched_rendered_columns)
         return normalize_columns(
             resolved_columns
             if isinstance(spec, SourceSpec) and resolved_columns is not None
