@@ -612,14 +612,26 @@ class Node(Base):
                 link.to_spec()
                 for link in self.current.dimension_links  # type: ignore
             ]
-            ref_link_specs = [
-                DimensionReferenceLinkSpec(
-                    node_column=col.name,
-                    dimension=f"{col.dimension.name}{SEPARATOR}{col.dimension_column}",
+            ref_link_specs = []
+            for col in sorted_columns:
+                if not (col.dimension_id and col.dimension_column):
+                    continue
+                # `col.dimension_column` carries an optional "[role]" suffix
+                # (set by _create_or_update_dimension_link); split it back out
+                # into `role` so this round-trips to the same spec the role
+                # was authored with, rather than a bare-role, bracket-suffixed
+                # one that never compares equal to it.
+                dimension_column = col.dimension_column
+                role = None
+                if dimension_column.endswith("]") and "[" in dimension_column:
+                    dimension_column, role = dimension_column[:-1].split("[", 1)
+                ref_link_specs.append(
+                    DimensionReferenceLinkSpec(
+                        node_column=col.name,
+                        dimension=f"{col.dimension.name}{SEPARATOR}{dimension_column}",
+                        role=role,
+                    ),
                 )
-                for col in sorted_columns
-                if col.dimension_id and col.dimension_column
-            ]
             col_specs = [col.to_spec() for col in sorted_columns]
             extra_kwargs.update(
                 primary_key=[
