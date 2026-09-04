@@ -563,3 +563,25 @@ async def build_deployment_fingerprints(
         submitted_names | additional_target_names,
     )
     return current, proposed_hashes
+
+
+async def build_current_fingerprint_graph(
+    session: AsyncSession,
+    specs: Iterable[NodeSpec],
+    *,
+    version: int = LATEST_SEMANTIC_FINGERPRINT_VERSION,
+) -> SemanticFingerprintGraph:
+    """Build the current semantic graph for a node set."""
+    specs_by_name = {spec.rendered_name: spec for spec in specs}
+    parent_cache: ParentCandidateCache = {}
+    external = await _load_external_specs(
+        session,
+        specs_by_name.values(),
+        ignored_parse_errors=set(),
+        parent_cache=parent_cache,
+    )
+    return SemanticFingerprintGraph(
+        {**external, **specs_by_name},
+        parent_cache=parent_cache,
+        version=version,
+    )
