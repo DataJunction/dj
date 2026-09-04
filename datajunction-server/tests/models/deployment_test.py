@@ -1853,6 +1853,38 @@ def test_semantic_fingerprint_renders_prefixes_and_normalizes_sql():
     assert fingerprint(explicit) != fingerprint(implicit)
 
 
+def test_metric_spec_equality_compares_rendered_reaggregate():
+    """Parameterized reaggregate dimensions should not cause perpetual deploys."""
+    parameterized = MetricSpec(
+        namespace="analytics",
+        name="daily_balance",
+        query="SELECT SUM(balance) FROM analytics.daily_balances",
+        reaggregate={
+            "rules": [
+                {
+                    "dimension": "${prefix}date.date_id[order]",
+                    "fn": "last_value",
+                },
+            ],
+        },
+    )
+    rendered = MetricSpec(
+        namespace="analytics",
+        name="daily_balance",
+        query="SELECT SUM(balance) FROM analytics.daily_balances",
+        reaggregate={
+            "rules": [
+                {
+                    "dimension": "analytics.date.date_id[order]",
+                    "fn": "last_value",
+                },
+            ],
+        },
+    )
+
+    assert parameterized == rendered
+
+
 def test_semantic_diff_and_fingerprint_share_change_rules():
     original = TransformSpec(name="node", query="SELECT id AS value FROM source")
     formatted = TransformSpec(

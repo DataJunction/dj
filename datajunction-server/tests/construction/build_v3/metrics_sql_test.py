@@ -123,6 +123,27 @@ class TestMetricsSQLBasic:
         assert response.status_code in (200, 201), response.json()
 
     @staticmethod
+    async def _create_scaled_daily_balance_metric(client_with_build_v3):
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.scaled_daily_balance",
+                "description": "Scaled semi-additive balance measured by order date",
+                "query": "SELECT SUM(line_total) / 100 FROM v3.order_details",
+                "mode": "published",
+                "reaggregate": {
+                    "rules": [
+                        {
+                            "dimension": "v3.date.date_id[order]",
+                            "fn": "last_value",
+                        },
+                    ],
+                },
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+    @staticmethod
     async def _create_first_daily_balance_metric(client_with_build_v3):
         response = await client_with_build_v3.post(
             "/nodes/metric/",
@@ -296,6 +317,62 @@ class TestMetricsSQLBasic:
                 "semantic_type": "metric",
             },
         ]
+
+    @pytest.mark.asyncio
+    async def test_reaggregate_with_limited_metric_keeps_protected_grain(
+        self,
+        client_with_build_v3,
+    ):
+        """Merged metric queries must not add limited grain to the collapse CTE."""
+        await self._create_daily_balance_metric(client_with_build_v3)
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.daily_balance", "v3.order_count"],
+                "dimensions": ["v3.product.category"],
+                "use_materialized": "false",
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        sql = response.json()["sql"]
+        normalized_sql = " ".join(sql.split())
+        assert "order_details_0 AS" in sql
+        assert "GROUP BY t2.category, t1.order_date" in normalized_sql
+        assert "GROUP BY t2.category, t1.order_date, t1.order_id" not in normalized_sql
+        assert "order_details_1_agg AS" in sql
+        assert "COUNT( DISTINCT order_id)" in normalized_sql
+        assert "MAX_BY(" in sql
+        assert "order_details_0.date_id_order" in sql
+
+    @pytest.mark.asyncio
+    async def test_reaggregate_preserves_single_component_combiner_wrapper(
+        self,
+        client_with_build_v3,
+    ):
+        """Semi-additive collapse preserves arithmetic around the aggregate."""
+        await self._create_scaled_daily_balance_metric(client_with_build_v3)
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.scaled_daily_balance"],
+                "dimensions": ["v3.product.category"],
+                "use_materialized": "false",
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        sql = response.json()["sql"]
+        normalized_sql = " ".join(sql.split())
+        assert "MAX_BY(" in sql
+        assert "order_details_0.date_id_order" in sql
+        assert "/ 100 AS scaled_daily_balance" in normalized_sql
+        assert (
+            "MAX_BY(order_details_0.line_total_sum_e1f61696, order_details_0.date_id_order) / 100"
+            in normalized_sql
+        )
 
     @pytest.mark.asyncio
     async def test_reaggregate_druid_uses_latest_by_for_last_value(

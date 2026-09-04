@@ -20,6 +20,7 @@ from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.reaggregate import (
     ReaggregateSpec,
     dimension_reaggregate_rules,
+    is_supported_dimension_reaggregate_function,
     parse_reaggregate_spec,
 )
 from datajunction_server.naming import amenable_col_names
@@ -1187,6 +1188,12 @@ class MetricComponentExtractor:
         if len(dimension_rules) != 1:
             self._raise_unsupported_reaggregate_shape(
                 "dimension-specific reaggregation requires exactly one rule",
+            )
+
+        if not is_supported_dimension_reaggregate_function(dimension_rules[0].fn):
+            self._raise_unsupported_reaggregate_shape(
+                f"unsupported dimension reaggregation function "
+                f"`{dimension_rules[0].fn.value}`",
             )
 
         if len(components) != 1:

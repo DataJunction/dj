@@ -1043,7 +1043,7 @@ async def derive_frozen_measures_bulk(
 
 def _aggregation_rule_identity(rule: DecomposeAggregationRule) -> dict[str, Any]:
     """Return the stable JSON shape used for frozen-measure rule comparison."""
-    return rule.model_dump(mode="json", exclude_none=True)
+    return rule.model_dump(mode="json", exclude_none=True, exclude={"reaggregate"})
 
 
 def _raise_if_frozen_measure_conflicts(

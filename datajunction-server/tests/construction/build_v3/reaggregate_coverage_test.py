@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from datajunction_server.construction.build_v3.cube_matcher import (
+    _cube_dimension_covers_reaggregate_dimension,
     _reaggregate_dimensions_for_cube_metrics,
     _reaggregate_requirements_for_cube_metrics,
     _reaggregate_requirements_for_decomposed_metrics,
@@ -308,6 +309,22 @@ def test_cube_reaggregate_requirements_skip_satisfied_dimensions_and_dedupe():
         ["balance"],
         ["v3.product.category"],
     ) == ["v3.date.date_id[order]"]
+
+
+def test_cube_dimension_coverage_accepts_bare_protected_parent_column():
+    """Cube coverage accepts bare parent-column protected dimensions."""
+    assert _cube_dimension_covers_reaggregate_dimension(
+        "order_date",
+        "v3.order_details.order_date",
+    )
+    assert not _cube_dimension_covers_reaggregate_dimension(
+        "order_date",
+        "v3.order_details.ship_date",
+    )
+    assert not _cube_dimension_covers_reaggregate_dimension(
+        "order_date",
+        "v3.order_details.order_date[ship]",
+    )
 
 
 def test_decomposed_reaggregate_requirements_dedupe_duplicate_components():

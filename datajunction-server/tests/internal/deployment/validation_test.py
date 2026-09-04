@@ -853,6 +853,38 @@ class TestRequiredDimensions:
         assert "test.dim.nonexistent_col" in err.debug["invalid_reaggregate_dimensions"]
 
     @pytest.mark.asyncio
+    async def test_invalid_reaggregate_function(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """unsupported dimension-specific reaggregate functions are invalid."""
+        context = self._make_context(session, parent_node)
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT SUM(value) FROM test.parent",
+            reaggregate={
+                "rules": [
+                    {
+                        "dimension": "id",
+                        "fn": "sum",
+                    },
+                ],
+            },
+        )
+        validator = NodeSpecBulkValidator(context)
+        validator._all_dim_nodes = dict(context.dependency_nodes)
+        result = validator.validate_query_node(spec)
+
+        assert result.status == NodeStatus.INVALID
+        err = next(
+            e
+            for e in result.errors
+            if e.code == ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION
+        )
+        assert err.debug == {"invalid_reaggregate_functions": ["sum"]}
+
+    @pytest.mark.asyncio
     async def test_no_required_dimensions_is_noop(
         self,
         session: AsyncSession,

@@ -29,6 +29,9 @@ from datajunction_server.models.deployment import (
 )
 from datajunction_server.models.dimensionlink import JoinType
 from datajunction_server.models.node import NodeStatus, NodeType
+from datajunction_server.models.reaggregate import (
+    unsupported_dimension_reaggregate_functions,
+)
 from datajunction_server.sql.dag import get_dimensions
 from datajunction_server.sql.parsing.ast import fast_parse_mode
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse_rule
@@ -797,6 +800,19 @@ class NodeSpecBulkValidator:
         reaggregate = getattr(spec, "rendered_reaggregate", None)
         if not reaggregate or not reaggregate.rules:
             return None
+
+        invalid_functions = unsupported_dimension_reaggregate_functions(reaggregate)
+        if invalid_functions:
+            return DJError(
+                code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                message=(
+                    "Node definition contains unsupported dimension "
+                    "reaggregate function(s)."
+                ),
+                debug={
+                    "invalid_reaggregate_functions": invalid_functions,
+                },
+            )
 
         dep_names = self.context.node_graph.get(spec.rendered_name, [])
         parent_columns = [

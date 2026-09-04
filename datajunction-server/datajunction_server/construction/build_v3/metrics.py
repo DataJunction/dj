@@ -91,6 +91,54 @@ def _build_reaggregate_collapse_expression(
     )
 
 
+def _references_component(expr: ast.Node, component_name: str) -> bool:
+    """
+    Return whether an expression references a decomposed metric component.
+    """
+    for col in expr.find_all(ast.Column):
+        if col.name and col.name.name == component_name:
+            return True
+    return False
+
+
+def _replace_reaggregate_merge_expression(
+    combiner_ast: ast.Expression,
+    component_name: str,
+    merge_function: str,
+    collapse_expr: ast.Expression,
+) -> ast.Expression:
+    """
+    Replace the component's merge aggregate in a combiner with a collapse expr.
+
+    Semi-additive metrics still need the full decomposed combiner expression.
+    For example, ``SUM(balance) / 100`` should become
+    ``MAX_BY(balance_sum, date_id) / 100``, not just ``MAX_BY(...)``.
+    """
+    expr_ast = combiner_ast
+    search_root = (
+        combiner_ast.child if isinstance(combiner_ast, ast.Alias) else expr_ast
+    )
+    target_function = merge_function.upper()
+
+    for func in list(search_root.find_all(ast.Function)):
+        if func.name.name.upper() == target_function and _references_component(
+            func, component_name
+        ):
+            if func is search_root:
+                if isinstance(combiner_ast, ast.Alias):  # pragma: no cover
+                    combiner_ast.child = collapse_expr
+                    return combiner_ast
+                return collapse_expr
+            if func.parent:
+                func.parent.replace(from_=func, to=collapse_expr)
+                return expr_ast
+
+    raise DJInvalidInputException(
+        "Unsupported semi-additive metric shape: could not find the component "
+        "merge expression in the metric combiner.",
+    )
+
+
 def _dimension_ref_base(ref: str) -> str:
     """Return a dimension ref without its role suffix."""
     return ref.split("[", 1)[0]
@@ -313,11 +361,22 @@ def _build_metric_aggregation(
                 gg.reaggregate_dimension_aliases[comp.name],
                 cte_alias,
             )
-            return _build_reaggregate_collapse_expression(
+            if not comp.merge:  # pragma: no cover
+                raise DJInvalidInputException(
+                    "Unsupported semi-additive metric shape: missing merge function.",
+                )
+            collapse_expr = _build_reaggregate_collapse_expression(
                 comp.rule.reaggregate.fn,
                 gg.dialect,
                 value_ref,
                 protected_dim_ref,
+            )
+            combiner_ast = parse(f"SELECT {decomposed.combiner}").select.projection[0]
+            return _replace_reaggregate_merge_expression(
+                cast(ast.Expression, combiner_ast),
+                comp.name,
+                comp.merge,
+                collapse_expr,
             )
 
         if orig_agg == Aggregability.LIMITED:
@@ -524,6 +583,41 @@ def collect_and_build_ctes(
             cte_aliases.append(alias)
 
     return all_cte_asts, cte_aliases
+
+
+def _validate_reaggregate_base_group_join_safety(
+    grain_groups: list[GrainGroupSQL],
+) -> None:
+    """
+    Fail closed for final joins that can duplicate non-idempotent aggregates.
+
+    Semi-additive groups retain the protected dimension as private grain, so a
+    final join by only the requested output dimensions can fan out other CTEs.
+    LIMITED groups that were pre-aggregated to one row per output dimension use
+    MAX passthrough in the final select and are safe. Reaggregate groups are
+    idempotent under duplicate protected-dimension rows for their collapse.
+    Other separate groups must be rejected unless they were merged into the
+    protected grain earlier.
+    """
+    if len(grain_groups) <= 1 or not any(
+        gg.reaggregate_dimension_aliases for gg in grain_groups
+    ):
+        return
+
+    unsafe_groups = [
+        gg.parent_name
+        for gg in grain_groups
+        if not gg.reaggregate_dimension_aliases
+        and not (gg.aggregability == Aggregability.LIMITED and gg.is_pre_aggregated)
+    ]
+    if not unsafe_groups:
+        return
+
+    raise DJInvalidInputException(
+        "Semi-additive live SQL with multiple base grain groups is not "
+        "supported when another group can be fanned out before final "
+        f"aggregation. Unsafe parents: {sorted(set(unsafe_groups))}.",
+    )
 
 
 def get_dimension_types(
@@ -1876,15 +1970,6 @@ def generate_metrics_sql(
     # Window grain groups were created by build_window_metric_grain_groups() in measures phase
     base_grain_groups = [gg for gg in grain_groups if not gg.is_window_grain_group]
     window_grain_groups = [gg for gg in grain_groups if gg.is_window_grain_group]
-    if len(base_grain_groups) > 1 and any(
-        gg.reaggregate_dimension_aliases for gg in base_grain_groups
-    ):
-        parent_names = sorted({gg.parent_name for gg in base_grain_groups})
-        raise DJInvalidInputException(
-            "Semi-additive live SQL with multiple base grain groups is not "
-            "supported yet because the protected dimension can fan out other "
-            f"grain groups before final aggregation. Parents: {parent_names}.",
-        )
 
     # Pre-detect whether there will be a base_metrics CTE (any window function metrics).
     # When a base_metrics CTE is built, it uses GROUP BY + COUNT(DISTINCT ...) which
@@ -1910,6 +1995,7 @@ def generate_metrics_sql(
         base_grain_groups,
         skip_pre_agg=will_have_base_metrics_cte,
     )
+    _validate_reaggregate_base_group_join_safety(base_grain_groups)
 
     # Build dimension info and projection
     # Filter out filter-only dimensions (they're needed for WHERE but not output)

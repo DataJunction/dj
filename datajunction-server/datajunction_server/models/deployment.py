@@ -1244,7 +1244,7 @@ class MetricSpec(NodeSpec):
                 other.canonical_required_dimensions,
                 preserve_order=False,
             )
-            and self.reaggregate == other.reaggregate
+            and self.rendered_reaggregate == other.rendered_reaggregate
             and eq_or_fallback(self.direction, other.direction, MetricDirection.NEUTRAL)
             and self._normalized_unit() == other._normalized_unit()
             and self.significant_digits == other.significant_digits

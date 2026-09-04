@@ -65,6 +65,60 @@ _FILTER_COVERAGE_UNKNOWN = object()
 ReaggregateRequirement = tuple[str, str, ReaggregationFunction]
 
 
+def _split_dimension_ref(ref: str) -> tuple[str, str | None]:
+    """
+    Return a dimension ref without role suffix and the role suffix, if present.
+    """
+    if "[" not in ref:
+        return ref, None
+    base, role = ref.rsplit("[", 1)
+    return base, role.rstrip("]")
+
+
+def _cube_dimension_covers_reaggregate_dimension(
+    protected_dimension: str,
+    cube_dimension: str,
+) -> bool:
+    """
+    Return whether a cube dimension materializes a protected dimension.
+    """
+    if _reaggregate_dimension_requested(protected_dimension, [cube_dimension]):
+        return True
+
+    protected_base, protected_role = _split_dimension_ref(protected_dimension)
+    cube_base, cube_role = _split_dimension_ref(cube_dimension)
+    if protected_role != cube_role:
+        return False
+
+    # Deployment validation allows a metric to author the protected dimension as
+    # a bare parent column (the same form required_dimensions accepts). Cubes
+    # expose dimensions as fully-qualified element names, so compare the short
+    # column name for that narrow compatibility case.
+    if "." not in protected_base:
+        return protected_base == cube_base.rsplit(".", 1)[-1]
+    return False
+
+
+def _missing_reaggregate_requirements(
+    requirements: list[ReaggregateRequirement],
+    cube_dims: set[str],
+) -> list[ReaggregateRequirement]:
+    """
+    Reaggregate requirements not covered by a cube's materialized dimensions.
+    """
+    return [
+        requirement
+        for requirement in requirements
+        if not any(
+            _cube_dimension_covers_reaggregate_dimension(
+                requirement[1],
+                cube_dim,
+            )
+            for cube_dim in cube_dims
+        )
+    ]
+
+
 def _reaggregate_requirements_for_cube_metrics(
     cube: NodeRevision,
     metrics: list[str],
@@ -233,9 +287,7 @@ def validate_cube_covers_reaggregate_dimensions(
             requirements.append(requirement)
 
     cube_dims = set(cube.cube_dimensions())
-    missing_requirements = [
-        requirement for requirement in requirements if requirement[1] not in cube_dims
-    ]
+    missing_requirements = _missing_reaggregate_requirements(requirements, cube_dims)
     if not missing_requirements:
         return
 
@@ -414,8 +466,6 @@ async def find_matching_cube(
         if candidate_cubes
         else []
     )
-    reaggregate_dims = {dimension for _, dimension, _ in reaggregate_requirements}
-
     # Find the best matching cube (smallest grain that covers all dimensions)
     best_match: NodeRevision | None = None
     best_grain_size = float("inf")
@@ -439,22 +489,30 @@ async def find_matching_cube(
         # Druid SQL referencing a missing column).
         cube_dims = set(cube_rev.cube_dimensions())
 
-        required_dims_for_cube = (
-            required_dims
-            | set(
-                _reaggregate_dimensions_for_cube_metrics(
-                    cube_rev,
-                    metrics,
-                    dimensions,
-                ),
-            )
-            | reaggregate_dims
+        missing_required_dims = required_dims - cube_dims
+        cube_reaggregate_requirements = _reaggregate_requirements_for_cube_metrics(
+            cube_rev,
+            metrics,
+            dimensions,
         )
-
-        if not required_dims_for_cube.issubset(cube_dims):
+        for requirement in reaggregate_requirements:
+            if requirement not in cube_reaggregate_requirements:
+                cube_reaggregate_requirements.append(requirement)
+        missing_reaggregate_requirements = _missing_reaggregate_requirements(
+            cube_reaggregate_requirements,
+            cube_dims,
+        )
+        if missing_required_dims:
             logger.debug(
                 f"[BuildV3] Cube {cube_rev.name} dims {cube_dims} "
-                f"don't cover required {required_dims_for_cube}",
+                f"don't cover required {required_dims}",
+            )
+            continue
+        if missing_reaggregate_requirements:
+            logger.debug(
+                f"[BuildV3] Cube {cube_rev.name} dims {cube_dims} "
+                f"don't cover reaggregate requirements "
+                f"{_format_reaggregate_requirements(missing_reaggregate_requirements)}",
             )
             continue
 
