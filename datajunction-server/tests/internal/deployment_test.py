@@ -40,6 +40,7 @@ from datajunction_server.models.node import (
     NodeType,
 )
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.sql.parsing.types import IntegerType, StringType
 
 
@@ -94,6 +95,13 @@ def test_extract_node_graph(basic_nodes):
         "example.transform_node": ["catalog.facts.clicks"],
         "example.metric_node": ["example.transform_node"],
     }
+
+
+def test_extract_node_graph_rejects_unparseable_queries():
+    invalid = TransformSpec(name="lunch.mystery_meat", query="SELECT (")
+
+    with pytest.raises(DJParseException):
+        extract_node_graph([invalid])
 
 
 def test_graph_complex():

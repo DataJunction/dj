@@ -54,6 +54,7 @@ from datajunction_server.internal.deployment.dimension_reachability import (
 from datajunction_server.internal.deployment.utils import (
     DeploymentContext,
     classify_parents,
+    extract_dimension_refs_from_filters as _extract_dimension_refs_from_filters,
     extract_node_graph,
     topological_levels,
 )
@@ -145,36 +146,6 @@ def _version_key(version: str) -> tuple[int, int]:
     """A version as a sortable pair, so v10.0 outranks v9.0."""
     parsed = Version.parse(version)
     return parsed.major, parsed.minor
-
-
-def _extract_dimension_refs_from_filters(
-    filters: list[str],
-) -> list[tuple[str, str]]:
-    """Extract (node_name, column_name) pairs from filter expressions.
-
-    Parses all filters as a single WHERE clause (joined with AND) and
-    collects namespaced column references.  For example,
-    ``ns.hard_hat.state = 'CA'`` yields ``('ns.hard_hat', 'state')``.
-
-    Returns a list of (node_name, column_name) tuples.  Dimension node
-    names are identified by having at least one SEPARATOR in the namespace.
-    """
-    from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
-
-    if not filters:
-        return []
-    combined = " AND ".join(f"({f})" for f in filters)
-    try:
-        tree = parse(f"SELECT 1 WHERE {combined}")
-    except Exception:
-        return []  # Unparseable — skip, will be caught at query time
-    refs: list[tuple[str, str]] = []
-    for col in tree.find_all(ast.Column):
-        if col.namespace and len(col.namespace) >= 1:
-            node_name = SEPARATOR.join(n.name for n in col.namespace)
-            if SEPARATOR in node_name:  # pragma: no branch
-                refs.append((node_name, col.name.name))
-    return refs
 
 
 def _diff_column_metadata(
