@@ -612,6 +612,12 @@ class Node(Base):
                 link.to_spec()
                 for link in self.current.dimension_links  # type: ignore
             ]
+            # Local import: construction.build_v3.dimensions imports Node from
+            # this module, so this can't be a module-level import.
+            from datajunction_server.construction.build_v3.dimensions import (
+                parse_dimension_ref,
+            )
+
             ref_link_specs = []
             for col in sorted_columns:
                 if not (col.dimension_id and col.dimension_column):
@@ -621,15 +627,14 @@ class Node(Base):
                 # into `role` so this round-trips to the same spec the role
                 # was authored with, rather than a bare-role, bracket-suffixed
                 # one that never compares equal to it.
-                dimension_column = col.dimension_column
-                role = None
-                if dimension_column.endswith("]") and "[" in dimension_column:
-                    dimension_column, role = dimension_column[:-1].split("[", 1)
+                ref = parse_dimension_ref(
+                    f"{col.dimension.name}{SEPARATOR}{col.dimension_column}",
+                )
                 ref_link_specs.append(
                     DimensionReferenceLinkSpec(
                         node_column=col.name,
-                        dimension=f"{col.dimension.name}{SEPARATOR}{dimension_column}",
-                        role=role,
+                        dimension=f"{ref.node_name}{SEPARATOR}{ref.column_name}",
+                        role=ref.role,
                     ),
                 )
             col_specs = [col.to_spec() for col in sorted_columns]
