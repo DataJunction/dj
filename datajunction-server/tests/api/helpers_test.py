@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 
 from datajunction_server.api import helpers
 from datajunction_server.api.helpers import (
+    _resolve_required_dimensions,
     dedupe_cube_elements,
     find_required_dimensions,
 )
@@ -302,3 +303,21 @@ async def test_find_required_dimensions_full_path_match(
 
     assert len(matched_cols) == 1
     assert matched_cols[0].name == "month"
+
+
+def test_resolve_required_dimensions_short_name_ambiguous_across_parents():
+    """
+    A short name that matches a column on more than one direct parent must be
+    flagged invalid rather than silently resolved to one of them.
+    """
+    orders_currency = Column(name="currency_code")
+    refunds_currency = Column(name="currency_code")
+
+    invalid_dims, matched_cols = _resolve_required_dimensions(
+        required_dimensions=["currency_code"],
+        parent_columns=[orders_currency, refunds_currency],
+        dim_nodes={},
+    )
+
+    assert invalid_dims == {"currency_code"}
+    assert matched_cols == []
