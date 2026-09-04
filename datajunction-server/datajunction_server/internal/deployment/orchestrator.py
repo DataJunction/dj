@@ -1984,10 +1984,13 @@ class DeploymentOrchestrator:
 
         # Load all dependencies once upfront (not per-level).
         # The registry is checked first, so only external deps hit the DB.
+        # Uses ordering_graph, not plan.node_graph, so a required-dimension node
+        # is preloaded here too -- otherwise apply_metric_spec's lookup misses it
+        # and silently resolves required_dimensions to empty.
         t = time.perf_counter()
         is_copy = all(s._skip_validation for s in plan.to_deploy)
         dependency_nodes = await self.get_dependencies(
-            plan.node_graph,
+            ordering_graph,
             skip_type_reparsing=is_copy,
         )
         timer.record(
