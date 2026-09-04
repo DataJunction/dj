@@ -21,6 +21,7 @@ from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import fast_parse_mode
 from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.utils import SEPARATOR
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,26 @@ def extract_upstream_candidates(
                     tables.add(parent_path)
 
     return tables
+
+
+def extract_dimension_refs_from_filters(
+    filters: list[str],
+) -> list[tuple[str, str]]:
+    """Extract namespaced dimension columns referenced by filter expressions."""
+    if not filters:
+        return []
+    combined = " AND ".join(f"({filter_})" for filter_ in filters)
+    try:
+        tree = parse(f"SELECT 1 WHERE {combined}")
+    except DJParseException:
+        return []
+    refs = []
+    for column in tree.find_all(ast.Column):
+        if column.namespace:
+            node_name = SEPARATOR.join(name.name for name in column.namespace)
+            if SEPARATOR in node_name:
+                refs.append((node_name, column.name.name))
+    return refs
 
 
 def classify_parents(
