@@ -27,6 +27,7 @@ from examples import COLUMN_MAPPINGS, EXAMPLES, SERVICE_SETUP
 from helpers.template_app import (
     configure_database_env,
     create_schema,
+    mark_template_populated,
     template_app_client,
 )
 
@@ -137,6 +138,7 @@ async def main():
         await load_examples_in_client(test_client, examples_to_load)
         print("Examples loaded")
 
+    mark_template_populated(template_db_url)
     print("Template database populated successfully!")
 
 

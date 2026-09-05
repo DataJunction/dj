@@ -20,8 +20,10 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import timedelta
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
+from psycopg import connect
 
 TEST_SECRET = "a-fake-secretkey"
 TEST_ISSUER = "http://localhost:8000/"
@@ -39,6 +41,36 @@ def configure_database_env(db_url: str) -> str:
     os.environ["WRITER_DB__URI"] = db_url
     os.environ["READER_DB__URI"] = reader_db_url
     return reader_db_url
+
+
+def mark_template_populated(template_db_url: str) -> None:
+    """
+    Record that the template at `template_db_url` finished building, via a
+    marker row on the base `dj` database, not the template itself.
+
+    `clone_database_from_template` calls `pg_terminate_backend` against
+    connections to the template before cloning it, so a reader connected
+    straight to the template risks getting killed as collateral damage.
+    """
+    template_name = urlparse(template_db_url).path.lstrip("/")
+    url = urlparse(template_db_url)
+    with connect(
+        host=url.hostname,
+        port=url.port,
+        dbname="dj",
+        user=url.username,
+        password=url.password,
+        autocommit=True,
+    ) as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS test_template_status ("
+            "template_name text PRIMARY KEY, populated_at timestamptz NOT NULL DEFAULT now())",
+        )
+        conn.execute(
+            "INSERT INTO test_template_status (template_name) VALUES (%s) "
+            "ON CONFLICT (template_name) DO UPDATE SET populated_at = now()",
+            (template_name,),
+        )
 
 
 def build_settings(db_url: str, reader_db_url: str) -> Any:
