@@ -1775,6 +1775,87 @@ class TestDeployments:
         )
 
     @pytest.mark.asyncio
+    async def test_redeploy_is_noop_for_role_qualified_reference_link(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        A reference link with a role must redeploy as a noop, since nothing
+        about it changed. `Column.dimension_column` stores the role baked
+        into a "[role]" suffix, and to_spec() must split that back out into
+        the link's own `role` field rather than leaving it in the exported
+        `dimension` string -- otherwise the exported spec never compares
+        equal to the one it was authored from.
+        """
+        namespace = "reference_link_role_noop"
+        dim_spec = DimensionSpec(
+            name="default.hard_hat",
+            description="Hard hat dimension",
+            query="""
+            SELECT
+                hard_hat_id,
+                state
+            FROM ${prefix}default.hard_hats
+            """,
+            primary_key=["hard_hat_id"],
+            owners=["dj"],
+            dimension_links=[
+                DimensionReferenceLinkSpec(
+                    node_column="state",
+                    dimension="${prefix}default.us_state.state_short",
+                    role="home_state",
+                ),
+            ],
+        )
+        nodes_list = [dim_spec, default_hard_hats, default_us_states, default_us_state]
+        link_name = (
+            "reference_link_role_noop.default.hard_hat -> "
+            "reference_link_role_noop.default.us_state[home_state]"
+        )
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success", data
+        assert [
+            result for result in data["results"] if result["name"] == link_name
+        ] == [
+            {
+                "deploy_type": "link",
+                "message": "Reference link successfully deployed",
+                "name": link_name,
+                "operation": "create",
+                "changed_fields": [],
+                "status": "success",
+            },
+        ]
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success", data
+        assert [
+            result
+            for result in data["results"]
+            if result["name"]
+            in (link_name, "reference_link_role_noop.default.hard_hat")
+        ] == [
+            {
+                "deploy_type": "node",
+                "message": "Unchanged",
+                "name": "reference_link_role_noop.default.hard_hat",
+                "operation": "noop",
+                "changed_fields": [],
+                "status": "skipped",
+            },
+        ]
+
+    @pytest.mark.asyncio
     async def test_required_dimension_from_linked_dimension_roundtrips(
         self,
         client,

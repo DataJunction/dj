@@ -64,7 +64,6 @@ from datajunction_server.errors import (
 from datajunction_server.models.base import labelize
 from datajunction_server.models.deployment import (
     CubeSpec,
-    DimensionReferenceLinkSpec,
     DimensionSpec,
     MaterializationSpec,
     MetricSpec,
@@ -613,10 +612,7 @@ class Node(Base):
                 for link in self.current.dimension_links  # type: ignore
             ]
             ref_link_specs = [
-                DimensionReferenceLinkSpec(
-                    node_column=col.name,
-                    dimension=f"{col.dimension.name}{SEPARATOR}{col.dimension_column}",
-                )
+                col.to_reference_link_spec()
                 for col in sorted_columns
                 if col.dimension_id and col.dimension_column
             ]
