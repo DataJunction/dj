@@ -493,6 +493,10 @@ class NodeSpecBulkValidator:
                     err
                     for err in [
                         self._check_inferred_columns(inferred_columns),
+                        self._check_declared_columns_exist(
+                            spec,
+                            validation.output_columns,
+                        ),
                         self._check_primary_key(inferred_columns, spec),
                         self._check_metric_query(spec, spec.query_ast),
                     ]
@@ -595,6 +599,36 @@ class NodeSpecBulkValidator:
             return DJError(  # pragma: no cover
                 code=ErrorCode.INVALID_SQL_QUERY,
                 message="No columns could be inferred from the SQL query.",
+            )
+        return None
+
+    @staticmethod
+    def _check_declared_columns_exist(
+        spec: NodeSpec,
+        output_columns: list,
+    ) -> DJError | None:
+        """
+        Check that every declared column in the spec actually appears in the
+        query's output. A declared column that doesn't match any output column
+        is silently dropped (its metadata is never applied), so this is
+        surfaced as an error instead.
+        """
+        declared_names = {
+            col.name
+            for col in (
+                spec.columns if hasattr(spec, "columns") and spec.columns else []
+            )
+        }
+        output_names = {name for name, _ in output_columns}
+        unmatched = sorted(declared_names - output_names)
+        if unmatched:
+            return DJError(
+                code=ErrorCode.INVALID_COLUMN,
+                message=(
+                    f"Declared column(s) {unmatched} on node {spec.rendered_name} "
+                    "do not match any column produced by the query. Check for a "
+                    "missing or mismatched column alias."
+                ),
             )
         return None
 
