@@ -1979,6 +1979,7 @@ def test_semantic_diff_canonicalizes_required_dimension_identity():
     )
 
     assert bare.canonical_required_dimensions == qualified.canonical_required_dimensions
+    assert bare.diff(qualified) == []
     assert bare.semantic_diff(qualified) == ([], [])
 
 
@@ -1989,6 +1990,16 @@ def test_semantic_diff_compares_unparseable_queries_as_raw_sql():
 
     assert original.semantic_diff(same) == ([], [])
     assert original.semantic_diff(changed) == (["query"], [])
+
+    metric = MetricSpec(
+        name="metric",
+        query="SELECT (",
+        required_dimensions=["id"],
+    )
+    same_metric = metric.model_copy(deep=True)
+    changed_metric = metric.model_copy(update={"required_dimensions": ["other_id"]})
+    assert metric.semantic_diff(same_metric) == ([], [])
+    assert metric.semantic_diff(changed_metric) == (["required_dimensions"], [])
 
 
 @pytest.mark.parametrize(
