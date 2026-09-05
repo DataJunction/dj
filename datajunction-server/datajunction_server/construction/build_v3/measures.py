@@ -2013,6 +2013,20 @@ def build_grain_group_sql(
     # This is needed for metrics SQL to correctly reference component columns
     component_aliases: dict[str, str] = {}
 
+    # Raw columns already projected by the NONE-aggregability path below.  A NONE
+    # group projects its grain columns as themselves, so those are taken already.
+    # A COUNT(*) component reads no column at all, and projecting its "*" would
+    # re-project every column of the parent, so treat it as taken too.
+    projected_raw_columns: set[str] = (
+        set(grain_group.grain_columns) | {"*"}
+        if grain_group.aggregability == Aggregability.NONE
+        else set()
+    )
+
+    # A NONE-aggregability group projects raw rows instead of applying each
+    # component's accumulate function, so the final SELECT can't merge them.
+    components_accumulated = grain_group.aggregability != Aggregability.NONE
+
     for metric_node, component in grain_group.components:
         metrics_covered.add(metric_node.name)
 
@@ -2024,18 +2038,27 @@ def build_grain_group_sql(
         # Collect unique components for API response
         unique_components.append(component)
 
-        # For NONE aggregability, output raw columns (no aggregation possible)
-        # Note: This path is only hit for BASE metrics with NONE aggregability
-        # (e.g., metrics with RANK() directly). Derived metrics with window functions
-        # don't go through this path - they're computed in generate_metrics_sql.
-        if grain_group.aggregability == Aggregability.NONE:  # pragma: no cover
-            if component.expression:
-                col_ast = make_column_ref(component.expression)
+        # For NONE aggregability, output raw columns (no aggregation possible).
+        # Hit for BASE metrics with NONE aggregability (e.g., metrics with RANK()
+        # directly) and for a merged group dragged down to NONE by a
+        # non-decomposable metric (a percentile, MAX_BY, ...) on the same parent.
+        # Derived metrics with window functions don't go through this path -
+        # they're computed in generate_metrics_sql.
+        if grain_group.aggregability == Aggregability.NONE:
+            if component.expression:  # pragma: no branch
                 component_alias = component.expression
-                component_expressions.append((component_alias, col_ast))
-                component_metadata.append(
-                    (component_alias, component, metric_node),
-                )
+                # Project the raw column once: components can share one (AVG(x)
+                # needs SUM(x) and COUNT(x), both reading x) and it may already
+                # be projected as a grain column.  A second projection under the
+                # same name makes every reference to it ambiguous.
+                if component_alias not in projected_raw_columns:
+                    projected_raw_columns.add(component_alias)
+                    component_expressions.append(
+                        (component_alias, make_column_ref(component.expression)),
+                    )
+                    component_metadata.append(
+                        (component_alias, component, metric_node),
+                    )
                 component_aliases[component.name] = component_alias
             continue
 
@@ -2339,6 +2362,7 @@ def build_grain_group_sql(
         metrics=list(metrics_covered),
         parent_name=grain_group.parent_node.name,
         component_aliases=component_aliases,
+        components_accumulated=components_accumulated,
         is_merged=grain_group.is_merged,
         component_aggregabilities=grain_group.component_aggregabilities,
         components=unique_components,

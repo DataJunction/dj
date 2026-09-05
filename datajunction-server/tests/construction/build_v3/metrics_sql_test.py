@@ -1,5 +1,7 @@
 import pytest
 
+from datajunction_server.construction.build_v3 import loaders
+
 from . import assert_sql_equal
 
 
@@ -6586,3 +6588,808 @@ class TestMetricOnDimensionNode:
             GROUP BY product_0.category
             """,
         )
+
+
+class TestGrainGroupWithoutPreAggregation:
+    """
+    Metrics requested alongside a non-decomposable metric on the same parent.
+
+    The non-decomposable metric (here the ``v3.p90_unit_price`` percentile) drags
+    the whole grain group down to raw grain, so its CTE never applies any
+    component's accumulate function.  Each decomposable metric must therefore
+    fall back to its own expression: applying the components' merge functions to
+    raw columns is wrong for every shape where accumulate != merge.
+
+    Each metric is asserted twice -- alone (pre-aggregated, the control) and
+    beside the percentile -- since the bug is invisible for SUM.
+
+    Derived metrics are covered too: they inline their base metrics'
+    expressions, so they inherit whatever the base metrics do.
+    """
+
+    @pytest.mark.asyncio
+    async def test_avg_alone_pre_aggregates(self, client_with_build_v3):
+        """AVG alone: SUM and COUNT components, re-aggregated by their merges."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.avg_unit_price"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH v3_order_details AS (
+              SELECT o.status, oi.unit_price
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+              SELECT
+                t1.status,
+                COUNT(t1.unit_price) unit_price_count_55cff00f,
+                SUM(t1.unit_price) unit_price_sum_55cff00f
+              FROM v3_order_details t1
+              GROUP BY t1.status
+            )
+            SELECT
+              order_details_0.status AS status,
+              SUM(order_details_0.unit_price_sum_55cff00f)
+                / NULLIF(SUM(order_details_0.unit_price_count_55cff00f), 0)
+                AS avg_unit_price
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_avg_with_percentile(self, client_with_build_v3):
+        """
+        AVG beside a percentile: emit AVG(unit_price) over the raw rows.
+
+        Merging the components instead would give SUM(unit_price) /
+        SUM(unit_price) -- numerator and denominator read the same raw column,
+        so the metric would silently return 1.0.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.avg_unit_price", "v3.p90_unit_price"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH v3_order_details AS (
+              SELECT o.order_id, oi.line_number, o.status, oi.unit_price
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+              SELECT
+                t1.status,
+                t1.line_number,
+                t1.order_id,
+                t1.unit_price unit_price
+              FROM v3_order_details t1
+            )
+            SELECT
+              order_details_0.status AS status,
+              AVG(order_details_0.unit_price) AS avg_unit_price,
+              APPROX_PERCENTILE(order_details_0.unit_price, 0.9) AS p90_unit_price
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_count_alone_pre_aggregates(self, client_with_build_v3):
+        """COUNT alone: accumulate with COUNT in the CTE, merge with SUM."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.line_item_count"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH v3_order_details AS (
+              SELECT oi.line_number, o.status
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+              SELECT t1.status, COUNT(t1.line_number) line_number_count_f137b827
+              FROM v3_order_details t1
+              GROUP BY t1.status
+            )
+            SELECT
+              order_details_0.status AS status,
+              SUM(order_details_0.line_number_count_f137b827) AS line_item_count
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_count_with_percentile(self, client_with_build_v3):
+        """
+        COUNT beside a percentile: emit COUNT(line_number) over the raw rows.
+
+        Merging instead would give SUM(line_number), which adds up line numbers
+        rather than counting rows.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.line_item_count", "v3.p90_unit_price"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH v3_order_details AS (
+              SELECT o.order_id, oi.line_number, o.status, oi.unit_price
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+              SELECT t1.status, t1.line_number, t1.order_id, t1.unit_price
+              FROM v3_order_details t1
+            )
+            SELECT
+              order_details_0.status AS status,
+              COUNT(order_details_0.line_number) AS line_item_count,
+              APPROX_PERCENTILE(order_details_0.unit_price, 0.9) AS p90_unit_price
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_count_star_alone_pre_aggregates(self, client_with_build_v3):
+        """COUNT(*) alone: COUNT(*) in the CTE, merged with SUM."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.order_line_rows"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH v3_order_details AS (
+              SELECT o.status
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+              SELECT t1.status, COUNT(*) count_5041f1a8
+              FROM v3_order_details t1
+              GROUP BY t1.status
+            )
+            SELECT
+              order_details_0.status AS status,
+              SUM(order_details_0.count_5041f1a8) AS order_line_rows
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_count_star_with_percentile(self, client_with_build_v3):
+        """
+        COUNT(*) beside a percentile: emit COUNT(*) over the raw rows.
+
+        Merging instead would give SUM(order_details_0.*), which isn't valid
+        SQL, and the CTE would re-project every parent column via the "*"
+        component -- making the dimension references ambiguous too.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.order_line_rows", "v3.p90_unit_price"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH v3_order_details AS (
+              SELECT o.order_id, oi.line_number, o.status, oi.unit_price
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+              SELECT t1.status, t1.line_number, t1.order_id, t1.unit_price
+              FROM v3_order_details t1
+            )
+            SELECT
+              order_details_0.status AS status,
+              COUNT(*) AS order_line_rows,
+              APPROX_PERCENTILE(order_details_0.unit_price, 0.9) AS p90_unit_price
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_approx_count_distinct_alone_pre_aggregates(
+        self,
+        client_with_build_v3,
+    ):
+        """APPROX_COUNT_DISTINCT alone: HLL sketches built, then union-merged."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.customer_count"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH v3_order_details AS (
+              SELECT o.customer_id, o.status
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+              SELECT
+                t1.status,
+                hll_sketch_agg(t1.customer_id) customer_id_hll_23002251
+              FROM v3_order_details t1
+              GROUP BY t1.status
+            )
+            SELECT
+              order_details_0.status AS status,
+              hll_sketch_estimate(
+                hll_union_agg(order_details_0.customer_id_hll_23002251)
+              ) AS customer_count
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_approx_count_distinct_with_percentile(self, client_with_build_v3):
+        """
+        APPROX_COUNT_DISTINCT beside a percentile: emit the original
+        APPROX_COUNT_DISTINCT over the raw rows.
+
+        Merging instead would union sketches that were never built --
+        hll_union_agg applied to a raw customer_id column.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.customer_count", "v3.p90_unit_price"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH v3_order_details AS (
+              SELECT
+                o.order_id,
+                oi.line_number,
+                o.customer_id,
+                o.status,
+                oi.unit_price
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+              SELECT
+                t1.status,
+                t1.line_number,
+                t1.order_id,
+                t1.customer_id customer_id,
+                t1.unit_price unit_price
+              FROM v3_order_details t1
+            )
+            SELECT
+              order_details_0.status AS status,
+              APPROX_COUNT_DISTINCT(order_details_0.customer_id) AS customer_count,
+              APPROX_PERCENTILE(order_details_0.unit_price, 0.9) AS p90_unit_price
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_sum_with_percentile_is_unchanged(self, client_with_build_v3):
+        """
+        SUM beside a percentile: still SUM(line_total) over the raw rows.
+
+        SUM accumulates and merges with the same function, so this shape was
+        never broken -- which is exactly why one test wouldn't have caught it.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue", "v3.p90_unit_price"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH v3_order_details AS (
+              SELECT
+                o.order_id,
+                oi.line_number,
+                o.status,
+                oi.unit_price,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+              SELECT
+                t1.status,
+                t1.line_number,
+                t1.order_id,
+                t1.line_total line_total,
+                t1.unit_price unit_price
+              FROM v3_order_details t1
+            )
+            SELECT
+              order_details_0.status AS status,
+              SUM(order_details_0.line_total) AS total_revenue,
+              APPROX_PERCENTILE(order_details_0.unit_price, 0.9) AS p90_unit_price
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_percentile_alone(self, client_with_build_v3):
+        """The percentile on its own: raw rows, expression applied downstream."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.p90_unit_price"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH v3_order_details AS (
+              SELECT o.order_id, oi.line_number, o.status, oi.unit_price
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+              SELECT t1.status, t1.order_id, t1.line_number, t1.unit_price
+              FROM v3_order_details t1
+            )
+            SELECT
+              order_details_0.status AS status,
+              APPROX_PERCENTILE(order_details_0.unit_price, 0.9) AS p90_unit_price
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_avg_with_a_different_percentile_function(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        AVG beside PERCENTILE rather than APPROX_PERCENTILE.
+
+        Nothing here is percentile-specific, let alone specific to one percentile
+        function: any aggregation with no registered decomposition takes the
+        grain group off the pre-aggregation path.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.avg_unit_price", "v3.median_unit_price"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH v3_order_details AS (
+              SELECT o.order_id, oi.line_number, o.status, oi.unit_price
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+              SELECT
+                t1.status,
+                t1.line_number,
+                t1.order_id,
+                t1.unit_price unit_price
+              FROM v3_order_details t1
+            )
+            SELECT
+              order_details_0.status AS status,
+              AVG(order_details_0.unit_price) AS avg_unit_price,
+              PERCENTILE(order_details_0.unit_price, 0.5) AS median_unit_price
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_derived_of_self_merging_bases_alone(self, client_with_build_v3):
+        """
+        A derived metric over self-merging bases, pre-aggregated (control).
+
+        ``v3.avg_order_value`` is total_revenue / order_count: a SUM component
+        (merged with SUM) over a COUNT DISTINCT (which has no merge at all).
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.avg_order_value"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH v3_order_details AS (
+              SELECT o.order_id, o.status, oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+              SELECT
+                t1.status,
+                t1.order_id,
+                SUM(t1.line_total) line_total_sum_e1f61696
+              FROM v3_order_details t1
+              GROUP BY t1.status, t1.order_id
+            )
+            SELECT
+              order_details_0.status AS status,
+              SUM(order_details_0.line_total_sum_e1f61696)
+                / NULLIF(COUNT(DISTINCT order_details_0.order_id), 0)
+                AS avg_order_value
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_derived_of_self_merging_bases_with_percentile(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        The same derived metric beside a percentile.
+
+        Derived metrics inline their base metrics' expressions, so this follows
+        whatever the base metrics do.  SUM and COUNT DISTINCT survive being read
+        off raw rows, so the metric expression here is exactly what it was before
+        the fix -- only the grain group CTE changed, which no longer projects
+        order_id a second time under its own name.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.avg_order_value", "v3.p90_unit_price"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH v3_order_details AS (
+              SELECT
+                o.order_id,
+                oi.line_number,
+                o.status,
+                oi.unit_price,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+              SELECT
+                t1.status,
+                t1.line_number,
+                t1.order_id,
+                t1.line_total line_total,
+                t1.unit_price unit_price
+              FROM v3_order_details t1
+            )
+            SELECT
+              order_details_0.status AS status,
+              SUM(order_details_0.line_total)
+                / NULLIF(COUNT(DISTINCT order_details_0.order_id), 0)
+                AS avg_order_value,
+              APPROX_PERCENTILE(order_details_0.unit_price, 0.9) AS p90_unit_price
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_derived_of_sketch_base_alone(self, client_with_build_v3):
+        """
+        A derived metric over a base metric that is not self-merging (control).
+
+        ``v3.revenue_per_customer`` is total_revenue / customer_count, and
+        customer_count is an HLL sketch: accumulate hll_sketch_agg, merge
+        hll_union_agg.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.revenue_per_customer"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH v3_order_details AS (
+              SELECT
+                o.customer_id,
+                o.status,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+              SELECT
+                t1.status,
+                hll_sketch_agg(t1.customer_id) customer_id_hll_23002251,
+                SUM(t1.line_total) line_total_sum_e1f61696
+              FROM v3_order_details t1
+              GROUP BY t1.status
+            )
+            SELECT
+              order_details_0.status AS status,
+              SUM(order_details_0.line_total_sum_e1f61696)
+                / NULLIF(
+                    hll_sketch_estimate(
+                      hll_union_agg(order_details_0.customer_id_hll_23002251)
+                    ),
+                    0
+                  ) AS revenue_per_customer
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_derived_of_sketch_base_with_percentile(self, client_with_build_v3):
+        """
+        The same derived metric beside a percentile.
+
+        The denominator has to become APPROX_COUNT_DISTINCT over the raw column.
+        Before the fix it inlined the base metric's merge form and unioned
+        sketches that were never built.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.revenue_per_customer", "v3.p90_unit_price"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH v3_order_details AS (
+              SELECT
+                o.order_id,
+                oi.line_number,
+                o.customer_id,
+                o.status,
+                oi.unit_price,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+              SELECT
+                t1.status,
+                t1.line_number,
+                t1.order_id,
+                t1.customer_id customer_id,
+                t1.line_total line_total,
+                t1.unit_price unit_price
+              FROM v3_order_details t1
+            )
+            SELECT
+              order_details_0.status AS status,
+              SUM(order_details_0.line_total)
+                / NULLIF(APPROX_COUNT_DISTINCT(order_details_0.customer_id), 0)
+                AS revenue_per_customer,
+              APPROX_PERCENTILE(order_details_0.unit_price, 0.9) AS p90_unit_price
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_approx_percentile_metric_with_accuracy(self, client_with_build_v3):
+        """
+        An APPROX_PERCENTILE metric can be created, including with the optional
+        accuracy argument, and builds SQL as a non-decomposable metric.
+        """
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.p99_unit_price",
+                "description": "99th percentile unit price, with explicit accuracy",
+                "query": (
+                    "SELECT APPROX_PERCENTILE(unit_price, 0.99, 1000) "
+                    "FROM v3.order_details"
+                ),
+                "mode": "published",
+            },
+        )
+        assert response.status_code == 201, response.json()
+        assert response.json()["status"] == "valid"
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue", "v3.p99_unit_price"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH v3_order_details AS (
+              SELECT
+                o.order_id,
+                oi.line_number,
+                o.status,
+                oi.unit_price,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+              SELECT
+                t1.status,
+                t1.line_number,
+                t1.order_id,
+                t1.line_total line_total,
+                t1.unit_price unit_price
+              FROM v3_order_details t1
+            )
+            SELECT
+              order_details_0.status AS status,
+              SUM(order_details_0.line_total) AS total_revenue,
+              APPROX_PERCENTILE(order_details_0.unit_price, 0.99, 1000)
+                AS p99_unit_price
+            FROM order_details_0
+            GROUP BY order_details_0.status
+            """,
+        )
+
+
+class TestGeneratedSQLIsOrderStable:
+    """
+    Generated SQL must not depend on the order rows came back in.
+
+    ``find_upstream_node_names`` builds parent_map from a recursive CTE, and for
+    a derived metric that map decides the order its base metrics are resolved --
+    and therefore the order their components are projected in the grain group
+    CTE.  Reversing every parent list simulates a different row order (a
+    different query plan, a different engine) and must not change the SQL.
+    """
+
+    @staticmethod
+    async def _build_sql(client, monkeypatch, metrics, dimensions, reverse_parents):
+        original = loaders.find_upstream_node_names
+
+        async def ordered_differently(session, starting_node_names):
+            all_names, parent_map = await original(session, starting_node_names)
+            return all_names, {k: list(reversed(v)) for k, v in parent_map.items()}
+
+        if reverse_parents:
+            monkeypatch.setattr(
+                loaders,
+                "find_upstream_node_names",
+                ordered_differently,
+            )
+        response = await client.get(
+            "/sql/metrics/v3/",
+            params={"metrics": metrics, "dimensions": dimensions},
+        )
+        assert response.status_code == 200, response.json()
+        return response.json()["sql"]
+
+    @pytest.mark.asyncio
+    async def test_derived_metric_sql_is_parent_order_independent(
+        self,
+        client_with_build_v3,
+        monkeypatch,
+    ):
+        """A derived metric over two base metrics on the same fact."""
+        metrics = ["v3.revenue_per_customer"]
+        dimensions = ["v3.order_details.status"]
+        expected = await self._build_sql(
+            client_with_build_v3,
+            monkeypatch,
+            metrics,
+            dimensions,
+            reverse_parents=False,
+        )
+        reordered = await self._build_sql(
+            client_with_build_v3,
+            monkeypatch,
+            metrics,
+            dimensions,
+            reverse_parents=True,
+        )
+        assert reordered == expected
+
+    @pytest.mark.asyncio
+    async def test_cross_fact_derived_metric_sql_is_parent_order_independent(
+        self,
+        client_with_build_v3,
+        monkeypatch,
+    ):
+        """Two derived metrics whose base metrics span two facts."""
+        metrics = ["v3.conversion_rate", "v3.revenue_per_visitor"]
+        dimensions = ["v3.product.category"]
+        expected = await self._build_sql(
+            client_with_build_v3,
+            monkeypatch,
+            metrics,
+            dimensions,
+            reverse_parents=False,
+        )
+        reordered = await self._build_sql(
+            client_with_build_v3,
+            monkeypatch,
+            metrics,
+            dimensions,
+            reverse_parents=True,
+        )
+        assert reordered == expected

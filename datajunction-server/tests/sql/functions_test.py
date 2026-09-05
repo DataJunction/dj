@@ -288,6 +288,33 @@ async def test_approx_percentile(session: AsyncSession):
     assert not exc.errors
     assert query_with_list.select.projection[0].type == ct.FloatType()  # type: ignore
 
+    # The accuracy argument is optional, in both the scalar and the list form
+    query_without_accuracy = parse("SELECT approx_percentile(10.0, 0.5)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query_without_accuracy.compile(ctx)
+    assert not exc.errors
+    assert query_without_accuracy.select.projection[0].type == ct.FloatType()  # type: ignore
+
+    query_without_accuracy = parse("SELECT approx_percentile(10.0, array(0.5, 0.9))")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query_without_accuracy.compile(ctx)
+    assert not exc.errors
+    assert query_without_accuracy.select.projection[0].type == ct.ListType(  # type: ignore
+        element_type=ct.FloatType(),
+    )
+
+    # A DOUBLE percentage is as good as a FLOAT one
+    query_double_percentage = parse(
+        "SELECT approx_percentile(10.0, CAST(0.5 AS DOUBLE))",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query_double_percentage.compile(ctx)
+    assert not exc.errors
+    assert query_double_percentage.select.projection[0].type == ct.FloatType()  # type: ignore
+
 
 @pytest.mark.asyncio
 async def test_array(session: AsyncSession):

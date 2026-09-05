@@ -109,20 +109,42 @@ def classify_filters(
     return dimension_filters, metric_filters
 
 
-def build_base_metric_expression(
+def original_metric_expression(
+    ctx: BuildContext,
+    decomposed: DecomposedMetricInfo,
+) -> ast.Expression:
+    """
+    Get a metric's own expression, as written in its query.
+
+    For a non-decomposable metric this is exactly its combiner (the decomposition
+    left the expression alone).  For a decomposable one the combiner is written in
+    terms of merged components, so read the expression off the metric's query.
+
+    Args:
+        ctx: Build context, used for its parsed query cache
+        decomposed: Decomposed metric info
+
+    Returns:
+        Expression AST referencing the parent node's columns
+    """
+    if not decomposed.components:
+        return deepcopy(decomposed.combiner_ast)
+
+    projection = ctx.get_parsed_query(decomposed.metric_node).select.projection[0]
+    expr_ast = deepcopy(projection)
+    if isinstance(expr_ast, ast.Alias):  # pragma: no cover
+        expr_ast = expr_ast.child
+    expr_ast.clear_parent()
+    return cast(ast.Expression, expr_ast)
+
+
+def build_component_mappings(
     decomposed: DecomposedMetricInfo,
     cte_alias: str,
     gg: GrainGroupSQL,
-) -> tuple[ast.Expression, dict[str, tuple[str, str]]]:
+) -> dict[str, tuple[str, str]]:
     """
-    Build an expression AST for a base metric from a grain group.
-
-    Always applies re-aggregation in the final SELECT using the component's
-    merge function (e.g., SUM for sums/counts, MIN for min, hll_union for HLL).
-
-    This is correct whether the CTE is at the exact requested grain or finer:
-    - If CTE is at requested grain: re-aggregation is a no-op (SUM of one = that one)
-    - If CTE is at finer grain: re-aggregation does actual work
+    Map each of a metric's components to the grain group column holding it.
 
     Args:
         decomposed: Decomposed metric info with components and combiner
@@ -130,12 +152,10 @@ def build_base_metric_expression(
         gg: The grain group SQL containing component metadata
 
     Returns:
-        Tuple of (expression AST, component column mappings)
-        The component mappings are {component_name: (cte_alias, column_name)}
+        {component_name: (cte_alias, column_name)}
     """
     comp_mappings: dict[str, tuple[str, str]] = {}
 
-    # Build component -> column mappings
     # For merged: use component_aggregabilities to determine column source
     # For non-merged: use decomposed.aggregability
     for comp in decomposed.components:
@@ -155,9 +175,48 @@ def build_base_metric_expression(
                 grain_col = comp.rule.level[0] if comp.rule.level else comp.expression
                 comp_mappings[comp.name] = (cte_alias, grain_col)
         else:
-            # FULL/NONE: use pre-aggregated column
-            actual_col = gg.component_aliases.get(comp.name, comp.name)
-            comp_mappings[comp.name] = (cte_alias, actual_col)  # type: ignore
+            # FULL/NONE: use the column the grain group emitted for this component
+            actual_col = gg.component_aliases.get(comp.name)
+            if actual_col is None:  # pragma: no cover
+                raise DJInvalidInputException(
+                    f"Metric component {comp.name} has no column in grain group "
+                    f"{gg.parent_name}, so it cannot be referenced.",
+                )
+            comp_mappings[comp.name] = (cte_alias, actual_col)
+
+    return comp_mappings
+
+
+def build_base_metric_expression(
+    decomposed: DecomposedMetricInfo,
+    cte_alias: str,
+    gg: GrainGroupSQL,
+) -> tuple[ast.Expression, dict[str, tuple[str, str]]]:
+    """
+    Build an expression AST for a base metric from a pre-aggregated grain group.
+
+    Applies re-aggregation in the final SELECT using the component's merge
+    function (e.g., SUM for sums/counts, MIN for min, hll_union for HLL).
+
+    This is correct whether the CTE is at the exact requested grain or finer:
+    - If CTE is at requested grain: re-aggregation is a no-op (SUM of one = that one)
+    - If CTE is at finer grain: re-aggregation does actual work
+
+    It requires the CTE to have applied each component's accumulate function,
+    i.e. ``gg.components_accumulated``.  Callers must use the metric's own
+    expression otherwise -- merging unaccumulated columns is wrong wherever
+    accumulate and merge differ (AVG, COUNT, HLL sketches).
+
+    Args:
+        decomposed: Decomposed metric info with components and combiner
+        cte_alias: Alias of the grain group CTE
+        gg: The grain group SQL containing component metadata
+
+    Returns:
+        Tuple of (expression AST, component column mappings)
+        The component mappings are {component_name: (cte_alias, column_name)}
+    """
+    comp_mappings = build_component_mappings(decomposed, cte_alias, gg)
 
     # Build the aggregation expression
     expr_ast = _build_metric_aggregation(decomposed, cte_alias, gg, comp_mappings)
@@ -536,6 +595,7 @@ def build_dimension_projection(
 
 
 def process_base_metrics(
+    ctx: BuildContext,
     grain_groups: list[GrainGroupSQL],
     cte_aliases: list[str],
     decomposed_metrics: dict[str, DecomposedMetricInfo],
@@ -546,9 +606,13 @@ def process_base_metrics(
 
     For each metric in each grain group:
     - Non-decomposable metrics (like MAX_BY): use original expression with CTE refs
-    - Decomposable metrics: build aggregation expression from components
+    - Decomposable metrics in a grain group that did not pre-aggregate: likewise,
+      use the original expression (the components were never accumulated, so
+      their merge functions can't be applied)
+    - Decomposable metrics otherwise: build aggregation expression from components
 
     Args:
+        ctx: Build context, for the metrics' original queries
         grain_groups: List of grain group SQLs
         cte_aliases: CTE aliases corresponding to each grain group
         decomposed_metrics: Decomposed metric info by metric name
@@ -576,10 +640,15 @@ def process_base_metrics(
                 # No decomposition info at all - skip this metric
                 continue
 
-            if not decomposed.components:
-                # Non-decomposable metric (like MAX_BY) - use original expression
-                # with column references rewritten to point to grain group CTE
-                expr_ast: ast.Expression = deepcopy(decomposed.combiner_ast)
+            if not decomposed.components or not gg.components_accumulated:
+                # Two cases, one treatment: a non-decomposable metric (like MAX_BY),
+                # and a decomposable metric whose grain group projected raw rows
+                # rather than pre-aggregating (because a non-decomposable metric on
+                # the same parent dragged the group down to NONE aggregability).
+                # Either way the CTE holds raw columns, so apply the metric's own
+                # expression to them.  The components' merge functions would be
+                # wrong here: AVG(x) would become SUM(x) / SUM(x).
+                expr_ast: ast.Expression = original_metric_expression(ctx, decomposed)
 
                 # Rewrite column references in the expression to use the CTE alias
                 # _table must be an ast.Table (not ast.Name) for proper stringification
@@ -587,6 +656,18 @@ def process_base_metrics(
                 for col in expr_ast.find_all(ast.Column):  # type: ignore
                     if col.name and not col._table:  # type: ignore  # pragma: no branch
                         col._table = cte_table  # type: ignore
+
+                # Components still map to their raw columns, so that derived metrics
+                # combining them can be resolved.
+                if decomposed.components:
+                    for comp_name, (
+                        comp_cte_alias,
+                        comp_col,
+                    ) in build_component_mappings(decomposed, alias, gg).items():
+                        component_refs[comp_name] = ColumnRef(
+                            cte_alias=comp_cte_alias,
+                            column_name=comp_col,
+                        )
 
                 metric_exprs[metric_name] = MetricExprInfo(
                     expr_ast=expr_ast,
@@ -1136,6 +1217,11 @@ def process_derived_metrics(
             # COUNT DISTINCT base metrics from pre-aggregated (_agg) CTEs, where
             # the combiner_ast would produce COUNT(DISTINCT ...) but the pre-built
             # expression already uses MAX(...) as the correct passthrough aggregation.
+            # It is also what keeps a derived metric correct when its grain group
+            # didn't pre-aggregate (see GrainGroupSQL.components_accumulated): the
+            # inlined base expressions are the metrics' own expressions over raw
+            # columns, whereas combiner_ast would merge components that were never
+            # accumulated.
             # Fall back to build_derived_metric_expr when some base metrics are missing
             # from base_metric_exprs (e.g., NONE-aggregability metrics not in any grain group).
             expr_ast = (  # type: ignore[assignment]
@@ -1783,6 +1869,7 @@ def generate_metrics_sql(
     # Process base metrics from base grain groups only
     # Window grain groups are handled separately after the base_metrics CTE
     base_metrics_result = process_base_metrics(
+        ctx,
         base_grain_groups,
         cte_aliases,
         decomposed_metrics,
