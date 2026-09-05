@@ -25,6 +25,7 @@ from djqs.models.query import (
     QueryState,
     StatementResults,
 )
+from djqs.result_cache import CachedQueryResult
 from djqs.typing import ColumnType, Description, SQLADialect, Stream, TypeEnum
 from djqs.utils import get_settings
 
@@ -224,6 +225,8 @@ async def process_query(
     postgres_pool: AsyncConnectionPool,
     query: Query,
     headers: dict[str, str] | None = None,
+    result_cache_key: str | None = None,
+    result_cache_timeout: int | None = None,
 ) -> QueryResults:
     """
     Process a query.
@@ -265,7 +268,7 @@ async def process_query(
             .save_query(
                 query_id=query.id,
                 submitted_query=query.submitted_query,
-                state=QueryState.FINISHED.value,
+                state=query.state.value,
                 async_=query.async_,
             )
             .execute(conn=conn)
@@ -283,7 +286,7 @@ async def process_query(
         ),
     )
 
-    return QueryResults(
+    query_results = QueryResults(
         id=query.id,
         catalog_name=query.catalog_name,
         engine_name=query.engine_name,
@@ -298,3 +301,13 @@ async def process_query(
         results=results,
         errors=errors,
     )
+    if query.state == QueryState.FINISHED and result_cache_key:
+        settings.results_backend.set(
+            result_cache_key,
+            CachedQueryResult(
+                result=query_results,
+                created_at=datetime.now(timezone.utc).timestamp(),
+            ),
+            timeout=result_cache_timeout,
+        )
+    return query_results

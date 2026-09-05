@@ -10,15 +10,18 @@ from http import HTTPStatus
 from unittest import mock
 
 import msgpack
+import pytest
 from fastapi.testclient import TestClient
 from freezegun import freeze_time
 from pytest_mock import MockerFixture
 
+from djqs.api import queries as queries_api
 from djqs.config import Settings
 from djqs.engine import process_query
 from djqs.models.query import (
     Query,
     QueryCreate,
+    QueryResults,
     QueryState,
     StatementResults,
     decode_results,
@@ -457,6 +460,76 @@ def test_submit_query_async(
     assert arguments[0] == process_query  # pylint: disable=comparison-with-callable
     assert isinstance(arguments[1], Settings)
     assert isinstance(arguments[3], Query)
+
+
+def test_stale_swr_forces_async_refresh(
+    mocker: MockerFixture,
+    client: TestClient,
+) -> None:
+    """A stale SWR hit returns immediately and refreshes asynchronously."""
+    stale_result = QueryResults(
+        submitted_query="SELECT 1 AS col",
+        state=QueryState.FINISHED,
+    )
+    add_task = mocker.patch("fastapi.BackgroundTasks.add_task")
+    mocker.patch(
+        "djqs.api.queries.get_cached_result",
+        return_value=(stale_result, False),
+    )
+    mocker.patch(
+        "djqs.api.queries.build_result_cache_key",
+        return_value="cache-key",
+    )
+    query_create = QueryCreate(
+        catalog_name="warehouse_inmemory",
+        engine_name="duckdb_inmemory",
+        engine_version="0.7.1",
+        submitted_query="SELECT 1 AS col",
+    )
+
+    try:
+        response = client.post(
+            "/queries/",
+            data=json.dumps(asdict(query_create)),
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "Cache-Control": "stale-while-revalidate",
+            },
+        )
+        assert response.status_code == HTTPStatus.OK
+        assert response.json()["id"] == str(stale_result.id)
+        arguments = add_task.call_args.args
+        assert arguments[0] is queries_api._process_refresh
+        assert arguments[3].async_ is True
+        assert arguments[5] == "cache-key"
+        assert arguments[7] == "cache-key"
+    finally:
+        queries_api._pending_refresh_keys.discard("cache-key")
+
+
+@pytest.mark.asyncio
+async def test_failed_refresh_releases_its_lease(mocker: MockerFixture) -> None:
+    """A failed refresh does not prevent a later refresh attempt."""
+    queries_api._pending_refresh_keys.add("cache-key")
+    mocker.patch(
+        "djqs.api.queries.process_query",
+        side_effect=RuntimeError("refresh failed"),
+    )
+    try:
+        with pytest.raises(RuntimeError, match="refresh failed"):
+            await queries_api._process_refresh(
+                settings=mocker.MagicMock(),
+                postgres_pool=mocker.MagicMock(),
+                query=Query(),
+                headers=None,
+                result_cache_key="cache-key",
+                result_cache_timeout=60,
+                refresh_key="cache-key",
+            )
+        assert "cache-key" not in queries_api._pending_refresh_keys
+    finally:
+        queries_api._pending_refresh_keys.discard("cache-key")
 
 
 def test_submit_query_error(client: TestClient) -> None:
