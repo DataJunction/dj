@@ -1,5 +1,6 @@
 import importlib.metadata
 import io
+import json
 from pathlib import Path
 import time
 import zipfile
@@ -889,6 +890,37 @@ def test_push_waits_until_success(monkeypatch, tmp_path):
 
     client.deploy.assert_called_once()
     client.check_deployment.assert_called()
+
+
+def test_push_format_json_prints_deployment_data(monkeypatch, tmp_path, capsys):
+    """push(format="json") must print the raw deployment dict to stdout
+    instead of the rich text panel, so a caller (e.g. a CI script posting
+    a PR comment) can parse the wet-run result."""
+    (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
+    (tmp_path / "bar.yaml").write_text(yaml.safe_dump({"name": "foo.bar"}))
+
+    client = MagicMock()
+    client.deploy.return_value = {
+        "uuid": "abc",
+        "status": "success",
+        "results": [
+            {
+                "name": "foo.bar",
+                "operation": "update",
+                "status": "success",
+                "changed_fields": ["query"],
+            },
+        ],
+        "namespace": "foo",
+    }
+
+    svc = DeploymentService(client, console=Console(file=io.StringIO()))
+    monkeypatch.setattr(time, "sleep", lambda _: None)
+
+    svc.push(tmp_path, format="json")
+
+    printed = json.loads(capsys.readouterr().out)
+    assert printed == client.deploy.return_value
 
 
 def test_push_force_sets_flag_in_spec(monkeypatch, tmp_path):
