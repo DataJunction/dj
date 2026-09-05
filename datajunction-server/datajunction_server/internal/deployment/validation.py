@@ -27,7 +27,11 @@ from datajunction_server.models.deployment import (
     LinkableNodeSpec,
     NodeSpec,
 )
-from datajunction_server.models.dimensionlink import JoinType
+from datajunction_server.models.dimensionlink import (
+    JoinType,
+    misplaced_node_column_message,
+    missing_join_on_message,
+)
 from datajunction_server.models.node import NodeStatus, NodeType
 from datajunction_server.sql.dag import get_dimensions
 from datajunction_server.sql.parsing.ast import fast_parse_mode
@@ -209,11 +213,9 @@ class NodeSpecBulkValidator:
                         result.errors.append(
                             DJError(
                                 code=ErrorCode.INVALID_COLUMN,
-                                message=(
-                                    f"Dimension link from {node_name} to "
-                                    f"{link.rendered_dimension_node} sets node_column, "
-                                    "which only applies to reference links. Express the "
-                                    "join in join_on instead."
+                                message=misplaced_node_column_message(
+                                    node_name,
+                                    link.rendered_dimension_node,
                                 ),
                             ),
                         )
@@ -224,12 +226,9 @@ class NodeSpecBulkValidator:
                         result.errors.append(
                             DJError(
                                 code=ErrorCode.INVALID_COLUMN,
-                                message=(
-                                    f"Dimension link from {node_name} to "
-                                    f"{link.rendered_dimension_node} has no join_on "
-                                    "clause. Set join_on to the equality between this "
-                                    "node's foreign key column(s) and the dimension's "
-                                    "primary key."
+                                message=missing_join_on_message(
+                                    node_name,
+                                    link.rendered_dimension_node,
                                 ),
                             ),
                         )
