@@ -2,6 +2,8 @@
 Tests for the MCP HTTP transport — ``mount_mcp`` and its lifespan integration.
 """
 
+import asyncio
+
 import httpx
 import pytest
 import pytest_asyncio
@@ -84,6 +86,127 @@ async def test_mount_mcp_invokes_request_context_per_request() -> None:
 
     assert events == ["enter", "exit"]
     assert seen_scope["type"] == "http"
+
+
+@pytest.mark.asyncio
+async def test_shutdown_drains_in_flight(monkeypatch) -> None:
+    """Lifespan shutdown waits for every in-flight MCP request to respond."""
+    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+    from starlette.responses import PlainTextResponse
+
+    events: list[str] = []
+    entered: list[str] = []
+
+    async def slow_handler(_self, scope, receive, send):
+        wait = scope["query_string"].decode().removeprefix("wait=")
+        entered.append(wait)
+        await asyncio.sleep(float(wait))
+        await PlainTextResponse("ok")(scope, receive, send)
+        events.append(wait)
+
+    monkeypatch.setattr(StreamableHTTPSessionManager, "handle_request", slow_handler)
+
+    app = FastAPI()
+    transport.mount_mcp(app)
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        follow_redirects=True,
+    ) as client:
+        lifespan = app.router.lifespan_context(app)
+        await lifespan.__aenter__()
+        requests = [
+            asyncio.create_task(client.post(f"/mcp/?wait={wait}"))
+            for wait in ("0.05", "0.2")
+        ]
+        while len(entered) < 2:
+            await asyncio.sleep(0.01)
+        await lifespan.__aexit__(None, None, None)
+        events.append("lifespan done")
+        responses = await asyncio.gather(*requests)
+
+    assert events == ["0.05", "0.2", "lifespan done"]
+    assert [(r.status_code, r.text) for r in responses] == [(200, "ok"), (200, "ok")]
+
+
+@pytest.mark.asyncio
+async def test_drain_gives_up_after_timeout(monkeypatch) -> None:
+    """Shutdown stops waiting once the drain timeout passes."""
+    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+    from starlette.responses import PlainTextResponse
+
+    events: list[str] = []
+    started = asyncio.Event()
+
+    async def slow_handler(_self, scope, receive, send):
+        started.set()
+        await asyncio.sleep(0.3)
+        await PlainTextResponse("ok")(scope, receive, send)
+        events.append("request done")
+
+    monkeypatch.setattr(StreamableHTTPSessionManager, "handle_request", slow_handler)
+
+    app = FastAPI()
+    transport.mount_mcp(app, drain_timeout=0.01)
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        follow_redirects=True,
+    ) as client:
+        lifespan = app.router.lifespan_context(app)
+        await lifespan.__aenter__()
+        request = asyncio.create_task(client.post("/mcp/"))
+        await started.wait()
+        await lifespan.__aexit__(None, None, None)
+        events.append("lifespan done")
+        await request
+
+    assert events == ["lifespan done", "request done"]
+
+
+@pytest.mark.asyncio
+async def test_drain_rejects_new_requests(monkeypatch) -> None:
+    """While draining, a new MCP request gets 503 instead of a dropped stream."""
+    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+    from starlette.responses import PlainTextResponse
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def blocking_handler(_self, scope, receive, send):
+        started.set()
+        await release.wait()
+        await PlainTextResponse("ok")(scope, receive, send)
+
+    monkeypatch.setattr(
+        StreamableHTTPSessionManager,
+        "handle_request",
+        blocking_handler,
+    )
+
+    app = FastAPI()
+    transport.mount_mcp(app, drain_timeout=0.01)
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        follow_redirects=True,
+    ) as client:
+        lifespan = app.router.lifespan_context(app)
+        await lifespan.__aenter__()
+        first = asyncio.create_task(client.post("/mcp/"))
+        await started.wait()
+        await lifespan.__aexit__(None, None, None)
+        late = await client.post("/mcp/")
+        release.set()
+        first_response = await first
+
+    assert late.status_code == 503
+    assert late.text == "Server shutting down"
+    assert first_response.status_code == 200
+    assert first_response.text == "ok"
 
 
 @pytest.mark.asyncio
