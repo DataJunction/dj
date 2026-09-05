@@ -2447,6 +2447,28 @@ class TestDeploymentFailureExitsWithCode1:
                     cli.run()
                 assert exc_info.value.code == 1
 
+    def test_push_generic_client_error_format_json(self, tmp_path, capsys):
+        """A non-deployment error in --format json mode prints a JSON error object."""
+        from datajunction.cli import DJCLI
+        from datajunction.exceptions import DJClientException
+
+        cli = DJCLI(builder_client=mock.MagicMock())
+        with patch.object(
+            cli,
+            "push",
+            side_effect=DJClientException("Connection refused"),
+        ):
+            with patch.object(
+                sys,
+                "argv",
+                ["dj", "push", str(tmp_path), "--format", "json"],
+            ):
+                with pytest.raises(SystemExit) as exc_info:
+                    cli.run()
+                assert exc_info.value.code == 1
+        printed = json.loads(capsys.readouterr().out)
+        assert printed == {"error": "Connection refused"}
+
 
 class TestGenerateCodeowners:
     """Tests for `dj generate-codeowners` and DeploymentService.build_codeowners."""

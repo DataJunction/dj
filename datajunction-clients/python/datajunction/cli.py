@@ -47,6 +47,7 @@ class DJCLI:
         verbose: bool = False,
         force: bool = False,
         allow_empty: bool = False,
+        format: str = "text",
     ):
         """
         Alias for deploy without dryrun.
@@ -57,6 +58,7 @@ class DJCLI:
             verbose=verbose,
             force=force,
             allow_empty=allow_empty,
+            format=format,
         )
 
     def dryrun(
@@ -916,7 +918,7 @@ class DJCLI:
             type=str,
             default="text",
             choices=["text", "json"],
-            help="Output format for dry run (default: text)",
+            help="Output format for the deployment result (default: text)",
         )
         # Deployment source tracking flags
         push_parser.add_argument(
@@ -1523,12 +1525,17 @@ class DJCLI:
                     verbose=args.verbose,
                     force=args.force,
                     allow_empty=args.allow_empty,
+                    format=args.format,
                 )
             except DJDeploymentFailure:
-                # Errors already displayed in the deployment panel
+                # Errors already displayed in the deployment panel (or, in
+                # --format json mode, in the JSON already printed to stdout)
                 raise SystemExit(1)
             except DJClientException as exc:
-                Console().print(f"[red bold]ERROR:[/red bold] {exc}")
+                if args.format == "json":
+                    print(json.dumps({"error": str(exc)}, indent=2))
+                else:
+                    Console().print(f"[red bold]ERROR:[/red bold] {exc}")
                 raise SystemExit(1)
         elif args.command == "generate-codeowners":
             count = DeploymentService.build_codeowners(
