@@ -1070,6 +1070,38 @@ def test_push_raises_on_success_with_invalid_nodes(monkeypatch, tmp_path):
     assert exc_info.value.errors[0]["name"] == "foo.bar"
 
 
+def test_push_format_json_raises_on_success_with_invalid_nodes(monkeypatch, tmp_path):
+    """Same as above in --format json mode: still raises, and skips the rich
+    text warning (the JSON dump already carries the invalid-node status)."""
+    (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
+    (tmp_path / "bar.yaml").write_text(yaml.safe_dump({"name": "foo.bar"}))
+
+    invalid_results = [
+        {
+            "deploy_type": "node",
+            "name": "foo.bar",
+            "operation": "create",
+            "status": "invalid",
+            "message": "One or more metrics are INVALID",
+        },
+    ]
+    client = MagicMock()
+    client.deploy.return_value = {
+        "uuid": "456",
+        "status": "success",
+        "results": invalid_results,
+        "namespace": "foo",
+    }
+
+    svc = DeploymentService(client, console=Console(file=io.StringIO()))
+    monkeypatch.setattr(time, "sleep", lambda _: None)
+
+    with pytest.raises(DJDeploymentFailure) as exc_info:
+        svc.push(tmp_path, format="json")
+
+    assert exc_info.value.errors[0]["name"] == "foo.bar"
+
+
 @pytest.mark.timeout(2)
 def test_push_raises_after_polling_to_failure(monkeypatch, tmp_path):
     (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "ns"}))
@@ -1736,6 +1768,47 @@ class TestPushBranchDetection:
         assert "Warning" in out.getvalue()
         client.deploy.assert_called_once()
 
+    def test_push_git_config_failure_is_silent_in_format_json(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
+        """Same as above in --format json mode: the warning is suppressed so
+        it doesn't pollute the JSON on stdout."""
+        (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "project.main"}))
+        (tmp_path / "my_node.yaml").write_text(
+            yaml.safe_dump({"name": "project.my_node"}),
+        )
+
+        monkeypatch.delenv("DJ_DEPLOY_REPO", raising=False)
+        monkeypatch.setattr(
+            DeploymentService,
+            "_detect_git_branch",
+            staticmethod(lambda cwd=None: "main"),
+        )
+        monkeypatch.setattr(
+            DeploymentService,
+            "_detect_git_repo",
+            staticmethod(lambda cwd=None: None),
+        )
+        monkeypatch.setattr(time, "sleep", lambda _: None)
+
+        client = MagicMock()
+        client._set_namespace_git_config.side_effect = Exception("network error")
+        client.deploy.return_value = {"uuid": "abc", "status": "success", "results": []}
+        client.check_deployment.return_value = {
+            "uuid": "abc",
+            "status": "success",
+            "results": [],
+        }
+
+        out = io.StringIO()
+        svc = DeploymentService(client, console=Console(file=out))
+        svc.push(tmp_path, format="json")
+
+        assert "Warning" not in out.getvalue()
+        client.deploy.assert_called_once()
+
 
 def test_djdeploymentfailure_str_with_errors():
     exc = DJDeploymentFailure(
@@ -1778,6 +1851,28 @@ def test_push_raises_on_file_name_mismatch(monkeypatch, tmp_path):
 
     with pytest.raises(DJClientException, match="Fix file name mismatches"):
         svc.push(tmp_path)
+
+
+def test_push_format_json_raises_on_file_name_mismatch(monkeypatch, tmp_path):
+    """Same as above in --format json mode: still raises, and skips the rich
+    text error rule/listing (nothing to print — the JSON on stdout is the
+    deployment result, not the file-name-mismatch warnings)."""
+    (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
+    (tmp_path / "wrong.yaml").write_text(yaml.safe_dump({"name": "foo.bar"}))
+
+    client = MagicMock()
+    client.deploy.return_value = {
+        "uuid": "abc",
+        "status": "success",
+        "results": [],
+        "namespace": "foo",
+    }
+
+    svc = DeploymentService(client, console=Console(file=io.StringIO()))
+    monkeypatch.setattr(time, "sleep", lambda _: None)
+
+    with pytest.raises(DJClientException, match="Fix file name mismatches"):
+        svc.push(tmp_path, format="json")
 
 
 def test_collect_nodes_skips_validation_for_unnamed_node(tmp_path):
