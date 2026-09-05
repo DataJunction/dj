@@ -659,13 +659,35 @@ def test_deployment_results_property_getter():
                 "status": "success",
                 "operation": "create",
                 "message": "Created",
+                "change_tier": "major",
+                "semantic_fingerprint": {
+                    "digest": "a" * 64,
+                },
+            },
+            {
+                "name": "legacy_node",
+                "deploy_type": "node",
+                "status": "invalid",
+                "operation": "update",
+                "semantic_fingerprint": "unknown",
+            },
+            {
+                "name": "test_node -> test_dimension",
+                "deploy_type": "link",
+                "status": "success",
+                "operation": "create",
             },
         ],
     )
     results = deployment.deployment_results
-    assert len(results) == 1
+    assert len(results) == 3
     assert results[0].name == "test_node"
     assert results[0].status == DeploymentResult.Status.SUCCESS
+    assert results[0].change_tier == "major"
+    assert results[0].semantic_fingerprint == SemanticFingerprint(digest="a" * 64)
+    assert results[1].semantic_fingerprint == "unknown"
+    assert results[2].change_tier is None
+    assert results[2].semantic_fingerprint is None
 
 
 def test_deployment_spec_preserves_explicit_preagg_namespace():
@@ -1906,6 +1928,23 @@ def test_semantic_diff_and_fingerprint_share_change_rules():
     assert MetricSpec.change_tier(changed, reordered) == ChangeTier.MINOR
 
 
+def test_semantic_diff_canonicalizes_required_dimension_identity():
+    bare = MetricSpec(
+        namespace="analytics",
+        name="order_count",
+        query="SELECT COUNT(*) FROM analytics.orders",
+        required_dimensions=["order_id"],
+    )
+    qualified = bare.model_copy(
+        update={"required_dimensions": ["analytics.orders.order_id"]},
+    )
+
+    assert bare.canonical_required_dimensions == qualified.canonical_required_dimensions
+    assert bare.diff(bare) == []
+    assert bare.diff(qualified) == []
+    assert bare.semantic_diff(qualified) == ([], [])
+
+
 def test_semantic_diff_compares_unparseable_queries_as_raw_sql():
     original = TransformSpec(name="node", query="SELECT (")
     same = TransformSpec(name="node", query="SELECT (")
@@ -1913,6 +1952,16 @@ def test_semantic_diff_compares_unparseable_queries_as_raw_sql():
 
     assert original.semantic_diff(same) == ([], [])
     assert original.semantic_diff(changed) == (["query"], [])
+
+    metric = MetricSpec(
+        name="metric",
+        query="SELECT (",
+        required_dimensions=["id"],
+    )
+    same_metric = metric.model_copy(deep=True)
+    changed_metric = metric.model_copy(update={"required_dimensions": ["other_id"]})
+    assert metric.semantic_diff(same_metric) == ([], [])
+    assert metric.semantic_diff(changed_metric) == (["required_dimensions"], [])
 
 
 @pytest.mark.parametrize(

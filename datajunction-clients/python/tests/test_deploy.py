@@ -1,21 +1,22 @@
 import importlib.metadata
 import io
-from pathlib import Path
 import time
 import zipfile
+from pathlib import Path
 from unittest import mock
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
+import yaml
 from datajunction.deployment import DeploymentService
 from datajunction.exceptions import DJClientException, DJDeploymentFailure
-from datajunction.models import DeploymentInfo
+from datajunction.models import DeploymentInfo, SemanticFingerprint
 from datajunction.rendering import (
     _render_error_bullets,
     _strip_summary_lines,
     print_deployment_header,
     print_results,
 )
-import yaml
 from rich.console import Console
 
 
@@ -1337,24 +1338,41 @@ class TestGetImpact:
         monkeypatch.delenv("DJ_DEPLOY_REPO", raising=False)
 
         # Create mock client
-        mock_client = MagicMock()
-        mock_client.get_deployment_impact.return_value = {
+        response = {
             "uuid": "dry_run",
             "namespace": "test.ns",
             "status": "success",
             "results": [
                 {
                     "name": "test.ns.my_node",
+                    "deploy_type": "node",
                     "operation": "noop",
                     "status": "success",
                     "message": "",
+                    "change_tier": "none",
+                    "semantic_fingerprint": {
+                        "version": 1,
+                        "digest": "a" * 64,
+                    },
                 },
             ],
-            "downstream_impacts": [],
+            "downstream_impacts": [
+                {
+                    "name": "external.metric",
+                    "node_type": "metric",
+                    "predicted_status": "valid",
+                    "semantic_fingerprint": {
+                        "version": 1,
+                        "digest": "b" * 64,
+                    },
+                },
+            ],
         }
+        mock_client = MagicMock()
+        mock_client.get_deployment_impact.return_value = response
 
         svc = DeploymentService(mock_client)
-        result = svc.get_impact(tmp_path)
+        result = svc.get_impact(tmp_path, display=False)
 
         # Verify the API was called
         mock_client.get_deployment_impact.assert_called_once()
@@ -1362,9 +1380,72 @@ class TestGetImpact:
         assert call_args["namespace"] == "test.ns"
         assert "nodes" in call_args
 
-        # Verify the result is returned
-        assert result["namespace"] == "test.ns"
-        assert result["uuid"] == "dry_run"
+        assert result is response
+        parsed = DeploymentInfo.from_dict(result)
+        assert parsed.results[0].deploy_type == "node"
+        assert parsed.results[0].change_tier == "none"
+        assert parsed.results[0].semantic_fingerprint == SemanticFingerprint(
+            digest="a" * 64,
+        )
+        assert parsed.downstream_impacts[0].semantic_fingerprint == SemanticFingerprint(
+            digest="b" * 64,
+        )
+
+    def test_deployment_info_parses_unknown_fingerprints(self):
+        parsed = DeploymentInfo.from_dict(
+            {
+                "uuid": "dry_run",
+                "namespace": "test.ns",
+                "status": "success",
+                "results": [{"semantic_fingerprint": "unknown"}],
+                "downstream_impacts": [{"semantic_fingerprint": "unknown"}],
+            },
+        )
+
+        assert parsed.results[0].semantic_fingerprint == "unknown"
+        assert parsed.downstream_impacts[0].semantic_fingerprint == "unknown"
+
+        with pytest.raises(
+            ValueError,
+            match="Semantic fingerprint must be an object or 'unknown'",
+        ):
+            DeploymentInfo.from_dict(
+                {
+                    "results": [{"semantic_fingerprint": "invalid"}],
+                },
+            )
+
+    def test_deployment_info_parses_older_impact_response(self):
+        parsed = DeploymentInfo.from_dict(
+            {
+                "uuid": "dry_run",
+                "namespace": "test.ns",
+                "status": "success",
+                "results": [
+                    {
+                        "name": "test.ns.my_node",
+                        "operation": "noop",
+                        "status": "skipped",
+                    },
+                ],
+            },
+        )
+        assert parsed.results[0].deploy_type == ""
+        assert parsed.results[0].change_tier is None
+        assert parsed.results[0].semantic_fingerprint is None
+        assert parsed.downstream_impacts == []
+
+    @pytest.mark.parametrize("digest", ["a" * 63, "A" * 64, "g" * 64])
+    def test_semantic_fingerprint_rejects_invalid_digest(self, digest):
+        with pytest.raises(ValueError, match="64 lowercase hexadecimal"):
+            SemanticFingerprint(digest=digest)
+
+    def test_semantic_fingerprint_rejects_unknown_version(self):
+        with pytest.raises(
+            ValueError,
+            match="Unsupported semantic fingerprint version",
+        ):
+            SemanticFingerprint(version=2, digest="a" * 64)
 
     def test_get_impact_with_namespace_override(self, tmp_path, monkeypatch):
         """get_impact should respect namespace override."""
