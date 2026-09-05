@@ -4969,7 +4969,7 @@ class DeploymentOrchestrator:
         if isinstance(result.spec, LNS) and isinstance(existing_node_spec, LNS):
             col_change_notes = _diff_column_metadata(
                 result.spec.rendered_spec().columns,
-                existing_node_spec.columns,
+                existing_node_spec.rendered_spec().columns,
             )
             if col_change_notes:
                 changed_fields = changed_fields + ["columns"]

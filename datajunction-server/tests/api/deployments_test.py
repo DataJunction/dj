@@ -4677,6 +4677,55 @@ class TestDeployments:
         assert [tag.name for tag in node.tags] == ["tag1"]
 
     @pytest.mark.asyncio
+    async def test_redeploy_does_not_flag_column_description_mentioning_prefix(
+        self,
+        session,
+        client,
+        current_user,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        A column description mentioning `${prefix}` as prose (documenting a
+        sibling node) must not be reported as changed when redeployed with
+        an unrelated update. `_diff_column_metadata` (orchestrator.py)
+        compared the freshly deployed spec's columns, rendered, against the
+        stored spec's columns, unrendered -- column descriptions are stored
+        verbatim, `${prefix}` and all, so this never compared equal.
+        """
+        namespace = "column_description_prefix_noop"
+        default_us_state.columns = [
+            ColumnSpec(
+                name="state_short",
+                description="Two-letter code. See also ${prefix}default.us_states.",
+            ),
+        ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[default_us_states, default_us_state],
+            ),
+        )
+        assert data["status"] == "success", data["results"]
+
+        default_us_state.tags = ["tag1"]
+        tag = Tag(name="tag1", created_by_id=current_user.id, tag_type="default")
+        session.add(tag)
+        await session.commit()
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[default_us_states, default_us_state],
+            ),
+        )
+        result = data["results"][-1]
+        assert result["status"] == "success", data["results"]
+        assert "description changed" not in result["message"], result
+
+    @pytest.mark.asyncio
     async def test_deploy_tag_metadata(
         self,
         client,
