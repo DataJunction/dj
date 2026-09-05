@@ -503,6 +503,45 @@ def test_dimension_join_link_spec_with_join_cardinality():
     assert hash(default_link) != hash(fanout_link)
 
 
+def test_diff_does_not_flag_description_mentioning_prefix():
+    """
+    `NodeSpec.diff()` renders `${prefix}` on both sides before comparing.
+
+    An exported spec's `description`/`custom_metadata` keep any `${prefix}`
+    substring verbatim -- those fields are stored exactly as authored, never
+    rendered. Rendering only the incoming spec (not the exported one) would
+    replace `${prefix}` on one side but not the other, so a description that
+    happens to mention a sibling node via `${prefix}` would never compare
+    equal to itself.
+    """
+    namespace = "test"
+    description = "See also ${prefix}other_node for context."
+    custom_metadata = {"see_also": "${prefix}other_node"}
+
+    exported = DimensionSpec(
+        name=f"{namespace}.some_node",
+        namespace=namespace,
+        query="SELECT 1 AS id",
+        primary_key=["id"],
+        description=description,
+        custom_metadata=custom_metadata,
+    )
+    declared = DimensionSpec(
+        name="some_node",
+        namespace=namespace,
+        query="SELECT 1 AS id",
+        primary_key=["id"],
+        description=description,
+        custom_metadata=custom_metadata,
+        owners=["someone_else"],
+    )
+
+    changed = exported.diff(declared)
+    assert "description" not in changed
+    assert "custom_metadata" not in changed
+    assert changed == ["owners"]
+
+
 def test_source_spec_with_dimension_link_default_value():
     """Test SourceSpec with dimension_links including default_value."""
     source_spec = SourceSpec(
