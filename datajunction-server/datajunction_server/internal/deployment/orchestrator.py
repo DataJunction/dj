@@ -4946,6 +4946,8 @@ class DeploymentOrchestrator:
 
         # Track changes to other node fields
         existing_node_spec = await existing.to_spec(self.session)
+        # to_spec() never sets namespace; diff() needs it to render ${prefix}.
+        existing_node_spec.namespace = result.spec.namespace
         changed_fields = existing_node_spec.diff(result.spec) if existing else []
 
         # Check if query changed (diff() ignores it, but we want to surface it)

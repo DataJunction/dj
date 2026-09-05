@@ -1856,6 +1856,86 @@ class TestDeployments:
         ]
 
     @pytest.mark.asyncio
+    async def test_redeploy_is_noop_for_join_link_with_default_value(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        A join link with a `default_value` must redeploy as a noop, since
+        nothing about it changed. `DimensionLink.to_spec()` must include
+        `default_value` -- otherwise the exported spec always reports it as
+        None and never compares equal to the one it was authored from.
+        """
+        namespace = "join_link_default_value_noop"
+        dim_spec = DimensionSpec(
+            name="default.hard_hat",
+            description="Hard hat dimension",
+            query="""
+            SELECT
+                hard_hat_id,
+                state
+            FROM ${prefix}default.hard_hats
+            """,
+            primary_key=["hard_hat_id"],
+            owners=["dj"],
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node="${prefix}default.us_state",
+                    join_type="left",
+                    join_on="${prefix}default.hard_hat.state = ${prefix}default.us_state.state_short",
+                    default_value="Unknown",
+                ),
+            ],
+        )
+        nodes_list = [dim_spec, default_hard_hats, default_us_states, default_us_state]
+        link_name = (
+            "join_link_default_value_noop.default.hard_hat -> "
+            "join_link_default_value_noop.default.us_state"
+        )
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success", data
+        assert [
+            result for result in data["results"] if result["name"] == link_name
+        ] == [
+            {
+                "deploy_type": "link",
+                "message": "Join link successfully deployed",
+                "name": link_name,
+                "operation": "create",
+                "changed_fields": [],
+                "status": "success",
+            },
+        ]
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success", data
+        assert [
+            result
+            for result in data["results"]
+            if result["name"]
+            in (link_name, "join_link_default_value_noop.default.hard_hat")
+        ] == [
+            {
+                "deploy_type": "node",
+                "message": "Unchanged",
+                "name": "join_link_default_value_noop.default.hard_hat",
+                "operation": "noop",
+                "changed_fields": [],
+                "status": "skipped",
+            },
+        ]
+
+    @pytest.mark.asyncio
     async def test_required_dimension_from_linked_dimension_roundtrips(
         self,
         client,
@@ -1948,6 +2028,89 @@ class TestDeployments:
         assert metric_b["required_dimensions"] == [
             "${prefix}default.us_state.state_name",
             "${prefix}default.us_state.state_region",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_full_redeploy_is_noop(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        A namespace covering source/dimension/transform/metric/cube, join and
+        reference links (one with a role, one with a default_value), a
+        required dimension pulled from a linked dimension, and a description
+        mentioning `${prefix}` as prose -- deployed twice with no changes --
+        must come back fully noop the second time. Regression test for the
+        combination of export round-trip bugs found in required_dimensions,
+        reference link roles, join link default_value, and description/
+        custom_metadata rendering.
+        """
+        hard_hat = DimensionSpec(
+            name="default.hard_hat",
+            description="Hard hat dimension. See also ${prefix}default.us_state.",
+            query="SELECT hard_hat_id, state FROM ${prefix}default.hard_hats",
+            primary_key=["hard_hat_id"],
+            owners=["dj"],
+            custom_metadata={"see_also": "${prefix}default.us_state"},
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node="${prefix}default.us_state",
+                    join_type="left",
+                    join_on=(
+                        "${prefix}default.hard_hat.state = "
+                        "${prefix}default.us_state.state_short"
+                    ),
+                    default_value="Unknown",
+                ),
+                DimensionReferenceLinkSpec(
+                    node_column="state",
+                    dimension="${prefix}default.us_state.state_short",
+                    role="home_state",
+                ),
+            ],
+        )
+        num_hard_hats = MetricSpec(
+            name="default.num_hard_hats",
+            node_type=NodeType.METRIC,
+            query="SELECT COUNT(*) FROM ${prefix}default.hard_hat",
+            required_dimensions=["${prefix}default.us_state.state_name"],
+            owners=["dj"],
+        )
+        repairs_cube = CubeSpec(
+            name="default.hard_hat_cube",
+            description="See also ${prefix}default.num_hard_hats.",
+            dimensions=["${prefix}default.us_state.state_name"],
+            metrics=["${prefix}default.num_hard_hats"],
+            owners=["dj"],
+        )
+        nodes = [
+            default_hard_hats,
+            default_us_states,
+            default_us_state,
+            hard_hat,
+            num_hard_hats,
+            repairs_cube,
+        ]
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace="full_redeploy_noop", nodes=nodes),
+        )
+        assert data["status"] == "success", data["results"]
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace="full_redeploy_noop", nodes=nodes),
+        )
+        assert data["status"] == "success", data["results"]
+        assert all(result["operation"] == "noop" for result in data["results"]), data[
+            "results"
+        ]
+        assert all(result["changed_fields"] == [] for result in data["results"]), data[
+            "results"
         ]
 
     @pytest.mark.asyncio
