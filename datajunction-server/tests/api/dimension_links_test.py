@@ -182,6 +182,49 @@ async def test_link_dimension_with_errors(
     )
 
 
+@pytest.mark.asyncio
+async def test_link_dimension_without_join_on(
+    dimensions_link_client: AsyncClient,
+):
+    """
+    A join link with no join_on cannot be stored, so it is rejected up front.
+    """
+    response = await dimensions_link_client.post(
+        "/nodes/default.events/link",
+        json={
+            "dimension_node": "default.users",
+            "join_cardinality": "many_to_one",
+        },
+    )
+    assert response.status_code == 422
+    assert response.json()["message"] == (
+        "Dimension link from default.events to default.users has no join_on "
+        "clause. Set join_on to the equality between this node's foreign key "
+        "column(s) and the dimension's primary key."
+    )
+
+
+@pytest.mark.asyncio
+async def test_link_dimension_with_cross_join(
+    dimensions_link_client: AsyncClient,
+):
+    """
+    A CROSS join has no ON clause, so it stores an empty join_sql.
+    """
+    response = await dimensions_link_client.post(
+        "/nodes/default.events/link",
+        json={
+            "dimension_node": "default.users",
+            "join_type": "cross",
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["message"] == (
+        "Dimension node default.users has been successfully linked to node "
+        "default.events."
+    )
+
+
 @pytest.fixture
 def link_events_to_users_without_role(
     dimensions_link_client: AsyncClient,

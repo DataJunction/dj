@@ -111,6 +111,8 @@ from datajunction_server.models.deployment import (
 from datajunction_server.models.dimensionlink import (
     JoinLinkInput,
     LinkType,
+    misplaced_node_column_message,
+    missing_join_on_message,
 )
 from datajunction_server.models.hierarchy import HierarchyLevelInput
 from datajunction_server.models.history import ActivityType
@@ -2140,6 +2142,20 @@ class DeploymentOrchestrator:
                 link_spec.rendered_dimension_node,
             )
 
+        if link_spec.type == LinkType.JOIN:
+            problems = self._join_link_problems(
+                cast(DimensionJoinLinkSpec, link_spec),
+                node_spec.rendered_name,
+            )
+            if problems:
+                return DeploymentResult(
+                    name=link_name,
+                    deploy_type=DeploymentResult.Type.LINK,
+                    status=DeploymentResult.Status.FAILED,
+                    operation=DeploymentResult.Operation.CREATE,
+                    message="\n".join(problems),
+                )
+
         if node.current and node.current.status == NodeStatus.INVALID:
             # Node is INVALID (no columns / bad SQL). Write the link aspirationally
             # so it's already present once the node is fixed.
@@ -2172,6 +2188,22 @@ class DeploymentOrchestrator:
             dimension_node=dimension_node,
         )
 
+    @staticmethod
+    def _join_link_problems(
+        link_spec: DimensionJoinLinkSpec,
+        node_name: str,
+    ) -> list[str]:
+        """List reasons a join link cannot be stored."""
+        dimension_node = link_spec.rendered_dimension_node
+        problems = []
+        if link_spec.node_column:
+            problems.append(
+                misplaced_node_column_message(node_name, dimension_node),
+            )
+        if not link_spec.rendered_join_on and link_spec.join_type != JoinType.CROSS:
+            problems.append(missing_join_on_message(node_name, dimension_node))
+        return problems
+
     def _create_missing_node_link_result(
         self,
         link_name: str,
@@ -2199,7 +2231,8 @@ class DeploymentOrchestrator:
                 dimension_node=join_link.rendered_dimension_node,
                 join_type=join_link.join_type,
                 join_cardinality=join_link.join_cardinality,
-                join_on=join_link.rendered_join_on,
+                # A CROSS join has no ON clause, but join_sql is NOT NULL.
+                join_on=join_link.rendered_join_on or "",
                 role=join_link.role,
                 default_value=join_link.default_value,
                 spark_hints=join_link.spark_hints,
