@@ -2870,6 +2870,42 @@ class TestGenerateChangelog:
         assert changelog[-1] == "└─ Updated columns"
 
     @pytest.mark.asyncio
+    async def test_source_without_declared_columns_uses_inferred_columns(self):
+        source_spec = SourceSpec(
+            name="source",
+            namespace="test",
+            catalog="catalog",
+            schema_="schema",
+            table="table",
+            columns=[],
+        )
+        existing = MagicMock()
+        existing.current.columns = []
+        existing.to_spec = AsyncMock(return_value=source_spec)
+        orchestrator = DeploymentOrchestrator(
+            deployment_spec=DeploymentSpec(namespace="test", nodes=[]),
+            deployment_id="source-inferred-columns",
+            session=MagicMock(),
+            context=MagicMock(),
+        )
+        orchestrator.registry.nodes["test.source"] = existing
+        result = NodeValidationResult(
+            spec=source_spec,
+            status=NodeStatus.VALID,
+            inferred_columns=[ColumnSpec(name="id", type="bigint")],
+            errors=[],
+            dependencies=[],
+        )
+
+        changelog, changed_fields, tier = await orchestrator._generate_changelog(
+            result,
+        )
+
+        assert changed_fields == []
+        assert tier == ChangeTier.NONE
+        assert changelog == []
+
+    @pytest.mark.asyncio
     async def test_cube_column_change_uses_role_qualified_identity(
         self,
         session,
