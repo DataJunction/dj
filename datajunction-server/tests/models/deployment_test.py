@@ -1940,6 +1940,7 @@ def test_semantic_diff_canonicalizes_required_dimension_identity():
     )
 
     assert bare.canonical_required_dimensions == qualified.canonical_required_dimensions
+    assert bare.diff(bare) == []
     assert bare.diff(qualified) == []
     assert bare.semantic_diff(qualified) == ([], [])
 
