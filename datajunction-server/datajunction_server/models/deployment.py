@@ -739,12 +739,9 @@ class NodeSpec(NamespacedSpec):
     def diff(self, other: "NodeSpec") -> list[str]:
         """
         Return a list of fields that differ between this and another NodeSpec.
-        Renders ${prefix} placeholders on both sides before comparing. Rendering
-        only `other` would leave `self` (e.g. an exported spec, which stores
-        free-text fields like `description` verbatim, `${prefix}` and all)
-        compared against a rendered value that no longer matches -- a false
-        positive for any node whose description or custom_metadata happens to
-        mention `${prefix}` as prose.
+        Renders ${prefix} on both sides -- rendering only `other` would leave
+        `self` compared against a rendered value it can never match, since
+        `description`/`custom_metadata` store `${prefix}` verbatim.
         """
         return diff(
             self.rendered_spec(),

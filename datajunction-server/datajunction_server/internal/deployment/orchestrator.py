@@ -4946,12 +4946,7 @@ class DeploymentOrchestrator:
 
         # Track changes to other node fields
         existing_node_spec = await existing.to_spec(self.session)
-        # `to_spec()` never sets `namespace` (the exported name is already
-        # fully qualified), but `NodeSpec.diff()` renders `${prefix}` on both
-        # sides against each spec's own `namespace` -- without this, a
-        # description or custom_metadata value that mentions `${prefix}` as
-        # prose renders here to "" instead of the real namespace, and never
-        # compares equal to the freshly deployed spec.
+        # to_spec() never sets namespace; diff() needs it to render ${prefix}.
         existing_node_spec.namespace = result.spec.namespace
         changed_fields = existing_node_spec.diff(result.spec) if existing else []
 

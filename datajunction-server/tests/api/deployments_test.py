@@ -2031,6 +2031,89 @@ class TestDeployments:
         ]
 
     @pytest.mark.asyncio
+    async def test_full_redeploy_is_noop(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        A namespace covering source/dimension/transform/metric/cube, join and
+        reference links (one with a role, one with a default_value), a
+        required dimension pulled from a linked dimension, and a description
+        mentioning `${prefix}` as prose -- deployed twice with no changes --
+        must come back fully noop the second time. Regression test for the
+        combination of export round-trip bugs found in required_dimensions,
+        reference link roles, join link default_value, and description/
+        custom_metadata rendering.
+        """
+        hard_hat = DimensionSpec(
+            name="default.hard_hat",
+            description="Hard hat dimension. See also ${prefix}default.us_state.",
+            query="SELECT hard_hat_id, state FROM ${prefix}default.hard_hats",
+            primary_key=["hard_hat_id"],
+            owners=["dj"],
+            custom_metadata={"see_also": "${prefix}default.us_state"},
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node="${prefix}default.us_state",
+                    join_type="left",
+                    join_on=(
+                        "${prefix}default.hard_hat.state = "
+                        "${prefix}default.us_state.state_short"
+                    ),
+                    default_value="Unknown",
+                ),
+                DimensionReferenceLinkSpec(
+                    node_column="state",
+                    dimension="${prefix}default.us_state.state_short",
+                    role="home_state",
+                ),
+            ],
+        )
+        num_hard_hats = MetricSpec(
+            name="default.num_hard_hats",
+            node_type=NodeType.METRIC,
+            query="SELECT COUNT(*) FROM ${prefix}default.hard_hat",
+            required_dimensions=["${prefix}default.us_state.state_name"],
+            owners=["dj"],
+        )
+        repairs_cube = CubeSpec(
+            name="default.hard_hat_cube",
+            description="See also ${prefix}default.num_hard_hats.",
+            dimensions=["${prefix}default.us_state.state_name"],
+            metrics=["${prefix}default.num_hard_hats"],
+            owners=["dj"],
+        )
+        nodes = [
+            default_hard_hats,
+            default_us_states,
+            default_us_state,
+            hard_hat,
+            num_hard_hats,
+            repairs_cube,
+        ]
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace="full_redeploy_noop", nodes=nodes),
+        )
+        assert data["status"] == "success", data["results"]
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace="full_redeploy_noop", nodes=nodes),
+        )
+        assert data["status"] == "success", data["results"]
+        assert all(result["operation"] == "noop" for result in data["results"]), data[
+            "results"
+        ]
+        assert all(result["changed_fields"] == [] for result in data["results"]), data[
+            "results"
+        ]
+
+    @pytest.mark.asyncio
     async def test_deploy_reconciles_external_preaggregation(
         self,
         client,
