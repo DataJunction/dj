@@ -176,7 +176,11 @@ async def find_upstream_node_names(
                 AND parent_n.current_version = parent_nr.version
             WHERE parent_n.deactivated_at IS NULL
         )
+        -- Ordered because parent_map's list order is load-bearing: it decides
+        -- the order a derived metric's base metrics resolve in, and with them
+        -- the order their components are projected in the generated SQL.
         SELECT DISTINCT node_name, child_name FROM upstream
+        ORDER BY node_name, child_name
     """).bindparams(bindparam("starting_names", expanding=True))
 
     result = await session.execute(
@@ -240,6 +244,7 @@ async def find_join_paths_batch(
         SELECT nr.id as rev_id, nr.node_id
         FROM noderevision nr
         WHERE nr.id IN :source_revision_ids
+        ORDER BY nr.id
     """).bindparams(bindparam("source_revision_ids", expanding=True))
 
     init_result = await session.execute(
@@ -290,6 +295,9 @@ async def find_join_paths_batch(
             JOIN node n ON dl.dimension_id = n.id
             WHERE nr.node_id IN :node_ids
                 AND nr.version = (SELECT current_version FROM node WHERE id = nr.node_id)
+            -- Ordered so that when two links reach the same dimension with the
+            -- same role, the first one found -- and kept -- is always the same.
+            ORDER BY nr.node_id, dl.id
         """).bindparams(bindparam("node_ids", expanding=True))
 
         try:

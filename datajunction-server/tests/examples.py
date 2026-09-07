@@ -3329,10 +3329,46 @@ BUILD_V3 = (  # type: ignore
             "mode": "published",
         },
     ),
-    # Note: NONE aggregability metrics (e.g., MEDIAN) cannot be added currently because
-    # the MEDIAN function class in DJ doesn't have is_aggregation = True, which causes
-    # metric validation to fail. This should be fixed in functions.py.
-    # TODO: Add NONE aggregability metric once MEDIAN is properly registered as aggregate.
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.line_item_count",
+            "description": "Count of order line items (COUNT accumulate, SUM merge)",
+            "query": "SELECT COUNT(line_number) FROM v3.order_details",
+            "mode": "published",
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.order_line_rows",
+            "description": "Count of rows (COUNT(*), which reads no column)",
+            "query": "SELECT COUNT(*) FROM v3.order_details",
+            "mode": "published",
+        },
+    ),
+    # A percentile has no decomposition at all, so it forces the whole grain
+    # group off the pre-aggregation path.
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.p90_unit_price",
+            "description": "90th percentile unit price (non-decomposable percentile)",
+            "query": "SELECT APPROX_PERCENTILE(unit_price, 0.9) FROM v3.order_details",
+            "mode": "published",
+        },
+    ),
+    # A second, differently-named non-decomposable aggregation, to show the
+    # behavior belongs to "has no decomposition" rather than to one function.
+    (
+        "/nodes/metric/",
+        {
+            "name": "v3.median_unit_price",
+            "description": "Median unit price (non-decomposable percentile)",
+            "query": "SELECT PERCENTILE(unit_price, 0.5) FROM v3.order_details",
+            "mode": "published",
+        },
+    ),
     # =========================================================================
     # Base Metrics - On page_views_enriched
     # =========================================================================

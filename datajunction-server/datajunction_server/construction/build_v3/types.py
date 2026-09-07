@@ -346,6 +346,15 @@ class GrainGroupSQL:
     # instead of individual grain group CTEs.
     is_cross_fact_window: bool = False
 
+    # True when the grain group CTE built every component with its accumulate
+    # function (e.g. SUM(x), COUNT(x), hll_sketch_agg(x)).  False when the CTE
+    # projects raw rows instead, which happens for NONE aggregability -- a
+    # non-decomposable metric (a percentile, MAX_BY, ...) sharing the parent
+    # drags the whole group down to raw grain.  Applying a component's merge
+    # function in the final SELECT is only valid when this is True; otherwise
+    # the metric's own expression has to be applied to the raw columns.
+    components_accumulated: bool = True
+
     # Pre-aggregation: True when collect_and_build_ctes() added a wrapper CTE that
     # applies COUNT(DISTINCT grain_key) per requested dimension combination.
     # When True, _build_metric_aggregation() should emit SUM(pre_agg_col) instead of

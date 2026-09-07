@@ -250,7 +250,10 @@ def get_base_metrics_for_derived(ctx: BuildContext, metric_node: Node) -> list[N
     For a derived metric, get all the base metrics it depends on.
 
     Returns list of base metric nodes (metrics that SELECT FROM a fact/transform
-    or a dimension source, not other metrics).
+    or a dimension source, not other metrics), ordered by name. The order decides
+    the order the base metrics' components are projected in the grain group CTE,
+    so it has to be a property of the metrics rather than of the order the graph
+    walk happened to reach them.
     """
     base_metrics = []
     visited = set()
@@ -278,6 +281,7 @@ def get_base_metrics_for_derived(ctx: BuildContext, metric_node: Node) -> list[N
             base_metrics.append(node)
 
     collect_bases(metric_node)
+    base_metrics.sort(key=lambda node: node.name)
     return base_metrics
 
 
