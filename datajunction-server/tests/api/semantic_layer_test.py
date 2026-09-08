@@ -65,6 +65,16 @@ class TestFilterToSql:
         )
         assert _filter_to_sql(flt) == "ns.dim IN ('North', 'O\\'Brien')"
 
+    @pytest.mark.parametrize("value", [[], "North"])
+    def test_collection_operator_requires_non_empty_collection(self, value):
+        flt = FilterPayload(column="ns.dim", operator="IN", value=value)
+
+        with pytest.raises(DJException) as exc:
+            _filter_to_sql(flt)
+
+        assert exc.value.http_status_code == 400
+        assert "requires a non-empty list" in exc.value.message
+
     def test_between_requires_two_values(self):
         flt = FilterPayload(column="ns.dim", operator="between", value=[1, 10])
         assert _filter_to_sql(flt) == "ns.dim BETWEEN 1 AND 10"
@@ -610,6 +620,60 @@ async def test_values_rejects_unknown_dimension(client: AsyncClient):
     assert "does not contain dimension" in resp.json()["detail"]
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cube", [None, SimpleNamespace(current=None)])
+async def test_values_unknown_view_returns_404(
+    client: AsyncClient,
+    monkeypatch,
+    cube,
+):
+    monkeypatch.setattr(
+        "datajunction_server.api.semantic_layer.Node.get_cube_by_name",
+        AsyncMock(return_value=cube),
+    )
+
+    resp = await client.post(
+        "/semantic/views/sem.no_such_view/values",
+        json={"dimension": "sem.region.region_name"},
+    )
+
+    assert resp.status_code == 404, resp.text
+    assert "does not exist" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_values_rejects_filter_outside_view(
+    client: AsyncClient,
+    monkeypatch,
+):
+    fake_cube = SimpleNamespace(
+        current=SimpleNamespace(
+            cube_node_dimensions=["sem.region.region_name"],
+        ),
+    )
+    monkeypatch.setattr(
+        "datajunction_server.api.semantic_layer.Node.get_cube_by_name",
+        AsyncMock(return_value=fake_cube),
+    )
+
+    resp = await client.post(
+        "/semantic/views/sem.sales_cube/values",
+        json={
+            "dimension": "sem.region.region_name",
+            "filters": [
+                {
+                    "column": "sem.customer.country",
+                    "operator": "=",
+                    "value": "US",
+                },
+            ],
+        },
+    )
+
+    assert resp.status_code == 400, resp.text
+    assert "does not contain filter dimensions" in resp.json()["detail"]
+
+
 # ---------------------------------------------------------------------------
 # DJException handlers (the ``except DJException`` branches) — forced via
 # monkeypatch so the underlying call raises a DJException with a specific
@@ -655,6 +719,27 @@ async def test_get_view_djexception_returns_problem(
 
 
 @pytest.mark.asyncio
+async def test_values_cube_lookup_djexception_returns_problem(
+    client: AsyncClient,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "datajunction_server.api.semantic_layer.Node.get_cube_by_name",
+        AsyncMock(
+            side_effect=DJException(message="cube blew up", http_status_code=418),
+        ),
+    )
+
+    resp = await client.post(
+        "/semantic/views/some_view/values",
+        json={"dimension": "sem.region.region_name"},
+    )
+
+    assert resp.status_code == 418, resp.text
+    assert resp.json() == {"status_code": 418, "detail": "cube blew up"}
+
+
+@pytest.mark.asyncio
 async def test_generate_sql_djexception_returns_problem(
     client: AsyncClient,
     monkeypatch,
@@ -692,3 +777,33 @@ async def test_generate_sql_djexception_returns_problem(
     )
     assert resp.status_code == 400, resp.text
     assert resp.json() == {"status_code": 400, "detail": "sql gen blew up"}
+
+
+@pytest.mark.asyncio
+async def test_values_sql_generation_djexception_returns_problem(
+    client: AsyncClient,
+    monkeypatch,
+):
+    fake_cube = SimpleNamespace(
+        current=SimpleNamespace(
+            cube_node_dimensions=["sem.region.region_name"],
+        ),
+    )
+    monkeypatch.setattr(
+        "datajunction_server.api.semantic_layer.Node.get_cube_by_name",
+        AsyncMock(return_value=fake_cube),
+    )
+    monkeypatch.setattr(
+        "datajunction_server.api.semantic_layer._generate_sql",
+        AsyncMock(
+            side_effect=DJException(message="values SQL blew up", http_status_code=422),
+        ),
+    )
+
+    resp = await client.post(
+        "/semantic/views/sem.sales_cube/values",
+        json={"dimension": "sem.region.region_name"},
+    )
+
+    assert resp.status_code == 422, resp.text
+    assert resp.json() == {"status_code": 422, "detail": "values SQL blew up"}
