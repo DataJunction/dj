@@ -18,6 +18,7 @@ from enum import Enum
 from functools import reduce
 from itertools import chain, zip_longest
 import re
+from sqlglot import Dialect as SQLGlotDialect
 from sqlglot import exp as sqlglot_exp
 from typing import (
     TYPE_CHECKING,
@@ -109,6 +110,10 @@ logger = logging.getLogger(__name__)
 
 _render_dialect: ContextVar[Dialect | None] = ContextVar(
     "_render_dialect",
+    default=None,
+)
+_render_identifier_dialect: ContextVar[Dialect | None] = ContextVar(
+    "_render_identifier_dialect",
     default=None,
 )
 
@@ -236,6 +241,16 @@ def render_for_dialect(dialect: Dialect):
         _render_dialect.reset(token)
 
 
+@contextmanager
+def render_identifiers_for_dialect(dialect: Dialect):
+    """Render quoted identifiers using a dialect's native quote character."""
+    token = _render_identifier_dialect.set(dialect)
+    try:
+        yield
+    finally:
+        _render_identifier_dialect.reset(token)
+
+
 def to_sql(query: Query, dialect: Dialect | None = None) -> str:
     """
     Render a query AST to SQL for a specific dialect.
@@ -258,15 +273,21 @@ def to_sql(query: Query, dialect: Dialect | None = None) -> str:
 
     with render_for_dialect(dialect):
         rendered = str(query)
+
+    def native_render() -> str:
+        with render_for_dialect(dialect), render_identifiers_for_dialect(dialect):
+            return str(query)
+
     try:
-        return transpile_sql(rendered, dialect, schema=_sqlglot_schema(query))
+        transpiled = transpile_sql(rendered, dialect, schema=_sqlglot_schema(query))
+        return native_render() if transpiled == rendered else transpiled
     except Exception:  # pragma: no cover - fall back to native render
         logger.warning(
             "Transpilation to %s failed; falling back to native render",
             dialect,
             exc_info=True,
         )
-        return rendered
+        return native_render()
 
 
 # When True, skip parent-pointer wiring in __post_init__ and __setattr__.
@@ -878,6 +899,12 @@ class Name(Node):
         the name with or without quotes
         """
         quote_style = "" if not quotes else self.quote_style
+        if quote_style and (dialect := _render_identifier_dialect.get()):
+            dialect_class = SQLGlotDialect.classes.get(
+                str(dialect),
+                SQLGlotDialect.classes["spark"],
+            )
+            quote_style = dialect_class().tokenizer_class.IDENTIFIERS[0]
         namespace = str(self.namespace) + "." if self.namespace else ""
         return f"{namespace}{quote_style}{self.name}{quote_style}"
 

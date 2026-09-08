@@ -27,8 +27,9 @@ from datajunction_server.construction.build_v3.types import (
 )
 from datajunction_server.errors import DJException
 from datajunction_server.internal.sql import build_row_count_sql
-from datajunction_server.models.dialect import Dialect
+from datajunction_server.models.dialect import Dialect, DialectRegistry
 from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.transpilation import SQLTranspilationPlugin
 
 
 class TestFilterToSql:
@@ -233,7 +234,16 @@ class TestSemanticViewPayloadTypes:
         (Dialect.DUCKDB, '"COUNT"'),
     ],
 )
-def test_row_count_uses_native_ast_and_quotes_alias(dialect, quoted_alias):
+def test_row_count_uses_native_ast_and_quotes_alias(
+    dialect,
+    quoted_alias,
+    monkeypatch,
+):
+    monkeypatch.setitem(
+        DialectRegistry._registry,
+        dialect.value,
+        SQLTranspilationPlugin,
+    )
     generated = V3GeneratedSQL(
         query=parse("SELECT region_name FROM sales"),
         columns=[],
