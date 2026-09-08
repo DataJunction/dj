@@ -371,15 +371,11 @@ class TestQueryServiceClient:
         )
 
     @pytest.mark.asyncio
-    async def test_submit_query_ignores_request_headers(
+    async def test_submit_query_forwards_full_cache_policy(
         self,
         mocker: MockerFixture,
     ) -> None:
-        """``request_headers`` is intentionally not forwarded to DJQS — it stays
-        on the API for caller compatibility, but only the static ``accept`` header
-        actually goes on the wire. This guards against accidentally forwarding
-        the FastAPI request's ``Accept-Encoding`` (e.g. ``zstd``) and getting
-        back a body httpx can't auto-decompress."""
+        """Only Cache-Control is propagated; request credentials stay local."""
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
@@ -417,12 +413,16 @@ class TestQueryServiceClient:
             request_headers={
                 "X-DJ-User": "alice",
                 "Accept-Encoding": "zstd",
+                "Cache-Control": "max-age=86400, stale-while-revalidate",
             },
         )
         mock_request.assert_called_with(
             "POST",
             "/queries/",
-            headers={"accept": "application/json"},
+            headers={
+                "accept": "application/json",
+                "cache-control": "max-age=86400, stale-while-revalidate",
+            },
             json=ANY,
         )
 
