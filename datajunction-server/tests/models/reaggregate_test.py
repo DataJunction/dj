@@ -7,6 +7,7 @@ from datajunction_server.models.reaggregate import (
     dimension_reaggregate_rules,
     dump_reaggregate_spec,
     parse_reaggregate_spec,
+    unsupported_dimension_reaggregate_functions,
 )
 
 
@@ -88,3 +89,24 @@ def test_dimension_reaggregate_rules_empty_for_none():
     Empty reaggregate specs have no dimension-specific rules.
     """
     assert dimension_reaggregate_rules(None) == []
+
+
+def test_unsupported_dimension_reaggregate_functions_handles_empty_and_invalid():
+    """
+    Unsupported dimension collapse functions are reported from parsed specs.
+    """
+    assert unsupported_dimension_reaggregate_functions(None) == []
+    assert unsupported_dimension_reaggregate_functions(
+        {
+            "rules": [
+                {
+                    "dimension": "default.date_dim.date",
+                    "fn": "sum",
+                },
+                {
+                    "dimension": "default.date_dim.date",
+                    "fn": "last_value",
+                },
+            ],
+        },
+    ) == ["sum"]
