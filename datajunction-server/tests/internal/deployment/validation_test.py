@@ -285,6 +285,37 @@ class TestValidateQuery:
         assert "full_name" in message
 
     @pytest.mark.asyncio
+    async def test_validate_query_node_skips_declared_columns_for_metric(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """A metric declaring its output column stays valid whatever it's named.
+
+        A metric's single output column is renamed to the amenable node name
+        on deploy, so a declared name has nothing stable to match against.
+        """
+        context = ValidationContext(
+            session=session,
+            node_graph={"test.weekly_active_players": [parent_node.name]},
+            dependency_nodes={parent_node.name: parent_node},
+        )
+        spec = MetricSpec(
+            name="test.weekly_active_players",
+            query="SELECT SUM(value) FROM test.parent",
+            description="A test metric",
+            mode="published",
+            columns=[
+                ColumnSpec(name="weekly_active_players", display_name="WAP"),
+            ],
+        )
+        validator = NodeSpecBulkValidator(context)
+        result = validator.validate_query_node(spec)
+
+        assert result.errors == []
+        assert result.status == NodeStatus.VALID
+
+    @pytest.mark.asyncio
     async def test_validate_query_node_flags_hardcoded_namespace(
         self,
         session: AsyncSession,

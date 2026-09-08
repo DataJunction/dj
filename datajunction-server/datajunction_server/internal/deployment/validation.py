@@ -611,7 +611,12 @@ class NodeSpecBulkValidator:
         query's output. A declared column that doesn't match any output column
         is silently dropped (its metadata is never applied), so this is
         surfaced as an error instead.
+
+        Metrics are exempt: their one output column is renamed to the node's
+        amenable name on deploy, so no declared name can match reliably.
         """
+        if spec.node_type == NodeType.METRIC:
+            return None
         declared_names = {
             col.name
             for col in (
