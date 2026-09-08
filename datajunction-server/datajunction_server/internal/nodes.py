@@ -107,6 +107,7 @@ from datajunction_server.models.dimensionlink import (
     JoinLinkInput,
     JoinType,
     LinkDimensionIdentifier,
+    missing_join_on_message,
 )
 from datajunction_server.models.history import status_change_history
 from datajunction_server.models.materialization import (
@@ -3175,6 +3176,10 @@ async def validate_complex_dimension_link(
             message=f"Cannot link dimension to a node of type {dimension_node.type}. "
             "Must be a dimension node.",
         )
+    if not link_input.join_on and link_input.join_type != JoinType.CROSS:
+        raise DJInvalidInputException(
+            message=missing_join_on_message(node.name, link_input.dimension_node),  # type: ignore
+        )
 
     if (
         dimension_node.current.catalog is not None  # type: ignore
@@ -3334,12 +3339,14 @@ async def upsert_complex_dimension_link(
         if link.dimension_id == dimension_node.id and link.role == link_input.role  # type: ignore
     ]
     activity_type = ActivityType.CREATE
+    # A CROSS join has no ON clause, but join_sql is NOT NULL.
+    join_sql = link_input.join_on or ""
 
     if existing_link:
         # Update the existing dimension link
         activity_type = ActivityType.UPDATE
         dimension_link = existing_link[0]
-        dimension_link.join_sql = link_input.join_on
+        dimension_link.join_sql = join_sql
         dimension_link.join_type = DimensionLink.parse_join_type(
             join_relation.join_type,
         )
@@ -3351,7 +3358,7 @@ async def upsert_complex_dimension_link(
         dimension_link = DimensionLink(
             node_revision_id=new_revision.id,  # type: ignore
             dimension_id=dimension_node.id,  # type: ignore
-            join_sql=link_input.join_on,
+            join_sql=join_sql,
             join_type=DimensionLink.parse_join_type(join_relation.join_type),
             join_cardinality=link_input.join_cardinality,
             role=link_input.role,

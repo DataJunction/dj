@@ -1778,6 +1778,167 @@ class TestDeployments:
         )
 
     @pytest.mark.asyncio
+    async def test_redeploy_is_noop_for_role_qualified_reference_link(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        A reference link with a role must redeploy as a noop, since nothing
+        about it changed. `Column.dimension_column` stores the role baked
+        into a "[role]" suffix, and to_spec() must split that back out into
+        the link's own `role` field rather than leaving it in the exported
+        `dimension` string -- otherwise the exported spec never compares
+        equal to the one it was authored from.
+        """
+        namespace = "reference_link_role_noop"
+        dim_spec = DimensionSpec(
+            name="default.hard_hat",
+            description="Hard hat dimension",
+            query="""
+            SELECT
+                hard_hat_id,
+                state
+            FROM ${prefix}default.hard_hats
+            """,
+            primary_key=["hard_hat_id"],
+            owners=["dj"],
+            dimension_links=[
+                DimensionReferenceLinkSpec(
+                    node_column="state",
+                    dimension="${prefix}default.us_state.state_short",
+                    role="home_state",
+                ),
+            ],
+        )
+        nodes_list = [dim_spec, default_hard_hats, default_us_states, default_us_state]
+        link_name = (
+            "reference_link_role_noop.default.hard_hat -> "
+            "reference_link_role_noop.default.us_state[home_state]"
+        )
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success", data
+        assert [
+            result for result in data["results"] if result["name"] == link_name
+        ] == [
+            {
+                "deploy_type": "link",
+                "message": "Reference link successfully deployed",
+                "name": link_name,
+                "operation": "create",
+                "changed_fields": [],
+                "status": "success",
+            },
+        ]
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success", data
+        assert [
+            result
+            for result in data["results"]
+            if result["name"]
+            in (link_name, "reference_link_role_noop.default.hard_hat")
+        ] == [
+            {
+                "deploy_type": "node",
+                "message": "Unchanged",
+                "name": "reference_link_role_noop.default.hard_hat",
+                "operation": "noop",
+                "changed_fields": [],
+                "status": "skipped",
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_redeploy_is_noop_for_join_link_with_default_value(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        A join link with a `default_value` must redeploy as a noop, since
+        nothing about it changed. `DimensionLink.to_spec()` must include
+        `default_value` -- otherwise the exported spec always reports it as
+        None and never compares equal to the one it was authored from.
+        """
+        namespace = "join_link_default_value_noop"
+        dim_spec = DimensionSpec(
+            name="default.hard_hat",
+            description="Hard hat dimension",
+            query="""
+            SELECT
+                hard_hat_id,
+                state
+            FROM ${prefix}default.hard_hats
+            """,
+            primary_key=["hard_hat_id"],
+            owners=["dj"],
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node="${prefix}default.us_state",
+                    join_type="left",
+                    join_on="${prefix}default.hard_hat.state = ${prefix}default.us_state.state_short",
+                    default_value="Unknown",
+                ),
+            ],
+        )
+        nodes_list = [dim_spec, default_hard_hats, default_us_states, default_us_state]
+        link_name = (
+            "join_link_default_value_noop.default.hard_hat -> "
+            "join_link_default_value_noop.default.us_state"
+        )
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success", data
+        assert [
+            result for result in data["results"] if result["name"] == link_name
+        ] == [
+            {
+                "deploy_type": "link",
+                "message": "Join link successfully deployed",
+                "name": link_name,
+                "operation": "create",
+                "changed_fields": [],
+                "status": "success",
+            },
+        ]
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success", data
+        assert [
+            result
+            for result in data["results"]
+            if result["name"]
+            in (link_name, "join_link_default_value_noop.default.hard_hat")
+        ] == [
+            {
+                "deploy_type": "node",
+                "message": "Unchanged",
+                "name": "join_link_default_value_noop.default.hard_hat",
+                "operation": "noop",
+                "changed_fields": [],
+                "status": "skipped",
+            },
+        ]
+
+    @pytest.mark.asyncio
     async def test_required_dimension_from_linked_dimension_roundtrips(
         self,
         client,
@@ -1870,6 +2031,89 @@ class TestDeployments:
         assert metric_b["required_dimensions"] == [
             "${prefix}default.us_state.state_name",
             "${prefix}default.us_state.state_region",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_full_redeploy_is_noop(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        A namespace covering source/dimension/transform/metric/cube, join and
+        reference links (one with a role, one with a default_value), a
+        required dimension pulled from a linked dimension, and a description
+        mentioning `${prefix}` as prose -- deployed twice with no changes --
+        must come back fully noop the second time. Regression test for the
+        combination of export round-trip bugs found in required_dimensions,
+        reference link roles, join link default_value, and description/
+        custom_metadata rendering.
+        """
+        hard_hat = DimensionSpec(
+            name="default.hard_hat",
+            description="Hard hat dimension. See also ${prefix}default.us_state.",
+            query="SELECT hard_hat_id, state FROM ${prefix}default.hard_hats",
+            primary_key=["hard_hat_id"],
+            owners=["dj"],
+            custom_metadata={"see_also": "${prefix}default.us_state"},
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node="${prefix}default.us_state",
+                    join_type="left",
+                    join_on=(
+                        "${prefix}default.hard_hat.state = "
+                        "${prefix}default.us_state.state_short"
+                    ),
+                    default_value="Unknown",
+                ),
+                DimensionReferenceLinkSpec(
+                    node_column="state",
+                    dimension="${prefix}default.us_state.state_short",
+                    role="home_state",
+                ),
+            ],
+        )
+        num_hard_hats = MetricSpec(
+            name="default.num_hard_hats",
+            node_type=NodeType.METRIC,
+            query="SELECT COUNT(*) FROM ${prefix}default.hard_hat",
+            required_dimensions=["${prefix}default.us_state.state_name"],
+            owners=["dj"],
+        )
+        repairs_cube = CubeSpec(
+            name="default.hard_hat_cube",
+            description="See also ${prefix}default.num_hard_hats.",
+            dimensions=["${prefix}default.us_state.state_name"],
+            metrics=["${prefix}default.num_hard_hats"],
+            owners=["dj"],
+        )
+        nodes = [
+            default_hard_hats,
+            default_us_states,
+            default_us_state,
+            hard_hat,
+            num_hard_hats,
+            repairs_cube,
+        ]
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace="full_redeploy_noop", nodes=nodes),
+        )
+        assert data["status"] == "success", data["results"]
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace="full_redeploy_noop", nodes=nodes),
+        )
+        assert data["status"] == "success", data["results"]
+        assert all(result["operation"] == "noop" for result in data["results"]), data[
+            "results"
+        ]
+        assert all(result["changed_fields"] == [] for result in data["results"]), data[
+            "results"
         ]
 
     @pytest.mark.asyncio
@@ -10954,6 +11198,111 @@ class TestRequiredDimensionsRedeployIdempotence:
         response = await client.get(f"/nodes/{metric_name}/")
         assert response.status_code == 200, response.json()
         assert response.json()["version"] == "v1.0"
+
+    @pytest.mark.asyncio
+    async def test_unrelated_edit_preserves_linked_dimension_column(self, client):
+        """Updating a metric for an unrelated reason (not a redeploy noop) must
+        not silently drop a required dimension reached via a dimension_link,
+        when the linked dimension node itself isn't part of this update batch."""
+        namespace = "rd_linked_dim_unrelated_edit"
+
+        def _nodes(description):
+            return [
+                SourceSpec(
+                    name="rd_date_raw",
+                    description="Raw date",
+                    catalog="default",
+                    schema="roads",
+                    table="rd_date_raw",
+                    columns=[ColumnSpec(name="dateint", type="int")],
+                    dimension_links=[],
+                    owners=["dj"],
+                ),
+                DimensionSpec(
+                    name="rd_date_dim",
+                    description="Date dimension",
+                    query="SELECT dateint FROM ${prefix}rd_date_raw",
+                    primary_key=["dateint"],
+                    dimension_links=[],
+                    owners=["dj"],
+                ),
+                SourceSpec(
+                    name="rd_orders_raw",
+                    description="Raw orders",
+                    catalog="default",
+                    schema="roads",
+                    table="rd_orders_raw",
+                    columns=[
+                        ColumnSpec(name="order_id", type="bigint"),
+                        ColumnSpec(name="dateint", type="int"),
+                    ],
+                    dimension_links=[],
+                    owners=["dj"],
+                ),
+                TransformSpec(
+                    name="rd_orders_fact",
+                    description="Orders fact",
+                    query="SELECT order_id, dateint FROM ${prefix}rd_orders_raw",
+                    dimension_links=[
+                        DimensionJoinLinkSpec(
+                            dimension_node="${prefix}rd_date_dim",
+                            join_type="inner",
+                            join_on=(
+                                "${prefix}rd_orders_fact.dateint = "
+                                "${prefix}rd_date_dim.dateint"
+                            ),
+                        ),
+                    ],
+                    owners=["dj"],
+                ),
+                MetricSpec(
+                    name="rd_num_orders",
+                    display_name="Rd Num Orders",
+                    description=description,
+                    query="SELECT count(order_id) FROM ${prefix}rd_orders_fact",
+                    required_dimensions=["${prefix}rd_date_dim.dateint"],
+                    owners=["dj"],
+                ),
+            ]
+
+        metric_name = f"{namespace}.rd_num_orders"
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=_nodes("Number of orders")),
+        )
+        assert data["status"] == "success", data
+        response = await client.get(f"/metrics/{metric_name}/")
+        assert response.status_code == 200, response.json()
+        assert response.json()["required_dimensions"] == ["dateint"]
+
+        # Only the metric's description changes here, so `rd_date_dim` and
+        # `rd_orders_fact` are unchanged and are not part of this update's
+        # deploy-ordering graph load -- required_dimensions must still resolve.
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=_nodes("Number of orders, revised"),
+            ),
+        )
+        assert data["status"] == "success", data
+        assert [
+            result for result in data["results"] if result["name"] == metric_name
+        ] == [
+            {
+                "deploy_type": "node",
+                "message": "Updated metric (v1.1)\n└─ Updated description",
+                "name": metric_name,
+                "operation": "update",
+                "changed_fields": ["description"],
+                "status": "success",
+            },
+        ], data["results"]
+
+        response = await client.get(f"/metrics/{metric_name}/")
+        assert response.status_code == 200, response.json()
+        assert response.json()["required_dimensions"] == ["dateint"]
 
     @pytest.mark.asyncio
     async def test_metadata_edit_on_qualified_metric_is_minor(self, client):

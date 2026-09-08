@@ -140,11 +140,13 @@ class DeploymentService:
         verbose: bool = False,
         force: bool = False,
         allow_empty: bool = False,
+        format: str = "text",
     ):
         """
         Push a local project to a namespace.
         """
         console = console or self.console
+        as_json = format == "json"
 
         deployment_spec, file_errors = self._reconstruct_deployment_spec(source_path)
 
@@ -161,13 +163,14 @@ class DeploymentService:
                 branch,
             )
 
-        print_deployment_header(
-            mode="push",
-            namespace=deployment_spec["namespace"],
-            console=console,
-            repo=source.get("repository"),
-            branch=source.get("branch") or branch,
-        )
+        if not as_json:
+            print_deployment_header(
+                mode="push",
+                namespace=deployment_spec["namespace"],
+                console=console,
+                repo=source.get("repository"),
+                branch=source.get("branch") or branch,
+            )
 
         # Apply git config in the normal push flow. Skip only when the
         # caller passed an explicit ``namespace`` equal to the project's
@@ -186,10 +189,11 @@ class DeploymentService:
                     parent_namespace=parent_namespace or None,
                 )
             except Exception as e:  # pylint: disable=broad-except
-                console.print(
-                    f"[yellow]Warning: could not set git config on namespace "
-                    f"'{deployment_spec['namespace']}': {e}[/yellow]",
-                )
+                if not as_json:
+                    console.print(
+                        f"[yellow]Warning: could not set git config on namespace "
+                        f"'{deployment_spec['namespace']}': {e}[/yellow]",
+                    )
         if force:
             deployment_spec["force"] = True
         if allow_empty:
@@ -211,25 +215,30 @@ class DeploymentService:
                     raise DJClientException("Deployment timed out after 5 minutes")
 
         deployment = DeploymentInfo.from_dict(deployment_data)
-        print_results(
-            deployment_uuid,
-            deployment,
-            console,
-            verbose=verbose,
-        )
+        if as_json:
+            print(json.dumps(deployment_data, indent=2))
+        else:
+            print_results(
+                deployment_uuid,
+                deployment,
+                console,
+                verbose=verbose,
+            )
         if deployment.status == DeploymentStatus.SUCCESS:
             invalid_results = [
                 r for r in deployment.results if r.status == ResultStatus.INVALID
             ]
             if invalid_results:
-                console.print(
-                    "\nDeployment finished: [bold yellow]SUCCESS with invalid nodes[/bold yellow]",
-                )
+                if not as_json:
+                    console.print(
+                        "\nDeployment finished: [bold yellow]SUCCESS with invalid nodes[/bold yellow]",
+                    )
                 raise DJDeploymentFailure(
                     project_name=deployment_spec.get("namespace", source_path),
                     errors=[r.__dict__ for r in invalid_results],
                 )
-            console.print("\nDeployment finished: [bold green]SUCCESS[/bold green]")
+            if not as_json:
+                console.print("\nDeployment finished: [bold green]SUCCESS[/bold green]")
         if deployment.status == DeploymentStatus.FAILED:
             errors = [
                 r
@@ -241,10 +250,11 @@ class DeploymentService:
                 errors=[r.__dict__ for r in (errors if errors else deployment.results)],
             )
         if file_errors:
-            console.print()
-            console.rule("[red bold]Errors[/red bold]", style="red", align="left")
-            for err in file_errors:
-                console.print(f"[red]  {err}[/red]")
+            if not as_json:
+                console.print()
+                console.rule("[red bold]Errors[/red bold]", style="red", align="left")
+                for err in file_errors:
+                    console.print(f"[red]  {err}[/red]")
             raise DJClientException(
                 "Fix file name mismatches before deploying.",
             )

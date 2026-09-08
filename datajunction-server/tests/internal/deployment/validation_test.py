@@ -254,6 +254,37 @@ class TestValidateQuery:
                 )
 
     @pytest.mark.asyncio
+    async def test_validate_query_node_flags_unmatched_declared_column(
+        self,
+        validation_context: ValidationContext,
+    ):
+        """A declared column that doesn't match any query output column is invalid.
+
+        Otherwise its metadata (display_name/description) is silently dropped
+        and the node churns a version bump on every redeploy.
+        """
+        spec = TransformSpec(
+            name="transform",
+            query="SELECT id, name FROM test.parent",
+            description="A test transform",
+            mode="published",
+            columns=[
+                ColumnSpec(name="id"),
+                ColumnSpec(name="full_name", display_name="Full Name"),
+            ],
+        )
+        validator = NodeSpecBulkValidator(validation_context)
+        result = validator.validate_query_node(spec)
+
+        assert result.status == NodeStatus.INVALID
+        error_codes = [e.code for e in result.errors]
+        assert ErrorCode.INVALID_COLUMN in error_codes
+        message = next(
+            e.message for e in result.errors if e.code == ErrorCode.INVALID_COLUMN
+        )
+        assert "full_name" in message
+
+    @pytest.mark.asyncio
     async def test_validate_query_node_flags_hardcoded_namespace(
         self,
         session: AsyncSession,

@@ -20,7 +20,11 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from helpers.template_app import configure_database_env, template_app_client
+from helpers.template_app import (
+    configure_database_env,
+    mark_template_populated,
+    template_app_client,
+)
 
 db_url = sys.argv[1]
 reader_db_url = configure_database_env(db_url)
@@ -96,6 +100,7 @@ async def main() -> None:
             preagg_ids.append(response.json()["preaggs"][0]["id"])
         await session.commit()
 
+    mark_template_populated(db_url)
     print("PREAGG_IDS " + json.dumps(preagg_ids))
 
 

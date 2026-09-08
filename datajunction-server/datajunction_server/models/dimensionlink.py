@@ -49,6 +49,23 @@ class LinkType(StrEnum):
     REFERENCE = "reference"
 
 
+def missing_join_on_message(node_name: str, dimension_node: str) -> str:
+    """Error text for a join link with no join_on."""
+    return (
+        f"Dimension link from {node_name} to {dimension_node} has no join_on "
+        "clause. Set join_on to the equality between this node's foreign key "
+        "column(s) and the dimension's primary key."
+    )
+
+
+def misplaced_node_column_message(node_name: str, dimension_node: str) -> str:
+    """Error text for node_column on a join link."""
+    return (
+        f"Dimension link from {node_name} to {dimension_node} sets node_column, "
+        "which only applies to reference links. Express the join in join_on instead."
+    )
+
+
 class LinkDimensionIdentifier(BaseModel):
     """
     Input for linking a dimension to a node

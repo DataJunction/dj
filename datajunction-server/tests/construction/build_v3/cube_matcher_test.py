@@ -19,6 +19,7 @@ from datajunction_server.construction.build_v3.cube_matcher import (
     build_sql_from_cube,
     build_synthetic_grain_group,
     find_matching_cube,
+    resolve_dialect_and_engine_for_metrics,
     validate_pinned_cube_covers_filters,
 )
 from datajunction_server.construction.build_v3.decomposition import (
@@ -77,6 +78,17 @@ def test_materialized_dimension_lookup_preserves_roles():
         )
         == "date_id_ship"
     )
+
+
+@pytest.mark.asyncio
+async def test_resolve_dialect_requires_metric_or_dimension():
+    with pytest.raises(DJInvalidInputException, match="metric or dimension"):
+        await resolve_dialect_and_engine_for_metrics(
+            session=None,  # type: ignore[arg-type]
+            metrics=[],
+            dimensions=[],
+            use_materialized=False,
+        )
 
 
 class TestExtractFilterDimensionRefs:
@@ -1210,6 +1222,18 @@ class TestFindMatchingCube:
 
 class TestBuildSqlFromCube:
     """Tests for build_sql_from_cube function."""
+
+    @pytest.mark.asyncio
+    async def test_requires_metric(self):
+        with pytest.raises(DJInvalidInputException, match="At least one metric"):
+            await build_sql_from_cube(
+                session=None,  # type: ignore[arg-type]
+                cube=None,  # type: ignore[arg-type]
+                metrics=[],
+                dimensions=[],
+                filters=None,
+                dialect=Dialect.TRINO,
+            )
 
     @pytest.mark.asyncio
     async def test_builds_sql_from_cube_single_metric(
