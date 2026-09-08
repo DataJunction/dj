@@ -302,9 +302,8 @@ async def test_get_djsql_metric_table_exception(
         "/djsql/data/",
         params={"query": query},
     )
-    assert (
-        response.json()["message"] == "DJ SQL queries must SELECT FROM metrics. "
-        "Example: SELECT metric1, dim1 FROM metrics GROUP BY dim1"
+    assert response.json()["message"] == (
+        "DJ SQL queries must SELECT FROM metrics or dimensions."
     )
 
 

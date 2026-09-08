@@ -30,7 +30,10 @@ from datajunction_server.internal.caching.query_cache_manager import (
     QueryCacheManager,
     QueryRequestParams,
 )
-from datajunction_server.internal.sql import generate_metrics_sql
+from datajunction_server.internal.sql import (
+    generate_dimensions_sql,
+    generate_metrics_sql,
+)
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.metric import TranslatedSQL, V3TranslatedSQL
 from datajunction_server.models.node_type import NodeType
@@ -567,6 +570,68 @@ async def get_combined_measures_sql_v3(
 
 
 @router.get(
+    "/sql/dimensions/v3/",
+    response_model=V3TranslatedSQL,
+    name="Get Dimensions SQL V3",
+    tags=["sql", "v3"],
+)
+async def get_dimensions_sql_v3(
+    dimensions: list[str] = Query([]),
+    filters: list[str] = Query(
+        [],
+        description="Filters layered on top of any stored cube filters",
+    ),
+    cube: str | None = Query(
+        None,
+        description="Optional cube whose metrics define the reachable value domain",
+    ),
+    orderby: list[str] = Query([]),
+    limit: int | None = Query(None),
+    use_materialized: bool = Query(True),
+    dialect: Dialect | None = Query(None),
+    query_params: str = Query("{}", description="Query parameters"),
+    *,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> V3TranslatedSQL:
+    """Generate distinct dimension SQL.
+
+    Without a cube, queries the dimension-bearing node directly. With a cube,
+    uses all cube metrics and combines stored and request filters with ``AND``.
+    """
+    if not dimensions:
+        raise DJInvalidInputException("At least one dimension is required")
+
+    result = await generate_dimensions_sql(
+        session,
+        dimensions=dimensions,
+        filters=filters,
+        cube=cube,
+        orderby=orderby or None,
+        limit=limit,
+        use_materialized=use_materialized,
+        dialect=dialect,
+        query_parameters=json.loads(query_params) or None,
+    )
+    return V3TranslatedSQL(
+        sql=result.sql,
+        columns=[
+            V3ColumnMetadata(
+                name=col.name,
+                type=str(col.type),
+                semantic_name=col.semantic_name,
+                semantic_type=col.semantic_type,
+            )
+            for col in result.columns
+        ],
+        dialect=result.dialect,
+        cube_name=result.cube_name,
+        scan_estimate=result.scan_estimate,
+        warnings=result.warnings,
+    )
+
+
+@router.get(
     "/sql/metrics/v3/",
     response_model=V3TranslatedSQL,
     name="Get Metrics SQL V3",
@@ -644,6 +709,9 @@ async def get_metrics_sql_v3(
             Set to False when generating SQL for materialization refresh to avoid
             circular references.
     """
+    if not metrics and not cube:
+        raise DJInvalidInputException("At least one metric is required")
+
     # Shared metrics-SQL core (cube pinning, cube_filters prepend, dialect
     # auto-resolve, build_metrics_sql, and the build-latency metrics + [SQL] log).
     # Also used by the semantic-layer endpoint.

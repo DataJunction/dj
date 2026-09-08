@@ -270,7 +270,6 @@ async def setup_build_context(
         use_materialized: Whether to use materialized tables
         include_temporal_filters: Whether to include temporal partition filters from cube
         lookback_window: Lookback window for temporal filters
-
     Returns:
         Fully initialized BuildContext
     """
@@ -311,9 +310,8 @@ async def setup_build_context(
     # Load all required nodes (metrics + explicit dimensions + filter dimensions)
     await load_nodes(ctx)
 
-    # Validate we have at least one metric
     if not ctx.metrics:
-        raise DJInvalidInputException("At least one metric is required")
+        return ctx
 
     # Decompose metrics and group by parent node
     ctx.metric_groups, ctx.decomposed_metrics = await decompose_and_group_metrics(ctx)
@@ -384,6 +382,9 @@ async def build_measures_sql(
         GeneratedMeasuresSQL with one GrainGroupSQL per aggregation level,
         plus context and decomposed metrics for efficient reuse by build_metrics_sql
     """
+    if not metrics:
+        raise DJInvalidInputException("At least one metric is required")
+
     # Setup context (loads nodes, decomposes metrics, adds dimensions from expressions)
     ctx = await setup_build_context(
         session=session,
@@ -508,6 +509,8 @@ async def build_metrics_sql(
     """
     Build metrics SQL for a set of metrics and dimensions.
 
+    With no metrics, returns distinct attributes from one dimension-bearing node.
+
     Metrics SQL applies final metric expressions on top of measures, including
     handling derived metrics. It produces a single executable query with the
     following layers:
@@ -568,6 +571,15 @@ async def build_metrics_sql(
         use_materialized=use_materialized,
         lookback_window=lookback_window,
     )
+
+    if not metrics:
+        # Imported lazily because node_query also uses the shared ordering helper
+        # from this module.
+        from datajunction_server.construction.build_v3.node_query import (
+            build_dimension_sql_v3,
+        )
+
+        return build_dimension_sql_v3(ctx, orderby, limit, query_parameters)
 
     # Frame-aware live window lookback: when a requested metric carries a row/
     # range window frame and a filter narrows the order dimension, expand the
