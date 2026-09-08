@@ -391,7 +391,7 @@ def build_row_count_sql(
     ).set_alias(
         ast.Name(
             "COUNT",
-            quote_style="`" if generated.dialect == Dialect.SPARK else '"',
+            quote_style="`",
         ),
     )
     count.set_as(True)
