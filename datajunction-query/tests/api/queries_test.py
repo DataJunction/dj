@@ -11,6 +11,7 @@ from unittest import mock
 
 import msgpack
 import pytest
+from fastapi import BackgroundTasks, Request, Response
 from fastapi.testclient import TestClient
 from freezegun import freeze_time
 from pytest_mock import MockerFixture
@@ -508,6 +509,39 @@ def test_stale_swr_forces_async_refresh(
         queries_api._pending_refresh_keys.discard("cache-key")
 
 
+def test_swr_cache_miss_stores_result(client: TestClient) -> None:
+    """An SWR cache miss writes the completed result for a later request."""
+    query_create = QueryCreate(
+        catalog_name="warehouse_inmemory",
+        engine_name="duckdb_inmemory",
+        engine_version="0.7.1",
+        submitted_query="SELECT 2 AS col",
+    )
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Cache-Control": "stale-while-revalidate",
+    }
+    cache_key = queries_api.build_result_cache_key(query_create, headers)
+    settings = get_settings()
+    settings.results_backend.delete(cache_key)
+
+    response = client.post(
+        "/queries/",
+        data=json.dumps(asdict(query_create)),
+        headers=headers,
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    cached_result, is_fresh = queries_api.get_cached_result(
+        settings.results_backend,
+        cache_key,
+    )
+    assert cached_result is not None
+    assert str(cached_result.id) == response.json()["id"]
+    assert is_fresh is True
+
+
 @pytest.mark.asyncio
 async def test_failed_refresh_releases_its_lease(mocker: MockerFixture) -> None:
     """A failed refresh does not prevent a later refresh attempt."""
@@ -530,6 +564,168 @@ async def test_failed_refresh_releases_its_lease(mocker: MockerFixture) -> None:
         assert "cache-key" not in queries_api._pending_refresh_keys
     finally:
         queries_api._pending_refresh_keys.discard("cache-key")
+
+
+@pytest.mark.asyncio
+async def test_no_cache_skips_swr_lookup(mocker: MockerFixture) -> None:
+    """A no-cache request bypasses reading and refreshing result-cache entries."""
+    request = Request(
+        {
+            "type": "http",
+            "headers": [
+                (b"cache-control", b"stale-while-revalidate, no-cache"),
+            ],
+        },
+    )
+    get_cached_result = mocker.patch("djqs.api.queries.get_cached_result")
+
+    result = await queries_api.get_cached_or_schedule_refresh(
+        create_query=QueryCreate(
+            catalog_name="warehouse_inmemory",
+            engine_name="duckdb_inmemory",
+            engine_version="0.7.1",
+            submitted_query="SELECT 1",
+        ),
+        settings=mocker.MagicMock(),
+        response=Response(),
+        background_tasks=BackgroundTasks(),
+        postgres_pool=mocker.MagicMock(),
+        request=request,
+    )
+
+    assert result is None
+    get_cached_result.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cache_miss_does_not_schedule_refresh(mocker: MockerFixture) -> None:
+    """A cache miss leaves execution to the normal query submission path."""
+    request = Request(
+        {
+            "type": "http",
+            "headers": [
+                (b"cache-control", b"stale-while-revalidate"),
+            ],
+        },
+    )
+    mocker.patch(
+        "djqs.api.queries.build_result_cache_key",
+        return_value="cache-key",
+    )
+    mocker.patch(
+        "djqs.api.queries.get_cached_result",
+        return_value=(None, False),
+    )
+    save_query_and_run = mocker.patch("djqs.api.queries.save_query_and_run")
+
+    result = await queries_api.get_cached_or_schedule_refresh(
+        create_query=QueryCreate(
+            catalog_name="warehouse_inmemory",
+            engine_name="duckdb_inmemory",
+            engine_version="0.7.1",
+            submitted_query="SELECT 1",
+        ),
+        settings=mocker.MagicMock(),
+        response=Response(),
+        background_tasks=BackgroundTasks(),
+        postgres_pool=mocker.MagicMock(),
+        request=request,
+    )
+
+    assert result is None
+    save_query_and_run.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_refresh_scheduling_failure_releases_its_lease(
+    mocker: MockerFixture,
+) -> None:
+    """A scheduling failure releases the lease before propagating the error."""
+    request = Request(
+        {
+            "type": "http",
+            "headers": [
+                (b"cache-control", b"stale-while-revalidate"),
+            ],
+        },
+    )
+    query = QueryCreate(
+        catalog_name="warehouse_inmemory",
+        engine_name="duckdb_inmemory",
+        engine_version="0.7.1",
+        submitted_query="SELECT 1",
+    )
+    mocker.patch(
+        "djqs.api.queries.get_cached_result",
+        return_value=(QueryResults(submitted_query="SELECT 1"), False),
+    )
+    mocker.patch(
+        "djqs.api.queries.build_result_cache_key",
+        return_value="cache-key",
+    )
+    mocker.patch(
+        "djqs.api.queries.save_query_and_run",
+        side_effect=RuntimeError("could not schedule refresh"),
+    )
+
+    with pytest.raises(RuntimeError, match="could not schedule refresh"):
+        await queries_api.get_cached_or_schedule_refresh(
+            create_query=query,
+            settings=mocker.MagicMock(),
+            response=Response(),
+            background_tasks=BackgroundTasks(),
+            postgres_pool=mocker.MagicMock(),
+            request=request,
+        )
+
+    assert "cache-key" not in queries_api._pending_refresh_keys
+
+
+@pytest.mark.asyncio
+async def test_submit_query_cache_miss_uses_result_cache(mocker: MockerFixture) -> None:
+    """An SWR cache miss executes and caches the query using its retention policy."""
+    request = Request(
+        {
+            "type": "http",
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"cache-control", b"stale-while-revalidate, max-age=60"),
+            ],
+        },
+    )
+    result = QueryResults(submitted_query="SELECT 1", state=QueryState.FINISHED)
+    mocker.patch(
+        "djqs.api.queries.get_cached_or_schedule_refresh",
+        return_value=None,
+    )
+    mocker.patch(
+        "djqs.api.queries.build_result_cache_key",
+        return_value="cache-key",
+    )
+    save_query_and_run = mocker.patch(
+        "djqs.api.queries.save_query_and_run",
+        return_value=result,
+    )
+
+    response = await queries_api.submit_query(
+        accept="application/json",
+        settings=mocker.MagicMock(),
+        request=request,
+        response=Response(),
+        postgres_pool=mocker.MagicMock(),
+        background_tasks=BackgroundTasks(),
+        body={
+            "catalog_name": "warehouse_inmemory",
+            "engine_name": "duckdb_inmemory",
+            "engine_version": "0.7.1",
+            "submitted_query": "SELECT 1",
+        },
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    assert json.loads(response.body) == json.loads(json.dumps(asdict(result), default=str))
+    assert save_query_and_run.await_args.kwargs["result_cache_key"] == "cache-key"
+    assert save_query_and_run.await_args.kwargs["result_cache_timeout"] == 60
 
 
 def test_submit_query_error(client: TestClient) -> None:

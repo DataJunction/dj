@@ -71,3 +71,8 @@ def test_get_cached_result_distinguishes_fresh_and_stale_entries():
         cached, is_fresh = get_cached_result(cache, key)
     assert cached == result
     assert is_fresh is False
+
+
+def test_get_cached_result_returns_miss_for_absent_entry():
+    """Non-cache values cannot be treated as reusable query results."""
+    assert get_cached_result(SimpleCache(), "missing") == (None, False)
