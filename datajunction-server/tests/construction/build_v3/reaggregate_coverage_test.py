@@ -6,8 +6,10 @@ import pytest
 
 from datajunction_server.construction.build_v3.cube_matcher import (
     _cube_dimension_covers_reaggregate_dimension,
+    _metric_graph_has_reaggregate,
     _reaggregate_dimensions_for_cube_metrics,
     _reaggregate_requirements_for_cube_metrics,
+    _reaggregate_requirements_for_metrics,
     _reaggregate_requirements_for_decomposed_metrics,
     _reaggregate_requirements_for_metrics_if_needed,
     build_synthetic_grain_group,
@@ -27,6 +29,8 @@ from datajunction_server.construction.build_v3.metrics import (
     _build_reaggregate_collapse_expression,
     _dimension_ref_base,
     _dimension_ref_role,
+    _references_component,
+    _replace_reaggregate_merge_expression,
     _metric_parent_refs,
     _source_dimension_alias,
     build_window_agg_cte_from_base_metrics,
@@ -154,6 +158,81 @@ def test_reaggregate_collapse_expression_handles_min_max_and_rejects_unsupported
             Dialect.SPARK,
             value_ref,
             protected_ref,
+        )
+
+
+def test_references_component_checks_all_columns_and_handles_no_match():
+    """Component reference detection handles misses before matches."""
+    expression = parse(
+        "SELECT SUM(other_value) + SUM(balance_sum) FROM base",
+    ).select.projection[0]
+
+    assert _references_component(expression, "balance_sum")
+    assert not _references_component(expression, "missing_component")
+
+
+def test_replace_reaggregate_merge_expression_skips_nonmatching_functions():
+    """Combiner replacement skips unrelated functions before replacing the match."""
+    combiner = parse(
+        "SELECT SUM(other_value) + SUM(balance_sum) FROM base",
+    ).select.projection[0]
+    collapse_expr = ast.Function(
+        ast.Name("MAX"),
+        args=[ast.Column(name=ast.Name("balance_sum"))],
+    )
+
+    rendered = str(
+        _replace_reaggregate_merge_expression(
+            combiner,
+            "balance_sum",
+            "SUM",
+            collapse_expr,
+        ),
+    )
+
+    assert "SUM(other_value)" in rendered
+    assert "MAX(balance_sum)" in rendered
+
+
+def test_replace_reaggregate_merge_expression_rejects_missing_component():
+    """Combiner replacement fails if the expected merge function is absent."""
+    combiner = parse("SELECT AVG(balance_sum) FROM base").select.projection[0]
+
+    with pytest.raises(DJInvalidInputException, match="could not find"):
+        _replace_reaggregate_merge_expression(
+            combiner,
+            "balance_sum",
+            "SUM",
+            ast.Function(
+                ast.Name("MAX"),
+                args=[ast.Column(name=ast.Name("balance_sum"))],
+            ),
+        )
+
+
+def test_replace_reaggregate_merge_expression_skips_parentless_nested_match():
+    """A matching child without a parent is skipped before the final error."""
+
+    class ParentlessExpression(ast.Expression):
+        def __str__(self):
+            return "parentless"
+
+        @property
+        def children(self):
+            yield ast.Function(
+                ast.Name("SUM"),
+                args=[ast.Column(name=ast.Name("balance_sum"))],
+            )
+
+    with pytest.raises(DJInvalidInputException, match="could not find"):
+        _replace_reaggregate_merge_expression(
+            ParentlessExpression(),
+            "balance_sum",
+            "SUM",
+            ast.Function(
+                ast.Name("MAX"),
+                args=[ast.Column(name=ast.Name("balance_sum"))],
+            ),
         )
 
 
@@ -329,6 +408,21 @@ def test_cube_dimension_coverage_accepts_bare_protected_parent_column():
         "order_date",
         "v3.order_details.order_date[ship]",
     )
+    assert not _cube_dimension_covers_reaggregate_dimension(
+        "v3.date.date_id",
+        "v3.order_details.order_date",
+    )
+
+
+@pytest.mark.asyncio
+async def test_metric_graph_has_reaggregate_skips_empty_metric_list():
+    """An empty metric list does not touch the database."""
+
+    class Session:
+        async def execute(self, _stmt):
+            raise AssertionError("empty metric graph should not query")
+
+    assert not await _metric_graph_has_reaggregate(Session(), [])
 
 
 @pytest.mark.asyncio
@@ -405,6 +499,46 @@ async def test_cube_reaggregate_requirements_checks_derived_metric_ancestors(
         )
         == expected
     )
+
+
+@pytest.mark.asyncio
+async def test_reaggregate_requirements_skip_components_without_reaggregate(
+    monkeypatch,
+):
+    """Full extraction ignores ordinary components before collecting reaggregate."""
+
+    class Extractor:
+        async def extract(self, _session):
+            return [
+                MetricComponent(
+                    name="ordinary_sum",
+                    expression="value",
+                    aggregation="SUM",
+                    rule=AggregationRule(type=Aggregability.FULL),
+                ),
+                _semi_additive_component(
+                    "balance_sum",
+                    "v3.date.date_id",
+                    ReaggregationFunction.MAX,
+                ),
+            ], None
+
+    class FakeMetricComponentExtractor:
+        @classmethod
+        async def from_node_name(cls, _metric_name, _session):
+            return Extractor()
+
+    monkeypatch.setattr(
+        cube_matcher_module,
+        "MetricComponentExtractor",
+        FakeMetricComponentExtractor,
+    )
+
+    assert await _reaggregate_requirements_for_metrics(
+        SimpleNamespace(),
+        ["balance"],
+        ["v3.product.category"],
+    ) == [("balance", "v3.date.date_id", ReaggregationFunction.MAX)]
 
 
 def test_decomposed_reaggregate_requirements_dedupe_duplicate_components():

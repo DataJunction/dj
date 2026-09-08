@@ -205,6 +205,34 @@ async def test_reaggregate_multiple_rules_not_supported(
 
 
 @pytest.mark.asyncio
+async def test_reaggregate_unsupported_dimension_function_not_supported(
+    session: AsyncSession,
+    create_metric,
+):
+    """
+    Dimension-specific reaggregate accepts only collapse-safe functions.
+    """
+    metric_rev = await create_metric(
+        "SELECT SUM(account_balance) FROM parent_node",
+        reaggregate={
+            "rules": [
+                {
+                    "dimension": "default.date_dim.date",
+                    "fn": "sum",
+                },
+            ],
+        },
+    )
+
+    extractor = MetricComponentExtractor(metric_rev.id)
+    with pytest.raises(
+        DJInvalidInputException,
+        match="unsupported dimension reaggregation function",
+    ):
+        await extractor.extract(session)
+
+
+@pytest.mark.asyncio
 async def test_sum_with_cast(session: AsyncSession, create_metric):
     """
     Test decomposition for a metric definition that has a sum with a cast.

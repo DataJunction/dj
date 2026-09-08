@@ -16,7 +16,16 @@ from datajunction_server.database.column import Column
 from datajunction_server.database.measure import FrozenMeasure
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import OAuthProvider, User
-from datajunction_server.internal.nodes import derive_frozen_measures_bulk
+from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.internal.nodes import (
+    _raise_if_frozen_measure_conflicts,
+    derive_frozen_measures_bulk,
+)
+from datajunction_server.models.decompose import (
+    Aggregability,
+    AggregationRule,
+    MetricComponent,
+)
 from datajunction_server.models.node import NodeStatus
 from datajunction_server.models.node_type import NodeType
 
@@ -213,6 +222,26 @@ async def test_reaggregate_rule_is_not_persisted_on_shared_frozen_measure(
     assert all(
         fm.rule.reaggregate is None for fm in reaggregate.current.frozen_measures
     )
+
+
+def test_frozen_measure_conflict_rejects_different_measure_identity():
+    """FrozenMeasure name collisions fail when the metric-independent rule differs."""
+    frozen_measure = FrozenMeasure(
+        name="amount_sum",
+        upstream_revision_id=1,
+        expression="amount",
+        aggregation="SUM",
+        rule=AggregationRule(type=Aggregability.FULL),
+    )
+    measure = MetricComponent(
+        name="amount_sum",
+        expression="discounted_amount",
+        aggregation="SUM",
+        rule=AggregationRule(type=Aggregability.FULL),
+    )
+
+    with pytest.raises(DJInvalidInputException, match="already exists"):
+        _raise_if_frozen_measure_conflicts(frozen_measure, measure)
 
 
 @pytest.mark.asyncio
