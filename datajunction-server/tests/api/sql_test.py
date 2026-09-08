@@ -1583,8 +1583,7 @@ async def test_metric_with_node_level_and_nth_order_filters(
         ),
         default_repair_orders_fact AS (
         SELECT  repair_orders.repair_order_id,
-        	repair_orders.hard_hat_id,
-        	repair_orders.dispatcher_id
+        	repair_orders.hard_hat_id
          FROM default.roads.repair_orders repair_orders JOIN default.roads.repair_order_details repair_order_details ON repair_orders.repair_order_id = repair_order_details.repair_order_id
          WHERE  repair_orders.dispatcher_id = 1 OR repair_orders.dispatcher_id IS NOT NULL
         ),
@@ -1676,8 +1675,7 @@ async def test_metric_with_nth_order_dimensions_filters(
         SELECT  repair_orders.repair_order_id,
         	repair_orders.municipality_id,
         	repair_orders.hard_hat_id,
-        	repair_orders.dispatcher_id,
-        	repair_orders.order_date
+        	repair_orders.dispatcher_id
          FROM default.roads.repair_orders repair_orders JOIN default.roads.repair_order_details repair_order_details ON repair_orders.repair_order_id = repair_order_details.repair_order_id
          WHERE  repair_orders.dispatcher_id = 1 AND repair_orders.order_date >= '2020-01-01'
         ),

@@ -101,6 +101,7 @@ class DimensionLink(Base):
             join_on=self.join_sql,
             join_type=self.join_type if self.join_type else JoinType.LEFT,
             join_cardinality=self.join_cardinality,
+            default_value=self.default_value,
             spark_hints=self.spark_hints,
         )
 

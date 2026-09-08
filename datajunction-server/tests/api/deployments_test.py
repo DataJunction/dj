@@ -8,7 +8,7 @@ from unittest import mock
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
 
 import datajunction_server.internal.materializations
@@ -17,10 +17,12 @@ from datajunction_server.api.deployments import (
     _normalize_repo_path,
 )
 from datajunction_server.database.availabilitystate import AvailabilityState
+from datajunction_server.database.column import Column as DBColumn
 from datajunction_server.database.materialization import Materialization
-from datajunction_server.database.node import Node, NodeRelationship
+from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
 from datajunction_server.database.tag import Tag
 from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.internal.deployment.orchestrator import DeploymentOrchestrator
 from datajunction_server.internal.git.github_service import GitHubServiceError
 from datajunction_server.models import access
 from datajunction_server.models.deployment import (
@@ -1773,6 +1775,167 @@ class TestDeployments:
         )
 
     @pytest.mark.asyncio
+    async def test_redeploy_is_noop_for_role_qualified_reference_link(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        A reference link with a role must redeploy as a noop, since nothing
+        about it changed. `Column.dimension_column` stores the role baked
+        into a "[role]" suffix, and to_spec() must split that back out into
+        the link's own `role` field rather than leaving it in the exported
+        `dimension` string -- otherwise the exported spec never compares
+        equal to the one it was authored from.
+        """
+        namespace = "reference_link_role_noop"
+        dim_spec = DimensionSpec(
+            name="default.hard_hat",
+            description="Hard hat dimension",
+            query="""
+            SELECT
+                hard_hat_id,
+                state
+            FROM ${prefix}default.hard_hats
+            """,
+            primary_key=["hard_hat_id"],
+            owners=["dj"],
+            dimension_links=[
+                DimensionReferenceLinkSpec(
+                    node_column="state",
+                    dimension="${prefix}default.us_state.state_short",
+                    role="home_state",
+                ),
+            ],
+        )
+        nodes_list = [dim_spec, default_hard_hats, default_us_states, default_us_state]
+        link_name = (
+            "reference_link_role_noop.default.hard_hat -> "
+            "reference_link_role_noop.default.us_state[home_state]"
+        )
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success", data
+        assert [
+            result for result in data["results"] if result["name"] == link_name
+        ] == [
+            {
+                "deploy_type": "link",
+                "message": "Reference link successfully deployed",
+                "name": link_name,
+                "operation": "create",
+                "changed_fields": [],
+                "status": "success",
+            },
+        ]
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success", data
+        assert [
+            result
+            for result in data["results"]
+            if result["name"]
+            in (link_name, "reference_link_role_noop.default.hard_hat")
+        ] == [
+            {
+                "deploy_type": "node",
+                "message": "Unchanged",
+                "name": "reference_link_role_noop.default.hard_hat",
+                "operation": "noop",
+                "changed_fields": [],
+                "status": "skipped",
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_redeploy_is_noop_for_join_link_with_default_value(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        A join link with a `default_value` must redeploy as a noop, since
+        nothing about it changed. `DimensionLink.to_spec()` must include
+        `default_value` -- otherwise the exported spec always reports it as
+        None and never compares equal to the one it was authored from.
+        """
+        namespace = "join_link_default_value_noop"
+        dim_spec = DimensionSpec(
+            name="default.hard_hat",
+            description="Hard hat dimension",
+            query="""
+            SELECT
+                hard_hat_id,
+                state
+            FROM ${prefix}default.hard_hats
+            """,
+            primary_key=["hard_hat_id"],
+            owners=["dj"],
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node="${prefix}default.us_state",
+                    join_type="left",
+                    join_on="${prefix}default.hard_hat.state = ${prefix}default.us_state.state_short",
+                    default_value="Unknown",
+                ),
+            ],
+        )
+        nodes_list = [dim_spec, default_hard_hats, default_us_states, default_us_state]
+        link_name = (
+            "join_link_default_value_noop.default.hard_hat -> "
+            "join_link_default_value_noop.default.us_state"
+        )
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success", data
+        assert [
+            result for result in data["results"] if result["name"] == link_name
+        ] == [
+            {
+                "deploy_type": "link",
+                "message": "Join link successfully deployed",
+                "name": link_name,
+                "operation": "create",
+                "changed_fields": [],
+                "status": "success",
+            },
+        ]
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success", data
+        assert [
+            result
+            for result in data["results"]
+            if result["name"]
+            in (link_name, "join_link_default_value_noop.default.hard_hat")
+        ] == [
+            {
+                "deploy_type": "node",
+                "message": "Unchanged",
+                "name": "join_link_default_value_noop.default.hard_hat",
+                "operation": "noop",
+                "changed_fields": [],
+                "status": "skipped",
+            },
+        ]
+
+    @pytest.mark.asyncio
     async def test_required_dimension_from_linked_dimension_roundtrips(
         self,
         client,
@@ -1865,6 +2028,89 @@ class TestDeployments:
         assert metric_b["required_dimensions"] == [
             "${prefix}default.us_state.state_name",
             "${prefix}default.us_state.state_region",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_full_redeploy_is_noop(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        A namespace covering source/dimension/transform/metric/cube, join and
+        reference links (one with a role, one with a default_value), a
+        required dimension pulled from a linked dimension, and a description
+        mentioning `${prefix}` as prose -- deployed twice with no changes --
+        must come back fully noop the second time. Regression test for the
+        combination of export round-trip bugs found in required_dimensions,
+        reference link roles, join link default_value, and description/
+        custom_metadata rendering.
+        """
+        hard_hat = DimensionSpec(
+            name="default.hard_hat",
+            description="Hard hat dimension. See also ${prefix}default.us_state.",
+            query="SELECT hard_hat_id, state FROM ${prefix}default.hard_hats",
+            primary_key=["hard_hat_id"],
+            owners=["dj"],
+            custom_metadata={"see_also": "${prefix}default.us_state"},
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node="${prefix}default.us_state",
+                    join_type="left",
+                    join_on=(
+                        "${prefix}default.hard_hat.state = "
+                        "${prefix}default.us_state.state_short"
+                    ),
+                    default_value="Unknown",
+                ),
+                DimensionReferenceLinkSpec(
+                    node_column="state",
+                    dimension="${prefix}default.us_state.state_short",
+                    role="home_state",
+                ),
+            ],
+        )
+        num_hard_hats = MetricSpec(
+            name="default.num_hard_hats",
+            node_type=NodeType.METRIC,
+            query="SELECT COUNT(*) FROM ${prefix}default.hard_hat",
+            required_dimensions=["${prefix}default.us_state.state_name"],
+            owners=["dj"],
+        )
+        repairs_cube = CubeSpec(
+            name="default.hard_hat_cube",
+            description="See also ${prefix}default.num_hard_hats.",
+            dimensions=["${prefix}default.us_state.state_name"],
+            metrics=["${prefix}default.num_hard_hats"],
+            owners=["dj"],
+        )
+        nodes = [
+            default_hard_hats,
+            default_us_states,
+            default_us_state,
+            hard_hat,
+            num_hard_hats,
+            repairs_cube,
+        ]
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace="full_redeploy_noop", nodes=nodes),
+        )
+        assert data["status"] == "success", data["results"]
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace="full_redeploy_noop", nodes=nodes),
+        )
+        assert data["status"] == "success", data["results"]
+        assert all(result["operation"] == "noop" for result in data["results"]), data[
+            "results"
+        ]
+        assert all(result["changed_fields"] == [] for result in data["results"]), data[
+            "results"
         ]
 
     @pytest.mark.asyncio
@@ -2649,9 +2895,7 @@ class TestDeployments:
         assert data["status"] == "success"
         assert data["results"][-1] == {
             "deploy_type": "node",
-            # The filter reorder is reported for the reader's benefit but earns no
-            # version of its own: v1.1 comes from the dimension reorder alone.
-            "message": "Updated cube (v1.1)\n└─ Reordered dimensions, filters",
+            "message": "Updated cube (v1.1)\n└─ Reordered dimensions",
             "name": f"{namespace}.default.repairs_cube",
             "operation": "update",
             "changed_fields": [],
@@ -2663,6 +2907,178 @@ class TestDeployments:
             f"{namespace}.default.hard_hat.city",
             f"{namespace}.default.hard_hat.state",
         ]
+
+    @pytest.mark.asyncio
+    async def test_patch_and_deployment_agree_on_an_upstream_change(
+        self,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+    ):
+        """
+        A change to a node the cube sits on must bump the cube the same on both paths.
+
+        The sibling of `test_patch_and_deployment_agree_on_version`, which only covers
+        edits to the cube itself. Here the cube's own spec is byte-identical across the
+        two deploys -- it still names the same metric and dimensions -- and only the
+        metric underneath it changes. That is the case a deploy currently cannot see:
+        an unchanged spec is skipped, so the cube keeps a revision compiled against the
+        old definition, while the PATCH path propagates into it.
+        """
+        upstreams = [
+            default_hard_hats,
+            default_hard_hat,
+            default_us_states,
+            default_us_state,
+        ]
+
+        def build_metric(query: str) -> MetricSpec:
+            return default_avg_length_of_employment.model_copy(
+                deep=True,
+                update={"query": query},
+            )
+
+        original = default_avg_length_of_employment.query
+        # Same shape, different rows: the cube's elements are untouched, so nothing
+        # about the cube's own spec records that this happened.
+        edited = (
+            "SELECT avg(IF(state = 'AZ', CAST(NOW() AS DATE) - hire_date, NULL)) "
+            "FROM ${prefix}default.hard_hat"
+        )
+
+        cube = CubeSpec(
+            name="default.repairs_cube",
+            display_name="Repairs Cube",
+            description="Cube for analyzing repair orders",
+            dimensions=["${prefix}default.hard_hat.state"],
+            metrics=["${prefix}default.avg_length_of_employment"],
+            owners=["dj"],
+        )
+
+        async def deploy(namespace: str, metric_query: str) -> None:
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(
+                    namespace=namespace,
+                    nodes=(
+                        [spec.model_copy(deep=True) for spec in upstreams]
+                        + [build_metric(metric_query), cube.model_copy(deep=True)]
+                    ),
+                ),
+            )
+            assert data["status"] == "success", data
+
+        async def version_of(namespace: str, node: str) -> str:
+            response = await client.get(f"/nodes/{namespace}.default.{node}/")
+            assert response.status_code == 200, response.text
+            return response.json()["version"]
+
+        patch_ns, deploy_ns = (
+            "upstream_equivalence_patch",
+            "upstream_equivalence_deploy",
+        )
+        await deploy(patch_ns, original)
+        await deploy(deploy_ns, original)
+        assert await version_of(patch_ns, "repairs_cube") == "v1.0"
+        assert await version_of(deploy_ns, "repairs_cube") == "v1.0"
+
+        # The same upstream edit, once through PATCH and once through a deployment.
+        response = await client.patch(
+            f"/nodes/{patch_ns}.default.avg_length_of_employment",
+            json={"query": edited.replace("${prefix}", f"{patch_ns}.")},
+        )
+        assert response.status_code == 200, response.json()
+        await deploy(deploy_ns, edited)
+
+        # The metric moved on both paths -- that part already agreed.
+        assert await version_of(
+            patch_ns,
+            "avg_length_of_employment",
+        ) == await version_of(
+            deploy_ns,
+            "avg_length_of_employment",
+        )
+        # And so must the cube above it.
+        assert await version_of(patch_ns, "repairs_cube") == await version_of(
+            deploy_ns,
+            "repairs_cube",
+        )
+
+    @pytest.mark.asyncio
+    async def test_deployment_bumps_a_cube_over_a_changed_source(
+        self,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+    ):
+        """
+        A cube bumps for a change anywhere above it, not just in its own parents.
+
+        Here the edited node is the source two levels down: neither the metric nor
+        the dimension the cube names changes, so nothing the cube points at directly
+        moved, and only walking the whole way up finds the edit. The cube lands on
+        the tier the source earned rather than one of its own.
+        """
+        cube = CubeSpec(
+            name="default.repairs_cube",
+            display_name="Repairs Cube",
+            description="Cube for analyzing repair orders",
+            dimensions=["${prefix}default.hard_hat.state"],
+            metrics=["${prefix}default.avg_length_of_employment"],
+            owners=["dj"],
+        )
+
+        async def deploy(source: SourceSpec) -> None:
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(
+                    namespace="upstream_source_deploy",
+                    nodes=[
+                        spec.model_copy(deep=True)
+                        for spec in (
+                            source,
+                            default_hard_hat,
+                            default_us_states,
+                            default_us_state,
+                            default_avg_length_of_employment,
+                            cube,
+                        )
+                    ],
+                ),
+            )
+            assert data["status"] == "success", data
+
+        async def version_of(node: str) -> str:
+            response = await client.get(
+                f"/nodes/upstream_source_deploy.default.{node}/",
+            )
+            assert response.status_code == 200, response.text
+            return response.json()["version"]
+
+        await deploy(default_hard_hats)
+        assert await version_of("repairs_cube") == "v1.0"
+
+        widened = default_hard_hats.model_copy(
+            deep=True,
+            update={
+                "columns": default_hard_hats.columns
+                + [ColumnSpec(name="badge_number", type="int")],
+            },
+        )
+        await deploy(widened)
+
+        assert await version_of("hard_hats") == "v2.0"
+        # Untouched, so they keep the revisions they had.
+        assert await version_of("hard_hat") == "v1.0"
+        assert await version_of("avg_length_of_employment") == "v1.0"
+        # The cube alone follows the source, at the tier the source earned.
+        assert await version_of("repairs_cube") == "v2.0"
 
     @pytest.mark.asyncio
     async def test_patch_and_deployment_agree_on_version(
@@ -8046,6 +8462,174 @@ class TestDeploymentHistoryTracking:
 
 
 @pytest.mark.xdist_group(name="deployments")
+class TestCubeRedeployIdempotence:
+    """A cube spec deployed twice must not churn a new version."""
+
+    @pytest.mark.asyncio
+    async def test_partitioned_cube_redeploy_is_a_noop(
+        self,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+    ):
+        """
+        Deploying an unchanged cube that declares a column partition is a noop.
+
+        The cube branch of the deployment diff compares the partitions on the
+        incoming spec's columns against the partitions on the existing spec's.
+        If a declared partition never lands on the stored cube column, the two
+        sides can never agree, so every deploy reports ``columns`` changed --
+        and ``columns`` is unclassified, so it bumps a MAJOR version. The cube
+        then gains a version on every deploy of the namespace forever, with
+        nothing about it having changed.
+        """
+        namespace = "cube_redeploy_idempotence"
+        cube = CubeSpec(
+            name="${prefix}default.repairs_cube",
+            display_name="Repairs Cube",
+            description="Cube for analyzing repair orders",
+            dimensions=[
+                "${prefix}default.hard_hat.state",
+                "${prefix}default.hard_hat.hire_date",
+            ],
+            metrics=["${prefix}default.avg_length_of_employment"],
+            owners=["dj"],
+            columns=[
+                ColumnSpec(
+                    name="${prefix}default.hard_hat.hire_date",
+                    partition=PartitionSpec(
+                        type=PartitionType.TEMPORAL,
+                        granularity=Granularity.DAY,
+                        format="yyyyMMdd",
+                    ),
+                ),
+            ],
+        )
+        upstreams = [
+            default_hard_hats,
+            default_hard_hat,
+            default_us_states,
+            default_us_state,
+            default_avg_length_of_employment,
+        ]
+
+        def deployment() -> DeploymentSpec:
+            return DeploymentSpec(
+                namespace=namespace,
+                nodes=[spec.model_copy(deep=True) for spec in upstreams]
+                + [cube.model_copy(deep=True)],
+            )
+
+        first = await deploy_and_wait(client, deployment())
+        assert first["status"] == "success", first["results"]
+
+        cube_name = f"{namespace}.default.repairs_cube"
+        version_after_first = (await client.get(f"/nodes/{cube_name}/")).json()[
+            "version"
+        ]
+
+        second = await deploy_and_wait(client, deployment())
+        assert second["status"] == "success", second
+        cube_result = next(
+            result for result in second["results"] if result["name"] == cube_name
+        )
+        assert cube_result["changed_fields"] == [], cube_result["message"]
+        assert cube_result["operation"] == "noop"
+
+        version_after_second = (await client.get(f"/nodes/{cube_name}/")).json()[
+            "version"
+        ]
+        assert version_after_second == version_after_first
+
+    @pytest.mark.asyncio
+    async def test_partition_on_a_non_cube_column_does_not_churn(
+        self,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+    ):
+        """
+        A partition declared on a name that is not one of the cube's columns must
+        not make every redeploy look like a change.
+
+        ``rendered_columns`` keeps whatever the spec declared, but only names that
+        match a real cube column can be persisted. A declaration that matches
+        nothing therefore sits in ``incoming_partitions`` and never appears in
+        ``existing_partitions``, so the two can never agree: each deploy reports
+        ``columns`` changed, and because ``columns`` is unclassified it takes a
+        MAJOR version. The cube then gains a version on every deploy forever.
+        """
+        namespace = "cube_redeploy_phantom_partition"
+        cube = CubeSpec(
+            name="${prefix}default.repairs_cube",
+            display_name="Repairs Cube",
+            description="Cube for analyzing repair orders",
+            dimensions=[
+                "${prefix}default.hard_hat.state",
+                "${prefix}default.hard_hat.hire_date",
+            ],
+            metrics=["${prefix}default.avg_length_of_employment"],
+            owners=["dj"],
+            columns=[
+                ColumnSpec(
+                    # Deliberately not a cube column: the cube's column is
+                    # ``default.hard_hat.hire_date``, fully qualified.
+                    name="hire_date",
+                    partition=PartitionSpec(
+                        type=PartitionType.TEMPORAL,
+                        granularity=Granularity.DAY,
+                        format="yyyyMMdd",
+                    ),
+                ),
+            ],
+        )
+        upstreams = [
+            default_hard_hats,
+            default_hard_hat,
+            default_us_states,
+            default_us_state,
+            default_avg_length_of_employment,
+        ]
+
+        def deployment() -> DeploymentSpec:
+            return DeploymentSpec(
+                namespace=namespace,
+                nodes=[spec.model_copy(deep=True) for spec in upstreams]
+                + [cube.model_copy(deep=True)],
+            )
+
+        first = await deploy_and_wait(client, deployment())
+        assert first["status"] == "success", first["results"]
+
+        cube_name = f"{namespace}.default.repairs_cube"
+        version_after_first = (await client.get(f"/nodes/{cube_name}/")).json()[
+            "version"
+        ]
+
+        second = await deploy_and_wait(client, deployment())
+        cube_result = next(
+            result for result in second["results"] if result["name"] == cube_name
+        )
+        assert cube_result["changed_fields"] == [], cube_result["message"]
+
+        version_after_second = (await client.get(f"/nodes/{cube_name}/")).json()[
+            "version"
+        ]
+        assert version_after_second == version_after_first
+
+        # The declaration is ignored, but the author is told it is.
+        assert any(
+            "declares column 'hire_date'" in warning["message"]
+            for warning in second["warnings"]
+        ), second["warnings"]
+
+
 class TestDeploymentColumnOrdering:
     """Tests for column ordering in deployments"""
 
@@ -10179,3 +10763,677 @@ class TestCrossParentRatioDeployment:
         response = await client.get(f"/nodes/{namespace}.fd_ratio_cross/")
         assert response.status_code == 200, response.json()
         assert response.json()["status"] == "valid"
+
+
+def _clone_column_list(model, **overrides: str) -> tuple[str, str]:
+    """Quoted column names and the SELECT list that clones a row of `model`."""
+    names = [c.name for c in model.__table__.columns if c.name != "id"]
+    return (
+        ", ".join(f'"{name}"' for name in names),
+        ", ".join(overrides.get(name, f'r."{name}"') for name in names),
+    )
+
+
+async def commit_competing_revision(
+    session_factory,
+    node_name: str,
+    version: str,
+    advance_current: bool = True,
+):
+    """Commit a revision at `version` for `node_name` from another session.
+
+    Stands in for the deployment that wins a race: it clones the node's current
+    revision, and its columns, at the version an in-flight deployment has already
+    planned, and moves `Node.current_version` onto it. Raw SQL so nothing lands in
+    the deploying session's identity map. `advance_current` off leaves
+    `Node.current_version` behind the revision it just wrote.
+    """
+    session = await session_factory()
+    current_revision = (
+        "SELECT rev.id FROM noderevision rev JOIN node n ON n.id = rev.node_id "
+        "WHERE n.name = :name AND rev.version = n.current_version"
+    )
+    names, values = _clone_column_list(NodeRevision, version=f"'{version}'")
+    new_id = (
+        await session.execute(
+            text(
+                f"INSERT INTO noderevision ({names}) SELECT {values} "  # noqa: S608
+                f"FROM noderevision r WHERE r.id = ({current_revision}) RETURNING id",
+            ),
+            {"name": node_name},
+        )
+    ).scalar_one()
+    names, values = _clone_column_list(DBColumn, node_revision_id=str(new_id))
+    await session.execute(
+        text(
+            f'INSERT INTO "column" ({names}) SELECT {values} FROM "column" r '  # noqa: S608
+            f"WHERE r.node_revision_id = ({current_revision})",
+        ),
+        {"name": node_name},
+    )
+    if advance_current:
+        await session.execute(
+            text("UPDATE node SET current_version = :version WHERE name = :name"),
+            {"version": version, "name": node_name},
+        )
+    await session.commit()
+    await session.close()
+
+
+@pytest.mark.xdist_group(name="deployments")
+class TestConcurrentDeploymentVersionBump:
+    """Two deployments to one namespace that overlap in time.
+
+    A deployment plans against a snapshot of `Node.current_version`. When another
+    deployment commits between that snapshot and the revision insert, every version
+    the loser planned is already taken and the bulk insert dies on
+    uq_noderevision_version, failing the whole deploy. The version written has to
+    come from committed state at write time, not from the plan-time snapshot.
+    """
+
+    @pytest.fixture
+    def cube(self):
+        return CubeSpec(
+            name="default.repairs_cube",
+            display_name="Repairs Cube",
+            description="Cube for analyzing repair orders",
+            dimensions=["${prefix}default.hard_hat.state"],
+            metrics=["${prefix}default.avg_length_of_employment"],
+            owners=["dj"],
+        )
+
+    @pytest.fixture
+    def nodes_list(
+        self,
+        cube,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+    ):
+        return [
+            default_hard_hats,
+            default_hard_hat,
+            default_us_states,
+            default_us_state,
+            default_avg_length_of_employment,
+            cube,
+        ]
+
+    @pytest.mark.asyncio
+    async def test_deploy_bumps_from_committed_version_not_snapshot(
+        self,
+        client,
+        session_factory,
+        cube,
+        nodes_list,
+        default_avg_length_of_employment,
+    ):
+        """
+        Both deployments carry a description-only edit off v1.0, so both compute
+        v1.1. The loser must land v1.2 -- the version after the one the winner
+        committed -- for the regular node and the cube alike, rather than failing
+        the user's deploy on uq_noderevision_version.
+        """
+        namespace = "deploy_version_race"
+        metric_name = f"{namespace}.default.avg_length_of_employment"
+        cube_name = f"{namespace}.default.repairs_cube"
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success", data
+
+        # The winner commits v1.1 for both nodes after the deployment below has
+        # planned, but before it writes any revision.
+        original = DeploymentOrchestrator._execute_deployment_plan
+
+        async def winning_deploy_commits_first(orchestrator, plan):
+            await commit_competing_revision(session_factory, metric_name, "v1.1")
+            await commit_competing_revision(session_factory, cube_name, "v1.1")
+            return await original(orchestrator, plan)
+
+        default_avg_length_of_employment.description = "Average length of employment!"
+        cube.description = "Cube for analyzing repair orders, revised"
+        with patch.object(
+            DeploymentOrchestrator,
+            "_execute_deployment_plan",
+            winning_deploy_commits_first,
+        ):
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(namespace=namespace, nodes=nodes_list),
+            )
+        assert data["status"] == "success", data
+
+        assert (await client.get(f"/nodes/{metric_name}/")).json()["version"] == "v1.2"
+        assert (await client.get(f"/nodes/{cube_name}/")).json()["version"] == "v1.2"
+
+    @pytest.mark.asyncio
+    async def test_deploy_bumps_past_highest_revision(
+        self,
+        client,
+        session_factory,
+        cube,
+        nodes_list,
+        default_avg_length_of_employment,
+    ):
+        """
+        A node whose `current_version` lags its highest revision must still earn a
+        free version. v10.0 exists while `current_version` says v9.0, so the deploy
+        has to bump past v10.0 -- which also means comparing versions semantically,
+        since v9.0 sorts above v10.0 as a string. The cloned revisions carry no
+        required-dimension or cube-element rows, so the re-deploy reads as major.
+        """
+        namespace = "deploy_version_strand"
+        metric_name = f"{namespace}.default.avg_length_of_employment"
+        cube_name = f"{namespace}.default.repairs_cube"
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success", data
+
+        for name in (metric_name, cube_name):
+            await commit_competing_revision(session_factory, name, "v9.0")
+            await commit_competing_revision(
+                session_factory,
+                name,
+                "v10.0",
+                advance_current=False,
+            )
+
+        default_avg_length_of_employment.description = "Average length of employment!"
+        cube.description = "Cube for analyzing repair orders, revised"
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success", data
+
+        assert (await client.get(f"/nodes/{metric_name}/")).json()["version"] == "v11.0"
+        assert (await client.get(f"/nodes/{cube_name}/")).json()["version"] == "v11.0"
+
+
+@pytest.mark.xdist_group(name="deployments")
+class TestRequiredDimensionsRedeployIdempotence:
+    """A metric whose `required_dimensions` point at a column on its own parent
+    re-deploys as a noop, whichever of the two accepted spellings it was
+    authored in. The bare case is the control: it passed before the fix too,
+    since the bare name is what the export already emits."""
+
+    def _nodes(self, required_dimensions):
+        return [
+            SourceSpec(
+                name="rd_orders_raw",
+                description="Raw orders",
+                catalog="default",
+                schema="roads",
+                table="rd_orders_raw",
+                columns=[
+                    ColumnSpec(name="order_id", type="bigint"),
+                    ColumnSpec(name="currency_code", type="string"),
+                ],
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            TransformSpec(
+                name="rd_orders_fact",
+                description="Orders fact",
+                query="SELECT order_id, currency_code FROM ${prefix}rd_orders_raw",
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            MetricSpec(
+                name="rd_num_orders",
+                # Named so an inferred display_name doesn't turn up in `changed_fields`.
+                display_name="Rd Num Orders",
+                description="Number of orders",
+                query="SELECT count(order_id) FROM ${prefix}rd_orders_fact",
+                required_dimensions=required_dimensions,
+                owners=["dj"],
+            ),
+        ]
+
+    @pytest.mark.parametrize(
+        "namespace, required_dimensions",
+        [
+            ("rd_bare", ["currency_code"]),
+            ("rd_qualified", ["${prefix}rd_orders_fact.currency_code"]),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_redeploy_is_noop(self, client, namespace, required_dimensions):
+        nodes = self._nodes(required_dimensions)
+        metric_name = f"{namespace}.rd_num_orders"
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert data["status"] == "success", data
+        assert [
+            result for result in data["results"] if result["name"] == metric_name
+        ] == [
+            {
+                "deploy_type": "node",
+                "message": "Created metric (v1.0)",
+                "name": metric_name,
+                "operation": "create",
+                "changed_fields": [],
+                "status": "success",
+            },
+        ]
+
+        response = await client.get(f"/nodes/{metric_name}/")
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v1.0"
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=self._nodes(required_dimensions)),
+        )
+        assert data["status"] == "success", data
+        assert [
+            result for result in data["results"] if result["name"] == metric_name
+        ] == [
+            {
+                "deploy_type": "node",
+                "message": "Unchanged",
+                "name": metric_name,
+                "operation": "noop",
+                "changed_fields": [],
+                "status": "skipped",
+            },
+        ]
+
+        response = await client.get(f"/nodes/{metric_name}/")
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v1.0"
+
+    @pytest.mark.asyncio
+    async def test_redeploy_is_noop_for_linked_dimension_column_multi_segment_namespace(
+        self,
+        client,
+    ):
+        """Same shape as `test_redeploy_is_noop_for_linked_dimension_column`, but
+        under a dotted (git-branch-shaped) namespace and with the parent having
+        several dimension_links, reproducing the real semantic-shared churn on
+        `can_stream_accounts_28d` / `dt_date_d_v2.dateint`."""
+        namespace = "rd_multi.linked_dim_branch"
+
+        def _nodes():
+            return [
+                SourceSpec(
+                    name="rd_date_raw",
+                    description="Raw date",
+                    catalog="default",
+                    schema="roads",
+                    table="rd_date_raw",
+                    columns=[ColumnSpec(name="dateint", type="int")],
+                    dimension_links=[],
+                    owners=["dj"],
+                ),
+                DimensionSpec(
+                    name="rd_date_dim",
+                    description="Date dimension",
+                    query="SELECT dateint FROM ${prefix}rd_date_raw",
+                    primary_key=["dateint"],
+                    dimension_links=[],
+                    owners=["dj"],
+                ),
+                SourceSpec(
+                    name="rd_geo_raw",
+                    description="Raw geo",
+                    catalog="default",
+                    schema="roads",
+                    table="rd_geo_raw",
+                    columns=[ColumnSpec(name="country_iso_code", type="string")],
+                    dimension_links=[],
+                    owners=["dj"],
+                ),
+                DimensionSpec(
+                    name="rd_geo_dim",
+                    description="Geo dimension",
+                    query="SELECT country_iso_code FROM ${prefix}rd_geo_raw",
+                    primary_key=["country_iso_code"],
+                    dimension_links=[],
+                    owners=["dj"],
+                ),
+                SourceSpec(
+                    name="rd_orders_raw",
+                    description="Raw orders",
+                    catalog="default",
+                    schema="roads",
+                    table="rd_orders_raw",
+                    columns=[
+                        ColumnSpec(name="order_id", type="bigint"),
+                        ColumnSpec(name="account_id", type="bigint"),
+                        ColumnSpec(name="dateint", type="int"),
+                        ColumnSpec(name="country_iso_code", type="string"),
+                    ],
+                    dimension_links=[],
+                    owners=["dj"],
+                ),
+                TransformSpec(
+                    name="rd_orders_fact",
+                    description="Orders fact",
+                    query=(
+                        "SELECT order_id, account_id, dateint, country_iso_code "
+                        "FROM ${prefix}rd_orders_raw"
+                    ),
+                    dimension_links=[
+                        DimensionJoinLinkSpec(
+                            dimension_node="${prefix}rd_date_dim",
+                            join_type="left",
+                            join_on=(
+                                "${prefix}rd_orders_fact.dateint = "
+                                "${prefix}rd_date_dim.dateint"
+                            ),
+                        ),
+                        DimensionJoinLinkSpec(
+                            dimension_node="${prefix}rd_date_dim",
+                            join_type="left",
+                            join_on=(
+                                "${prefix}rd_orders_fact.account_id = "
+                                "${prefix}rd_date_dim.dateint"
+                            ),
+                            role="rd_account_signup_date",
+                        ),
+                        DimensionJoinLinkSpec(
+                            dimension_node="${prefix}rd_geo_dim",
+                            join_type="left",
+                            join_on=(
+                                "${prefix}rd_orders_fact.country_iso_code = "
+                                "${prefix}rd_geo_dim.country_iso_code"
+                            ),
+                            role="rd_signup_country",
+                        ),
+                    ],
+                    owners=["dj"],
+                ),
+                MetricSpec(
+                    name="rd_num_orders",
+                    display_name="Rd Num Orders",
+                    description="Number of orders",
+                    query="SELECT count(order_id) FROM ${prefix}rd_orders_fact",
+                    required_dimensions=["${prefix}rd_date_dim.dateint"],
+                    owners=["dj"],
+                ),
+            ]
+
+        metric_name = f"{namespace}.rd_num_orders"
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=_nodes()),
+        )
+        assert data["status"] == "success", data
+        response = await client.get(f"/nodes/{metric_name}/")
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v1.0"
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=_nodes()),
+        )
+        assert data["status"] == "success", data
+        assert [
+            result for result in data["results"] if result["name"] == metric_name
+        ] == [
+            {
+                "deploy_type": "node",
+                "message": "Unchanged",
+                "name": metric_name,
+                "operation": "noop",
+                "changed_fields": [],
+                "status": "skipped",
+            },
+        ], data["results"]
+
+        response = await client.get(f"/nodes/{metric_name}/")
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v1.0"
+
+    @pytest.mark.asyncio
+    async def test_unrelated_edit_preserves_linked_dimension_column(self, client):
+        """Updating a metric for an unrelated reason (not a redeploy noop) must
+        not silently drop a required dimension reached via a dimension_link,
+        when the linked dimension node itself isn't part of this update batch."""
+        namespace = "rd_linked_dim_unrelated_edit"
+
+        def _nodes(description):
+            return [
+                SourceSpec(
+                    name="rd_date_raw",
+                    description="Raw date",
+                    catalog="default",
+                    schema="roads",
+                    table="rd_date_raw",
+                    columns=[ColumnSpec(name="dateint", type="int")],
+                    dimension_links=[],
+                    owners=["dj"],
+                ),
+                DimensionSpec(
+                    name="rd_date_dim",
+                    description="Date dimension",
+                    query="SELECT dateint FROM ${prefix}rd_date_raw",
+                    primary_key=["dateint"],
+                    dimension_links=[],
+                    owners=["dj"],
+                ),
+                SourceSpec(
+                    name="rd_orders_raw",
+                    description="Raw orders",
+                    catalog="default",
+                    schema="roads",
+                    table="rd_orders_raw",
+                    columns=[
+                        ColumnSpec(name="order_id", type="bigint"),
+                        ColumnSpec(name="dateint", type="int"),
+                    ],
+                    dimension_links=[],
+                    owners=["dj"],
+                ),
+                TransformSpec(
+                    name="rd_orders_fact",
+                    description="Orders fact",
+                    query="SELECT order_id, dateint FROM ${prefix}rd_orders_raw",
+                    dimension_links=[
+                        DimensionJoinLinkSpec(
+                            dimension_node="${prefix}rd_date_dim",
+                            join_type="inner",
+                            join_on=(
+                                "${prefix}rd_orders_fact.dateint = "
+                                "${prefix}rd_date_dim.dateint"
+                            ),
+                        ),
+                    ],
+                    owners=["dj"],
+                ),
+                MetricSpec(
+                    name="rd_num_orders",
+                    display_name="Rd Num Orders",
+                    description=description,
+                    query="SELECT count(order_id) FROM ${prefix}rd_orders_fact",
+                    required_dimensions=["${prefix}rd_date_dim.dateint"],
+                    owners=["dj"],
+                ),
+            ]
+
+        metric_name = f"{namespace}.rd_num_orders"
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=_nodes("Number of orders")),
+        )
+        assert data["status"] == "success", data
+        response = await client.get(f"/metrics/{metric_name}/")
+        assert response.status_code == 200, response.json()
+        assert response.json()["required_dimensions"] == ["dateint"]
+
+        # Only the metric's description changes here, so `rd_date_dim` and
+        # `rd_orders_fact` are unchanged and are not part of this update's
+        # deploy-ordering graph load -- required_dimensions must still resolve.
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=_nodes("Number of orders, revised"),
+            ),
+        )
+        assert data["status"] == "success", data
+        assert [
+            result for result in data["results"] if result["name"] == metric_name
+        ] == [
+            {
+                "deploy_type": "node",
+                "message": "Updated metric (v1.1)\n└─ Updated description",
+                "name": metric_name,
+                "operation": "update",
+                "changed_fields": ["description"],
+                "status": "success",
+            },
+        ], data["results"]
+
+        response = await client.get(f"/metrics/{metric_name}/")
+        assert response.status_code == 200, response.json()
+        assert response.json()["required_dimensions"] == ["dateint"]
+
+    @pytest.mark.asyncio
+    async def test_metadata_edit_on_qualified_metric_is_minor(self, client):
+        """The change tier is folded from `changed_fields`, so a qualified
+        required dimension tagging along there drags a metadata-only edit up to
+        MAJOR."""
+        namespace = "rd_qualified_minor"
+        nodes = self._nodes(["${prefix}rd_orders_fact.currency_code"])
+        metric_name = f"{namespace}.rd_num_orders"
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert data["status"] == "success", data
+
+        nodes[-1].description = "Number of orders, revised"
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert data["status"] == "success", data
+        assert [
+            result for result in data["results"] if result["name"] == metric_name
+        ] == [
+            {
+                "deploy_type": "node",
+                "message": "Updated metric (v1.1)\n└─ Updated description",
+                "name": metric_name,
+                "operation": "update",
+                "changed_fields": ["description"],
+                "status": "success",
+            },
+        ]
+
+        response = await client.get(f"/nodes/{metric_name}/")
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v1.1"
+
+    @pytest.mark.asyncio
+    async def test_redeploy_is_noop_for_linked_dimension_column(self, client):
+        """A required dimension one hop out via a dimension_link (not a direct
+        query parent) should also redeploy as a noop. Reproduces the churn seen
+        with `${prefix}dt_date_d_v2.dateint`-shaped required dimensions."""
+        namespace = "rd_linked_dim"
+
+        def _nodes():
+            return [
+                SourceSpec(
+                    name="rd_date_raw",
+                    description="Raw date",
+                    catalog="default",
+                    schema="roads",
+                    table="rd_date_raw",
+                    columns=[ColumnSpec(name="dateint", type="int")],
+                    dimension_links=[],
+                    owners=["dj"],
+                ),
+                DimensionSpec(
+                    name="rd_date_dim",
+                    description="Date dimension",
+                    query="SELECT dateint FROM ${prefix}rd_date_raw",
+                    primary_key=["dateint"],
+                    dimension_links=[],
+                    owners=["dj"],
+                ),
+                SourceSpec(
+                    name="rd_orders_raw",
+                    description="Raw orders",
+                    catalog="default",
+                    schema="roads",
+                    table="rd_orders_raw",
+                    columns=[
+                        ColumnSpec(name="order_id", type="bigint"),
+                        ColumnSpec(name="dateint", type="int"),
+                    ],
+                    dimension_links=[],
+                    owners=["dj"],
+                ),
+                TransformSpec(
+                    name="rd_orders_fact",
+                    description="Orders fact",
+                    query="SELECT order_id, dateint FROM ${prefix}rd_orders_raw",
+                    dimension_links=[
+                        DimensionJoinLinkSpec(
+                            dimension_node="${prefix}rd_date_dim",
+                            join_type="inner",
+                            join_on=(
+                                "${prefix}rd_orders_fact.dateint = "
+                                "${prefix}rd_date_dim.dateint"
+                            ),
+                        ),
+                    ],
+                    owners=["dj"],
+                ),
+                MetricSpec(
+                    name="rd_num_orders",
+                    display_name="Rd Num Orders",
+                    description="Number of orders",
+                    query="SELECT count(order_id) FROM ${prefix}rd_orders_fact",
+                    required_dimensions=["${prefix}rd_date_dim.dateint"],
+                    owners=["dj"],
+                ),
+            ]
+
+        metric_name = f"{namespace}.rd_num_orders"
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=_nodes()),
+        )
+        assert data["status"] == "success", data
+        response = await client.get(f"/nodes/{metric_name}/")
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v1.0"
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=_nodes()),
+        )
+        assert data["status"] == "success", data
+        assert [
+            result for result in data["results"] if result["name"] == metric_name
+        ] == [
+            {
+                "deploy_type": "node",
+                "message": "Unchanged",
+                "name": metric_name,
+                "operation": "noop",
+                "changed_fields": [],
+                "status": "skipped",
+            },
+        ], data["results"]
+
+        response = await client.get(f"/nodes/{metric_name}/")
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v1.0"

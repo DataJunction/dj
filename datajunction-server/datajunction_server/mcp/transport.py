@@ -13,6 +13,8 @@ Lifecycle:
   contexts where the lifespan never fires (e.g. ASGITransport-based tests
   without ``LifespanManager``), the manager is started lazily on the first
   request.
+- On lifespan exit the mount stops taking requests and waits up to
+  ``drain_timeout`` seconds for in-flight ones to respond.
 - Tools call ``get_mcp_session()`` to read the per-request ``AsyncSession``.
 """
 
@@ -30,6 +32,7 @@ from contextlib import (
 
 from fastapi import FastAPI
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from starlette.responses import PlainTextResponse
 from starlette.routing import Mount
 from starlette.types import Receive, Scope, Send
 
@@ -38,6 +41,9 @@ from datajunction_server.mcp.server import app as mcp_app
 from datajunction_server.utils import get_session_manager
 
 logger = logging.getLogger(__name__)
+
+# Well under gunicorn's 30s graceful timeout.
+DRAIN_TIMEOUT = 5.0
 
 # Re-export for convenience — tools and tests import from this module.
 __all__ = ["get_mcp_session", "mount_mcp"]
@@ -48,6 +54,7 @@ def mount_mcp(
     path: str = "/mcp",
     *,
     request_context: Callable[[Scope], AbstractContextManager[object]] | None = None,
+    drain_timeout: float = DRAIN_TIMEOUT,
 ) -> None:
     """Mount the MCP HTTP transport on ``app`` at ``path``.
 
@@ -60,6 +67,9 @@ def mount_mcp(
     can bind additional request-scoped ContextVars — e.g. an identity-aware
     query-service-client provider. The contextmanager is entered before the MCP
     request is handled and exited (even on error) afterward.
+
+    ``drain_timeout``: seconds to wait on lifespan exit for in-flight requests
+    to respond before the session manager tears their streams down.
 
     Must be called once during app construction.
     """
@@ -89,7 +99,13 @@ def mount_mcp(
             lazy_started = True
             logger.info("MCP session manager started lazily (no lifespan)")
 
-    async def asgi_handler(scope: Scope, receive: Receive, send: Send) -> None:
+    # In-flight request tracking, so shutdown can wait them out.
+    in_flight = 0
+    idle = asyncio.Event()
+    idle.set()
+    draining = False
+
+    async def handle_scope(scope: Scope, receive: Receive, send: Send) -> None:
         """Wrap MCP request handling with a DB session bound to a ContextVar."""
         if scope["type"] != "http":  # pragma: no cover
             await ensure_started()
@@ -111,6 +127,35 @@ def mount_mcp(
             finally:
                 _session_var.reset(token)
 
+    async def asgi_handler(scope: Scope, receive: Receive, send: Send) -> None:
+        """Count the request, or turn it away while draining."""
+        nonlocal in_flight
+        if draining:
+            response = PlainTextResponse("Server shutting down", status_code=503)
+            await response(scope, receive, send)
+            return
+
+        in_flight += 1
+        idle.clear()
+        try:
+            await handle_scope(scope, receive, send)
+        finally:
+            in_flight -= 1
+            if in_flight == 0:
+                idle.set()
+
+    async def drain_requests() -> None:
+        """Wait for in-flight MCP requests to respond."""
+        nonlocal draining
+        draining = True
+        if idle.is_set():
+            return
+        logger.info("Draining %d MCP requests", in_flight)
+        try:
+            await asyncio.wait_for(idle.wait(), drain_timeout)
+        except TimeoutError:
+            logger.warning("Dropping %d MCP requests still in flight", in_flight)
+
     app.router.routes.append(Mount(path, app=asgi_handler))
 
     # Compose the MCP manager's task-group lifespan with whatever the app
@@ -124,7 +169,10 @@ def mount_mcp(
             started_via_lifespan = True
             try:
                 async with original_lifespan(_app):
-                    yield
+                    try:
+                        yield
+                    finally:
+                        await drain_requests()
             finally:
                 started_via_lifespan = False
 

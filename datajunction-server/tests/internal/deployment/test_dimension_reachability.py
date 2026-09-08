@@ -316,6 +316,14 @@ class TestExtractDimensionRefsFromFilters:
         result = _extract_dimension_refs_from_filters(["x > 5"])
         assert result == []
 
+    def test_filter_with_single_namespace_segment(self):
+        from datajunction_server.internal.deployment.orchestrator import (
+            _extract_dimension_refs_from_filters,
+        )
+
+        result = _extract_dimension_refs_from_filters(["hard_hat.state = 'CA'"])
+        assert result == []
+
     def test_filter_with_multiple_refs_in_one_expression(self):
         from datajunction_server.internal.deployment.orchestrator import (
             _extract_dimension_refs_from_filters,

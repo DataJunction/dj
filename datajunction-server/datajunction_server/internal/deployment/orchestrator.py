@@ -54,6 +54,7 @@ from datajunction_server.internal.deployment.dimension_reachability import (
 from datajunction_server.internal.deployment.utils import (
     DeploymentContext,
     classify_parents,
+    extract_dimension_refs_from_filters as _extract_dimension_refs_from_filters,
     extract_node_graph,
     topological_levels,
 )
@@ -110,6 +111,8 @@ from datajunction_server.models.deployment import (
 from datajunction_server.models.dimensionlink import (
     JoinLinkInput,
     LinkType,
+    misplaced_node_column_message,
+    missing_join_on_message,
 )
 from datajunction_server.models.hierarchy import HierarchyLevelInput
 from datajunction_server.models.history import ActivityType
@@ -133,6 +136,7 @@ from datajunction_server.sql.dag import get_metric_parents_map
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import (
     SEPARATOR,
+    Version,
     get_namespace_from_name,
     get_settings,
 )
@@ -140,34 +144,10 @@ from datajunction_server.utils import (
 logger = logging.getLogger(__name__)
 
 
-def _extract_dimension_refs_from_filters(
-    filters: list[str],
-) -> list[tuple[str, str]]:
-    """Extract (node_name, column_name) pairs from filter expressions.
-
-    Parses all filters as a single WHERE clause (joined with AND) and
-    collects namespaced column references.  For example,
-    ``ns.hard_hat.state = 'CA'`` yields ``('ns.hard_hat', 'state')``.
-
-    Returns a list of (node_name, column_name) tuples.  Dimension node
-    names are identified by having at least one SEPARATOR in the namespace.
-    """
-    from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
-
-    if not filters:
-        return []
-    combined = " AND ".join(f"({f})" for f in filters)
-    try:
-        tree = parse(f"SELECT 1 WHERE {combined}")
-    except Exception:
-        return []  # Unparseable — skip, will be caught at query time
-    refs: list[tuple[str, str]] = []
-    for col in tree.find_all(ast.Column):
-        if col.namespace and len(col.namespace) >= 1:
-            node_name = SEPARATOR.join(n.name for n in col.namespace)
-            if SEPARATOR in node_name:  # pragma: no branch
-                refs.append((node_name, col.name.name))
-    return refs
+def _version_key(version: str) -> tuple[int, int]:
+    """A version as a sortable pair, so v10.0 outranks v9.0."""
+    parsed = Version.parse(version)
+    return parsed.major, parsed.minor
 
 
 def _diff_column_metadata(
@@ -386,6 +366,10 @@ class DeploymentOrchestrator:
         # Cubes rebuilt onto a new, empty datasource.
         self._rebuilt_cubes: set[str] = set()
         self._branch_deploy: bool | None = None
+        # Cube name -> the changed upstreams that pulled it into this deploy.
+        self._cubes_bumped_by_upstream: dict[str, list[str]] = {}
+        # Node name -> the tier its change earned, for those cubes to inherit.
+        self._change_tiers: dict[str, ChangeTier] = {}
 
     @property
     def _history_user(self) -> str:
@@ -402,6 +386,28 @@ class DeploymentOrchestrator:
             if author:
                 return author
         return self.context.current_user.username
+
+    def _warn_about_unmatched_cube_columns(self) -> None:
+        """
+        Warn about `columns:` entries naming no column of the cube. The comparison
+        ignores them; without this the partition the author declared would just
+        silently do nothing.
+        """
+        for spec in self.deployment_spec.nodes:
+            if not isinstance(spec, CubeSpec):
+                continue
+            for unmatched in spec.unmatched_column_names:
+                self.warnings.append(
+                    DJError(
+                        code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                        message=(
+                            f"Cube '{spec.name}' declares column '{unmatched}', "
+                            f"which is not one of its columns, so the settings on "
+                            f"it have no effect. A cube's columns are its metrics "
+                            f"and dimensions, named exactly as they appear there."
+                        ),
+                    ),
+                )
 
     async def execute(self) -> DeploymentExecuteResult:
         """
@@ -427,6 +433,8 @@ class DeploymentOrchestrator:
             len(self.deployment_spec.nodes),
             self.deployment_spec.namespace,
         )
+
+        self._warn_about_unmatched_cube_columns()
 
         result = DeploymentExecuteResult(results=[], downstream_impacts=[])
         try:
@@ -1949,10 +1957,13 @@ class DeploymentOrchestrator:
 
         # Load all dependencies once upfront (not per-level).
         # The registry is checked first, so only external deps hit the DB.
+        # Uses ordering_graph, not plan.node_graph, so a required-dimension node
+        # is preloaded here too -- otherwise apply_metric_spec's lookup misses it
+        # and silently resolves required_dimensions to empty.
         t = time.perf_counter()
         is_copy = all(s._skip_validation for s in plan.to_deploy)
         dependency_nodes = await self.get_dependencies(
-            plan.node_graph,
+            ordering_graph,
             skip_type_reparsing=is_copy,
         )
         timer.record(
@@ -2131,6 +2142,20 @@ class DeploymentOrchestrator:
                 link_spec.rendered_dimension_node,
             )
 
+        if link_spec.type == LinkType.JOIN:
+            problems = self._join_link_problems(
+                cast(DimensionJoinLinkSpec, link_spec),
+                node_spec.rendered_name,
+            )
+            if problems:
+                return DeploymentResult(
+                    name=link_name,
+                    deploy_type=DeploymentResult.Type.LINK,
+                    status=DeploymentResult.Status.FAILED,
+                    operation=DeploymentResult.Operation.CREATE,
+                    message="\n".join(problems),
+                )
+
         if node.current and node.current.status == NodeStatus.INVALID:
             # Node is INVALID (no columns / bad SQL). Write the link aspirationally
             # so it's already present once the node is fixed.
@@ -2163,6 +2188,22 @@ class DeploymentOrchestrator:
             dimension_node=dimension_node,
         )
 
+    @staticmethod
+    def _join_link_problems(
+        link_spec: DimensionJoinLinkSpec,
+        node_name: str,
+    ) -> list[str]:
+        """List reasons a join link cannot be stored."""
+        dimension_node = link_spec.rendered_dimension_node
+        problems = []
+        if link_spec.node_column:
+            problems.append(
+                misplaced_node_column_message(node_name, dimension_node),
+            )
+        if not link_spec.rendered_join_on and link_spec.join_type != JoinType.CROSS:
+            problems.append(missing_join_on_message(node_name, dimension_node))
+        return problems
+
     def _create_missing_node_link_result(
         self,
         link_name: str,
@@ -2190,7 +2231,8 @@ class DeploymentOrchestrator:
                 dimension_node=join_link.rendered_dimension_node,
                 join_type=join_link.join_type,
                 join_cardinality=join_link.join_cardinality,
-                join_on=join_link.rendered_join_on,
+                # A CROSS join has no ON clause, but join_sql is NOT NULL.
+                join_on=join_link.rendered_join_on or "",
                 role=join_link.role,
                 default_value=join_link.default_value,
                 spark_hints=join_link.spark_hints,
@@ -2374,16 +2416,22 @@ class DeploymentOrchestrator:
                 new_revision,
                 access_checker=access_checker,
                 current_user=self.context.current_user,
-                previous_table_usable=not await is_non_trivial_cube_change(
-                    self.session,
-                    old_revision,
-                    new_revision,
+                # An upstream change can leave the cube's shape identical while
+                # every row it serves differs, so the old table is not adoptable.
+                previous_table_usable=(
+                    new_revision.name not in self._cubes_bumped_by_upstream
+                    and not await is_non_trivial_cube_change(
+                        self.session,
+                        old_revision,
+                        new_revision,
+                    )
                 ),
                 declared=declared,
             )
             if swap:
                 if swap.rebuilt_names:
                     self._rebuilt_cubes.add(new_revision.name)
+                swap.is_branch_deploy = await self._is_branch_deploy()
                 self._cube_materialization_swaps.append(swap)
 
     def _declared_materializations(self) -> dict[str, list[MaterializationSpec]]:
@@ -2692,6 +2740,8 @@ class DeploymentOrchestrator:
                     # take the replacements down with it if those had already been
                     # scheduled.
                     self._cube_materialization_swaps.append(
+                        # No `rebuilt_names`, so this swap never reaches
+                        # `.schedule()` -- it only stops the superseded workflow.
                         CubeMaterializationSwap(
                             cube_name=revision.name,
                             previous_version=revision.version,
@@ -2711,6 +2761,7 @@ class DeploymentOrchestrator:
                         new_version=revision.version,
                         rebuilt_names=[entry.materialization.name for entry in changed],
                         superseded=[],
+                        is_branch_deploy=await self._is_branch_deploy(),
                     ),
                 )
             for entry in reconciled:
@@ -2795,6 +2846,8 @@ class DeploymentOrchestrator:
         if await backfill_recorded(self.session, materialization, span[0]):
             return
         self._cube_materialization_swaps.append(
+            # No `rebuilt_names`; this call already returned above whenever
+            # `_is_branch_deploy()` is true, so this swap is always main.
             CubeMaterializationSwap(
                 cube_name=revision.name,
                 previous_version=revision.version,
@@ -2872,6 +2925,8 @@ class DeploymentOrchestrator:
             ),
         )
         self._cube_materialization_swaps.append(
+            # No `rebuilt_names`, so this swap never reaches `.schedule()` --
+            # a teardown only stops workflows, it does not start one.
             CubeMaterializationSwap(
                 cube_name=revision.name,
                 previous_version=revision.version,
@@ -3699,6 +3754,13 @@ class DeploymentOrchestrator:
         """Create cube nodes and revisions from validation results without re-validation"""
         nodes, revisions = [], []
         deployment_results = []
+        await self._lock_versions(
+            [
+                node
+                for result in validation_results
+                if (node := self.registry.nodes.get(result.spec.rendered_name))
+            ],
+        )
 
         for result in validation_results:
             cube_spec = cast(CubeSpec, result.spec)
@@ -3714,6 +3776,12 @@ class DeploymentOrchestrator:
             validation_data = result._cube_validation_data
             changelog, changed_fields, change_tier = await self._generate_changelog(
                 result,
+            )
+            # A cube dragged in by an upstream change has an identical spec, so its
+            # own diff earns nothing; the upstream's tier is the whole bump.
+            change_tier = max(
+                change_tier,
+                self._inherited_change_tier(cube_spec.rendered_name),
             )
             if existing:
                 new_node = existing
@@ -4216,6 +4284,12 @@ class DeploymentOrchestrator:
         -- `change_tier` decides that and `_deployed_version` turns it into a
         version. So `force` and the INVALID re-deploy below can re-process a node
         without that implying anything about what changed.
+
+        A cube whose own spec is unchanged is still processed when something
+        upstream of it is changing, matching what `_propagate_update_downstream`
+        does for a `PATCH`: the cube names the same metrics and dimensions, but
+        they now resolve against new upstream revisions, so its materialized table
+        was computed against a definition that no longer exists.
         """
         to_create: list[NodeSpec] = []
         to_update: list[NodeSpec] = []
@@ -4240,6 +4314,23 @@ class DeploymentOrchestrator:
                 else:
                     to_skip.append(node_spec)
 
+        changed_names = {spec.rendered_name for spec in to_create + to_update}
+        self._cubes_bumped_by_upstream = self._cubes_below_changed_nodes(
+            to_skip,
+            changed_names,
+        )
+        if self._cubes_bumped_by_upstream:
+            to_update.extend(
+                spec
+                for spec in to_skip
+                if spec.rendered_name in self._cubes_bumped_by_upstream
+            )
+            to_skip = [
+                spec
+                for spec in to_skip
+                if spec.rendered_name not in self._cubes_bumped_by_upstream
+            ]
+
         desired_node_names = {n.rendered_name for n in self.deployment_spec.nodes}
         to_delete = [
             existing
@@ -4248,6 +4339,61 @@ class DeploymentOrchestrator:
         ]
 
         return to_create + to_update, to_skip, to_delete
+
+    def _cubes_below_changed_nodes(
+        self,
+        candidates: list[NodeSpec],
+        changed_names: set[str],
+    ) -> dict[str, list[str]]:
+        """Which unchanged cubes sit above a node this deploy is changing.
+
+        Maps each such cube to the changed nodes above it, which is what
+        `_inherited_change_tier` reads to give the cube a bump as significant as
+        the change that caused it.
+
+        The walk uses the parents already loaded with the namespace's nodes, so it
+        costs no queries and no parsing. It is transitive: a transform three levels
+        under a cube still reaches it, and no node between them has to have changed
+        for that to count -- an unchanged metric over an edited transform serves
+        different rows all the same.
+        """
+        parents = {
+            name: [parent.name for parent in node.current.parents]
+            for name, node in self.registry.nodes.items()
+            if node.current
+        }
+        bumped: dict[str, list[str]] = {}
+        for spec in candidates:
+            if not isinstance(spec, CubeSpec):
+                continue
+            causes, seen = [], set()
+            queue = list(parents.get(spec.rendered_name, []))
+            while queue:
+                ancestor = queue.pop()
+                if ancestor in seen:
+                    continue
+                seen.add(ancestor)
+                if ancestor in changed_names:
+                    causes.append(ancestor)
+                queue.extend(parents.get(ancestor, []))
+            if causes:
+                bumped[spec.rendered_name] = sorted(causes)
+        return bumped
+
+    def _inherited_change_tier(self, cube_name: str) -> ChangeTier:
+        """The tier a cube inherits from the upstream changes that pulled it in.
+
+        The most significant of them: over-rebuilding a cube costs compute, while
+        under-rebuilding serves wrong numbers. An upstream that turned out not to
+        change anything contributes nothing.
+        """
+        return max(
+            (
+                self._change_tiers.get(upstream, ChangeTier.NONE)
+                for upstream in self._cubes_bumped_by_upstream.get(cube_name, [])
+            ),
+            default=ChangeTier.NONE,
+        )
 
     def _guard_against_accidental_wipe(self, plan: "DeploymentPlan") -> None:
         """Refuse to wipe a populated namespace from a *fully empty* spec.
@@ -4661,6 +4807,13 @@ class DeploymentOrchestrator:
     ) -> tuple[list[Node], list[NodeRevision], list[DeploymentResult]]:
         nodes, revisions = [], []
         deployment_results = []
+        await self._lock_versions(
+            [
+                node
+                for result in validation_results
+                if (node := self.registry.nodes.get(result.spec.rendered_name))
+            ],
+        )
         # Use no_autoflush to prevent premature flushing mid-loop (columns without
         # node_revision_id, nodes without IDs). The caller (bulk_deploy_nodes_in_level)
         # does a single session.flush() after collecting all objects.
@@ -4735,6 +4888,9 @@ class DeploymentOrchestrator:
             else DeploymentResult.Operation.CREATE
         )
         changelog, changed_fields, change_tier = await self._generate_changelog(result)
+        # Read back by `_inherited_change_tier` when the cubes above this node are
+        # deployed, which happens after every non-cube node.
+        self._change_tiers[result.spec.rendered_name] = change_tier
         new_node = self._create_or_update_node(result.spec, existing, change_tier)
         new_revision = await self._create_node_revision(
             new_node,
@@ -4823,6 +4979,8 @@ class DeploymentOrchestrator:
 
         # Track changes to other node fields
         existing_node_spec = await existing.to_spec(self.session)
+        # to_spec() never sets namespace; diff() needs it to render ${prefix}.
+        existing_node_spec.namespace = result.spec.namespace
         changed_fields = existing_node_spec.diff(result.spec) if existing else []
 
         # Check if query changed (diff() ignores it, but we want to surface it)
@@ -4859,17 +5017,13 @@ class DeploymentOrchestrator:
             existing_node_spec,
             CubeSpec,
         ):
-            incoming_partitions = {
-                col.name: col.partition
-                for col in result.spec.rendered_columns
-                if col.partition
-            }
-            existing_partitions = {
-                col.name: col.partition
-                for col in existing_node_spec.rendered_columns
-                if col.partition
-            }
-            if incoming_partitions != existing_partitions:
+            from datajunction_server.semantic_fingerprints.normalization import (
+                normalize_cube_columns,
+            )
+
+            if normalize_cube_columns(
+                result.spec.matched_rendered_columns,
+            ) != normalize_cube_columns(existing_node_spec.matched_rendered_columns):
                 changed_fields = changed_fields + ["columns"]
 
         if changed_fields:
@@ -4905,6 +5059,50 @@ class DeploymentOrchestrator:
         unfloored, since there a NONE tier can write nothing at all.
         """
         return bump_version(current_version, max(change_tier, ChangeTier.MINOR))
+
+    async def _lock_versions(self, existing: list[Node]) -> None:
+        """Refresh each node's `current_version` from committed state, under a lock.
+
+        A deployment plans against a snapshot, so one that commits in between can
+        take the versions this one planned and the revision insert then fails on
+        `uq_noderevision_version`. Holding the row locks means a concurrent writer
+        has either already committed, or waits behind this deployment.
+
+        We take the highest of `current_version` and the node's revisions, so a
+        node whose `current_version` lags its revisions still earns one of its own.
+        `_version_key` does the comparing: as strings, v10.0 sorts below v9.0.
+        """
+        node_ids = [node.id for node in existing]
+        if not node_ids or self.dry_run:
+            return
+        # no_autoflush: the caller is mid-build on revisions whose columns have no
+        # node_revision_id yet, and a query would otherwise flush them.
+        with self.session.no_autoflush:
+            highest = dict(
+                (
+                    await self.session.execute(
+                        select(Node.id, Node.current_version)
+                        .where(Node.id.in_(node_ids))
+                        .order_by(Node.id)  # a stable lock order between deploys
+                        .with_for_update(),
+                    )
+                ).all(),
+            )
+            revisions = (
+                await self.session.execute(
+                    select(NodeRevision.node_id, NodeRevision.version).where(
+                        NodeRevision.node_id.in_(node_ids),
+                    ),
+                )
+            ).all()
+        for node_id, version in revisions:
+            # A node deleted between planning and the lock has no row to raise,
+            # though its revisions can still come back from the query above.
+            locked = highest.get(node_id)
+            if locked is not None and _version_key(version) > _version_key(locked):
+                highest[node_id] = version
+        for node in existing:
+            node.current_version = highest.get(node.id, node.current_version)
 
     def _create_or_update_node(
         self,

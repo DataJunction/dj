@@ -5,6 +5,9 @@ what its upstream CTEs may prune.
 
 import pytest
 
+from tests.construction.build_v3 import assert_sql_equal
+from tests.construction.build_v3.projection_invariant import unprojected_references
+
 
 class TestTransitiveConsumerProjection:
     """
@@ -136,9 +139,31 @@ class TestTransitiveConsumerProjection:
         assert resp.status_code == 200, resp.text
         sql = resp.json()["grain_groups"][0]["sql"]
 
-        item_cte = sql.split(f"{ns}_bundles")[0]
-        assert "channel" in item_cte, sql
-        assert "bundle_id" in item_cte, (
-            f"{ns}.item CTE pruned bundle_id, but {ns}.bundles "
-            f"selects it from that CTE:\n\n{sql}"
+        # ``bundles`` is itself pruned to what ``fact`` reads from it, which
+        # narrows its own demand on ``item`` — so ``item`` need not keep
+        # ``bundle_id``. It does keep ``channel``, which the outer select asks
+        # for through a separate join.
+        assert_sql_equal(
+            sql,
+            """
+            WITH ctetrans_item AS (
+              SELECT item_id,
+                CASE WHEN kind_code = 'AUTO' THEN 'auto' ELSE 'manual' END AS channel
+              FROM default.ctetrans.src_item
+            ),
+            ctetrans_bundles AS (
+              SELECT i.item_id FROM ctetrans_item AS i
+            ),
+            ctetrans_fact AS (
+              SELECT e.item_id, e.amount
+              FROM default.ctetrans.src_event AS e
+              LEFT JOIN ctetrans_bundles AS b ON e.item_id = b.item_id
+            )
+            SELECT t2.channel, SUM(t1.amount) AS amount_sum_3ade80bc
+            FROM ctetrans_fact t1
+            LEFT OUTER JOIN ctetrans_item t2 ON t1.item_id = t2.item_id
+            GROUP BY t2.channel
+            """,
+            normalize_aliases=True,
         )
+        assert unprojected_references(sql) == set(), sql

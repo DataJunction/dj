@@ -2631,6 +2631,73 @@ async def test_deploy_reference_link_on_invalid_node(
 
 
 @pytest.mark.asyncio
+async def test_deploy_join_link_without_join_on(
+    session,
+    mock_deployment_context,
+):
+    """A join link with no join_on and a stray node_column is rejected, not written."""
+    node = await Node.get_by_name(session, "default.repair_orders")
+    dimension_node = await Node.get_by_name(session, "default.hard_hat")
+    node.current.status = NodeStatus.INVALID
+
+    link_spec = DimensionJoinLinkSpec(
+        dimension_node="default.hard_hat",
+        node_column="hard_hat_id",
+    )
+    link_spec.namespace = "default"
+    source_spec = SourceSpec(
+        name="repair_orders",
+        namespace="default",
+        catalog="default",
+        schema="roads",
+        table="repair_orders",
+        columns=[],
+    )
+
+    orch = DeploymentOrchestrator(
+        deployment_spec=DeploymentSpec(namespace="default", nodes=[]),
+        deployment_id="join-link-test",
+        session=session,
+        context=mock_deployment_context,
+        dry_run=True,
+    )
+    orch.registry.nodes[node.name] = node
+    orch.registry.nodes[dimension_node.name] = dimension_node
+
+    result = await orch._process_node_dimension_link(
+        node_spec=source_spec,
+        link_spec=link_spec,
+    )
+    # join_sql is NOT NULL, so a written link would fail here.
+    await session.flush()
+
+    assert result.status == DeploymentResult.Status.FAILED
+    assert result.operation == DeploymentResult.Operation.CREATE
+    assert result.name == "default.repair_orders -> default.hard_hat"
+    assert result.message == (
+        "Dimension link from default.repair_orders to default.hard_hat sets "
+        "node_column, which only applies to reference links. Express the join "
+        "in join_on instead.\n"
+        "Dimension link from default.repair_orders to default.hard_hat has no "
+        "join_on clause. Set join_on to the equality between this node's "
+        "foreign key column(s) and the dimension's primary key."
+    )
+
+
+def test_cross_join_link_needs_no_join_on():
+    """A CROSS join has no ON clause, so it is stored as-is."""
+    link_spec = DimensionJoinLinkSpec(
+        dimension_node="default.hard_hat",
+        join_type=JoinType.CROSS,
+    )
+    problems = DeploymentOrchestrator._join_link_problems(
+        link_spec,
+        "default.repair_orders",
+    )
+    assert problems == []
+
+
+@pytest.mark.asyncio
 async def test_delete_nodes_bulk_deletes_existing_node(
     session,
     current_user,

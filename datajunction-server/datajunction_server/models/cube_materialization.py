@@ -571,6 +571,11 @@ class DruidCubeMaterializationInput(BaseModel):
     # possible for metrics at different levels.
     combiners: list[CombineMaterialization]
 
+    # True when scheduled against a branch-preview deployment rather than main,
+    # so the query service can decide how to target its run (e.g. avoid
+    # gap-closing backfills against today's date).
+    is_branch_deploy: bool = False
+
 
 # =============================================================================
 # V2: Pre-agg based cube materialization

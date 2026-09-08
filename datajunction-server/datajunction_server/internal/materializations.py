@@ -418,6 +418,10 @@ class CubeMaterializationSwap:
     # cube's declared coverage against what its datasource already holds.
     backfill: CoverageBackfill | None = None
 
+    # Whether this swap belongs to a branch-preview deploy, so the query service
+    # can be told at schedule time rather than re-deriving it.
+    is_branch_deploy: bool = False
+
 
 @dataclass
 class CubeMaterializationSwapOutcome:
@@ -782,6 +786,7 @@ async def apply_cube_materialization_swap(
                 materialization_names=swap.rebuilt_names,
                 query_service_client=query_service_client,
                 request_headers=request_headers,
+                is_branch_deploy=swap.is_branch_deploy,
             )
         except Exception as exc:
             _logger.warning(
@@ -1238,6 +1243,7 @@ async def schedule_materialization_jobs(
     materialization_names: list[str],
     query_service_client: QueryServiceClient,
     request_headers: dict[str, str] | None = None,
+    is_branch_deploy: bool = False,
 ) -> dict[str, MaterializationInfo]:
     """
     Schedule recurring materialization jobs
@@ -1261,6 +1267,7 @@ async def schedule_materialization_jobs(
                 materialization,
                 query_service_client,
                 request_headers=request_headers,
+                is_branch_deploy=is_branch_deploy,
             )
     await record_workflow_names(session, materializations, materialization_to_output)
     return materialization_to_output

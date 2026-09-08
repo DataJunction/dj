@@ -7,7 +7,7 @@ import DJClientContext from '../../../providers/djclient';
 // React.lazy + Suspense boundary which adds an async resolution step that
 // can race testing-library's waitFor on slower CI runners.
 import { NodePage } from '../index';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 
 // Mock cronstrue for NodePreAggregationsTab
@@ -97,6 +97,11 @@ describe('<NodePage />', () => {
         upstreamsGQL: vi.fn().mockResolvedValue([]),
         downstreamsGQL: vi.fn().mockResolvedValue([]),
         findCubesWithMetrics: vi.fn().mockResolvedValue([]),
+        // The server answers DELETE /nodes/{name}/ with 200 + a message body.
+        deactivate: vi.fn().mockResolvedValue({
+          status: 200,
+          json: { message: 'Node `default.num_repair_orders` deleted.' },
+        }),
       },
     };
   };
@@ -445,6 +450,127 @@ describe('<NodePage />', () => {
     expect(
       screen.queryByRole('button', { name: 'Edit' }),
     ).not.toBeInTheDocument();
+    // ...nor is Delete.
+    expect(screen.queryByRole('button', { name: /Delete/ })).toBeNull();
+  }, 60000);
+
+  // Renders the node page under a router that also serves the namespace
+  // route, so a successful delete can be asserted by the redirect landing.
+  const renderNodePageWithNamespaceRoute = djClient => {
+    const element = (
+      <DJClientContext.Provider value={djClient}>
+        <NodePage {...defaultProps} />
+      </DJClientContext.Provider>
+    );
+    const NamespaceLanding = () => {
+      const { namespace } = useParams();
+      return <div data-testid="namespace-landing">{namespace}</div>;
+    };
+    return render(
+      <MemoryRouter initialEntries={['/nodes/default.num_repair_orders/info']}>
+        <Routes>
+          <Route path="nodes/:name/:tab" element={element} />
+          <Route path="namespaces/:namespace" element={<NamespaceLanding />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+  };
+
+  it('deletes the node and redirects to its namespace after confirmation', async () => {
+    const djClient = mockDJClient();
+    djClient.DataJunctionAPI.node.mockReturnValue(mocks.mockMetricNode);
+    djClient.DataJunctionAPI.getMetric.mockResolvedValue(
+      mocks.mockMetricNodeJson,
+    );
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderNodePageWithNamespaceRoute(djClient);
+
+    const deleteButton = await screen.findByRole('button', {
+      name: /Delete/,
+    });
+    fireEvent.click(deleteButton);
+
+    await waitFor(() => {
+      expect(djClient.DataJunctionAPI.deactivate).toHaveBeenCalledWith(
+        'default.num_repair_orders',
+      );
+    });
+    // The redirect landed on the parent namespace, not the node page.
+    expect(await screen.findByTestId('namespace-landing')).toHaveTextContent(
+      'default',
+    );
+    confirm.mockRestore();
+  }, 60000);
+
+  it('does not delete the node when the confirmation is dismissed', async () => {
+    const djClient = mockDJClient();
+    djClient.DataJunctionAPI.node.mockReturnValue(mocks.mockMetricNode);
+    djClient.DataJunctionAPI.getMetric.mockResolvedValue(
+      mocks.mockMetricNodeJson,
+    );
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    renderNodePageWithNamespaceRoute(djClient);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Delete/ }));
+
+    expect(djClient.DataJunctionAPI.deactivate).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('namespace-landing')).toBeNull();
+    confirm.mockRestore();
+  }, 60000);
+
+  it('alerts and stays on the page when the delete is rejected', async () => {
+    const djClient = mockDJClient();
+    djClient.DataJunctionAPI.node.mockReturnValue(mocks.mockMetricNode);
+    djClient.DataJunctionAPI.getMetric.mockResolvedValue(
+      mocks.mockMetricNodeJson,
+    );
+    djClient.DataJunctionAPI.deactivate.mockResolvedValue({
+      status: 409,
+      json: { message: 'Node has downstream dependencies' },
+    });
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const alert = vi.spyOn(window, 'alert').mockImplementation(() => {});
+    renderNodePageWithNamespaceRoute(djClient);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Delete/ }));
+
+    await waitFor(() => {
+      expect(alert).toHaveBeenCalledWith(
+        'Unable to delete node default.num_repair_orders: Node has downstream dependencies',
+      );
+    });
+    expect(screen.queryByTestId('namespace-landing')).toBeNull();
+    confirm.mockRestore();
+    alert.mockRestore();
+  }, 60000);
+
+  it('alerts and re-enables the button when the delete request throws', async () => {
+    const djClient = mockDJClient();
+    djClient.DataJunctionAPI.node.mockReturnValue(mocks.mockMetricNode);
+    djClient.DataJunctionAPI.getMetric.mockResolvedValue(
+      mocks.mockMetricNodeJson,
+    );
+    djClient.DataJunctionAPI.deactivate.mockRejectedValue(
+      new Error('Failed to fetch'),
+    );
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const alert = vi.spyOn(window, 'alert').mockImplementation(() => {});
+    renderNodePageWithNamespaceRoute(djClient);
+
+    const deleteButton = await screen.findByRole('button', { name: /Delete/ });
+    fireEvent.click(deleteButton);
+
+    await waitFor(() => {
+      expect(alert).toHaveBeenCalledWith(
+        'Unable to delete node default.num_repair_orders: Failed to fetch',
+      );
+    });
+    // The in-flight guard is released, so a retry is possible.
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Delete/ })).not.toBeDisabled();
+    });
+    confirm.mockRestore();
+    alert.mockRestore();
   }, 60000);
 
   it('renders the NodeInfo tab correctly for cube nodes', async () => {

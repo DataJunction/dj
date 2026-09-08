@@ -36,8 +36,7 @@ class TestFilterPushdownToParentCTE:
             """
             WITH
             v3_order_details AS (
-              SELECT o.order_date,
-                oi.product_id,
+              SELECT oi.product_id,
                 oi.quantity * oi.unit_price AS line_total
               FROM default.v3.orders o
               JOIN default.v3.order_items oi ON o.order_id = oi.order_id
@@ -129,8 +128,7 @@ class TestFilterPushdownMultiple:
             """
             WITH
             v3_order_details AS (
-              SELECT o.order_date,
-                oi.product_id,
+              SELECT oi.product_id,
                 oi.quantity * oi.unit_price AS line_total
               FROM default.v3.orders o
               JOIN default.v3.order_items oi ON o.order_id = oi.order_id
@@ -176,9 +174,7 @@ class TestFilterPushdownMultiple:
             """
             WITH
             v3_order_details AS (
-              SELECT o.order_date,
-                o.status,
-                oi.product_id,
+              SELECT oi.product_id,
                 oi.quantity * oi.unit_price AS line_total
               FROM default.v3.orders o
               JOIN default.v3.order_items oi ON o.order_id = oi.order_id
@@ -227,9 +223,7 @@ class TestFilterPushdownMultiRef:
             """
             WITH
             v3_order_details AS (
-              SELECT o.order_date,
-                o.status,
-                oi.product_id,
+              SELECT oi.product_id,
                 oi.quantity * oi.unit_price AS line_total
               FROM default.v3.orders o
               JOIN default.v3.order_items oi ON o.order_id = oi.order_id
@@ -389,8 +383,7 @@ class TestFilterPushdownOperators:
             """
             WITH
             v3_order_details AS (
-              SELECT o.order_date,
-                oi.product_id,
+              SELECT oi.product_id,
                 oi.quantity * oi.unit_price AS line_total
               FROM default.v3.orders o
               JOIN default.v3.order_items oi ON o.order_id = oi.order_id
@@ -549,8 +542,7 @@ class TestFilterPushdownOperators:
             """
             WITH
             v3_order_details AS (
-              SELECT o.order_date,
-                oi.product_id,
+              SELECT oi.product_id,
                 oi.quantity * oi.unit_price AS line_total
               FROM default.v3.orders o
               JOIN default.v3.order_items oi ON o.order_id = oi.order_id
@@ -754,9 +746,7 @@ class TestFilterPushdownMultiRole:
             """
             WITH
             v3_order_details AS (
-              SELECT o.order_date,
-                o.from_location_id,
-                oi.product_id,
+              SELECT oi.product_id,
                 oi.quantity * oi.unit_price AS line_total
               FROM default.v3.orders o
               JOIN default.v3.order_items oi ON o.order_id = oi.order_id
@@ -1091,8 +1081,7 @@ class TestFilterPushdownCrossJoinAggregatesColumnAway:
               WHERE window_id IN ('7day')
             ),
             v3_entity_window_config AS (
-              SELECT e.entity_id,
-                MAX(e.base_value + w.window_size) AS max_bound
+              SELECT e.entity_id
               FROM default.v3.entity_facts AS e
               CROSS JOIN (
                 SELECT window_id, window_size
@@ -1102,7 +1091,7 @@ class TestFilterPushdownCrossJoinAggregatesColumnAway:
               GROUP BY e.entity_id
             ),
             v3_entity_report AS (
-              SELECT c.entity_id, w.window_id
+              SELECT c.entity_id
               FROM v3_entity_window_config AS c
               CROSS JOIN v3_time_window_dim AS w
               WHERE w.window_id IN ('7day')
@@ -1659,7 +1648,7 @@ class TestFilterNotPushedToTransitiveUpstreamByColumnNameCollision:
             sql,
             """
             WITH v3_xform_alloc AS (
-              SELECT a.entity_id, SUM(a.value) AS total_value, a.snap_date
+              SELECT a.entity_id, a.snap_date
               FROM default.v3.snap_src AS a
               WHERE a.snap_date = 20240101
               GROUP BY a.entity_id, a.snap_date
@@ -1910,7 +1899,7 @@ class TestDimLabelFilterNameCollision:
             sql,
             """
             WITH v3_ml_alloc AS (
-              SELECT account_id, is_bot, amount
+              SELECT is_bot, amount
               FROM default.v3.ml_alloc_src
             ),
             v3_ml_is_bot_dim AS (
@@ -2084,7 +2073,7 @@ class TestFilterPushdownRoleQualifiedSharedDim:
               FROM default.v3.shows
             ),
             v3_show_activity AS (
-              SELECT show_id, region_date, view_secs
+              SELECT show_id, view_secs
               FROM default.v3.show_events
               WHERE region_date BETWEEN 20240101 AND 20240201
             )

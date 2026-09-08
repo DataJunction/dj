@@ -5818,8 +5818,7 @@ class TestMetricsSQLEdgeCases:
             result["sql"],
             """
             WITH v3_order_details AS (
-                SELECT o.customer_id, o.status,
-                       oi.quantity * oi.unit_price AS line_total
+                SELECT o.status, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
                 WHERE o.customer_id = 42
@@ -6511,7 +6510,7 @@ class TestReferenceDimensionResolution:
             """
             WITH
             v3_page_views_enriched AS (
-              SELECT view_id, page_type
+              SELECT view_id
               FROM default.v3.page_views
               WHERE page_type = 'checkout'
             ),
@@ -6567,7 +6566,7 @@ class TestMetricOnDimensionNode:
             """
             WITH
             v3_product AS (
-              SELECT category, subcategory, price
+              SELECT category, price
               FROM default.v3.products
               WHERE subcategory = 'phones'
             ),

@@ -101,12 +101,21 @@ def parse_dj_sql(
     # Validation that these are actual metric nodes is delegated to build_metrics_sql
     metrics = []
     for col in select.projection:
-        if not isinstance(col, ast.Column):
+        # Remove the alias first, if one was set
+        if isinstance(col, ast.Alias):
+            col = col.child
+
+        if isinstance(col, ast.Column):
+            col_ident = col.identifier(False)
+        # A role-qualified attribute like ``dim.attr[role]`` parses as a Subscript
+        # wrapping a Column, and stringifies exactly like its GROUP BY counterpart.
+        elif isinstance(col, ast.Subscript) and isinstance(col.expr, ast.Column):
+            col_ident = str(col)
+        else:
             raise DJInvalidInputException(
                 f"Only direct columns are allowed in DJ SQL queries, found: {col}",
             )
 
-        col_ident = col.identifier(False)
         if col_ident not in dimensions:
             metrics.append(col_ident)
 

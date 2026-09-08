@@ -131,5 +131,6 @@
    "urls":[
       "http://fake.url/job"
    ],
-   "workflow_names":[]
+   "workflow_names":[],
+   "node_version":"v1.1"
 }

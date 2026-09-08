@@ -1,0 +1,72 @@
+"""Version dispatch for semantic fingerprints."""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Iterable
+from typing import TYPE_CHECKING
+
+from datajunction_server.models.semantic_fingerprint import (
+    LATEST_SEMANTIC_FINGERPRINT_VERSION,
+    SemanticFingerprint,
+)
+from datajunction_server.semantic_fingerprints.normalization import (
+    semantic_diff as compare_semantics,
+)
+from datajunction_server.semantic_fingerprints.v1 import build_fingerprint
+
+if TYPE_CHECKING:
+    from datajunction_server.models.deployment import ColumnSpec, NodeSpec
+
+
+_BUILDERS: dict[int, Callable[..., SemanticFingerprint]] = {
+    1: build_fingerprint,
+}
+
+
+def compose_node_fingerprint(
+    spec: NodeSpec,
+    version: int = LATEST_SEMANTIC_FINGERPRINT_VERSION,
+    *,
+    parent_fingerprints: Iterable[SemanticFingerprint],
+    resolved_columns: list[ColumnSpec] | None = None,
+) -> SemanticFingerprint:
+    """Compose a node fingerprint from its definition and parent fingerprints."""
+    builder = _BUILDERS.get(version)
+    if builder is None:
+        raise ValueError(f"Unsupported semantic fingerprint version: {version}")
+    return builder(
+        spec,
+        parent_fingerprints,
+        resolved_columns=resolved_columns,
+    )
+
+
+def local_node_fingerprint(
+    spec: NodeSpec,
+    version: int = LATEST_SEMANTIC_FINGERPRINT_VERSION,
+    *,
+    resolved_columns: list[ColumnSpec] | None = None,
+) -> SemanticFingerprint:
+    """Fingerprint a node definition without graph parents."""
+    return compose_node_fingerprint(
+        spec,
+        version,
+        parent_fingerprints=(),
+        resolved_columns=resolved_columns,
+    )
+
+
+def semantic_diff(
+    one: NodeSpec,
+    two: NodeSpec,
+    *,
+    resolved_columns: list[ColumnSpec] | None = None,
+    other_resolved_columns: list[ColumnSpec] | None = None,
+) -> tuple[list[str], list[str]]:
+    """Compare two specs using the same normalized values as fingerprints."""
+    return compare_semantics(
+        one,
+        two,
+        resolved_columns=resolved_columns,
+        other_resolved_columns=other_resolved_columns,
+    )
