@@ -723,7 +723,9 @@ async def test_submit_query_cache_miss_uses_result_cache(mocker: MockerFixture) 
     )
 
     assert response.status_code == HTTPStatus.OK
-    assert json.loads(response.body) == json.loads(json.dumps(asdict(result), default=str))
+    assert json.loads(response.body) == json.loads(
+        json.dumps(asdict(result), default=str),
+    )
     assert save_query_and_run.await_args.kwargs["result_cache_key"] == "cache-key"
     assert save_query_and_run.await_args.kwargs["result_cache_timeout"] == 60
 
