@@ -13,6 +13,7 @@ from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.errors import ErrorCode
+from datajunction_server.internal.deployment.utils import extract_node_graph
 from datajunction_server.internal.deployment.validation import (
     NodeSpecBulkValidator,
     NodeValidationResult,
@@ -285,16 +286,12 @@ class TestValidateQuery:
         assert "full_name" in message
 
     @pytest.mark.asyncio
-    async def test_validate_query_node_skips_declared_columns_for_metric(
+    async def test_validate_query_node_rejects_declared_columns_on_metric(
         self,
         session: AsyncSession,
         parent_node: Node,
     ):
-        """A metric declaring its output column stays valid whatever it's named.
-
-        A metric's single output column is renamed to the amenable node name
-        on deploy, so a declared name has nothing stable to match against.
-        """
+        """A metric must not declare columns, whatever its query aliases."""
         context = ValidationContext(
             session=session,
             node_graph={"test.weekly_active_players": [parent_node.name]},
@@ -308,6 +305,84 @@ class TestValidateQuery:
             columns=[
                 ColumnSpec(name="weekly_active_players", display_name="WAP"),
             ],
+        )
+        validator = NodeSpecBulkValidator(context)
+        result = validator.validate_query_node(spec)
+
+        assert result.status == NodeStatus.INVALID
+        error_codes = [e.code for e in result.errors]
+        assert ErrorCode.INVALID_SPEC_FIELD in error_codes
+        message = next(
+            e.message for e in result.errors if e.code == ErrorCode.INVALID_SPEC_FIELD
+        )
+        assert message == (
+            "Metric test.weekly_active_players must not declare columns. "
+            "Remove the columns block; set `unit` on the metric."
+        )
+
+    @pytest.mark.asyncio
+    async def test_validate_query_node_rejects_declared_columns_on_aliased_metric(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """A metric aliasing its own short name is still rejected.
+
+        Going through ``extract_node_graph`` caches the metric-aliased AST on
+        the spec, which is the form a deploy validates. This is the shape that
+        failed in production.
+        """
+        spec = MetricSpec(
+            name="test.weekly_active_players",
+            query="SELECT SUM(value) AS weekly_active_players FROM test.parent",
+            description="A test metric",
+            mode="published",
+            columns=[
+                ColumnSpec(name="weekly_active_players", display_name="WAP"),
+            ],
+        )
+        node_graph = extract_node_graph([spec])
+        assert (
+            spec.query_ast.select.projection[0].alias_or_name.identifier()
+            == "test_DOT_weekly_active_players"
+        )
+        context = ValidationContext(
+            session=session,
+            node_graph=node_graph,
+            dependency_nodes={parent_node.name: parent_node},
+        )
+        validator = NodeSpecBulkValidator(context)
+        result = validator.validate_query_node(spec)
+
+        assert result.status == NodeStatus.INVALID
+        error_codes = [e.code for e in result.errors]
+        assert ErrorCode.INVALID_SPEC_FIELD in error_codes
+        message = next(
+            e.message for e in result.errors if e.code == ErrorCode.INVALID_SPEC_FIELD
+        )
+        assert message == (
+            "Metric test.weekly_active_players must not declare columns. "
+            "Remove the columns block; set `unit` on the metric."
+        )
+
+    @pytest.mark.asyncio
+    async def test_validate_query_node_allows_metric_without_columns(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """A metric that declares no columns validates clean."""
+        spec = MetricSpec(
+            name="test.weekly_active_players",
+            query="SELECT SUM(value) AS weekly_active_players FROM test.parent",
+            description="A test metric",
+            mode="published",
+        )
+        node_graph = extract_node_graph([spec])
+        context = ValidationContext(
+            session=session,
+            node_graph=node_graph,
+            dependency_nodes={parent_node.name: parent_node},
         )
         validator = NodeSpecBulkValidator(context)
         result = validator.validate_query_node(spec)

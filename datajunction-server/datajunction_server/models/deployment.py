@@ -645,6 +645,12 @@ class NodeSpec(NamespacedSpec):
         "owners": ChangeTier.NONE,
         "tags": ChangeTier.NONE,
     }
+
+    # Fields the server owns, mapped to the remedy shown when an author sets
+    # one. Each class declares only the fields it introduces; lookup walks the
+    # MRO. Validation rejects a deployment that provides any of them.
+    INTERNAL_FIELDS: ClassVar[dict[str, str]] = {}
+
     _query_ast: Any | None = PrivateAttr(default=None)
     # Internal: marks specs from already-validated sources (e.g., branch copies)
     # that can skip expensive SQL parsing and validation
@@ -788,6 +794,22 @@ class NodeSpec(NamespacedSpec):
     def has_explicit_change_tier(cls, field: str) -> bool:
         """Whether some class in the MRO classifies `field`."""
         return cls._declared_tier("FIELD_CHANGE_TIERS", field) is not None
+
+    def authored_internal_fields(self) -> list[tuple[str, str]]:
+        """
+        Internal-only fields carrying a value, with each one's remedy.
+
+        Tested by value rather than by `model_fields_set`, so that server code
+        populating a field with nothing in it reads as unset.
+        """
+        declared: dict[str, str] = {}
+        for klass in reversed(type(self).__mro__):
+            declared.update(klass.__dict__.get("INTERNAL_FIELDS") or {})
+        return [
+            (field, remedy)
+            for field, remedy in sorted(declared.items())
+            if getattr(self, field, None)
+        ]
 
     @classmethod
     def has_explicit_order_change_tier(cls, field: str) -> bool:
@@ -1022,6 +1044,13 @@ class MetricSpec(NodeSpec):
     # Internal only - used for validation skip optimization when copying from valid nodes.
     # Excluded from serialization so it's never exported.
     columns: list[ColumnSpec] | None = Field(default=None, exclude=True)
+
+    # A metric's one output column is always named after the node, so a
+    # declared name can never match it.
+    INTERNAL_FIELDS: ClassVar[dict[str, str]] = {
+        "columns": "Remove the columns block; set `unit` on the metric.",
+    }
+
     required_dimensions: list[str] | None = None  # Field(default_factory=list)
     direction: MetricDirection | None = None
     unit_enum: MetricUnit | None = Field(default=None, exclude=True)

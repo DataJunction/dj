@@ -492,6 +492,7 @@ class NodeSpecBulkValidator:
                     err
                     for err in [
                         self._check_inferred_columns(inferred_columns),
+                        self._check_internal_fields(spec),
                         self._check_declared_columns_exist(
                             spec,
                             validation.output_columns,
@@ -602,6 +603,27 @@ class NodeSpecBulkValidator:
         return None
 
     @staticmethod
+    def _check_internal_fields(spec: NodeSpec) -> DJError | None:
+        """
+        Reject a spec that sets a field the server owns.
+
+        Specs built from existing nodes carry these, but they reach validation
+        only through the `_skip_validation` fast path above, so a value here
+        was written by an author.
+        """
+        authored = spec.authored_internal_fields()
+        if authored:
+            label = spec.node_type.value.capitalize()
+            return DJError(
+                code=ErrorCode.INVALID_SPEC_FIELD,
+                message=" ".join(
+                    f"{label} {spec.rendered_name} must not declare {field}. {remedy}"
+                    for field, remedy in authored
+                ),
+            )
+        return None
+
+    @staticmethod
     def _check_declared_columns_exist(
         spec: NodeSpec,
         output_columns: list,
@@ -611,12 +633,7 @@ class NodeSpecBulkValidator:
         query's output. A declared column that doesn't match any output column
         is silently dropped (its metadata is never applied), so this is
         surfaced as an error instead.
-
-        Metrics are exempt: their one output column is renamed to the node's
-        amenable name on deploy, so no declared name can match reliably.
         """
-        if spec.node_type == NodeType.METRIC:
-            return None
         declared_names = {
             col.name
             for col in (
