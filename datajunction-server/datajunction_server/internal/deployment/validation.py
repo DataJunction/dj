@@ -488,15 +488,23 @@ class NodeSpecBulkValidator:
                     validation.output_columns,
                     spec,
                 )
+                internal_field_error = self._check_internal_fields(spec)
+                # Declaring a field the server owns makes every downstream
+                # complaint about that field a symptom. Report the cause only.
+                declared_columns_error = (
+                    None
+                    if internal_field_error
+                    else self._check_declared_columns_exist(
+                        spec,
+                        validation.output_columns,
+                    )
+                )
                 errors = [
                     err
                     for err in [
                         self._check_inferred_columns(inferred_columns),
-                        self._check_internal_fields(spec),
-                        self._check_declared_columns_exist(
-                            spec,
-                            validation.output_columns,
-                        ),
+                        internal_field_error,
+                        declared_columns_error,
                         self._check_primary_key(inferred_columns, spec),
                         self._check_metric_query(spec, spec.query_ast),
                     ]

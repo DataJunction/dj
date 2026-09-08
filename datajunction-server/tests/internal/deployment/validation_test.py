@@ -277,13 +277,27 @@ class TestValidateQuery:
         validator = NodeSpecBulkValidator(validation_context)
         result = validator.validate_query_node(spec)
 
+        # `test.parent` does not resolve here: the spec is named `transform`
+        # while the fixture's graph is keyed on `test.transform`, so the parent
+        # columns map comes back empty and nothing is inferred. The declared
+        # columns are unmatched for that reason as well as on their own merits.
+        assert [(e.code, e.message) for e in result.errors] == [
+            (
+                ErrorCode.INVALID_SQL_QUERY,
+                "No columns could be inferred from the SQL query.",
+            ),
+            (
+                ErrorCode.INVALID_COLUMN,
+                "Declared column(s) ['full_name', 'id'] on node transform do not "
+                "match any column produced by the query. Check for a missing or "
+                "mismatched column alias.",
+            ),
+            (
+                ErrorCode.TYPE_INFERENCE,
+                "Table `test.parent` not found in parent columns map. Available: []",
+            ),
+        ]
         assert result.status == NodeStatus.INVALID
-        error_codes = [e.code for e in result.errors]
-        assert ErrorCode.INVALID_COLUMN in error_codes
-        message = next(
-            e.message for e in result.errors if e.code == ErrorCode.INVALID_COLUMN
-        )
-        assert "full_name" in message
 
     @pytest.mark.asyncio
     async def test_validate_query_node_rejects_declared_columns_on_metric(
@@ -309,16 +323,14 @@ class TestValidateQuery:
         validator = NodeSpecBulkValidator(context)
         result = validator.validate_query_node(spec)
 
+        assert [(e.code, e.message) for e in result.errors] == [
+            (
+                ErrorCode.INVALID_SPEC_FIELD,
+                "Metric test.weekly_active_players must not declare columns. "
+                "Remove the columns block; set `unit` on the metric.",
+            ),
+        ]
         assert result.status == NodeStatus.INVALID
-        error_codes = [e.code for e in result.errors]
-        assert ErrorCode.INVALID_SPEC_FIELD in error_codes
-        message = next(
-            e.message for e in result.errors if e.code == ErrorCode.INVALID_SPEC_FIELD
-        )
-        assert message == (
-            "Metric test.weekly_active_players must not declare columns. "
-            "Remove the columns block; set `unit` on the metric."
-        )
 
     @pytest.mark.asyncio
     async def test_validate_query_node_rejects_declared_columns_on_aliased_metric(
@@ -354,16 +366,14 @@ class TestValidateQuery:
         validator = NodeSpecBulkValidator(context)
         result = validator.validate_query_node(spec)
 
+        assert [(e.code, e.message) for e in result.errors] == [
+            (
+                ErrorCode.INVALID_SPEC_FIELD,
+                "Metric test.weekly_active_players must not declare columns. "
+                "Remove the columns block; set `unit` on the metric.",
+            ),
+        ]
         assert result.status == NodeStatus.INVALID
-        error_codes = [e.code for e in result.errors]
-        assert ErrorCode.INVALID_SPEC_FIELD in error_codes
-        message = next(
-            e.message for e in result.errors if e.code == ErrorCode.INVALID_SPEC_FIELD
-        )
-        assert message == (
-            "Metric test.weekly_active_players must not declare columns. "
-            "Remove the columns block; set `unit` on the metric."
-        )
 
     @pytest.mark.asyncio
     async def test_validate_query_node_allows_metric_without_columns(

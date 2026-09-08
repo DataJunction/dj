@@ -795,6 +795,11 @@ class NodeSpec(NamespacedSpec):
         """Whether some class in the MRO classifies `field`."""
         return cls._declared_tier("FIELD_CHANGE_TIERS", field) is not None
 
+    @classmethod
+    def has_explicit_order_change_tier(cls, field: str) -> bool:
+        """Whether some class in the MRO classifies reordering `field`."""
+        return cls._declared_tier("FIELD_ORDER_CHANGE_TIERS", field) is not None
+
     def authored_internal_fields(self) -> list[tuple[str, str]]:
         """
         Internal-only fields carrying a value, with each one's remedy.
@@ -810,11 +815,6 @@ class NodeSpec(NamespacedSpec):
             for field, remedy in sorted(declared.items())
             if getattr(self, field, None)
         ]
-
-    @classmethod
-    def has_explicit_order_change_tier(cls, field: str) -> bool:
-        """Whether some class in the MRO classifies reordering `field`."""
-        return cls._declared_tier("FIELD_ORDER_CHANGE_TIERS", field) is not None
 
     @classmethod
     def unclassified_fields(cls) -> list[str]:
@@ -1044,13 +1044,6 @@ class MetricSpec(NodeSpec):
     # Internal only - used for validation skip optimization when copying from valid nodes.
     # Excluded from serialization so it's never exported.
     columns: list[ColumnSpec] | None = Field(default=None, exclude=True)
-
-    # A metric's one output column is always named after the node, so a
-    # declared name can never match it.
-    INTERNAL_FIELDS: ClassVar[dict[str, str]] = {
-        "columns": "Remove the columns block; set `unit` on the metric.",
-    }
-
     required_dimensions: list[str] | None = None  # Field(default_factory=list)
     direction: MetricDirection | None = None
     unit_enum: MetricUnit | None = Field(default=None, exclude=True)
@@ -1062,6 +1055,12 @@ class MetricSpec(NodeSpec):
     significant_digits: int | None = None
     min_decimal_exponent: int | None = None
     max_decimal_exponent: int | None = None
+
+    # A metric's one output column is always named after the node, so a
+    # declared name can never match it.
+    INTERNAL_FIELDS: ClassVar[dict[str, str]] = {
+        "columns": "Remove the columns block; set `unit` on the metric.",
+    }
 
     FIELD_CHANGE_TIERS: ClassVar[dict[str, ChangeTier]] = {
         "query": ChangeTier.MAJOR,
