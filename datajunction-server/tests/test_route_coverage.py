@@ -111,6 +111,8 @@ INTENTIONAL_EXCLUSIONS: dict[str, list[tuple[str, str]]] = {
         ("POST", "/semantic/views/list"),
         ("POST", "/semantic/views/{view_name}"),
         ("POST", "/semantic/views/{view_name}/sql"),
+        ("POST", "/semantic/views/{view_name}/row-count"),
+        ("POST", "/semantic/views/{view_name}/values"),
     ],
     "GraphQL; access enforced within resolvers, not the route": [
         ("POST", "/graphql"),
