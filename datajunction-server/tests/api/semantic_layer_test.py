@@ -22,6 +22,7 @@ from datajunction_server.api.semantic_layer import (
     _generated_column_arrow_type_name,
     _metrics_payload,
     _quote_value,
+    _raw_column_metadata,
 )
 from datajunction_server.errors import DJException
 from datajunction_server.models.node_type import NodeType
@@ -412,6 +413,97 @@ class TestSemanticViewPayloadTypes:
         assert euro_metadata.format is not None
         assert euro_metadata.format.preset == "currency"
         assert euro_metadata.extensions is None
+
+    @pytest.mark.parametrize(
+        ("column_type", "unit", "expected_semantic_type"),
+        [
+            ("double", {"kind": "time", "code": "s"}, "duration"),
+            ("double", {"kind": "unitless"}, "number"),
+            ("date", None, "date"),
+            ("timestamp", None, "timestamp"),
+            ("boolean", None, "boolean"),
+        ],
+    )
+    def test_semantic_type_inference_for_temporal_and_boolean_columns(
+        self,
+        column_type,
+        unit,
+        expected_semantic_type,
+    ):
+        column = SimpleNamespace(
+            type=column_type,
+            display_name="Value",
+            unit=unit,
+            attribute_names=lambda: [],
+        )
+
+        metadata = _column_metadata(column, is_metric=False)
+
+        assert metadata is not None
+        assert metadata.semantic_type == expected_semantic_type
+
+    def test_invalid_optional_metadata_is_ignored(self):
+        column = SimpleNamespace(
+            type="double",
+            display_name="Value",
+            unit=None,
+            attribute_names=lambda: [],
+        )
+
+        metadata = _column_metadata(
+            column,
+            is_metric=True,
+            raw_metadata={
+                "unit": {"kind": "currency", "code": "usd"},
+                "format": {},
+                "filter": {
+                    "kind": "number",
+                    "operators": ["="],
+                    "default_operator": ">",
+                },
+            },
+        )
+
+        assert metadata is not None
+        assert metadata.unit is None
+        assert metadata.format is None
+        assert metadata.filter is not None
+        assert metadata.filter.default_operator is None
+
+    def test_dimension_metadata_skips_unusable_elements_and_reads_wrapper(self):
+        cube = SimpleNamespace(
+            cube_elements=[
+                SimpleNamespace(node_revision=None),
+                SimpleNamespace(
+                    name="other",
+                    node_revision=SimpleNamespace(
+                        name="sem.region",
+                        type=NodeType.DIMENSION,
+                        custom_metadata={},
+                    ),
+                ),
+                SimpleNamespace(
+                    name="region_name",
+                    node_revision=SimpleNamespace(
+                        name="sem.region",
+                        type=NodeType.DIMENSION,
+                        custom_metadata={
+                            "semantic_layer": {
+                                "columns": {
+                                    "region_name": {
+                                        "display_name": "Sales region",
+                                    },
+                                },
+                            },
+                        },
+                    ),
+                ),
+            ],
+        )
+
+        metadata = _raw_column_metadata(cube, "sem.region.region_name")
+
+        assert metadata == {"display_name": "Sales region"}
 
     def test_metric_and_dimension_payloads_fallback_when_column_is_missing(self):
         cube = SimpleNamespace(
