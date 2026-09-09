@@ -175,6 +175,35 @@ def _validated_unit(raw_unit: Any) -> Unit | None:
         return None
 
 
+def _inferred_filter_metadata(arrow_type: str | None) -> "FilterMetadata | None":
+    """Infer conservative filter hints supported by DJ query translation."""
+    if arrow_type in {"utf8", "bool"}:
+        operators = ["=", "!=", "IS NULL", "IS NOT NULL"]
+        kind = "text" if arrow_type == "utf8" else "boolean"
+    elif arrow_type in {"int", "floating", "decimal", "date", "timestamp"}:
+        operators = [
+            "=",
+            "!=",
+            ">",
+            ">=",
+            "<",
+            "<=",
+            "IS NULL",
+            "IS NOT NULL",
+        ]
+        kind = {
+            "date": "date",
+            "timestamp": "datetime",
+        }.get(arrow_type, "number")
+    else:
+        return None
+    return FilterMetadata(
+        kind=kind,
+        operators=operators,
+        default_operator="=",
+    )
+
+
 def _fixed_decimal_pattern(prefix: str, precision: int) -> str:
     """Build a Google Sheets fixed-decimal pattern."""
     decimals = f".{''.join('0' for _ in range(precision))}" if precision else ""
@@ -291,7 +320,8 @@ def _column_metadata(
 ) -> "ColumnMetadata | None":
     """Build strict portable metadata from a DJ cube column."""
     raw_metadata = raw_metadata or {}
-    arrow_type = _arrow_type_name(getattr(column, "type", None)) or (
+    mapped_arrow_type = _arrow_type_name(getattr(column, "type", None))
+    arrow_type = mapped_arrow_type or (
         METRIC_FALLBACK_ARROW_TYPE_NAME
         if is_metric
         else DIMENSION_FALLBACK_ARROW_TYPE_NAME
@@ -353,6 +383,14 @@ def _column_metadata(
         format_is_explicit=isinstance(raw_format, Mapping),
     )
     raw_semantic_type = raw_metadata.get("semantic_type")
+    if "filter" in raw_metadata:
+        filter_metadata = (
+            FilterMetadata.from_mapping(raw_metadata["filter"])
+            if isinstance(raw_metadata.get("filter"), Mapping)
+            else None
+        )
+    else:
+        filter_metadata = _inferred_filter_metadata(mapped_arrow_type)
     metadata = ColumnMetadata(
         display_name=(
             raw_metadata.get("display_name")
@@ -378,11 +416,7 @@ def _column_metadata(
             else attributes or None
         ),
         format=resolved_format,
-        filter=(
-            FilterMetadata.from_mapping(raw_metadata["filter"])
-            if isinstance(raw_metadata.get("filter"), Mapping)
-            else None
-        ),
+        filter=filter_metadata,
         extensions=extensions or None,
     )
     return metadata if metadata.model_dump(exclude_none=True) else None

@@ -137,7 +137,21 @@ class TestSemanticViewPayloadTypes:
                         "precision": None,
                         "scale": None,
                     },
-                    "filter": None,
+                    "filter": {
+                        "kind": "number",
+                        "operators": [
+                            "=",
+                            "!=",
+                            ">",
+                            ">=",
+                            "<",
+                            "<=",
+                            "IS NULL",
+                            "IS NOT NULL",
+                        ],
+                        "default_operator": "=",
+                        "multi": None,
+                    },
                     "extensions": {
                         "superset": {"d3format": "$,.2f"},
                         "google_sheets": {
@@ -165,7 +179,21 @@ class TestSemanticViewPayloadTypes:
                     "unit": None,
                     "attributes": ["primary_key"],
                     "format": None,
-                    "filter": None,
+                    "filter": {
+                        "kind": "number",
+                        "operators": [
+                            "=",
+                            "!=",
+                            ">",
+                            ">=",
+                            "<",
+                            "<=",
+                            "IS NULL",
+                            "IS NOT NULL",
+                        ],
+                        "default_operator": "=",
+                        "multi": None,
+                    },
                     "extensions": None,
                 },
             },
@@ -182,7 +210,12 @@ class TestSemanticViewPayloadTypes:
                     "unit": None,
                     "attributes": None,
                     "format": None,
-                    "filter": None,
+                    "filter": {
+                        "kind": "text",
+                        "operators": ["=", "!=", "IS NULL", "IS NOT NULL"],
+                        "default_operator": "=",
+                        "multi": None,
+                    },
                     "extensions": None,
                 },
             },
@@ -441,6 +474,115 @@ class TestSemanticViewPayloadTypes:
 
         assert metadata is not None
         assert metadata.semantic_type == expected_semantic_type
+
+    @pytest.mark.parametrize(
+        ("column_type", "expected_kind", "expected_operators"),
+        [
+            ("string", "text", ["=", "!=", "IS NULL", "IS NOT NULL"]),
+            ("boolean", "boolean", ["=", "!=", "IS NULL", "IS NOT NULL"]),
+            (
+                "double",
+                "number",
+                ["=", "!=", ">", ">=", "<", "<=", "IS NULL", "IS NOT NULL"],
+            ),
+            (
+                "date",
+                "date",
+                ["=", "!=", ">", ">=", "<", "<=", "IS NULL", "IS NOT NULL"],
+            ),
+            (
+                "timestamp",
+                "datetime",
+                ["=", "!=", ">", ">=", "<", "<=", "IS NULL", "IS NOT NULL"],
+            ),
+        ],
+    )
+    def test_filter_metadata_is_inferred_from_supported_column_types(
+        self,
+        column_type,
+        expected_kind,
+        expected_operators,
+    ):
+        column = SimpleNamespace(
+            type=column_type,
+            display_name="Value",
+            unit=None,
+            attribute_names=lambda: [],
+        )
+
+        metadata = _column_metadata(column, is_metric=False)
+
+        assert metadata is not None
+        assert metadata.filter is not None
+        assert metadata.filter.kind == expected_kind
+        assert metadata.filter.operators == expected_operators
+        assert metadata.filter.default_operator == "="
+        assert metadata.filter.multi is None
+
+    @pytest.mark.parametrize(
+        "column_type",
+        ["array<string>", "map", "struct", "binary", "time", "unknown_type"],
+    )
+    def test_filter_metadata_is_not_inferred_for_unsupported_types(
+        self,
+        column_type,
+    ):
+        column = SimpleNamespace(
+            type=column_type,
+            display_name="Value",
+            unit=None,
+            attribute_names=lambda: [],
+        )
+
+        metadata = _column_metadata(column, is_metric=False)
+
+        assert metadata is not None
+        assert metadata.filter is None
+
+    @pytest.mark.parametrize(
+        ("explicit_filter", "expected_filter"),
+        [
+            (
+                {
+                    "kind": "select",
+                    "operators": ["IN", "NOT IN"],
+                    "default_operator": "IN",
+                    "multi": True,
+                },
+                {
+                    "kind": "select",
+                    "operators": ["IN", "NOT IN"],
+                    "default_operator": "IN",
+                    "multi": True,
+                },
+            ),
+            (None, None),
+        ],
+    )
+    def test_explicit_filter_metadata_overrides_or_disables_inference(
+        self,
+        explicit_filter,
+        expected_filter,
+    ):
+        column = SimpleNamespace(
+            type="string",
+            display_name="Value",
+            unit=None,
+            attribute_names=lambda: [],
+        )
+
+        metadata = _column_metadata(
+            column,
+            is_metric=False,
+            raw_metadata={"filter": explicit_filter},
+        )
+
+        assert metadata is not None
+        assert (
+            metadata.filter.model_dump(exclude_none=True)
+            if metadata.filter is not None
+            else None
+        ) == expected_filter
 
     def test_invalid_optional_metadata_is_ignored(self):
         column = SimpleNamespace(
@@ -728,6 +870,20 @@ async def test_semantic_endpoints_end_to_end(client: AsyncClient):
         "semantic_type": "currency",
         "unit": {"kind": "currency", "code": "USD"},
         "format": {"preset": "currency", "precision": 2},
+        "filter": {
+            "kind": "number",
+            "operators": [
+                "=",
+                "!=",
+                ">",
+                ">=",
+                "<",
+                "<=",
+                "IS NULL",
+                "IS NOT NULL",
+            ],
+            "default_operator": "=",
+        },
         "extensions": {
             "superset": {"d3format": "$,.2f"},
             "google_sheets": {
@@ -744,6 +900,11 @@ async def test_semantic_endpoints_end_to_end(client: AsyncClient):
     assert dimension["metadata"] == {
         "display_name": "Region Name",
         "semantic_type": "category",
+        "filter": {
+            "kind": "text",
+            "operators": ["=", "!=", "IS NULL", "IS NOT NULL"],
+            "default_operator": "=",
+        },
     }
 
     # /sql generates physical SQL, pinned to this cube, in the trino dialect.
