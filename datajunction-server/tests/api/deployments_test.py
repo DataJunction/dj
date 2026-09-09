@@ -11437,3 +11437,454 @@ class TestRequiredDimensionsRedeployIdempotence:
         response = await client.get(f"/nodes/{metric_name}/")
         assert response.status_code == 200, response.json()
         assert response.json()["version"] == "v1.0"
+
+
+def _us_state_dim(*, with_abbr: bool) -> DimensionSpec:
+    """The us_state dimension, optionally carrying a new `state_abbr` column."""
+    columns = ["state_id", "state_name"] + (["state_abbr"] if with_abbr else [])
+    return DimensionSpec(
+        name="default.us_state",
+        description="US state dimension",
+        query=f"SELECT {', '.join(columns)} FROM ${{prefix}}default.us_states",
+        primary_key=["state_id"],
+        owners=["dj"],
+    )
+
+
+def _hard_hat_dim_with_reference_link() -> DimensionSpec:
+    """Hard hat dimension whose reference link points at `us_state.state_abbr`."""
+    return DimensionSpec(
+        name="default.hard_hat",
+        description="Hard hat dimension",
+        query="SELECT hard_hat_id, state FROM ${prefix}default.hard_hats",
+        primary_key=["hard_hat_id"],
+        owners=["dj"],
+        dimension_links=[
+            DimensionReferenceLinkSpec(
+                node_column="state",
+                dimension="${prefix}default.us_state.state_abbr",
+            ),
+        ],
+    )
+
+
+@pytest.mark.xdist_group(name="deployments")
+class TestDimensionAttributeAddedInSamePush:
+    """
+    One push that both adds an attribute to an existing dimension and adds a node
+    linking to that attribute.
+
+    Link validation resolves the attribute against the dimension's *persisted*
+    columns, and the deploy order is built from query lineage only, so a linking
+    node with no query dependency on the dimension lands in the same topological
+    level and validates against the pre-push column set.
+    """
+
+    @pytest.mark.asyncio
+    async def test_reference_link_to_attribute_added_in_same_push(
+        self,
+        client,
+        default_us_states,
+        default_hard_hats,
+    ):
+        namespace = "dim_attr_same_push_ref"
+
+        first = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[
+                    default_us_states,
+                    default_hard_hats,
+                    _us_state_dim(with_abbr=False),
+                ],
+            ),
+        )
+        assert first["status"] == "success", first
+
+        nodes = [
+            default_us_states,
+            default_hard_hats,
+            _us_state_dim(with_abbr=True),
+            _hard_hat_dim_with_reference_link(),
+        ]
+        second = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert second["status"] == "failed"
+        assert second["results"] == [
+            {
+                "name": f"{namespace}.default.us_states",
+                "deploy_type": "node",
+                "status": "skipped",
+                "operation": "noop",
+                "message": "Unchanged",
+                "changed_fields": [],
+            },
+            {
+                "name": f"{namespace}.default.hard_hats",
+                "deploy_type": "node",
+                "status": "skipped",
+                "operation": "noop",
+                "message": "Unchanged",
+                "changed_fields": [],
+            },
+            {
+                "name": f"{namespace}.default.hard_hat",
+                "deploy_type": "node",
+                "status": "invalid",
+                "operation": "create",
+                "message": (
+                    "Created dimension (v1.0)\n"
+                    "[invalid] Dimension attribute 'state_abbr' not found in dimension"
+                    f" node '{namespace}.default.us_state' for link in node"
+                    f" '{namespace}.default.hard_hat'."
+                ),
+                "changed_fields": [],
+            },
+            {
+                "name": f"{namespace}.default.us_state",
+                "deploy_type": "node",
+                "status": "success",
+                "operation": "update",
+                "message": (
+                    "Updated dimension (v2.0)\n"
+                    "\u2514\u2500 Column removed: state_id, state_name\n"
+                    "\u2514\u2500 Updated query, display_name, columns"
+                ),
+                "changed_fields": ["query", "display_name", "columns"],
+            },
+            {
+                "name": (
+                    f"{namespace}.default.hard_hat -> {namespace}.default.us_state"
+                ),
+                "deploy_type": "link",
+                "status": "failed",
+                "operation": "create",
+                "message": (
+                    f"Dimension link from {namespace}.default.hard_hat to"
+                    f" {namespace}.default.us_state was not created because"
+                    f" {namespace}.default.hard_hat is INVALID and has no columns"
+                ),
+                "changed_fields": [],
+            },
+        ]
+
+        # The identical push succeeds on the retry: state_abbr is persisted now,
+        # so the same link validates against a column set that has it. The retry
+        # is a major bump, not a noop -- the failed attempt persisted hard_hat
+        # with no columns, so the retry adds them back.
+        third = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert third["status"] == "success", third["results"]
+        assert third["results"] == [
+            {
+                "name": f"{namespace}.default.us_states",
+                "deploy_type": "node",
+                "status": "skipped",
+                "operation": "noop",
+                "message": "Unchanged",
+                "changed_fields": [],
+            },
+            {
+                "name": f"{namespace}.default.hard_hats",
+                "deploy_type": "node",
+                "status": "skipped",
+                "operation": "noop",
+                "message": "Unchanged",
+                "changed_fields": [],
+            },
+            {
+                "name": f"{namespace}.default.us_state",
+                "deploy_type": "node",
+                "status": "skipped",
+                "operation": "noop",
+                "message": "Unchanged",
+                "changed_fields": [],
+            },
+            {
+                "name": f"{namespace}.default.hard_hat",
+                "deploy_type": "node",
+                "status": "success",
+                "operation": "update",
+                "message": (
+                    "Updated dimension (v2.0)\n"
+                    "\u2514\u2500 Column removed: hard_hat_id, state\n"
+                    "\u2514\u2500 Updated display_name, dimension_links, columns"
+                ),
+                "changed_fields": ["display_name", "dimension_links", "columns"],
+            },
+            {
+                "name": (
+                    f"{namespace}.default.hard_hat -> {namespace}.default.us_state"
+                ),
+                "deploy_type": "link",
+                "status": "success",
+                "operation": "create",
+                "message": "Reference link successfully deployed",
+                "changed_fields": [],
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_join_link_to_attribute_added_in_same_push(
+        self,
+        client,
+        default_us_states,
+        default_hard_hats,
+    ):
+        """
+        The join-link form of the same failure. The deployment reports success
+        overall -- only the node carries the error, so the push looks clean while
+        the new node is left INVALID.
+        """
+        namespace = "dim_attr_same_push_join"
+
+        first = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[
+                    default_us_states,
+                    default_hard_hats,
+                    _us_state_dim(with_abbr=False),
+                ],
+            ),
+        )
+        assert first["status"] == "success", first
+
+        second = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[
+                    default_us_states,
+                    default_hard_hats,
+                    _us_state_dim(with_abbr=True),
+                    TransformSpec(
+                        name="default.hard_hats_fact",
+                        description="Hard hats fact",
+                        query=(
+                            "SELECT hard_hat_id, state FROM ${prefix}default.hard_hats"
+                        ),
+                        owners=["dj"],
+                        dimension_links=[
+                            DimensionJoinLinkSpec(
+                                dimension_node="${prefix}default.us_state",
+                                join_type="inner",
+                                join_on=(
+                                    "${prefix}default.hard_hats_fact.state"
+                                    " = ${prefix}default.us_state.state_abbr"
+                                ),
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+        )
+        assert second["status"] == "success"
+        assert [
+            result
+            for result in second["results"]
+            if result["name"] == f"{namespace}.default.hard_hats_fact"
+        ] == [
+            {
+                "name": f"{namespace}.default.hard_hats_fact",
+                "deploy_type": "node",
+                "status": "invalid",
+                "operation": "create",
+                "message": (
+                    "Created transform (v1.0)\n"
+                    "[invalid] Column 'state_abbr' referenced in join_on for"
+                    f" '{namespace}.default.us_state' not found on dimension node"
+                    f" '{namespace}.default.us_state'"
+                ),
+                "changed_fields": [],
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_query_lineage_on_the_dimension_avoids_the_failure(
+        self,
+        client,
+        default_us_states,
+        default_hard_hats,
+    ):
+        """
+        The same push, except the linking node's query also reads the dimension.
+        That lineage edge puts the dimension in an earlier topological level, so
+        its new column is persisted before the linking node validates -- and the
+        identical link passes.
+        """
+        namespace = "dim_attr_same_push_lineage"
+
+        first = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[
+                    default_us_states,
+                    default_hard_hats,
+                    _us_state_dim(with_abbr=False),
+                ],
+            ),
+        )
+        assert first["status"] == "success", first
+
+        second = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[
+                    default_us_states,
+                    default_hard_hats,
+                    _us_state_dim(with_abbr=True),
+                    TransformSpec(
+                        name="default.hard_hats_fact",
+                        description="Hard hats fact",
+                        query=(
+                            "SELECT h.hard_hat_id, h.state, s.state_abbr AS abbr"
+                            " FROM ${prefix}default.hard_hats h"
+                            " LEFT JOIN ${prefix}default.us_state s"
+                            " ON h.state = s.state_abbr"
+                        ),
+                        owners=["dj"],
+                        dimension_links=[
+                            DimensionJoinLinkSpec(
+                                dimension_node="${prefix}default.us_state",
+                                join_type="inner",
+                                join_on=(
+                                    "${prefix}default.hard_hats_fact.state"
+                                    " = ${prefix}default.us_state.state_abbr"
+                                ),
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+        )
+        assert second["status"] == "success", second["results"]
+        assert second["results"] == [
+            {
+                "name": f"{namespace}.default.us_states",
+                "deploy_type": "node",
+                "status": "skipped",
+                "operation": "noop",
+                "message": "Unchanged",
+                "changed_fields": [],
+            },
+            {
+                "name": f"{namespace}.default.hard_hats",
+                "deploy_type": "node",
+                "status": "skipped",
+                "operation": "noop",
+                "message": "Unchanged",
+                "changed_fields": [],
+            },
+            {
+                "name": f"{namespace}.default.us_state",
+                "deploy_type": "node",
+                "status": "success",
+                "operation": "update",
+                "message": (
+                    "Updated dimension (v2.0)\n"
+                    "\u2514\u2500 Column removed: state_id, state_name\n"
+                    "\u2514\u2500 Updated query, display_name, columns"
+                ),
+                "changed_fields": ["query", "display_name", "columns"],
+            },
+            {
+                "name": f"{namespace}.default.hard_hats_fact",
+                "deploy_type": "node",
+                "status": "success",
+                "operation": "create",
+                "message": "Created transform (v1.0)",
+                "changed_fields": [],
+            },
+            {
+                "name": (
+                    f"{namespace}.default.hard_hats_fact ->"
+                    f" {namespace}.default.us_state"
+                ),
+                "deploy_type": "link",
+                "status": "success",
+                "operation": "create",
+                "message": "Join link successfully deployed",
+                "changed_fields": [],
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_brand_new_dimension_and_link_in_one_push(
+        self,
+        client,
+        default_us_states,
+        default_hard_hats,
+    ):
+        """
+        Both halves in one push into an empty namespace. The dimension is absent
+        from the database rather than persisted with a stale column set, so the
+        dim-side check is skipped and the push succeeds.
+        """
+        namespace = "dim_attr_fresh_ns"
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[
+                    default_us_states,
+                    default_hard_hats,
+                    _us_state_dim(with_abbr=True),
+                    _hard_hat_dim_with_reference_link(),
+                ],
+            ),
+        )
+        assert data["status"] == "success", data["results"]
+        assert data["results"] == [
+            {
+                "name": f"{namespace}.default.hard_hats",
+                "deploy_type": "node",
+                "status": "success",
+                "operation": "create",
+                "message": "Created source (v1.0)",
+                "changed_fields": [],
+            },
+            {
+                "name": f"{namespace}.default.us_states",
+                "deploy_type": "node",
+                "status": "success",
+                "operation": "create",
+                "message": "Created source (v1.0)",
+                "changed_fields": [],
+            },
+            {
+                "name": f"{namespace}.default.hard_hat",
+                "deploy_type": "node",
+                "status": "success",
+                "operation": "create",
+                "message": "Created dimension (v1.0)",
+                "changed_fields": [],
+            },
+            {
+                "name": f"{namespace}.default.us_state",
+                "deploy_type": "node",
+                "status": "success",
+                "operation": "create",
+                "message": "Created dimension (v1.0)",
+                "changed_fields": [],
+            },
+            {
+                "name": (
+                    f"{namespace}.default.hard_hat -> {namespace}.default.us_state"
+                ),
+                "deploy_type": "link",
+                "status": "success",
+                "operation": "create",
+                "message": "Reference link successfully deployed",
+                "changed_fields": [],
+            },
+        ]
