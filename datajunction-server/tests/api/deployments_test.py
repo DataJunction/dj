@@ -11936,6 +11936,202 @@ class TestDimensionAttributeAddedInSamePush:
         ]
 
     @pytest.mark.asyncio
+    async def test_self_join_link_to_attribute_added_in_same_push(
+        self,
+        client,
+        default_us_states,
+    ):
+        """
+        A persisted dimension gains a column and a self-join naming it, in one
+        push. A node cannot deploy before itself, so ordering cannot help here.
+        """
+        namespace = "dim_self_join_new_col"
+
+        def us_state(*, with_abbr: bool) -> DimensionSpec:
+            columns = ["state_id", "state_name"] + (["state_abbr"] if with_abbr else [])
+            return DimensionSpec(
+                name="default.us_state",
+                description="US state dimension",
+                query=(
+                    f"SELECT {', '.join(columns)} FROM ${{prefix}}default.us_states"
+                ),
+                primary_key=["state_id"],
+                owners=["dj"],
+                dimension_links=[
+                    DimensionJoinLinkSpec(
+                        dimension_node="${prefix}default.us_state",
+                        role="abbr",
+                        join_on=(
+                            "${prefix}default.us_state.state_name"
+                            " = ${prefix}default.us_state.state_abbr"
+                        ),
+                    ),
+                ]
+                if with_abbr
+                else [],
+            )
+
+        first = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[default_us_states, us_state(with_abbr=False)],
+            ),
+        )
+        assert first["status"] == "success", first["results"]
+
+        second = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[default_us_states, us_state(with_abbr=True)],
+            ),
+        )
+        # The dimension is marked invalid: join_on names state_abbr, which the
+        # dimension only gains in this same push.
+        assert second["status"] == "success", second["results"]
+        assert second["results"] == [
+            {
+                "name": f"{namespace}.default.us_states",
+                "deploy_type": "node",
+                "status": "skipped",
+                "operation": "noop",
+                "message": "Unchanged",
+                "changed_fields": [],
+            },
+            {
+                "name": f"{namespace}.default.us_state",
+                "deploy_type": "node",
+                "status": "invalid",
+                "operation": "update",
+                "message": (
+                    "Updated dimension (v2.0)\n"
+                    "└─ Column removed: state_id, state_name\n"
+                    "└─ Updated query, display_name, dimension_links, columns\n"
+                    "[invalid] Column 'state_abbr' referenced in join_on for"
+                    f" '{namespace}.default.us_state' not found on dimension node"
+                    f" '{namespace}.default.us_state'"
+                ),
+                "changed_fields": [
+                    "query",
+                    "display_name",
+                    "dimension_links",
+                    "columns",
+                ],
+            },
+            {
+                "name": (
+                    f"{namespace}.default.us_state ->"
+                    f" {namespace}.default.us_state[abbr]"
+                ),
+                "deploy_type": "link",
+                "status": "success",
+                "operation": "create",
+                "message": (
+                    "Join link successfully deployed\n"
+                    f"[invalid] Node '{namespace}.default.us_state' is INVALID —"
+                    " link may not function until the node is fixed"
+                ),
+                "changed_fields": [],
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_self_reference_link_to_attribute_added_in_same_push(
+        self,
+        client,
+        default_us_states,
+    ):
+        """
+        The reference-link form: the dimension points one of its own columns at
+        another of its own columns, added in the same push.
+        """
+        namespace = "dim_self_ref_new_col"
+
+        def us_state(*, with_abbr: bool) -> DimensionSpec:
+            columns = ["state_id", "state_name"] + (["state_abbr"] if with_abbr else [])
+            return DimensionSpec(
+                name="default.us_state",
+                description="US state dimension",
+                query=(
+                    f"SELECT {', '.join(columns)} FROM ${{prefix}}default.us_states"
+                ),
+                primary_key=["state_id"],
+                owners=["dj"],
+                dimension_links=[
+                    DimensionReferenceLinkSpec(
+                        node_column="state_name",
+                        dimension="${prefix}default.us_state.state_abbr",
+                    ),
+                ]
+                if with_abbr
+                else [],
+            )
+
+        first = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[default_us_states, us_state(with_abbr=False)],
+            ),
+        )
+        assert first["status"] == "success", first["results"]
+
+        second = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[default_us_states, us_state(with_abbr=True)],
+            ),
+        )
+        # Same failure as the join form, and here it fails the whole deployment.
+        assert second["status"] == "failed", second["results"]
+        assert second["results"] == [
+            {
+                "name": f"{namespace}.default.us_states",
+                "deploy_type": "node",
+                "status": "skipped",
+                "operation": "noop",
+                "message": "Unchanged",
+                "changed_fields": [],
+            },
+            {
+                "name": f"{namespace}.default.us_state",
+                "deploy_type": "node",
+                "status": "invalid",
+                "operation": "update",
+                "message": (
+                    "Updated dimension (v2.0)\n"
+                    "└─ Column removed: state_id, state_name\n"
+                    "└─ Updated query, display_name, dimension_links, columns\n"
+                    "[invalid] Dimension attribute 'state_abbr' not found in"
+                    f" dimension node '{namespace}.default.us_state' for link in"
+                    f" node '{namespace}.default.us_state'."
+                ),
+                "changed_fields": [
+                    "query",
+                    "display_name",
+                    "dimension_links",
+                    "columns",
+                ],
+            },
+            {
+                "name": (
+                    f"{namespace}.default.us_state -> {namespace}.default.us_state"
+                ),
+                "deploy_type": "link",
+                "status": "failed",
+                "operation": "create",
+                "message": (
+                    f"Dimension link from {namespace}.default.us_state to"
+                    f" {namespace}.default.us_state was not created because"
+                    f" {namespace}.default.us_state is INVALID and has no columns"
+                ),
+                "changed_fields": [],
+            },
+        ]
+
+    @pytest.mark.asyncio
     async def test_mutually_linked_dimensions_still_deploy(
         self,
         client,
