@@ -4,6 +4,7 @@ Authorization service implementations for access control.
 
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from functools import cache
 from typing import TYPE_CHECKING, ClassVar
@@ -21,6 +22,7 @@ from datajunction_server.models.access import (
     ResourceRequest,
     ResourceType,
     RestrictiveScopeRule,
+    namespace_boundary_scope_targets,
     parse_restrictive_scope_rule,
 )
 from datajunction_server.naming import parse_scope_pattern
@@ -33,6 +35,27 @@ logger = logging.getLogger(__name__)
 audit_logger = logging.getLogger("datajunction.audit.rbac")
 
 settings = get_settings()
+
+
+def governed_boundary_rules(
+    boundaries: Sequence[str],
+) -> tuple[RestrictiveScopeRule, ...]:
+    """Build mutation rules for persisted governed namespace boundaries."""
+    actions = (
+        ResourceAction.WRITE,
+        ResourceAction.DELETE,
+        ResourceAction.MANAGE,
+    )
+    return tuple(
+        RestrictiveScopeRule(
+            action=action,
+            scope_type=scope_type,
+            scope_value=scope_value,
+        )
+        for namespace in boundaries
+        for action in actions
+        for scope_type, scope_value in namespace_boundary_scope_targets(namespace)
+    )
 
 
 class AuthorizationService(ABC):
@@ -166,7 +189,7 @@ class RBACAuthorizationService(AuthorizationService):
                 for request in requests
             ]
         explicit_scopes = self.explicit_scopes(auth_context)
-        restrictive_rules = self.restrictive_rules()
+        restrictive_rules = self.restrictive_rules(auth_context.governed_boundaries)
         return [
             self._make_decision(
                 request,
@@ -484,12 +507,16 @@ class RBACAuthorizationService(AuthorizationService):
         return False
 
     @classmethod
-    def restrictive_rules(cls) -> list[RestrictiveScopeRule]:
-        """Parse configured restrictive policy rules."""
-        return [
+    def restrictive_rules(
+        cls,
+        governed_boundaries: Sequence[str] = (),
+    ) -> list[RestrictiveScopeRule]:
+        """Combine configured policy with database-backed boundary rules."""
+        configured_rules = [
             parse_restrictive_scope_rule(value)
             for value in getattr(settings, "restrictive_scopes", []) or []
         ]
+        return [*configured_rules, *governed_boundary_rules(governed_boundaries)]
 
     @classmethod
     def _matching_restrictive_rule(
