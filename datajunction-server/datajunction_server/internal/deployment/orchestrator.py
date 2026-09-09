@@ -54,6 +54,7 @@ from datajunction_server.internal.deployment.dimension_reachability import (
 from datajunction_server.internal.deployment.utils import (
     DeploymentContext,
     classify_parents,
+    creates_cycle,
     extract_dimension_refs_from_filters as _extract_dimension_refs_from_filters,
     extract_node_graph,
     topological_levels,
@@ -1947,6 +1948,24 @@ class DeploymentOrchestrator:
                     deps = ordering_graph.setdefault(node_spec.rendered_name, [])
                     if dim_node not in deps:
                         deps.append(dim_node)
+
+        # Each linked dimension is an ordering edge too, so a link onto a column
+        # this same push adds to an existing dimension validates against the new
+        # column set. Links can be cyclic where query lineage cannot (self-joins
+        # with a role, mutually linked dimensions), so an edge that would close a
+        # cycle is dropped and those nodes order by lineage alone.
+        for node_spec in plan.to_deploy:
+            if isinstance(node_spec, LinkableNodeSpec):
+                for link in node_spec.dimension_links:
+                    dim_node = link.rendered_dimension_node
+                    deps = ordering_graph.setdefault(node_spec.rendered_name, [])
+                    if dim_node in deps or creates_cycle(
+                        ordering_graph,
+                        node_spec.rendered_name,
+                        dim_node,
+                    ):
+                        continue
+                    deps.append(dim_node)
 
         # Order nodes topologically based on dependencies
         levels = topological_levels(ordering_graph, ascending=False)
