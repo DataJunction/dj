@@ -6,6 +6,10 @@ from sqlalchemy.exc import IntegrityError
 from datajunction_server.database.custom_metadata_schema import CustomMetadataSchema
 from datajunction_server.internal.custom_metadata import resolve_schemas
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.semantic_layer_metadata import (
+    SEMANTIC_LAYER_METADATA_KEY,
+    SEMANTIC_LAYER_METADATA_SCHEMA,
+)
 
 
 @pytest.mark.asyncio
@@ -167,14 +171,16 @@ async def test_deactivated_rows_are_excluded(session):
 
 
 @pytest.mark.asyncio
-async def test_empty_registry_returns_empty_dict(session):
-    """No schemas registered → empty result."""
+async def test_registry_with_only_builtins_returns_semantic_layer_schema(session):
+    """The startup seed makes the global semantic-layer schema always applicable."""
     resolved = await resolve_schemas(
         session,
         namespace="any.namespace",
         node_type=NodeType.METRIC,
     )
-    assert resolved == {}
+    assert resolved == {
+        SEMANTIC_LAYER_METADATA_KEY: SEMANTIC_LAYER_METADATA_SCHEMA,
+    }
 
 
 @pytest.mark.asyncio
@@ -196,7 +202,9 @@ async def test_namespace_scoped_row_does_not_apply_to_none_namespace(session):
         namespace=None,
         node_type=NodeType.METRIC,
     )
-    assert resolved == {}
+    assert resolved == {
+        SEMANTIC_LAYER_METADATA_KEY: SEMANTIC_LAYER_METADATA_SCHEMA,
+    }
 
 
 @pytest.mark.asyncio
