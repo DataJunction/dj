@@ -11,7 +11,7 @@ DJ generates SQL; the client executes it. This router does NOT run queries —
 
 import logging
 from collections.abc import Mapping
-from typing import Any, Literal
+from typing import cast, Literal, TypeAlias
 
 from fastapi import Depends
 from fastapi.responses import JSONResponse
@@ -19,11 +19,16 @@ from pydantic import (  # pylint: disable=no-name-in-module
     BaseModel,
     ConfigDict,
     Field,
+    JsonValue,
     TypeAdapter,
     ValidationError,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.construction.build_v3.types import (
+    ColumnMetadata as GeneratedColumnMetadata,
+)
+from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJException
@@ -34,6 +39,7 @@ from datajunction_server.internal.sql import (
 )
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.unit import Unit, unit_to_dict
+from datajunction_server.sql.parsing.types import ColumnType
 from datajunction_server.utils import get_current_user, get_session
 
 logger = logging.getLogger(__name__)
@@ -78,6 +84,7 @@ DJ_TO_ARROW_TYPE_NAMES = {
 }
 
 _UNIT_ADAPTER = TypeAdapter(Unit)
+JSONObject: TypeAlias = dict[str, JsonValue]
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +100,7 @@ def _problem(status_code: int, detail: str) -> JSONResponse:
     )
 
 
-def _arrow_type_name(dj_type: Any) -> str | None:
+def _arrow_type_name(dj_type: ColumnType | str | None) -> str | None:
     """Map a DJ column type to the Arrow JSON type object's ``name`` value."""
     if not dj_type:
         return None
@@ -113,14 +120,14 @@ def _cube_column_type_map(cube: NodeRevision) -> dict[str, str | None]:
 
 
 def _semantic_type(
-    column: Any,
+    column: Column,
     arrow_type: str,
     *,
     is_metric: bool,
     unit: Unit | None = None,
 ) -> str:
     """Derive the portable business type from DJ's structured column fields."""
-    unit_data = unit_to_dict(unit or getattr(column, "unit", None))
+    unit_data = unit_to_dict(unit or column.unit)
     if unit_data and "kind" in unit_data:
         unit_kind = unit_data["kind"]
         if unit_kind == "time":
@@ -135,9 +142,7 @@ def _semantic_type(
         }:
             return unit_kind
 
-    attributes = (
-        set(column.attribute_names()) if hasattr(column, "attribute_names") else set()
-    )
+    attributes = set(column.attribute_names())
     if "primary_key" in attributes:
         return "identifier"
     if arrow_type == "date":
@@ -165,7 +170,7 @@ def _format_metadata(unit: Unit | None) -> "FormatMetadata | None":
     return FormatMetadata(preset=preset) if preset else None
 
 
-def _validated_unit(raw_unit: Any) -> Unit | None:
+def _validated_unit(raw_unit: JsonValue) -> Unit | None:
     """Validate custom metadata units without letting bad annotations fail a view."""
     if raw_unit is None:
         return None
@@ -211,12 +216,12 @@ def _fixed_decimal_pattern(prefix: str, precision: int) -> str:
 
 
 def _client_format_extensions(
-    extensions: dict[str, dict[str, Any]],
+    extensions: dict[str, JSONObject],
     unit: Unit | None,
     format_metadata: "FormatMetadata | None",
     *,
     format_is_explicit: bool,
-) -> dict[str, dict[str, Any]]:
+) -> dict[str, JSONObject]:
     """Fill missing client formats when portable semantics are unambiguous."""
     if format_metadata is None or format_metadata.preset is None:
         return extensions
@@ -278,7 +283,7 @@ _METADATA_KEYS = {
 }
 
 
-def _raw_column_metadata(cube: NodeRevision, column_id: str) -> dict[str, Any]:
+def _raw_column_metadata(cube: NodeRevision, column_id: str) -> JSONObject:
     """Find semantic metadata declared in an element node's custom metadata.
 
     Metric nodes describe one value, so their metadata may be declared directly.
@@ -308,28 +313,28 @@ def _raw_column_metadata(cube: NodeRevision, column_id: str) -> dict[str, Any]:
 
         if isinstance(raw, Mapping) and isinstance(raw.get("semantic_layer"), Mapping):
             raw = raw["semantic_layer"]
-        return dict(raw) if isinstance(raw, Mapping) else {}
+        return cast(JSONObject, dict(raw)) if isinstance(raw, Mapping) else {}
     return {}
 
 
 def _column_metadata(
-    column: Any,
+    column: Column,
     *,
     is_metric: bool,
-    raw_metadata: Mapping[str, Any] | None = None,
+    raw_metadata: Mapping[str, JsonValue] | None = None,
 ) -> "ColumnMetadata | None":
     """Build strict portable metadata from a DJ cube column."""
     raw_metadata = raw_metadata or {}
-    mapped_arrow_type = _arrow_type_name(getattr(column, "type", None))
+    mapped_arrow_type = _arrow_type_name(column.type)
     arrow_type = mapped_arrow_type or (
         METRIC_FALLBACK_ARROW_TYPE_NAME
         if is_metric
         else DIMENSION_FALLBACK_ARROW_TYPE_NAME
     )
-    attributes = column.attribute_names() if hasattr(column, "attribute_names") else []
+    attributes = column.attribute_names()
     extensions = (
         {
-            str(namespace): dict(values)
+            str(namespace): cast(JSONObject, dict(values))
             for namespace, values in raw_metadata.get("extensions", {}).items()
             if isinstance(values, Mapping)
         }
@@ -373,7 +378,7 @@ def _column_metadata(
         if not format_metadata.model_dump(exclude_none=True):
             format_metadata = None
 
-    raw_unit = raw_metadata.get("unit", unit_to_dict(getattr(column, "unit", None)))
+    raw_unit = raw_metadata.get("unit", unit_to_dict(column.unit))
     unit = _validated_unit(raw_unit)
     resolved_format = format_metadata or _format_metadata(unit)
     extensions = _client_format_extensions(
@@ -395,7 +400,7 @@ def _column_metadata(
         display_name=(
             raw_metadata.get("display_name")
             if isinstance(raw_metadata.get("display_name"), str)
-            else getattr(column, "display_name", None)
+            else column.display_name
         ),
         semantic_type=(
             raw_semantic_type
@@ -422,18 +427,18 @@ def _column_metadata(
     return metadata if metadata.model_dump(exclude_none=True) else None
 
 
-def _cube_column_map(cube: NodeRevision) -> dict[str, Any]:
+def _cube_column_map(cube: NodeRevision) -> dict[str, Column]:
     """Return role-aware cube columns keyed by semantic-layer id."""
     return {column.cube_element_name: column for column in cube.columns}
 
 
-def _generated_column_arrow_type_name(column: Any) -> str:
+def _generated_column_arrow_type_name(column: GeneratedColumnMetadata) -> str:
     """Return the semantic-layer Arrow type name for a generated SQL column."""
-    arrow_type = _arrow_type_name(getattr(column, "type", None))
+    arrow_type = _arrow_type_name(column.type)
     if arrow_type:
         return arrow_type
 
-    semantic_type = str(getattr(column, "semantic_type", "") or "").lower()
+    semantic_type = column.semantic_type.lower()
     if semantic_type == "dimension":
         return DIMENSION_FALLBACK_ARROW_TYPE_NAME
     return METRIC_FALLBACK_ARROW_TYPE_NAME
@@ -519,7 +524,7 @@ _ALLOWED_OPERATORS = frozenset(
 _NULLARY_OPERATORS = frozenset({"IS NULL", "IS NOT NULL"})
 
 
-def _quote_value(value: Any) -> str:
+def _quote_value(value: JsonValue) -> str:
     """Render a scalar Python value as a SQL literal via sqlglot, which handles
     quote-escaping and numeric/bool/NULL rendering for the scalars the client
     sends (strings, numbers, bools, null)."""
@@ -568,7 +573,7 @@ class FilterPayload(BaseModel):
     type: str = "WHERE"
     column: str | None = None
     operator: str = "="
-    value: Any = None
+    value: JsonValue = None
 
 
 class QueryPayload(BaseModel):
@@ -649,7 +654,7 @@ class FilterMetadata(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     @classmethod
-    def from_mapping(cls, raw: Mapping[str, Any]) -> "FilterMetadata | None":
+    def from_mapping(cls, raw: Mapping[str, JsonValue]) -> "FilterMetadata | None":
         """Sanitize free-form DJ custom metadata into the strict contract."""
         allowed_operators = {
             "=",
@@ -725,7 +730,7 @@ class ColumnMetadata(BaseModel):
     attributes: list[str] | None = None
     format: FormatMetadata | None = None
     filter: FilterMetadata | None = None
-    extensions: dict[str, dict[str, Any]] | None = None
+    extensions: dict[str, JSONObject] | None = None
 
     model_config = ConfigDict(extra="forbid")
 
