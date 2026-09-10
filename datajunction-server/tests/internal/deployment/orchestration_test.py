@@ -971,6 +971,7 @@ class TestOrchestrationFlow:
             mock_plan.to_delete = []
             mock_plan.to_delete_namespaces = []
             mock_plan.existing_specs = {}
+            mock_plan.deletable_specs = []
             mock_create_plan.return_value = (mock_plan, [])
 
             mock_handle_no_changes.return_value = []
