@@ -81,6 +81,10 @@ def _cube_dimension_covers_reaggregate_dimension(
 ) -> bool:
     """
     Return whether a cube dimension materializes a protected dimension.
+
+    Nothing here is specific to reaggregate — `fixed_grain` reuses it for its
+    partition dimension. Worth renaming to `_cube_dimension_covers` once both
+    features have landed.
     """
     if _reaggregate_dimension_requested(protected_dimension, [cube_dimension]):
         return True
@@ -180,6 +184,49 @@ async def _reaggregate_requirements_for_metrics_if_needed(
     if not await _metric_graph_has_reaggregate(session, metrics):
         return []
     return await _reaggregate_requirements_for_metrics(session, metrics, dimensions)
+
+
+# (metric name, dimension the cube must retain)
+FixedGrainRequirement = tuple[str, str]
+
+
+def _fixed_grain_requirements_for_cube_metrics(
+    cube: NodeRevision,
+    metrics: list[str],
+) -> list[FixedGrainRequirement]:
+    """
+    Partition dimensions the requested metrics need this cube to carry.
+    """
+    metric_names = set(metrics)
+    requirements: list[FixedGrainRequirement] = [
+        (metric_revision.name, dimension)
+        for metric_revision in cube.metric_node_revisions()
+        if metric_revision
+        and metric_revision.name in metric_names
+        and metric_revision.fixed_grain
+        for dimension in metric_revision.fixed_grain
+    ]
+    return list(dict.fromkeys(requirements))
+
+
+def missing_fixed_grain_requirements(
+    cube: NodeRevision,
+    metrics: list[str],
+) -> list[FixedGrainRequirement]:
+    """
+    Partition dimensions a cube does not materialize.
+
+    A global grain (`[]`) requires nothing, so it is always covered.
+    """
+    cube_dims = set(cube.cube_dimensions())
+    return [
+        requirement
+        for requirement in _fixed_grain_requirements_for_cube_metrics(cube, metrics)
+        if not any(
+            _cube_dimension_covers_reaggregate_dimension(requirement[1], cube_dim)
+            for cube_dim in cube_dims
+        )
+    ]
 
 
 def _reaggregate_requirements_for_cube_metrics(
@@ -529,6 +576,7 @@ async def find_matching_cube(
         if candidate_cubes
         else []
     )
+
     # Find the best matching cube (smallest grain that covers all dimensions)
     best_match: NodeRevision | None = None
     best_grain_size = float("inf")
@@ -576,6 +624,13 @@ async def find_matching_cube(
                 f"[BuildV3] Cube {cube_rev.name} dims {cube_dims} "
                 f"don't cover reaggregate requirements "
                 f"{_format_reaggregate_requirements(missing_reaggregate_requirements)}",
+            )
+            continue
+        missing_grain = missing_fixed_grain_requirements(cube_rev, metrics)
+        if missing_grain:
+            logger.debug(
+                f"[BuildV3] Cube {cube_rev.name} dims {cube_dims} "
+                f"don't cover fixed_grain partition(s) {missing_grain}",
             )
             continue
 

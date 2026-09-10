@@ -403,6 +403,48 @@ def _build_metric_aggregation(
     return expr_ast
 
 
+def validate_fixed_grain_query_shape(
+    decomposed: DecomposedMetricInfo,
+    grain_group_count: int = 1,
+) -> None:
+    """
+    Refuse a query whose shape cannot express the declared partition.
+
+    The window itself is already in the combiner, put there during decomposition,
+    and a partition dimension the query did not ask for is added to the grain by
+    the same mechanism that serves `required_dimensions`. What is left is the one
+    shape that still cannot work.
+    """
+    # Read off the component rules, not the node revision: decomposition
+    # attaches the declaration to the one broadcastable component, so consumers
+    # see it without reaching back into the graph. A derived metric's components
+    # are the union across its parents, so the declaring one need not be first.
+    fixed_grain = next(
+        (
+            comp.rule.fixed_grain
+            for comp in decomposed.components
+            if comp.rule.fixed_grain
+        ),
+        None,
+    )
+    if not fixed_grain:
+        return
+
+    metric_name = decomposed.metric_node.name
+    # Across grain groups the enclosing SELECT groups positionally over a COALESCE
+    # of the shared dimensions, so a partition naming one group's column is
+    # ungrouped there and the engine rejects it.
+    if grain_group_count > 1:
+        raise DJInvalidInputException(
+            f"Metric `{metric_name}` declares a non-empty `fixed_grain` and "
+            "cannot be combined with metrics from another fact table in one "
+            "query: the joined result groups over a `COALESCE` of the shared "
+            "dimensions, so a partition naming one side's column is not grouped "
+            "and the engine rejects it. Query it on its own, or use a global "
+            "grain (`fixed_grain: []`), which partitions by nothing.",
+        )
+
+
 def _build_pre_agg_wrapper_cte(
     alias: str,
     gg: GrainGroupSQL,
@@ -814,8 +856,13 @@ def process_base_metrics(
                     column_name=col_name,
                 )
 
-            # Qualify dimension refs with this grain group's CTE alias
-            qualified_dim_refs = qualify_dimension_refs(dimension_aliases, alias)
+            # Qualify dimension refs with this grain group's CTE alias. The
+            # group's private grain is merged in so a declared partition
+            # resolves even though it is not an output dimension.
+            qualified_dim_refs = qualify_dimension_refs(
+                {**dimension_aliases, **gg.fixed_grain_dimension_aliases},
+                alias,
+            )
             replace_dimension_refs_in_ast(expr_ast, qualified_dim_refs)
             metric_exprs[metric_name] = MetricExprInfo(
                 expr_ast=expr_ast,
@@ -1994,6 +2041,13 @@ def generate_metrics_sql(
         base_grain_groups,
         skip_pre_agg=will_have_base_metrics_cte,
     )
+    # Counted over base groups only: a window grain group is a second group for
+    # the SAME fact table, which is not the cross-fact case this refuses.
+    for fixed_grain_candidate in decomposed_metrics.values():
+        validate_fixed_grain_query_shape(
+            fixed_grain_candidate,
+            len(base_grain_groups),
+        )
     _validate_reaggregate_base_group_join_safety(base_grain_groups)
 
     # Build dimension info and projection

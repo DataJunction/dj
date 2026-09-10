@@ -2042,6 +2042,7 @@ def build_grain_group_sql(
     # This is needed for metrics SQL to correctly reference component columns
     component_aliases: dict[str, str] = {}
     reaggregate_dimension_aliases: dict[str, str] = {}
+    fixed_grain_dimension_aliases: dict[str, str] = {}
     internal_dimension_aliases: dict[str, str] = {}
 
     if output_dimension_refs:
@@ -2056,6 +2057,15 @@ def build_grain_group_sql(
         dimension_alias = ctx.alias_registry.register(dimension_ref)
         reaggregate_dimension_aliases[component_name] = dimension_alias
         internal_dimension_aliases[dimension_ref] = dimension_alias
+
+    # A declared partition needs a column in this CTE. It only becomes an output
+    # column if the caller also asked for it; otherwise it is private grain.
+    for _fg_metric_node, fg_component in grain_group.components:
+        for dimension_ref in fg_component.rule.fixed_grain or []:
+            dimension_alias = ctx.alias_registry.register(dimension_ref)
+            fixed_grain_dimension_aliases[dimension_ref] = dimension_alias
+            if dimension_ref not in (output_dimension_refs or ()):
+                internal_dimension_aliases[dimension_ref] = dimension_alias
 
     for metric_node, component in grain_group.components:
         metrics_covered.add(metric_node.name)
@@ -2421,6 +2431,7 @@ def build_grain_group_sql(
         metrics=list(metrics_covered),
         parent_name=grain_group.parent_node.name,
         component_aliases=component_aliases,
+        fixed_grain_dimension_aliases=fixed_grain_dimension_aliases,
         reaggregate_dimension_aliases=reaggregate_dimension_aliases,
         is_merged=grain_group.is_merged,
         component_aggregabilities=grain_group.component_aggregabilities,

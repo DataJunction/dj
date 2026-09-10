@@ -3589,6 +3589,7 @@ async def test_cube_materialization_metadata(
                     "rule": {
                         "level": None,
                         "reaggregate": None,
+                        "fixed_grain": None,
                         "type": "full",
                     },
                 },
@@ -3601,6 +3602,7 @@ async def test_cube_materialization_metadata(
                     "rule": {
                         "level": None,
                         "reaggregate": None,
+                        "fixed_grain": None,
                         "type": "full",
                     },
                 },
@@ -3613,6 +3615,7 @@ async def test_cube_materialization_metadata(
                     "rule": {
                         "level": None,
                         "reaggregate": None,
+                        "fixed_grain": None,
                         "type": "full",
                     },
                 },
@@ -3625,6 +3628,7 @@ async def test_cube_materialization_metadata(
                     "rule": {
                         "level": None,
                         "reaggregate": None,
+                        "fixed_grain": None,
                         "type": "full",
                     },
                 },
@@ -3637,6 +3641,7 @@ async def test_cube_materialization_metadata(
                     "rule": {
                         "level": None,
                         "reaggregate": None,
+                        "fixed_grain": None,
                         "type": "full",
                     },
                 },
@@ -3649,6 +3654,7 @@ async def test_cube_materialization_metadata(
                     "rule": {
                         "level": None,
                         "reaggregate": None,
+                        "fixed_grain": None,
                         "type": "full",
                     },
                 },
@@ -3661,6 +3667,7 @@ async def test_cube_materialization_metadata(
                     "rule": {
                         "level": None,
                         "reaggregate": None,
+                        "fixed_grain": None,
                         "type": "full",
                     },
                 },
@@ -3781,6 +3788,7 @@ async def test_cube_materialization_metadata(
                     "rule": {
                         "level": None,
                         "reaggregate": None,
+                        "fixed_grain": None,
                         "type": "full",
                     },
                 },
@@ -4033,7 +4041,12 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "COUNT",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None, "reaggregate": None},
+                    "rule": {
+                        "type": "full",
+                        "level": None,
+                        "reaggregate": None,
+                        "fixed_grain": None,
+                    },
                 },
                 {
                     "name": "discount_sum_30b84e6c",
@@ -4041,7 +4054,12 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "SUM",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None, "reaggregate": None},
+                    "rule": {
+                        "type": "full",
+                        "level": None,
+                        "reaggregate": None,
+                        "fixed_grain": None,
+                    },
                 },
                 {
                     "name": "price_count_935e7117",
@@ -4049,7 +4067,12 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "COUNT",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None, "reaggregate": None},
+                    "rule": {
+                        "type": "full",
+                        "level": None,
+                        "reaggregate": None,
+                        "fixed_grain": None,
+                    },
                 },
                 {
                     "name": "price_discount_sum_e4ba5456",
@@ -4057,7 +4080,12 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "SUM",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None, "reaggregate": None},
+                    "rule": {
+                        "type": "full",
+                        "level": None,
+                        "reaggregate": None,
+                        "fixed_grain": None,
+                    },
                 },
                 {
                     "name": "price_sum_935e7117",
@@ -4065,7 +4093,12 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "SUM",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None, "reaggregate": None},
+                    "rule": {
+                        "type": "full",
+                        "level": None,
+                        "reaggregate": None,
+                        "fixed_grain": None,
+                    },
                 },
                 {
                     "name": "repair_order_id_count_bd241964",
@@ -4073,7 +4106,12 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "COUNT",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None, "reaggregate": None},
+                    "rule": {
+                        "type": "full",
+                        "level": None,
+                        "reaggregate": None,
+                        "fixed_grain": None,
+                    },
                 },
                 {
                     "name": "total_repair_cost_sum_67874507",
@@ -4081,7 +4119,12 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "SUM",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None, "reaggregate": None},
+                    "rule": {
+                        "type": "full",
+                        "level": None,
+                        "reaggregate": None,
+                        "fixed_grain": None,
+                    },
                 },
                 {
                     "name": "price_sum_252381cf",
@@ -4089,7 +4132,12 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "SUM",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None, "reaggregate": None},
+                    "rule": {
+                        "type": "full",
+                        "level": None,
+                        "reaggregate": None,
+                        "fixed_grain": None,
+                    },
                 },
             ],
             "timestamp_column": "hire_date",

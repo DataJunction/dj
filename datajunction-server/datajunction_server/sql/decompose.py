@@ -754,6 +754,7 @@ class BaseMetricData:
     name: str
     query: str
     reaggregate: ReaggregateSpec | dict | None = None
+    fixed_grain: list[str] | None = None
 
 
 @dataclass
@@ -768,6 +769,104 @@ class MetricData:
 # =============================================================================
 # Metric Component Extractor
 # =============================================================================
+
+
+# Window functions that return their input unchanged when every row in the
+# frame holds the same value — which is exactly what a broadcast produces. An
+# unrecognised function is treated as accumulating, so the guard fails closed.
+_IDEMPOTENT_OVER_A_CONSTANT = frozenset(
+    {"MAX", "MIN", "AVG", "FIRST_VALUE", "ANY_VALUE"},
+)
+
+
+def _is_windowed_aggregate(func: ast.Function) -> bool:
+    """Whether ``func`` is an aggregate carrying its own OVER clause."""
+    if func.over is None:
+        return False
+    try:
+        dj_function = func.function()
+    except Exception:  # pragma: no cover - unknown functions are not aggregates
+        return False
+    return bool(dj_function and dj_function.is_aggregation)
+
+
+def _names_accumulated_by_a_window(query_ast: ast.Query) -> set[str]:
+    """
+    Names a window frame would accumulate.
+
+    Only arguments count, and only of functions that actually accumulate. A
+    broadcast is safe as a divisor beside a window (`SUM(x) OVER (...) / total`),
+    safe in `ORDER BY` or `PARTITION BY`, and safe under `MAX`/`AVG`, which
+    return a row-constant column unchanged. It is corrupted only when a frame
+    sums or counts it.
+    """
+    accumulated: set[str] = set()
+    for func in query_ast.find_all(ast.Function):
+        if func.over is None:
+            continue
+        if func.name.name.upper() in _IDEMPOTENT_OVER_A_CONSTANT:
+            continue
+        for arg in func.args:
+            for col in arg.find_all(ast.Column):
+                accumulated.add(col.identifier())
+    return accumulated
+
+
+def _dimension_column(dimension: str) -> ast.Column:
+    """
+    A column node naming a dimension reference.
+
+    Built rather than parsed. A grain entry is a dimension reference, not SQL,
+    so interpolating it into a `SELECT` would both accept things that are not
+    references (`a, b` silently truncating to `a`) and reject things that are:
+    the role syntax in `v3.date.date_id[order]` is not valid SQL at all.
+    """
+    *namespace_parts, column = dimension.split(".")
+    namespace: ast.Name | None = None
+    for part in namespace_parts:
+        namespace = ast.Name(part, namespace=namespace)
+    return ast.Column(name=ast.Name(column, namespace=namespace))
+
+
+def _broadcast_in_combiner(
+    query_ast: ast.Query,
+    component_name: str,
+    merge_function: str,
+    fixed_grain: list[str],
+) -> None:
+    """
+    Re-merge the component's aggregate as a window, in place in the combiner.
+
+    The merge call is replaced where it sits rather than the whole combiner being
+    wrapped: `ROUND(SUM(x), 2)` broadcasts to `ROUND(SUM(SUM(x)) OVER (), 2)`, not
+    to `SUM(ROUND(SUM(x), 2)) OVER ()`, which is a different number.
+
+    Partitions name dimensions in their unresolved form. Each consumer resolves
+    them for itself -- a CTE-qualified column for a query, a bare column for a
+    cube -- through the same replacement every other dimension reference uses.
+    """
+    target = merge_function.upper()
+    partition_by = [
+        cast(ast.Expression, _dimension_column(dimension)) for dimension in fixed_grain
+    ]
+    for func in list(query_ast.find_all(ast.Function)):
+        if func.name.name.upper() != target:
+            continue
+        if not any(
+            col.name and col.name.name == component_name
+            for col in func.find_all(ast.Column)
+        ):
+            continue
+        # Mutated in place: `replace()` and `swap()` leave the projected tree
+        # untouched, so substituting the node into its parent has no effect.
+        func.args = [ast.Function(ast.Name(target), args=func.args)]
+        func.over = ast.Over(partition_by=partition_by)
+        return
+
+    raise DJInvalidInputException(
+        "Unsupported fixed_grain metric shape: could not find the component "
+        "merge expression in the metric combiner.",
+    )
 
 
 class MetricComponentExtractor:
@@ -874,6 +973,7 @@ class MetricComponentExtractor:
         all_components = []
         components_tracker = set()
         base_metrics_data = {}
+        accumulated_by_window = _names_accumulated_by_a_window(query_ast)
 
         for base_metric in metric_data.base_metrics:
             # Check if this parent metric is itself a derived metric
@@ -941,6 +1041,42 @@ class MetricComponentExtractor:
                 base_components, derived_ast = self._extract_base(
                     base_ast,
                     parse_reaggregate_spec(base_metric.reaggregate),
+                    base_metric.fixed_grain,
+                )
+
+            # Checked on the extracted components, not this parent's own
+            # declaration: decomposition recurses through derived parents, so a
+            # grain declared two levels down still arrives on a component here.
+            #
+            # A derived metric is only at risk when the frame actually
+            # accumulates the parent; referencing it beside a window is fine.
+            # A base metric has no reference to match, so the hazard is its own
+            # aggregate already carrying a window — not a window anywhere in the
+            # query, which `SUM(x - LAG(x) OVER (...))` has quite legitimately.
+            windowed_over_the_grain = (
+                base_metric.name in accumulated_by_window
+                if metric_data.is_derived
+                else any(
+                    _is_windowed_aggregate(func)
+                    for func in parse(base_metric.query).find_all(ast.Function)
+                )
+            )
+            if windowed_over_the_grain and any(
+                comp.rule.fixed_grain is not None for comp in base_components
+            ):
+                raise DJInvalidInputException(
+                    f"Metric `{base_metric.name}` declares `fixed_grain` (or is "
+                    "derived from one), so its own aggregate is already windowed "
+                    "and cannot be broadcast on top of that."
+                    if not metric_data.is_derived
+                    else (
+                        f"Metric `{base_metric.name}` declares `fixed_grain` (or "
+                        "is derived from one), so a frame cannot accumulate it: "
+                        "its value is the same on every row of the partition, and "
+                        "the frame would add that same value once per row. "
+                        "Referencing it beside a window is fine — for example "
+                        "dividing a windowed metric by it."
+                    ),
                 )
 
             for comp in base_components:
@@ -1001,6 +1137,16 @@ class MetricComponentExtractor:
                     f"Derived metric `{metric_node.name}` declares reaggregate.",
                 )
 
+            # `is not None`, not truthiness: `[]` is the global grain, and a
+            # derived metric may not declare that either. Guards the cached
+            # path, which serves `/sql/metrics/v3/` and bulk derivation.
+            if metric_node.current.fixed_grain is not None:
+                raise DJInvalidInputException(
+                    "A grain must be declared on a base metric. Derived metric "
+                    f"`{metric_node.name}` declares fixed_grain; declare it on the "
+                    "metric being aggregated and divide by that instead.",
+                )
+
             # Derived metric - base metrics are the parent metrics
             return MetricData(
                 query=metric_node.current.query,
@@ -1010,6 +1156,7 @@ class MetricComponentExtractor:
                         name=parent_name,
                         query=nodes_cache[parent_name].current.query,
                         reaggregate=nodes_cache[parent_name].current.reaggregate,
+                        fixed_grain=nodes_cache[parent_name].current.fixed_grain,
                     )
                     for parent_name in metric_parents
                     if nodes_cache[parent_name].current
@@ -1026,6 +1173,7 @@ class MetricComponentExtractor:
                         name=metric_node.name,
                         query=metric_node.current.query,
                         reaggregate=metric_node.current.reaggregate,
+                        fixed_grain=metric_node.current.fixed_grain,
                     ),
                 ],
             )
@@ -1043,6 +1191,7 @@ class MetricComponentExtractor:
                 Node.name.label("parent_name"),
                 NodeRevision.query.label("parent_query"),
                 NodeRevision.reaggregate.label("parent_reaggregate"),
+                NodeRevision.fixed_grain.label("parent_fixed_grain"),
             )
             .select_from(NodeRelationship)
             .join(Node, NodeRelationship.parent_id == Node.id)
@@ -1064,6 +1213,7 @@ class MetricComponentExtractor:
             select(
                 NodeRevision.query,
                 NodeRevision.reaggregate,
+                NodeRevision.fixed_grain,
                 Node.name,
             )
             .join(Node, NodeRevision.node_id == Node.id)
@@ -1081,6 +1231,15 @@ class MetricComponentExtractor:
                     "Semi-additive metrics must be base metrics in V1. "
                     f"Derived metric `{this_row.name}` declares reaggregate.",
                 )
+            # Same rule on the uncached path, which serves `GET /metrics/{name}`
+            # and the create-time background task. Neither guard covers the
+            # other's callers, so both are load-bearing.
+            if this_row.fixed_grain is not None:
+                raise DJInvalidInputException(
+                    "A grain must be declared on a base metric. Derived metric "
+                    f"`{this_row.name}` declares fixed_grain; declare it on the "
+                    "metric being aggregated and divide by that instead.",
+                )
 
             # Derived metric - base metrics are the parents
             return MetricData(
@@ -1091,6 +1250,7 @@ class MetricComponentExtractor:
                         name=row.parent_name,
                         query=row.parent_query,
                         reaggregate=row.parent_reaggregate,
+                        fixed_grain=row.parent_fixed_grain,
                     )
                     for row in parent_rows
                 ],
@@ -1105,6 +1265,7 @@ class MetricComponentExtractor:
                         name=this_row.name,
                         query=this_row.query,
                         reaggregate=this_row.reaggregate,
+                        fixed_grain=this_row.fixed_grain,
                     ),
                 ],
             )
@@ -1113,6 +1274,7 @@ class MetricComponentExtractor:
         self,
         query_ast: ast.Query,
         reaggregate: ReaggregateSpec | None = None,
+        fixed_grain: list[str] | None = None,
     ) -> tuple[list[MetricComponent], ast.Query]:
         """
         Extract components from a base metric by decomposing aggregations.
@@ -1149,6 +1311,13 @@ class MetricComponentExtractor:
                         "dimension-specific reaggregation requires a "
                         "decomposable aggregation",
                     )
+                if fixed_grain is not None:
+                    # Ignoring the declaration would return the query-grain
+                    # value under a name that claims otherwise.
+                    self._raise_unsupported_fixed_grain_shape(
+                        "a fixed grain requires a decomposable aggregate, and "
+                        "this metric's aggregation cannot be split into measures",
+                    )
                 return [], query_ast
 
             for func, dj_function in agg_funcs:
@@ -1174,7 +1343,58 @@ class MetricComponentExtractor:
         if reaggregate is not None and dimension_reaggregate_rules(reaggregate):
             self._attach_reaggregate_spec(components, reaggregate)
 
+        if fixed_grain is not None:
+            self._attach_fixed_grain_spec(components, fixed_grain, query_ast)
+
         return components, query_ast
+
+    def _attach_fixed_grain_spec(
+        self,
+        components: list[MetricComponent],
+        fixed_grain: list[str],
+        query_ast: ast.Query,
+    ) -> None:
+        """
+        Broadcast the one measure that can carry a declared grain.
+
+        The window goes into the combiner here rather than at SQL build time so
+        that it travels with the decomposed metric. Everything downstream already
+        resolves dimension references and preserves aggregate windows, so both
+        the query path and the SQL stored on a materialized cube pick it up.
+
+        Refusals raised here surface at deploy time for a deployment, but only
+        at SQL build time for a metric created through the API — nothing
+        decomposes it at write time.
+        """
+        if len(components) != 1:
+            self._raise_unsupported_fixed_grain_shape(
+                "a fixed grain requires exactly one component",
+            )
+
+        component = components[0]
+        if (
+            component.rule.type != Aggregability.FULL
+            or component.aggregation is None
+            or component.merge is None
+        ):
+            self._raise_unsupported_fixed_grain_shape(
+                "a fixed grain requires one non-distinct fully-aggregatable "
+                "component, because broadcasting re-applies the merge",
+            )
+
+        component.rule.fixed_grain = fixed_grain
+        _broadcast_in_combiner(
+            query_ast,
+            component.name,
+            cast(str, component.merge),
+            fixed_grain,
+        )
+
+    @staticmethod
+    def _raise_unsupported_fixed_grain_shape(reason: str) -> None:
+        raise DJInvalidInputException(
+            f"Unsupported fixed_grain metric shape: {reason}.",
+        )
 
     def _attach_reaggregate_spec(
         self,
