@@ -1346,6 +1346,8 @@ async def deploy_and_wait(client, deployment_spec: DeploymentSpec):
         response = await client.get(f"/deployments/{deployment_uuid}")
         data = response.json()
     for result in data.get("results", []):
+        assert "change_tier" in result
+        assert "semantic_fingerprint" in result
         result.pop("change_tier", None)
         result.pop("semantic_fingerprint", None)
     return data

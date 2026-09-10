@@ -185,6 +185,11 @@ def normalize_field(
             else value,
             compare_types=isinstance(spec, SourceSpec),
         )
+    if field == "required_dimensions" and isinstance(spec, MetricSpec):
+        try:
+            value = spec.canonical_required_dimensions
+        except DJParseException:
+            value = spec.rendered_required_dimensions
     if field == "dimension_links" and isinstance(spec, LinkableNodeSpec):
         return normalize_dimension_links(
             spec.dimension_links,
@@ -208,28 +213,6 @@ def normalize_field(
         normalize_sequence(normalized, preserve_order=preserve_order)
         if isinstance(normalized, list)
         else normalized
-    )
-
-
-def _normalize_comparison_field(
-    spec: NodeSpec,
-    field: str,
-    *,
-    resolved_columns: list[ColumnSpec] | None,
-    preserve_order: bool = False,
-) -> Any:
-    """Normalize change detection without altering versioned fingerprints."""
-    if field == "required_dimensions" and isinstance(spec, MetricSpec):
-        try:
-            value = spec.canonical_required_dimensions
-        except DJParseException:
-            value = spec.rendered_required_dimensions
-        return normalize_sequence(value, preserve_order=preserve_order)
-    return normalize_field(
-        spec,
-        field,
-        resolved_columns=resolved_columns,
-        preserve_order=preserve_order,
     )
 
 
@@ -261,12 +244,12 @@ def semantic_diff(
             continue
 
         try:
-            left = _normalize_comparison_field(
+            left = normalize_field(
                 rendered_one,
                 field,
                 resolved_columns=resolved_columns,
             )
-            right = _normalize_comparison_field(
+            right = normalize_field(
                 rendered_two,
                 field,
                 resolved_columns=other_resolved_columns,
@@ -282,13 +265,13 @@ def semantic_diff(
 
         if type(rendered_two).field_order_change_tier(field) == ChangeTier.NONE:
             continue
-        left_ordered = _normalize_comparison_field(
+        left_ordered = normalize_field(
             rendered_one,
             field,
             resolved_columns=resolved_columns,
             preserve_order=True,
         )
-        right_ordered = _normalize_comparison_field(
+        right_ordered = normalize_field(
             rendered_two,
             field,
             resolved_columns=other_resolved_columns,

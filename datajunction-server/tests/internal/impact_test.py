@@ -12,9 +12,19 @@ from sqlalchemy import event
 
 from datajunction_server.database.column import Column as DBColumn
 from datajunction_server.database.namespace import NodeNamespace
-from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
+from datajunction_server.database.node import (
+    BoundDimensionsRelationship,
+    Node,
+    NodeRelationship,
+    NodeRevision,
+)
 from datajunction_server.database.user import User
-from datajunction_server.internal.impact import _merge_impacts, propagate_impact
+from datajunction_server.internal.impact import (
+    _build_propagation_context,
+    _merge_impacts,
+    _propagate_via_parent_graph,
+    propagate_impact,
+)
 from datajunction_server.models.impact import DownstreamImpact, ImpactType
 from datajunction_server.models.node import NodeStatus, NodeType
 from datajunction_server.models.user import OAuthProvider
@@ -139,6 +149,63 @@ async def test_propagate_impact_valid_parent_may_affect(session, current_user: U
     assert "ns.source" in impact.caused_by
     # Status must NOT have been mutated
     assert child_rev.status == NodeStatus.VALID
+
+
+@pytest.mark.asyncio
+async def test_required_dimension_on_older_revision_is_discovered(
+    session,
+    current_user: User,
+):
+    session.add(NodeNamespace(namespace="ns"))
+    dimension, current_dimension_rev = _make_node(
+        "ns.dimension",
+        NodeType.DIMENSION,
+        NodeStatus.VALID,
+        current_user.id,
+        version="v2.0",
+        columns=[("id", IntegerType())],
+    )
+    older_dimension_rev = NodeRevision(
+        name=dimension.name,
+        type=NodeType.DIMENSION,
+        node=dimension,
+        version="v1.0",
+        status=NodeStatus.VALID,
+        query="SELECT 1 AS id",
+        created_by_id=current_user.id,
+        columns=[DBColumn(name="id", type=IntegerType())],
+    )
+    metric, metric_rev = _make_node(
+        "ns.metric",
+        NodeType.METRIC,
+        NodeStatus.VALID,
+        current_user.id,
+    )
+    await _persist(
+        session,
+        dimension,
+        older_dimension_rev,
+        current_dimension_rev,
+        metric,
+        metric_rev,
+    )
+    await _persist(
+        session,
+        BoundDimensionsRelationship(
+            metric_id=metric_rev.id,
+            bound_dimension_id=older_dimension_rev.columns[0].id,
+        ),
+    )
+
+    ctx = await _build_propagation_context(
+        session,
+        "ns",
+        {dimension.name},
+        frozenset(),
+    )
+    impacts = await _propagate_via_parent_graph(session, ctx)
+
+    assert [impact.name for impact in impacts] == [metric.name]
 
 
 @pytest.mark.asyncio
