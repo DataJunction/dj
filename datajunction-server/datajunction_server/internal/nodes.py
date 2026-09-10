@@ -908,7 +908,7 @@ async def _derive_frozen_measures_impl(
                 upstream_revision_id=upstream_revision_id,
                 expression=measure.expression,
                 aggregation=measure.aggregation,
-                rule=measure.rule,
+                rule=_frozen_measure_rule(measure.rule),
                 used_by_node_revisions=[],
             )
             session.add(frozen_measure)
@@ -1045,16 +1045,31 @@ async def derive_frozen_measures_bulk(
             frozen_measure.used_by_node_revisions.append(rev)
 
 
+# Declarations that ride on the aggregation rule but are not part of a measure's
+# identity, so two metrics differing only in grain share one frozen measure.
+#
+# Comparison and persistence must agree on this set. When they drift, the stored
+# rule depends on whichever metric happened to create the measure first.
+_METRIC_LEVEL_RULE_FIELDS = frozenset({"reaggregate", "fixed_grain"})
+
+
 def _aggregation_rule_identity(rule: DecomposeAggregationRule) -> dict[str, Any]:
     """Return the stable JSON shape used for frozen-measure rule comparison."""
-    return rule.model_dump(mode="json", exclude_none=True, exclude={"reaggregate"})
+    # `[]` survives `exclude_none`, keeping the global grain distinct from absent.
+    return rule.model_dump(
+        mode="json",
+        exclude_none=True,
+        exclude=set(_METRIC_LEVEL_RULE_FIELDS),
+    )
 
 
 def _frozen_measure_rule(rule: DecomposeAggregationRule) -> DecomposeAggregationRule:
     """
     Return the metric-independent rule persisted on a shared frozen measure.
     """
-    return rule.model_copy(update={"reaggregate": None})
+    return rule.model_copy(
+        update={field: None for field in _METRIC_LEVEL_RULE_FIELDS},
+    )
 
 
 def _raise_if_frozen_measure_conflicts(
