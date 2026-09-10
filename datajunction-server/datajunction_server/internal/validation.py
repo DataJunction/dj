@@ -399,6 +399,7 @@ async def validate_node_data(
         reaggregate_spec = parse_reaggregate_spec(validated_node.reaggregate)
         invalid_reaggregate_dimensions: set[str] = set()
         invalid_reaggregate_functions: list[str] = []
+        invalid_fixed_grain_dimensions: set[str] = set()
         if reaggregate_spec and reaggregate_spec.rules:
             reaggregate_dimensions = [rule.dimension for rule in reaggregate_spec.rules]
             (
@@ -415,10 +416,19 @@ async def validate_node_data(
             invalid_reaggregate_functions = unsupported_dimension_reaggregate_functions(
                 reaggregate_spec,
             )
+        # Truthiness, not `is not None`: `[]` is the global grain, which names
+        # no dimension and so has nothing to resolve.
+        if validated_node.fixed_grain:
+            invalid_fixed_grain_dimensions, _ = await find_required_dimensions(
+                session,
+                list(validated_node.fixed_grain),
+                parent_columns,
+            )
     except MissingGreenlet:
         invalid_required_dimensions = set()
         invalid_reaggregate_dimensions = set()
         invalid_reaggregate_functions = []
+        invalid_fixed_grain_dimensions = set()
         node_validator.required_dimensions = []
 
     if (
@@ -427,6 +437,7 @@ async def validate_node_data(
         or invalid_required_dimensions
         or invalid_reaggregate_dimensions
         or invalid_reaggregate_functions
+        or invalid_fixed_grain_dimensions
     ):
         # update status
         node_validator.status = NodeStatus.INVALID
@@ -510,12 +521,31 @@ async def validate_node_data(
             if invalid_reaggregate_functions
             else []
         )
+        invalid_fixed_grain_dimensions_error = (
+            [
+                DJError(
+                    code=ErrorCode.INVALID_COLUMN,
+                    message=(
+                        "Node definition declares a fixed grain referencing "
+                        "columns that are not on parent nodes."
+                    ),
+                    debug={
+                        "invalid_fixed_grain_dimensions": list(
+                            invalid_fixed_grain_dimensions,
+                        ),
+                    },
+                ),
+            ]
+            if invalid_fixed_grain_dimensions
+            else []
+        )
         errors = (
             missing_parents_error
             + type_inference_error
             + invalid_required_dimensions_error
             + invalid_reaggregate_dimensions_error
             + invalid_reaggregate_functions_error
+            + invalid_fixed_grain_dimensions_error
         )
         node_validator.errors.extend(errors)
 
@@ -818,6 +848,7 @@ async def validate_node_data_v2(
     reaggregate_spec = parse_reaggregate_spec(validated_node.reaggregate)
     invalid_reaggregate_dimensions: set[str] = set()
     invalid_reaggregate_functions: list[str] = []
+    invalid_fixed_grain_dimensions: set[str] = set()
     if reaggregate_spec and reaggregate_spec.rules:
         reaggregate_dimensions = [rule.dimension for rule in reaggregate_spec.rules]
         (
@@ -834,6 +865,13 @@ async def validate_node_data_v2(
         invalid_reaggregate_functions = unsupported_dimension_reaggregate_functions(
             reaggregate_spec,
         )
+    # Truthiness, not `is not None`: `[]` is the global grain.
+    if validated_node.fixed_grain:
+        invalid_fixed_grain_dimensions, _ = await find_required_dimensions(
+            session,
+            list(validated_node.fixed_grain),
+            parent_columns,
+        )
 
     # --- Step 12: final error assembly for missing parents + invalid required
     #              dims (matches legacy code shapes).
@@ -842,6 +880,7 @@ async def validate_node_data_v2(
         or invalid_required_dimensions
         or invalid_reaggregate_dimensions
         or invalid_reaggregate_functions
+        or invalid_fixed_grain_dimensions
     ):
         node_validator.status = NodeStatus.INVALID
         if node_validator.missing_parents_map:
@@ -885,6 +924,21 @@ async def validate_node_data_v2(
                     debug={
                         "invalid_reaggregate_dimensions": list(
                             invalid_reaggregate_dimensions,
+                        ),
+                    },
+                ),
+            )
+        if invalid_fixed_grain_dimensions:
+            node_validator.errors.append(
+                DJError(
+                    code=ErrorCode.INVALID_COLUMN,
+                    message=(
+                        "Node definition declares a fixed grain referencing "
+                        "columns that are not on parent nodes."
+                    ),
+                    debug={
+                        "invalid_fixed_grain_dimensions": list(
+                            invalid_fixed_grain_dimensions,
                         ),
                     },
                 ),

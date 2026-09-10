@@ -8,6 +8,7 @@ type AggregationRule {
   type: Aggregability!
   level: [String!]
   reaggregate: DimensionReaggregateRule
+  fixedGrain: [String!]
 }
 
 type Attribute {
@@ -403,6 +404,7 @@ type NodeRevision {
   dimensionLinks: [DimensionLink!]!
   availability: AvailabilityState
   materializations: [MaterializationConfig!]
+  fixedGrain: [String!]
   reaggregate: ReaggregateSpec
   primaryKey: [String!]!
   metricMetadata: MetricMetadata
