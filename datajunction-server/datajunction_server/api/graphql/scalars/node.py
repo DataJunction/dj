@@ -414,6 +414,15 @@ class NodeRevision:
     required_dimensions: list[Column] | None = None
 
     @strawberry.field
+    def fixed_grain(self, root: DBNodeRevision) -> list[str] | None:
+        """
+        The grain this metric's aggregate is computed at.
+        """
+        if root.type != NodeType.METRIC:
+            return None
+        return root.fixed_grain
+
+    @strawberry.field
     def reaggregate(self, root: DBNodeRevision) -> ReaggregateSpec | None:
         """
         Metric reaggregation declaration.

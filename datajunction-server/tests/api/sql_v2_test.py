@@ -1206,6 +1206,7 @@ async def create_metric_distinct_single_column(client: AsyncClient):
             "rule": {
                 "level": ["hard_hat_id"],
                 "reaggregate": None,
+                "fixed_grain": None,
                 "type": "limited",
             },
         },
@@ -1237,6 +1238,7 @@ async def create_metric_distinct_expression(client: AsyncClient):
             "rule": {
                 "level": ["IF(hard_hat_id = 1, 1, 0)"],
                 "reaggregate": None,
+                "fixed_grain": None,
                 "type": "limited",
             },
         },
@@ -1636,6 +1638,7 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
                 "rule": {
                     "level": None,
                     "reaggregate": None,
+                    "fixed_grain": None,
                     "type": "full",
                 },
             },
@@ -1701,6 +1704,7 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
                 "rule": {
                     "level": ["default.municipality_dim.contact_name"],
                     "reaggregate": None,
+                    "fixed_grain": None,
                     "type": "limited",
                 },
             },
@@ -1810,6 +1814,7 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
                         "default.hard_hat.first_name, NULL)",
                     ],
                     "reaggregate": None,
+                    "fixed_grain": None,
                     "type": "limited",
                 },
             },

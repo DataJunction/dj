@@ -527,6 +527,10 @@ class NodeSpecBulkValidator:
             if reaggregate_error is not None:
                 errors.append(reaggregate_error)
 
+            fixed_grain_error = self._check_fixed_grain_dimensions(spec)
+            if fixed_grain_error is not None:
+                errors.append(fixed_grain_error)
+
             cross_fact_error = self._check_cross_fact_dimensions(spec)
             if cross_fact_error is not None:
                 errors.append(cross_fact_error)  # pragma: no cover
@@ -680,6 +684,10 @@ class NodeSpecBulkValidator:
                     if SEPARATOR in rule.dimension:
                         dim_node_name = rule.dimension.rsplit(SEPARATOR, 1)[0]
                         req_dim_node_names.add(dim_node_name)
+            for grain_dim in getattr(spec, "rendered_fixed_grain", None) or []:
+                if SEPARATOR in grain_dim:
+                    dim_node_name = grain_dim.rsplit(SEPARATOR, 1)[0]
+                    req_dim_node_names.add(dim_node_name)
 
         self._all_dim_nodes = dict(self.context.dependency_nodes)
 
@@ -839,6 +847,44 @@ class NodeSpecBulkValidator:
                 "reaggregate dimensions that are not on parent nodes."
             ),
             debug={"invalid_reaggregate_dimensions": list(invalid)},
+        )
+
+    def _check_fixed_grain_dimensions(self, spec: NodeSpec) -> DJError | None:
+        """
+        Validate that a declared fixed grain resolves to real dimensions.
+
+        `[]` is a legitimate declaration (the global grain) with nothing to
+        resolve.
+        """
+        fixed_grain = getattr(spec, "rendered_fixed_grain", None)
+        if not fixed_grain:
+            return None
+
+        dep_names = self.context.node_graph.get(spec.rendered_name, [])
+        parent_columns = [
+            col
+            for dep_name in dep_names
+            for dep_node in [self.context.dependency_nodes.get(dep_name)]
+            if dep_node and dep_node.current
+            for col in dep_node.current.columns
+        ]
+
+        invalid, _ = _resolve_required_dimensions(
+            list(fixed_grain),
+            parent_columns,
+            self._all_dim_nodes,
+        )
+
+        if not invalid:
+            return None
+
+        return DJError(
+            code=ErrorCode.INVALID_COLUMN,
+            message=(
+                "Node definition declares a fixed grain referencing columns "
+                "that are not on parent nodes."
+            ),
+            debug={"invalid_fixed_grain_dimensions": list(invalid)},
         )
 
     async def _prefetch_metric_dimensions(

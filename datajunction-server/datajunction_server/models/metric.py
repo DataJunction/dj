@@ -52,6 +52,7 @@ class Metric(BaseModel):
     unit: dict | None = None
     required_dimensions: list[str]
     reaggregate: ReaggregateSpec | None = None
+    fixed_grain: list[str] | None = None
 
     # Whether the metric is a single aggregation call (a "measure") that can map
     # 1:1 to a column in an externally-built pre-aggregation table. Derived/ratio
@@ -107,6 +108,7 @@ class Metric(BaseModel):
             ),
             required_dimensions=[dim.name for dim in node.current.required_dimensions],
             reaggregate=node.current.reaggregate,
+            fixed_grain=node.current.fixed_grain,
             is_measure=node.current.is_measure,
             incompatible_druid_functions=incompatible_druid_functions,
             measures=measures,

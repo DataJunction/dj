@@ -1965,16 +1965,22 @@ class DeploymentOrchestrator:
         # parent classification — these are ordering edges, not parents.
         ordering_graph = {name: list(deps) for name, deps in plan.node_graph.items()}
         for node_spec in plan.to_deploy:
-            if isinstance(node_spec, MetricSpec) and node_spec.required_dimensions:
-                for required_dim in node_spec.rendered_required_dimensions:
-                    if SEPARATOR not in required_dim:
-                        continue
-                    dim_node = required_dim.rsplit(SEPARATOR, 1)[0]
-                    if dim_node == node_spec.rendered_name:  # pragma: no cover
-                        continue
-                    deps = ordering_graph.setdefault(node_spec.rendered_name, [])
-                    if dim_node not in deps:
-                        deps.append(dim_node)
+            if not isinstance(node_spec, MetricSpec):
+                continue
+            # A fixed grain names dimensions the same way, and needs them to
+            # exist for the same reason.
+            ordering_dims = list(node_spec.rendered_required_dimensions or []) + list(
+                node_spec.rendered_fixed_grain or [],
+            )
+            for required_dim in ordering_dims:
+                if SEPARATOR not in required_dim:
+                    continue
+                dim_node = required_dim.rsplit(SEPARATOR, 1)[0]
+                if dim_node == node_spec.rendered_name:  # pragma: no cover
+                    continue
+                deps = ordering_graph.setdefault(node_spec.rendered_name, [])
+                if dim_node not in deps:
+                    deps.append(dim_node)
 
         # Order nodes topologically based on dependencies
         levels = topological_levels(ordering_graph, ascending=False)
@@ -5371,6 +5377,7 @@ class DeploymentOrchestrator:
             new_revision.reaggregate = dump_reaggregate_spec(
                 metric_spec.rendered_reaggregate,
             )
+            new_revision.fixed_grain = metric_spec.rendered_fixed_grain
         return new_revision
 
     def _resolve_metric_unit(
