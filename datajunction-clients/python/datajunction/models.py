@@ -367,13 +367,9 @@ class SemanticFingerprint:
     """A semantic node digest returned by the server."""
 
     digest: str
-    version: Literal[1] = 1
+    version: int = 1
 
     def __post_init__(self) -> None:
-        if self.version != 1:
-            raise ValueError(
-                f"Unsupported semantic fingerprint version: {self.version}",
-            )
         if re.fullmatch(r"[0-9a-f]{64}", self.digest) is None:
             raise ValueError(
                 "Semantic fingerprint digest must be 64 lowercase hexadecimal characters",

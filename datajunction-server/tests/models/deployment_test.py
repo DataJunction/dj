@@ -1982,6 +1982,7 @@ def test_semantic_diff_canonicalizes_required_dimension_identity():
     assert bare.diff(bare) == []
     assert bare.diff(qualified) == []
     assert bare.semantic_diff(qualified) == ([], [])
+    assert fingerprint(bare) == fingerprint(qualified)
 
 
 def test_semantic_diff_compares_unparseable_queries_as_raw_sql():

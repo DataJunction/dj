@@ -1504,12 +1504,24 @@ class TestGetImpact:
         with pytest.raises(ValueError, match="64 lowercase hexadecimal"):
             SemanticFingerprint(digest=digest)
 
-    def test_semantic_fingerprint_rejects_unknown_version(self):
-        with pytest.raises(
-            ValueError,
-            match="Unsupported semantic fingerprint version",
-        ):
-            SemanticFingerprint(version=2, digest="a" * 64)
+    def test_semantic_fingerprint_preserves_unknown_version(self):
+        parsed = DeploymentInfo.from_dict(
+            {
+                "results": [
+                    {
+                        "semantic_fingerprint": {
+                            "version": 2,
+                            "digest": "a" * 64,
+                        },
+                    },
+                ],
+            },
+        )
+
+        assert parsed.results[0].semantic_fingerprint == SemanticFingerprint(
+            version=2,
+            digest="a" * 64,
+        )
 
     def test_get_impact_with_namespace_override(self, tmp_path, monkeypatch):
         """get_impact should respect namespace override."""

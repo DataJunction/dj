@@ -540,21 +540,6 @@ class DeploymentOrchestrator:
         # SAVEPOINT, so setup-phase writes roll back too.
         await self._authorize_deployment_plan(deployment_plan)
 
-        with self._timer.phase("build semantic fingerprints"):
-            (
-                self._current_semantic_fingerprints,
-                self._proposed_semantic_fingerprints,
-            ) = await build_deployment_fingerprints(
-                self.session,
-                deployment_plan.existing_specs,
-                self.deployment_spec.nodes,
-                [],
-                additional_target_names={
-                    spec.rendered_name for spec in deployment_plan.to_delete
-                },
-            )
-        self._apply_semantic_fingerprints()
-
         if deployment_plan.is_empty() and not self.deployment_spec.hierarchies:
             # Pre-aggregations still need reconciling on an otherwise-empty
             # deploy: to register specs, or to delete external pre-aggs that were
@@ -577,13 +562,17 @@ class DeploymentOrchestrator:
                 isinstance(spec, CubeSpec) for spec in self.deployment_spec.nodes
             )
             if not needs_preagg_reconcile and not declares_cube:
+                with self._timer.phase("build semantic fingerprints"):
+                    await self._build_and_apply_semantic_fingerprints(
+                        deployment_plan,
+                        [],
+                    )
                 return DeploymentExecuteResult(
                     results=await self._handle_no_changes(),
                     downstream_impacts=[],
                 )
 
         downstream = await self._execute_deployment_plan(deployment_plan)
-        self._apply_semantic_fingerprints()
         return DeploymentExecuteResult(
             results=self.deployed_results,
             downstream_impacts=downstream,
@@ -905,7 +894,7 @@ class DeploymentOrchestrator:
             )
             result.semantic_fingerprint = fingerprints.get(result.name)
 
-    async def _apply_downstream_semantic_fingerprints(
+    async def _build_and_apply_semantic_fingerprints(
         self,
         plan: DeploymentPlan,
         downstream: list,
@@ -922,6 +911,7 @@ class DeploymentOrchestrator:
         )
         self._current_semantic_fingerprints = current
         self._proposed_semantic_fingerprints = proposed
+        self._apply_semantic_fingerprints()
         for impact in downstream:
             proposed_fingerprint = proposed.get(impact.name)
             if current.get(impact.name) != proposed_fingerprint:
@@ -1939,7 +1929,7 @@ class DeploymentOrchestrator:
             )
             p.append(f"{len(downstream)} downstream")
         with timer.phase("build downstream semantic fingerprints"):
-            await self._apply_downstream_semantic_fingerprints(plan, downstream)
+            await self._build_and_apply_semantic_fingerprints(plan, downstream)
 
         # Hard-delete after impact propagation (cascade-deletes
         # NodeRelationship rows that were needed for the BFS above).
@@ -4150,13 +4140,12 @@ class DeploymentOrchestrator:
         references: dict[str, list[str]] = {}
 
         # Query just IDs and names of nodes being deleted (more efficient than loading full objects)
-        # Hold the target rows until commit so no concurrent transaction can add
-        # a new foreign-key reference after this validation snapshot.
-        stmt = (
-            select(Node.id, Node.name)
-            .where(Node.name.in_(list(nodes_to_delete)))
-            .with_for_update()
+        stmt = select(Node.id, Node.name).where(
+            Node.name.in_(list(nodes_to_delete)),
         )
+        if not self.dry_run:
+            # Keep new foreign-key references from racing the delete.
+            stmt = stmt.with_for_update()
         result = await self.session.execute(stmt)
         id_to_name = {node_id: node_name for node_id, node_name in result}
         deleted_node_ids = set(id_to_name.keys())

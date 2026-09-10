@@ -2798,6 +2798,32 @@ async def test_delete_nodes_bulk_deletes_existing_node(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(("dry_run", "expects_lock"), [(True, False), (False, True)])
+async def test_validate_node_deletion_only_locks_wet_runs(
+    current_user,
+    mock_deployment_context,
+    dry_run,
+    expects_lock,
+):
+    session = AsyncMock()
+    session.execute.return_value = []
+    orch = DeploymentOrchestrator(
+        deployment_spec=DeploymentSpec(namespace="default", nodes=[]),
+        deployment_id="delete-lock-test",
+        session=session,
+        context=mock_deployment_context,
+        dry_run=dry_run,
+    )
+
+    await orch._validate_node_deletion(
+        [TransformSpec(name="target", query="SELECT 1")],
+    )
+
+    stmt = session.execute.await_args.args[0]
+    assert (stmt._for_update_arg is not None) is expects_lock
+
+
+@pytest.mark.asyncio
 async def test_delete_nodes_reports_referenced_and_missing(
     session,
     mock_deployment_context,

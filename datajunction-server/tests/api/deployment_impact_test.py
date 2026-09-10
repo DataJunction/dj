@@ -9,6 +9,7 @@ import pytest
 
 from datajunction_server.internal.deployment.fingerprints import (
     SemanticFingerprintGraph,
+    build_deployment_fingerprints,
 )
 from datajunction_server.models.deployment import (
     ColumnSpec,
@@ -161,6 +162,22 @@ class TestDeploymentImpactEndpoint:
             spec.nodes[0].rendered_name,
         )
         assert node_results[0].semantic_fingerprint == expected
+
+    @pytest.mark.asyncio
+    async def test_impact_builds_fingerprints_once(self, client_with_roads):
+        spec = DeploymentSpec(
+            namespace="impact_single_fingerprint_build",
+            nodes=[_source("orders")],
+        )
+
+        with mock.patch(
+            "datajunction_server.internal.deployment.orchestrator."
+            "build_deployment_fingerprints",
+            wraps=build_deployment_fingerprints,
+        ) as build_fingerprints:
+            await _impact(client_with_roads, spec)
+
+        assert build_fingerprints.await_count == 1
 
     @pytest.mark.asyncio
     async def test_impact_detects_updates(self, client_with_roads):
@@ -579,6 +596,8 @@ class TestDeploymentImpactEndpoint:
             if result["deploy_type"] == "node"
         }
 
+        assert results["impact_unknown.broken"]["status"] == "invalid"
+        assert "[invalid]" in results["impact_unknown.broken"]["message"]
         assert results["impact_unknown.broken"]["semantic_fingerprint"] == "unknown"
         assert results["impact_unknown.dependent"]["semantic_fingerprint"] == "unknown"
 
