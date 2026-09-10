@@ -2676,3 +2676,63 @@ async def test_sum_abs_decomposes(session: AsyncSession, create_metric):
     assert comp.rule.type == Aggregability.FULL
     assert "ABS" in comp.expression
     assert_sql_equal(str(derived_sql), f"SELECT SUM({comp.name}) FROM parent_node")
+
+
+def _combiner(component_name: str = "amount_sum"):
+    """A parsed combiner the broadcast can be written into."""
+    from datajunction_server.sql.parsing.backends.antlr4 import parse
+
+    return parse(f"SELECT SUM({component_name}) FROM parent_node")
+
+
+def _component(name: str, *, aggregability=Aggregability.FULL, merge="SUM"):
+    """A minimal decomposed measure for fixed-grain attachment tests."""
+    return MetricComponent(
+        name=name,
+        expression="amount",
+        aggregation="SUM",
+        merge=merge,
+        rule=AggregationRule(type=aggregability),
+    )
+
+
+def test_fixed_grain_attaches_to_a_single_full_component():
+    """The declaration lands on the one measure the builder will broadcast."""
+    extractor = MetricComponentExtractor(1)
+    components = [_component("amount_sum")]
+
+    extractor._attach_fixed_grain_spec(components, [], _combiner())
+
+    assert components[0].rule.fixed_grain == []
+
+
+def test_fixed_grain_refused_on_multiple_components():
+    """Broadcasting re-applies one merge, so the target must be unambiguous."""
+    extractor = MetricComponentExtractor(1)
+    components = [_component("amount_sum"), _component("other_sum")]
+
+    with pytest.raises(DJInvalidInputException) as exc:
+        extractor._attach_fixed_grain_spec(components, [], _combiner())
+
+    assert "exactly one component" in str(exc.value)
+    assert all(comp.rule.fixed_grain is None for comp in components)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"aggregability": Aggregability.LIMITED},
+        {"merge": None},
+    ],
+    ids=["not-fully-aggregatable", "no-merge-function"],
+)
+def test_fixed_grain_refused_on_a_component_that_cannot_re_merge(kwargs):
+    """A measure that cannot be merged twice cannot be broadcast."""
+    extractor = MetricComponentExtractor(1)
+    components = [_component("amount_sum", **kwargs)]
+
+    with pytest.raises(DJInvalidInputException) as exc:
+        extractor._attach_fixed_grain_spec(components, [], _combiner())
+
+    assert "fully-aggregatable" in str(exc.value)
+    assert components[0].rule.fixed_grain is None
