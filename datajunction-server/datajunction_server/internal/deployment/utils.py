@@ -27,6 +27,24 @@ from datajunction_server.utils import SEPARATOR
 logger = logging.getLogger(__name__)
 
 
+def spec_column_names(spec: NodeSpec) -> set[str] | None:
+    """
+    The column names a spec's query names, or None when only inference knows.
+
+    Names come from the projection, the same place inferred columns take
+    theirs. A wildcard, an unnamed expression or a spec with no query leaves
+    the set unknown, and the caller falls back to the persisted node.
+    """
+    try:
+        names = {
+            expr.alias_or_name.name.lower()  # type: ignore[union-attr]
+            for expr in spec.query_ast.select.projection  # type: ignore[attr-defined]
+        }
+    except (AttributeError, DJParseException):
+        return None
+    return None if "*" in names else names
+
+
 def extract_upstream_candidates(
     query_ast: ast.Query,
     is_metric: bool,

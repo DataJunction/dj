@@ -57,6 +57,7 @@ from datajunction_server.internal.deployment.utils import (
     creates_cycle,
     extract_dimension_refs_from_filters as _extract_dimension_refs_from_filters,
     extract_node_graph,
+    spec_column_names,
     topological_levels,
 )
 from datajunction_server.internal.deployment.validation import (
@@ -4676,6 +4677,25 @@ class DeploymentOrchestrator:
                     )
         return targets
 
+    def _deployment_spec_columns(self) -> dict[str, set[str] | None]:
+        """Columns each link target gets from this deployment (rendered names).
+
+        Nodes deploy a level at a time and a link that would close a cycle is
+        not an ordering edge, so a target's persisted columns can be older than
+        the ones this push gives it. A None means the spec doesn't name its
+        columns, and link validation falls back to the persisted node.
+        """
+        linked = {
+            target
+            for targets in self._deployment_link_targets().values()
+            for target in targets
+        }
+        return {
+            node_spec.rendered_name: spec_column_names(node_spec)
+            for node_spec in self.deployment_spec.nodes
+            if node_spec.rendered_name in linked
+        }
+
     async def bulk_deploy_nodes_in_level(
         self,
         node_specs: list[NodeSpec],
@@ -4720,6 +4740,7 @@ class DeploymentOrchestrator:
                     dependency_nodes=dependency_nodes,
                     deployment_namespace=self.deployment_spec.namespace,
                     deployment_link_targets=self._deployment_link_targets(),
+                    deployment_spec_columns=self._deployment_spec_columns(),
                 )
             p.append(f"{len(validation_results)} results")
 

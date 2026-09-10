@@ -75,6 +75,12 @@ class ValidationContext:
     # cross-fact check uses this to see dimensions the committed graph can't yet.
     # Empty for single-node validation.
     deployment_link_targets: dict[str, set] = field(default_factory=dict)
+    # Dimension node name -> the columns its spec declares, for link targets the
+    # deployment itself defines. Nodes deploy a level at a time and a link that
+    # would close a cycle is not an ordering edge, so a target's persisted
+    # columns can be older than the ones this push gives it.
+    # Empty for single-node validation.
+    deployment_spec_columns: dict[str, set | None] = field(default_factory=dict)
 
 
 @dataclass
@@ -257,7 +263,7 @@ class NodeSpecBulkValidator:
         - join_on SQL parses without error.
         - Column table references in the ON clause belong to either the node or the dim.
         - Node-side columns exist in the node's inferred columns.
-        - Dim-side columns exist on the dim node (if loaded).
+        - Dim-side columns exist on the dim node (if its columns are known).
         """
         dim_name = link.rendered_dimension_node
         assert link.rendered_join_on  # guarded by caller
@@ -376,7 +382,8 @@ class NodeSpecBulkValidator:
         - link.node_column exists on the origin node's inferred columns.
 
         If the dim node is not in _dim_link_nodes (newly deployed in same batch),
-        dim-side checks are skipped gracefully.
+        dim-side checks are skipped gracefully. A dim node the same push
+        changes is checked against the columns the push gives it.
         """
         dim_name = link.rendered_dimension_node
         dim_node = self._dim_link_nodes.get(dim_name)
@@ -732,7 +739,8 @@ class NodeSpecBulkValidator:
         lazy loads.
 
         Nodes not found in the DB (newly deployed in the same batch) are simply
-        absent from _dim_link_nodes; callers skip dim-side checks for those.
+        absent from _dim_link_nodes, so callers skip the node-type check for
+        those. Their columns still come from the deployment's own specs.
         """
         dim_link_node_names: set[str] = set()
         for spec in specs:
@@ -770,6 +778,13 @@ class NodeSpecBulkValidator:
                 self._dim_link_col_names[name] = {
                     col.name for col in node.current.columns
                 }
+
+        # A target this deployment defines is described by its spec, not by
+        # whatever revision happens to be persisted.
+        for name in dim_link_node_names:
+            spec_cols = self.context.deployment_spec_columns.get(name)
+            if spec_cols is not None:
+                self._dim_link_col_names[name] = spec_cols
 
     def _check_required_dimensions(self, spec: NodeSpec) -> DJError | None:
         """
@@ -1034,6 +1049,7 @@ async def bulk_validate_node_data(
     dependency_nodes: dict[str, Node],
     deployment_namespace: str | None = None,
     deployment_link_targets: dict[str, set] | None = None,
+    deployment_spec_columns: dict[str, set | None] | None = None,
 ) -> list[NodeValidationResult]:
     """
     Bulk validate node specifications.
@@ -1057,6 +1073,7 @@ async def bulk_validate_node_data(
         dependency_nodes=dependency_nodes,
         deployment_namespace=deployment_namespace,
         deployment_link_targets=deployment_link_targets or {},
+        deployment_spec_columns=deployment_spec_columns or {},
     )
     validator = NodeSpecBulkValidator(context)
 
