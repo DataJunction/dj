@@ -488,14 +488,23 @@ class NodeSpecBulkValidator:
                     validation.output_columns,
                     spec,
                 )
+                internal_field_error = self._check_internal_fields(spec)
+                # Declaring a field the server owns makes every downstream
+                # complaint about that field a symptom. Report the cause only.
+                declared_columns_error = (
+                    None
+                    if internal_field_error
+                    else self._check_declared_columns_exist(
+                        spec,
+                        validation.output_columns,
+                    )
+                )
                 errors = [
                     err
                     for err in [
                         self._check_inferred_columns(inferred_columns),
-                        self._check_declared_columns_exist(
-                            spec,
-                            validation.output_columns,
-                        ),
+                        internal_field_error,
+                        declared_columns_error,
                         self._check_primary_key(inferred_columns, spec),
                         self._check_metric_query(spec, spec.query_ast),
                     ]
@@ -598,6 +607,27 @@ class NodeSpecBulkValidator:
             return DJError(  # pragma: no cover
                 code=ErrorCode.INVALID_SQL_QUERY,
                 message="No columns could be inferred from the SQL query.",
+            )
+        return None
+
+    @staticmethod
+    def _check_internal_fields(spec: NodeSpec) -> DJError | None:
+        """
+        Reject a spec that sets a field the server owns.
+
+        Specs built from existing nodes carry these, but they reach validation
+        only through the `_skip_validation` fast path above, so a value here
+        was written by an author.
+        """
+        authored = spec.authored_internal_fields()
+        if authored:
+            label = spec.node_type.value.capitalize()
+            return DJError(
+                code=ErrorCode.INVALID_SPEC_FIELD,
+                message=" ".join(
+                    f"{label} {spec.rendered_name} must not declare {field}. {remedy}"
+                    for field, remedy in authored
+                ),
             )
         return None
 
