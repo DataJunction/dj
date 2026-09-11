@@ -771,12 +771,10 @@ class MetricData:
 # =============================================================================
 
 
-# Window functions that return their input unchanged when every row in the
-# frame holds the same value — which is exactly what a broadcast produces. An
-# unrecognised function is treated as accumulating, so the guard fails closed.
-_IDEMPOTENT_OVER_A_CONSTANT = frozenset(
-    {"MAX", "MIN", "AVG", "FIRST_VALUE", "ANY_VALUE"},
-)
+# AVG of one repeated value returns that value, unlike SUM. But it only
+# sees one value per frame if the window's own partition covers the
+# declared grain -- see `_window_covers_the_grain`.
+_SAFE_ONLY_WHEN_THE_WINDOW_COVERS_THE_GRAIN = frozenset({"AVG"})
 
 
 def _is_windowed_aggregate(func: ast.Function) -> bool:
@@ -785,31 +783,69 @@ def _is_windowed_aggregate(func: ast.Function) -> bool:
         return False
     try:
         dj_function = func.function()
-    except Exception:  # pragma: no cover - unknown functions are not aggregates
+    except KeyError:  # pragma: no cover - unknown functions are not aggregates
         return False
     return bool(dj_function and dj_function.is_aggregation)
 
 
-def _names_accumulated_by_a_window(query_ast: ast.Query) -> set[str]:
+def _window_covers_the_grain(
+    fixed_grain: list[str],
+    partition_cols: set[str],
+) -> bool:
     """
-    Names a window frame would accumulate.
+    Whether a window's own partition preserves a name's declared grain.
 
-    Only arguments count, and only of functions that actually accumulate. A
-    broadcast is safe as a divisor beside a window (`SUM(x) OVER (...) / total`),
-    safe in `ORDER BY` or `PARTITION BY`, and safe under `MAX`/`AVG`, which
-    return a row-constant column unchanged. It is corrupted only when a frame
-    sums or counts it.
+    The global grain (`[]`) is constant on every row and therefore always
+    covered. A non-empty grain is covered only when the window names every
+    one of its dimensions in its own `PARTITION BY`.
+    """
+    return not fixed_grain or set(fixed_grain) <= partition_cols
+
+
+def _names_accumulated_by_a_window(
+    query_ast: ast.Query,
+) -> tuple[set[str], dict[str, list[set[str]]]]:
+    """
+    Names a window frame would accumulate, split into two groups.
+
+    The first is accumulated no matter what -- a plain `SUM`/`COUNT`-style
+    window on it is never safe, regardless of any grain. The second is only
+    unsafe if the name's *own* declared grain isn't covered by that window's
+    partition, so it can't be decided here: a name with no `fixed_grain` of
+    its own can still inherit one from a metric it's derived from, and that
+    isn't known until decomposition resolves it. The second value maps each
+    such name to every partition-by column set it appeared under, for the
+    caller to check once it knows the name's real grain.
+
+    Safe either way: a plain divisor, `ORDER BY`/`PARTITION BY`, and any
+    `is_duplication_invariant` function (same test the fan-out guard uses).
     """
     accumulated: set[str] = set()
+    grain_sensitive: dict[str, list[set[str]]] = {}
     for func in query_ast.find_all(ast.Function):
         if func.over is None:
             continue
-        if func.name.name.upper() in _IDEMPOTENT_OVER_A_CONSTANT:
+        if is_duplication_invariant(func):
             continue
-        for arg in func.args:
-            for col in arg.find_all(ast.Column):
-                accumulated.add(col.identifier())
-    return accumulated
+        fn_name = func.name.name.upper()
+        names = {
+            col.identifier() for arg in func.args for col in arg.find_all(ast.Column)
+        }
+        if fn_name in _SAFE_ONLY_WHEN_THE_WINDOW_COVERS_THE_GRAIN:
+            # A bare column only -- `DATE_TRUNC('month', date_id)` groups
+            # several `date_id` values together, so a column nested inside a
+            # transformation doesn't preserve the grain the way naming it
+            # directly does.
+            partition_cols = {
+                expr.identifier()
+                for expr in func.over.partition_by
+                if isinstance(expr, ast.Column)
+            }
+            for name in names:
+                grain_sensitive.setdefault(name, []).append(partition_cols)
+            continue
+        accumulated |= names
+    return accumulated, grain_sensitive
 
 
 def _dimension_column(dimension: str) -> ast.Column:
@@ -867,6 +903,27 @@ def _broadcast_in_combiner(
         "Unsupported fixed_grain metric shape: could not find the component "
         "merge expression in the metric combiner.",
     )
+
+
+def validate_fixed_grain_shape(query: str, fixed_grain: list[str]) -> None:
+    """
+    Raise if a base metric's own aggregate can't carry a declared fixed grain.
+
+    For write-time use, so e.g. `COUNT(DISTINCT ...)` with a fixed_grain
+    fails at creation rather than only when queried. A derived metric's
+    query has no aggregate of its own -- that case is left to query time,
+    where the error names the real problem (a grain belongs on the base).
+    """
+    query_ast = parse(query)
+    has_aggregate = any(
+        (dj_function := func.function()) and dj_function.is_aggregation
+        for func in query_ast.find_all(ast.Function)
+    )
+    if has_aggregate:
+        MetricComponentExtractor(0)._extract_base(
+            query_ast,
+            fixed_grain=fixed_grain,
+        )
 
 
 class MetricComponentExtractor:
@@ -973,7 +1030,9 @@ class MetricComponentExtractor:
         all_components = []
         components_tracker = set()
         base_metrics_data = {}
-        accumulated_by_window = _names_accumulated_by_a_window(query_ast)
+        accumulated_by_window, grain_sensitive_windows = _names_accumulated_by_a_window(
+            query_ast,
+        )
 
         for base_metric in metric_data.base_metrics:
             # Check if this parent metric is itself a derived metric
@@ -1047,37 +1106,61 @@ class MetricComponentExtractor:
             # Checked on the extracted components, not this parent's own
             # declaration: decomposition recurses through derived parents, so a
             # grain declared two levels down still arrives on a component here.
-            #
+            # The same applies to the AVG-class check below -- `base_metric`
+            # itself may declare no grain and only inherit one this way.
+            # A metric can combine components with *different* declared
+            # grains (e.g. one global, one per-category) -- check every
+            # distinct one, not just the first found, or an unsafe window on
+            # a later component's grain would slip through unchecked.
+            effective_fixed_grains = [
+                comp.rule.fixed_grain
+                for comp in base_components
+                if comp.rule.fixed_grain is not None
+            ]
+
             # A derived metric is only at risk when the frame actually
             # accumulates the parent; referencing it beside a window is fine.
             # A base metric has no reference to match, so the hazard is its own
             # aggregate already carrying a window — not a window anywhere in the
             # query, which `SUM(x - LAG(x) OVER (...))` has quite legitimately.
-            windowed_over_the_grain = (
-                base_metric.name in accumulated_by_window
-                if metric_data.is_derived
-                else any(
+            if metric_data.is_derived:
+                windowed_over_the_grain = (
+                    base_metric.name in accumulated_by_window
+                    or any(
+                        not _window_covers_the_grain(
+                            fixed_grain,
+                            partition_cols,
+                        )
+                        for fixed_grain in effective_fixed_grains
+                        for partition_cols in grain_sensitive_windows.get(
+                            base_metric.name,
+                            [],
+                        )
+                    )
+                )
+            else:
+                windowed_over_the_grain = any(
                     _is_windowed_aggregate(func)
                     for func in parse(base_metric.query).find_all(ast.Function)
                 )
-            )
-            if windowed_over_the_grain and any(
-                comp.rule.fixed_grain is not None for comp in base_components
-            ):
-                raise DJInvalidInputException(
-                    f"Metric `{base_metric.name}` declares `fixed_grain` (or is "
-                    "derived from one), so its own aggregate is already windowed "
-                    "and cannot be broadcast on top of that."
-                    if not metric_data.is_derived
-                    else (
+
+            if windowed_over_the_grain and effective_fixed_grains:
+                if metric_data.is_derived:
+                    message = (
                         f"Metric `{base_metric.name}` declares `fixed_grain` (or "
                         "is derived from one), so a frame cannot accumulate it: "
                         "its value is the same on every row of the partition, and "
                         "the frame would add that same value once per row. "
                         "Referencing it beside a window is fine — for example "
                         "dividing a windowed metric by it."
-                    ),
-                )
+                    )
+                else:
+                    message = (
+                        f"Metric `{base_metric.name}` declares `fixed_grain` (or is "
+                        "derived from one), so its own aggregate is already windowed "
+                        "and cannot be broadcast on top of that."
+                    )
+                raise DJInvalidInputException(message)
 
             for comp in base_components:
                 if comp.name not in components_tracker:

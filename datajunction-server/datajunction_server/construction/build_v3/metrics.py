@@ -856,11 +856,9 @@ def process_base_metrics(
                     column_name=col_name,
                 )
 
-            # Qualify dimension refs with this grain group's CTE alias. The
-            # group's private grain is merged in so a declared partition
-            # resolves even though it is not an output dimension.
+            # Qualify dimension refs with this grain group's CTE alias.
             qualified_dim_refs = qualify_dimension_refs(
-                {**dimension_aliases, **gg.fixed_grain_dimension_aliases},
+                {**dimension_aliases, **gg.fixed_grain_partition_aliases},
                 alias,
             )
             replace_dimension_refs_in_ast(expr_ast, qualified_dim_refs)

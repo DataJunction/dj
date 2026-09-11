@@ -944,6 +944,27 @@ class TestRequiredDimensions:
         assert "test.dim.nonexistent_col" in err.debug["invalid_fixed_grain_dimensions"]
 
     @pytest.mark.asyncio
+    async def test_fixed_grain_shape_rejected_at_deploy_time(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """A non-mergeable aggregate with a fixed grain fails at deploy
+        time too, not only when the metric is later created via the API."""
+        context = self._make_context(session, parent_node)
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT COUNT(DISTINCT id) FROM test.parent",
+            fixed_grain=[],
+        )
+        validator = NodeSpecBulkValidator(context)
+        result = validator.validate_query_node(spec)
+
+        assert result.status == NodeStatus.INVALID
+        err = next(e for e in result.errors if e.code == ErrorCode.INVALID_METRIC)
+        assert "Unsupported fixed_grain metric shape" in err.message
+
+    @pytest.mark.asyncio
     async def test_invalid_reaggregate_function(
         self,
         session: AsyncSession,

@@ -73,6 +73,7 @@ from datajunction_server.construction.build_v3.utils import (
     make_name,
 )
 from datajunction_server.database.node import Node
+from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.scan_estimation import calculate_scan_estimate
 from datajunction_server.models.decompose import Aggregability, MetricComponent
 from datajunction_server.models.node_type import NodeType
@@ -2006,6 +2007,23 @@ def build_grain_group_sql(
         GrainGroupSQL with SQL and metadata for this grain group
     """
     parent_node = grain_group.parent_node
+    query_grain = (
+        output_dimension_refs
+        if output_dimension_refs is not None
+        else set(ctx.dimensions)
+    )
+
+    # Validate before pre-aggregation matching, whose successful path returns
+    # early. The physical source does not change the required output grain.
+    for fixed_grain_metric, component in grain_group.components:
+        for dimension_ref in component.rule.fixed_grain or []:
+            if dimension_ref not in query_grain:
+                raise DJInvalidInputException(
+                    f"Metric `{fixed_grain_metric.name}` declares "
+                    f"`fixed_grain` on `{dimension_ref}`, which is not a "
+                    "requested output dimension. Add it to the query's "
+                    "dimensions before requesting this metric.",
+                )
 
     # Check for matching pre-aggregation
     if ctx.use_materialized and ctx.available_preaggs:
@@ -2042,7 +2060,10 @@ def build_grain_group_sql(
     # This is needed for metrics SQL to correctly reference component columns
     component_aliases: dict[str, str] = {}
     reaggregate_dimension_aliases: dict[str, str] = {}
-    fixed_grain_dimension_aliases: dict[str, str] = {}
+    fixed_grain_partition_aliases: dict[str, str] = {}
+    # Protected reaggregate dimensions this CTE projects privately, under an
+    # internal alias, so the metrics layer can collapse them without
+    # exposing them as output columns.
     internal_dimension_aliases: dict[str, str] = {}
 
     if output_dimension_refs:
@@ -2058,14 +2079,11 @@ def build_grain_group_sql(
         reaggregate_dimension_aliases[component_name] = dimension_alias
         internal_dimension_aliases[dimension_ref] = dimension_alias
 
-    # A declared partition needs a column in this CTE. It only becomes an output
-    # column if the caller also asked for it; otherwise it is private grain.
-    for _fg_metric_node, fg_component in grain_group.components:
-        for dimension_ref in fg_component.rule.fixed_grain or []:
-            dimension_alias = ctx.alias_registry.register(dimension_ref)
-            fixed_grain_dimension_aliases[dimension_ref] = dimension_alias
-            if dimension_ref not in (output_dimension_refs or ()):
-                internal_dimension_aliases[dimension_ref] = dimension_alias
+    for _, component in grain_group.components:
+        for dimension_ref in component.rule.fixed_grain or []:
+            fixed_grain_partition_aliases[dimension_ref] = ctx.alias_registry.register(
+                dimension_ref
+            )
 
     for metric_node, component in grain_group.components:
         metrics_covered.add(metric_node.name)
@@ -2431,7 +2449,7 @@ def build_grain_group_sql(
         metrics=list(metrics_covered),
         parent_name=grain_group.parent_node.name,
         component_aliases=component_aliases,
-        fixed_grain_dimension_aliases=fixed_grain_dimension_aliases,
+        fixed_grain_partition_aliases=fixed_grain_partition_aliases,
         reaggregate_dimension_aliases=reaggregate_dimension_aliases,
         is_merged=grain_group.is_merged,
         component_aggregabilities=grain_group.component_aggregabilities,
@@ -2470,7 +2488,13 @@ def process_metric_group(
 
     # Analyze grain groups - split by aggregability
     output_dimensions = list(ctx.dimensions)
-    output_dimension_refs = set(output_dimensions)
+    dimensions_already_present = set(output_dimensions)
+    # A filter-only dimension sits in ctx.dimensions for join resolution but
+    # never reaches the final projection, so it isn't a real output ref --
+    # otherwise a fixed_grain dimension mentioned only in a filter would
+    # look like a legitimate output and skip the check in
+    # `build_grain_group_sql` that refuses it.
+    output_dimension_refs = dimensions_already_present - ctx.filter_dimensions
     grain_groups = analyze_grain_groups(metric_group, output_dimensions)
 
     # Merge compatible grain groups from same parent into single CTEs
@@ -2491,7 +2515,7 @@ def process_metric_group(
             for dimension_ref in dict.fromkeys(
                 grain_group.reaggregate_component_dimensions.values(),
             )
-            if dimension_ref not in output_dimension_refs
+            if dimension_ref not in dimensions_already_present
         ]
         ctx.dimensions = output_dimensions + internal_dimensions
         try:

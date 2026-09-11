@@ -80,16 +80,17 @@ async def test_fixed_grain_round_trips_through_the_api(client_with_build_v3):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("grain", "expected"),
+    ("suffix", "grain", "expected"),
     [
-        (["v3.product.no_such_column"], 422),
-        (["v3.product.category"], 201),
-        ([], 201),
+        ("unresolvable", ["v3.product.no_such_column"], 422),
+        ("resolvable", ["v3.product.category"], 201),
+        ("global", [], 201),
     ],
     ids=["unresolvable", "resolvable", "global-resolves-nothing"],
 )
 async def test_grain_dimensions_are_validated_at_write_time(
     client_with_build_v3,
+    suffix,
     grain,
     expected,
 ):
@@ -102,7 +103,7 @@ async def test_grain_dimensions_are_validated_at_write_time(
     response = await client_with_build_v3.post(
         "/nodes/metric/",
         json={
-            "name": f"v3.write_validated_{abs(hash(str(grain))) % 10000}",
+            "name": f"v3.write_validated_{suffix}",
             "description": "grain validated at write time",
             "query": "SELECT SUM(line_total) FROM v3.order_details",
             "fixed_grain": grain,
@@ -111,7 +112,70 @@ async def test_grain_dimensions_are_validated_at_write_time(
     )
     assert response.status_code == expected, response.json()
     if expected == 422:
-        assert "declares a fixed grain referencing columns" in str(response.json())
+        assert "declares a fixed grain referencing dimension columns" in str(
+            response.json(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_fixed_grain_shape_is_validated_at_write_time(client_with_build_v3):
+    """A non-mergeable aggregate with a fixed_grain is rejected on create.
+
+    Previously this only failed once queried (`GET /sql/metrics/v3/`); the
+    metric would sit `valid` in the meantime with a declaration it could
+    never honor.
+    """
+    response = await client_with_build_v3.post(
+        "/nodes/metric/",
+        json={
+            "name": "v3.distinct_orders_with_grain",
+            "description": "Non-mergeable aggregate with a fixed grain",
+            "query": "SELECT COUNT(DISTINCT order_id) FROM v3.order_details",
+            "fixed_grain": [],
+            "mode": "published",
+        },
+    )
+    assert response.status_code == 422, response.json()
+    assert "Unsupported fixed_grain metric shape" in str(response.json())
+
+
+@pytest.mark.asyncio
+async def test_fixed_grain_shape_validate_endpoint_reports_it_too(
+    client_with_build_v3,
+    session,
+):
+    """`POST /nodes/{name}/validate/` also runs the shape check.
+
+    Exercises `validate_node_data_v2`'s branch directly, the same way
+    `test_validate_endpoint_reports_an_unresolvable_grain` does for the
+    dimension check.
+    """
+    response = await client_with_build_v3.post(
+        "/nodes/metric/",
+        json={
+            "name": "v3.grain_shape_goes_bad",
+            "description": "Starts valid, mutated to a bad shape",
+            "query": "SELECT SUM(line_total) FROM v3.order_details",
+            "fixed_grain": [],
+            "mode": "published",
+        },
+    )
+    assert response.status_code == 201, response.json()
+
+    node = await Node.get_by_name(session, "v3.grain_shape_goes_bad")
+    node.current.query = "SELECT COUNT(DISTINCT order_id) FROM v3.order_details"
+    await session.commit()
+
+    response = await client_with_build_v3.post(
+        "/nodes/v3.grain_shape_goes_bad/validate/",
+    )
+    assert response.status_code == 200, response.json()
+    body = response.json()
+    assert body["status"] == "invalid", body
+    assert any(
+        "Unsupported fixed_grain metric shape" in error["message"]
+        for error in body["errors"]
+    ), body["errors"]
 
 
 @pytest.mark.asyncio
@@ -149,7 +213,7 @@ async def test_validate_endpoint_reports_an_unresolvable_grain(
     body = response.json()
     assert body["status"] == "invalid", body
     assert any(
-        "declares a fixed grain referencing columns" in error["message"]
+        "declares a fixed grain referencing dimension columns" in error["message"]
         for error in body["errors"]
     ), body["errors"]
 
@@ -273,7 +337,8 @@ async def test_global_grain_broadcasts_as_an_unpartitioned_window(
     )
     assert response.status_code == 200, response.json()
     sql = response.json()["sql"]
-    assert "OVER ()" in sql, sql
+    assert "SUM(SUM(order_details_0.line_total_sum_e1f61696)) OVER ()" in sql
+    assert "AS total_line_total_bcast" in sql
 
 
 @pytest.mark.asyncio
@@ -305,7 +370,8 @@ async def test_partitioned_grain_broadcasts_within_the_partition(
     )
     assert response.status_code == 200, response.json()
     sql = response.json()["sql"]
-    assert "PARTITION BY" in sql, sql
+    assert "PARTITION BY order_details_0.status" in sql
+    assert "AS status_line_total" in sql
 
 
 @pytest.mark.asyncio
@@ -422,31 +488,27 @@ async def test_partitioned_grain_allowed_beside_a_window_metric(client_with_buil
         },
     )
     assert response.status_code == 200, response.json()
-    assert "PARTITION BY order_details_0.category" in response.json()["sql"]
+    sql = response.json()["sql"]
+    assert "PARTITION BY order_details_0.category" in sql
+    assert "LEFT OUTER JOIN order_details_week" in sql
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "params",
     [
-        {"dimensions": ["v3.order_details.order_id"]},
-        {
-            "dimensions": ["v3.order_details.order_id"],
-            "filters": ["v3.product.category = 'Electronics'"],
-        },
+        {},
+        {"filters": ["v3.product.category = 'Electronics'"]},
     ],
-    ids=["not-mentioned", "mentioned-only-in-a-filter"],
+    ids=["not-mentioned", "even-pinned-by-an-equality-filter"],
 )
-async def test_grain_absent_from_the_query_is_carried_privately(
-    client_with_build_v3,
-    params,
-):
-    """A partition dimension the caller did not ask for is not in the result.
-
-    It is joined and grouped on so the window has a column to partition by, but
-    projected away — the same private-grain treatment a protected reaggregate
-    dimension gets. Mentioning it only in a filter is the same situation: the
-    filter excludes it from the output, not from the CTE.
+async def test_grain_absent_from_the_query_is_refused(client_with_build_v3, params):
+    """A fixed_grain metric can broadcast only when its grain is contained
+    in the query grain. If `category` is absent, the grains are
+    incompatible: producing one scalar per `order_id` would require widening
+    the output grain or applying a separate collapse operation. This
+    broadcast-only path does neither, even when a filter happens to pin the
+    dimension to one value.
     """
     response = await client_with_build_v3.post(
         "/nodes/metric/",
@@ -462,19 +524,14 @@ async def test_grain_absent_from_the_query_is_carried_privately(
 
     response = await client_with_build_v3.get(
         "/sql/metrics/v3/",
-        params={"metrics": ["v3.grain_needs_category"], **params},
+        params={
+            "metrics": ["v3.grain_needs_category"],
+            "dimensions": ["v3.order_details.order_id"],
+            **params,
+        },
     )
-    assert response.status_code == 200, response.json()
-    body = response.json()
-
-    # The result is exactly what was asked for — no extra column.
-    assert [col["name"] for col in body["columns"]] == [
-        "order_id",
-        "grain_needs_category",
-    ]
-    # And the partition resolved against a real CTE column, not a raw ref.
-    assert "PARTITION BY order_details_0.category" in body["sql"]
-    assert "PARTITION BY v3.product.category" not in body["sql"]
+    assert response.status_code == 422, response.json()
+    assert "not a requested output dimension" in response.json()["message"]
 
 
 @pytest.mark.asyncio
@@ -507,8 +564,10 @@ async def test_broadcast_replaces_the_merge_inside_the_combiner(
     )
     assert response.status_code == 200, response.json()
     sql = response.json()["sql"]
-    assert "ROUND(SUM(SUM(" in sql.replace(" ", ""), sql
-    assert "SUM(ROUND(" not in sql.replace(" ", ""), sql
+    # ROUND wraps the broadcast window, not the other way around: rounding
+    # before totalling would return a different number.
+    assert "ROUND(SUM(SUM(" in sql.replace(" ", "")
+    assert "SUM(ROUND(" not in sql.replace(" ", "")
 
 
 class TestFixedGrainGuards:
@@ -595,8 +654,11 @@ async def test_cube_missing_the_grain_dimension_is_not_used(
     """A cube that dropped the partition dimension cannot express the window.
 
     The broadcast partitions over the cube's own columns, so serving from a cube
-    without that column emits SQL naming a column the table does not have.
-    Skipped rather than refused: the fact table is a correct alternative.
+    without that column would emit SQL naming a column the table does not have.
+    Skipped rather than refused at the cube-matching step: the fact table is a
+    plausible alternative. The fact-table fallback then refuses on its own
+    terms, since `subcategory` isn't requested or filtered there either --
+    the same rule as an unpinned `v3.product.category` elsewhere in this file.
     """
     await _cube_over_a_grain(
         client_with_build_v3,
@@ -619,8 +681,8 @@ async def test_cube_missing_the_grain_dimension_is_not_used(
             "dimensions": ["v3.product.category"],
         },
     )
-    assert response.status_code == 200, response.json()
-    assert "cov_cube_missing" not in response.json()["sql"]
+    assert response.status_code == 422, response.json()
+    assert "not a requested output dimension" in response.json()["message"]
 
 
 @pytest.mark.asyncio
@@ -708,8 +770,10 @@ async def test_cube_serves_a_fixed_grain_metric_with_its_broadcast(
     )
     assert response.status_code == 200, response.json()
     sql = response.json()["sql"]
-    assert "OVER (" in sql, sql
-    assert "cube_with_fixed_grain" in sql, sql
+    # Served straight from the cube's own columns -- no fact-table CTEs.
+    assert "FROM cube_with_fixed_grain" in sql
+    assert "FROM v3_order_details" not in sql
+    assert "SUM(SUM(cube_with_fixed_grain_0.line_total_sum_e1f61696)) OVER ()" in sql
 
 
 @pytest.mark.asyncio
@@ -814,6 +878,186 @@ async def test_only_accumulating_frames_over_a_broadcast_are_refused(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("window_fn", "partition_col", "expected"),
+    [
+        ("AVG", "v3.product.category", 200),
+        ("AVG", "v3.customer.name", 422),
+        ("MAX", "v3.customer.name", 200),
+        ("FIRST_VALUE", "v3.customer.name", 200),
+    ],
+    ids=[
+        "avg-matching-partition-allowed",
+        "avg-mismatched-partition-refused",
+        "max-mismatched-partition-allowed",
+        "first-value-mismatched-partition-allowed",
+    ],
+)
+async def test_avg_over_a_partitioned_grain_requires_a_matching_window(
+    client_with_build_v3,
+    window_fn,
+    partition_col,
+    expected,
+):
+    """AVG must preserve the declared grain; invariant windows need not.
+
+    Every request includes `category`, so a mismatch reaches the window
+    guard rather than failing the output-grain check first.
+    """
+    response = await client_with_build_v3.post(
+        "/nodes/metric/",
+        json={
+            "name": "v3.category_line_total",
+            "description": "Total within category",
+            "query": "SELECT SUM(line_total) FROM v3.order_details",
+            "fixed_grain": ["v3.product.category"],
+            "mode": "published",
+        },
+    )
+    assert response.status_code in (201, 409), response.json()
+
+    name = f"v3.grain_partition_{window_fn.lower()}_{partition_col.split('.')[-1]}"
+    response = await client_with_build_v3.post(
+        "/nodes/metric/",
+        json={
+            "name": name,
+            "description": name,
+            "query": (
+                f"SELECT {window_fn}(v3.category_line_total) OVER "
+                f"(PARTITION BY {partition_col})"
+            ),
+            "required_dimensions": [partition_col],
+            "mode": "published",
+        },
+    )
+    assert response.status_code == 201, response.json()
+
+    dimensions = list(dict.fromkeys(["v3.product.category", partition_col]))
+    response = await client_with_build_v3.get(
+        "/sql/metrics/v3/",
+        params={"metrics": [name], "dimensions": dimensions},
+    )
+    assert response.status_code == expected, response.json()
+
+
+@pytest.mark.asyncio
+async def test_avg_over_a_transformed_partition_column_is_refused(
+    client_with_build_v3,
+):
+    """A transformation on the partition column doesn't count as covering it.
+
+    `PARTITION BY UPPER(category)` groups differently than `PARTITION BY
+    category` -- rows for `Books` and `BOOKS` would share a frame even
+    though they're different categories at the declared grain. Naming the
+    column somewhere inside the expression isn't the same as naming it as
+    the partition itself.
+    """
+    response = await client_with_build_v3.post(
+        "/nodes/metric/",
+        json={
+            "name": "v3.category_line_total_2",
+            "description": "Total within category",
+            "query": "SELECT SUM(line_total) FROM v3.order_details",
+            "fixed_grain": ["v3.product.category"],
+            "mode": "published",
+        },
+    )
+    assert response.status_code in (201, 409), response.json()
+
+    response = await client_with_build_v3.post(
+        "/nodes/metric/",
+        json={
+            "name": "v3.grain_partition_transformed",
+            "description": "AVG over an uppercased category",
+            "query": (
+                "SELECT AVG(v3.category_line_total_2) OVER "
+                "(PARTITION BY UPPER(v3.product.category))"
+            ),
+            "required_dimensions": ["v3.product.category"],
+            "mode": "published",
+        },
+    )
+    assert response.status_code == 201, response.json()
+
+    response = await client_with_build_v3.get(
+        "/sql/metrics/v3/",
+        params={
+            "metrics": ["v3.grain_partition_transformed"],
+            "dimensions": ["v3.product.category"],
+        },
+    )
+    assert response.status_code == 422, response.json()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("partition_col", "expected"),
+    [
+        ("v3.product.category", 200),
+        ("v3.customer.name", 422),
+    ],
+    ids=["matching-partition-allowed", "mismatched-partition-refused"],
+)
+async def test_avg_over_an_inherited_grain_checks_the_real_grain(
+    client_with_build_v3,
+    partition_col,
+    expected,
+):
+    """A metric with no `fixed_grain` of its own can still inherit one.
+
+    `v3.scaled_category_total` declares no grain -- it just multiplies
+    `v3.category_line_total_4`, which is fixed at `category`. An `AVG` over
+    it must still be checked against `category`, not treated as safe just
+    because `v3.scaled_category_total` itself has nothing declared.
+    """
+    response = await client_with_build_v3.post(
+        "/nodes/metric/",
+        json={
+            "name": "v3.category_line_total_4",
+            "description": "Total within category",
+            "query": "SELECT SUM(line_total) FROM v3.order_details",
+            "fixed_grain": ["v3.product.category"],
+            "mode": "published",
+        },
+    )
+    assert response.status_code in (201, 409), response.json()
+
+    response = await client_with_build_v3.post(
+        "/nodes/metric/",
+        json={
+            "name": "v3.scaled_category_total",
+            "description": "Category total, scaled",
+            "query": "SELECT v3.category_line_total_4 * 1.1",
+            "mode": "published",
+        },
+    )
+    assert response.status_code in (201, 409), response.json()
+
+    name = f"v3.grain_inherited_{partition_col.split('.')[-1]}"
+    response = await client_with_build_v3.post(
+        "/nodes/metric/",
+        json={
+            "name": name,
+            "description": name,
+            "query": (
+                "SELECT AVG(v3.scaled_category_total) OVER "
+                f"(PARTITION BY {partition_col})"
+            ),
+            "required_dimensions": [partition_col],
+            "mode": "published",
+        },
+    )
+    assert response.status_code == 201, response.json()
+
+    dimensions = list(dict.fromkeys(["v3.product.category", partition_col]))
+    response = await client_with_build_v3.get(
+        "/sql/metrics/v3/",
+        params={"metrics": [name], "dimensions": dimensions},
+    )
+    assert response.status_code == expected, response.json()
+
+
+@pytest.mark.asyncio
 async def test_window_beside_a_broadcast_divisor_is_allowed(client_with_build_v3):
     """A trailing window expressed as a share of a global total.
 
@@ -859,8 +1103,8 @@ async def test_window_beside_a_broadcast_divisor_is_allowed(client_with_build_v3
     assert response.status_code == 200, response.json()
     sql = response.json()["sql"]
     # The frame is over the ordinary metric; the broadcast is a plain divisor.
-    assert "ROWS BETWEEN 6 PRECEDING AND CURRENT ROW" in sql, sql
-    assert "beside_global" in sql, sql
+    assert "ROWS BETWEEN 6 PRECEDING AND CURRENT ROW" in sql
+    assert "/ base_metrics.beside_global" in sql
 
 
 @pytest.mark.asyncio
@@ -904,7 +1148,10 @@ async def test_role_qualified_grain_dimension(client_with_build_v3):
 
     Interpolating it into a `SELECT` to parse it raises, because the role
     brackets are not valid SQL — so the partition column is built directly
-    from the reference instead.
+    from the reference instead. Queried without requesting or filtering it,
+    it's refused for the same reason as an unpinned `v3.product.category`:
+    an order's own date isn't guaranteed unique per whatever grain the query
+    actually asks for.
     """
     response = await client_with_build_v3.post(
         "/nodes/metric/",
@@ -925,8 +1172,8 @@ async def test_role_qualified_grain_dimension(client_with_build_v3):
             "dimensions": ["v3.order_details.order_id"],
         },
     )
-    assert response.status_code == 200, response.json()
-    assert "PARTITION BY order_details_0.date_id_order" in response.json()["sql"]
+    assert response.status_code == 422, response.json()
+    assert "not a requested output dimension" in response.json()["message"]
 
 
 def test_broadcast_skips_a_merge_call_for_another_component():
@@ -969,8 +1216,8 @@ async def test_derived_metric_cannot_declare_a_grain(client_with_build_v3):
             "mode": "published",
         },
     )
-    # Creation succeeds because nothing decomposes the metric yet; the write
-    # boundary does not resolve the declaration (see "Finding I" in the PR body).
+    # Creation succeeds because the write path cannot classify this as derived
+    # without loading and traversing its metric parents.
     assert response.status_code == 201, response.json()
 
     response = await client_with_build_v3.get(
