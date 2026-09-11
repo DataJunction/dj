@@ -59,7 +59,7 @@ from datajunction_server.internal.deployment.utils import (
     DeploymentContext,
     classify_parents,
     creates_cycle,
-    extract_dimension_refs_from_filters as _extract_dimension_refs_from_filters,
+    extract_dimension_refs_from_filters,
     extract_node_graph,
     topological_levels,
 )
@@ -3386,7 +3386,7 @@ class DeploymentOrchestrator:
             if cube.rendered_filters:
                 all_dim_node_names |= {
                     node_name
-                    for node_name, _ in _extract_dimension_refs_from_filters(
+                    for node_name, _ in extract_dimension_refs_from_filters(
                         cube.rendered_filters,
                     )
                 }
@@ -3665,7 +3665,7 @@ class DeploymentOrchestrator:
         # reachable only under a role can deploy green and flip on revalidation,
         # the same gap just closed above for cube dimensions.
         if cube_spec.rendered_filters and cube_parent_rev_ids:
-            filter_refs = _extract_dimension_refs_from_filters(
+            filter_refs = extract_dimension_refs_from_filters(
                 cube_spec.rendered_filters,
             )
             filter_dim_nodes = {node_name for node_name, _ in filter_refs}
@@ -4433,6 +4433,7 @@ class DeploymentOrchestrator:
                 if force:
                     to_update.append(node_spec)
                     continue
+                existing_spec.namespace = node_spec.namespace
                 resolved_columns = None
                 proposed_columns = None
                 if isinstance(existing_spec, SourceSpec) and isinstance(
@@ -5134,6 +5135,8 @@ class DeploymentOrchestrator:
 
         # Classify changes from the same normalized values used by fingerprints.
         existing_node_spec = await existing.to_spec(self.session)
+        # to_spec() never sets namespace; semantic_diff() needs it to render ${prefix}.
+        existing_node_spec.namespace = result.spec.namespace
         existing_columns: list[ColumnSpec] | None = None
         proposed_columns: list[ColumnSpec] | None = result.inferred_columns
         if isinstance(existing_node_spec, SourceSpec) and isinstance(

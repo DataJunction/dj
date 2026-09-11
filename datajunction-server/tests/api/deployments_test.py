@@ -11553,12 +11553,8 @@ class TestDimensionAttributeAddedInSamePush:
                 "deploy_type": "node",
                 "status": "success",
                 "operation": "update",
-                "message": (
-                    "Updated dimension (v2.0)\n"
-                    "\u2514\u2500 Column removed: state_id, state_name\n"
-                    "\u2514\u2500 Updated query, display_name, columns"
-                ),
-                "changed_fields": ["query", "display_name", "columns"],
+                "message": "Updated dimension (v2.0)\n\u2514\u2500 Updated query",
+                "changed_fields": ["query"],
             },
             {
                 "name": f"{namespace}.default.hard_hat",
@@ -11786,12 +11782,8 @@ class TestDimensionAttributeAddedInSamePush:
                 "deploy_type": "node",
                 "status": "success",
                 "operation": "update",
-                "message": (
-                    "Updated dimension (v2.0)\n"
-                    "\u2514\u2500 Column removed: state_id, state_name\n"
-                    "\u2514\u2500 Updated query, display_name, columns"
-                ),
-                "changed_fields": ["query", "display_name", "columns"],
+                "message": "Updated dimension (v2.0)\n\u2514\u2500 Updated query",
+                "changed_fields": ["query"],
             },
             {
                 "name": f"{namespace}.default.hard_hats_fact",
