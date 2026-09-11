@@ -398,15 +398,25 @@ class DeploymentOrchestrator:
             if not isinstance(spec, CubeSpec):
                 continue
             for unmatched in spec.unmatched_column_names:
+                message = (
+                    f"Cube '{spec.rendered_name}' declares column '{unmatched}', "
+                    f"which is not one of its columns, so the settings on "
+                    f"it have no effect. A cube's columns are its metrics "
+                    f"and dimensions, named exactly as they appear there."
+                )
                 self.warnings.append(
                     DJError(
                         code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
-                        message=(
-                            f"Cube '{spec.name}' declares column '{unmatched}', "
-                            f"which is not one of its columns, so the settings on "
-                            f"it have no effect. A cube's columns are its metrics "
-                            f"and dimensions, named exactly as they appear there."
-                        ),
+                        message=message,
+                    ),
+                )
+                self.deployed_results.append(
+                    DeploymentResult(
+                        name=spec.rendered_name,
+                        deploy_type=DeploymentResult.Type.NODE,
+                        status=DeploymentResult.Status.WARNING,
+                        operation=DeploymentResult.Operation.NOOP,
+                        message=message,
                     ),
                 )
 

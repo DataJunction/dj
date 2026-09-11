@@ -8613,8 +8613,11 @@ class TestCubeRedeployIdempotence:
         ]
 
         second = await deploy_and_wait(client, deployment())
-        cube_result = next(
+        cube_results = [
             result for result in second["results"] if result["name"] == cube_name
+        ]
+        cube_result = next(
+            result for result in cube_results if result["status"] != "warning"
         )
         assert cube_result["changed_fields"] == [], cube_result["message"]
 
@@ -8628,6 +8631,16 @@ class TestCubeRedeployIdempotence:
             "declares column 'hire_date'" in warning["message"]
             for warning in second["warnings"]
         ), second["warnings"]
+
+        # The same warning is also reported structurally, against the cube's
+        # rendered name (not the raw `${prefix}...` spec name), so a consumer
+        # can attach it to that node without parsing free text.
+        cube_warning_result = next(
+            result for result in cube_results if result["status"] == "warning"
+        )
+        assert cube_warning_result["operation"] == "noop"
+        assert "declares column 'hire_date'" in cube_warning_result["message"]
+        assert "${prefix}" not in cube_warning_result["message"]
 
 
 class TestDeploymentColumnOrdering:
