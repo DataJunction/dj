@@ -224,6 +224,148 @@ class TestTags:
         )
 
     @pytest.mark.asyncio
+    async def test_deactivate_and_restore_tag(
+        self,
+        module__client: AsyncClient,
+    ) -> None:
+        """
+        Tests ``POST /tags/{name}/deactivate/`` and ``POST /tags/{name}/restore/``
+        """
+        response = await self.create_tag(module__client)
+        assert response.status_code == 201
+
+        response = await module__client.post("/tags/sales_report/deactivate/")
+        assert response.status_code == 200
+        assert response.json() == {
+            "message": "Tag `sales_report` has been successfully deactivated.",
+        }
+
+        # A deactivated tag is hidden from reads
+        response = await module__client.get("/tags/sales_report/")
+        assert response.status_code == 404
+        assert (
+            response.json()["message"]
+            == "A tag with name `sales_report` does not exist."
+        )
+        response = await module__client.get("/tags/")
+        assert response.json() == []
+
+        # ...and can't be deactivated or updated again
+        response = await module__client.post("/tags/sales_report/deactivate/")
+        assert response.status_code == 404
+        response = await module__client.patch(
+            "/tags/sales_report/",
+            json={"description": "New description"},
+        )
+        assert response.status_code == 404
+
+        # The name is still taken
+        response = await self.create_tag(module__client)
+        assert (
+            response.json()["message"]
+            == "A tag with name `sales_report` already exists!"
+        )
+
+        response = await module__client.post("/tags/sales_report/restore/")
+        assert response.status_code == 200
+        assert response.json() == {
+            "message": "Tag `sales_report` has been successfully restored.",
+        }
+        response = await module__client.get("/tags/sales_report/")
+        assert response.status_code == 200
+
+        # Restoring an active tag fails
+        response = await module__client.post("/tags/sales_report/restore/")
+        assert response.status_code == 400
+        assert (
+            response.json()["message"]
+            == "Cannot restore `sales_report`, tag already active."
+        )
+
+        # Check history
+        response = await module__client.get("/history/tag/sales_report/")
+        assert [
+            (activity["activity_type"], activity["entity_type"])
+            for activity in response.json()
+        ] == [("restore", "tag"), ("delete", "tag"), ("create", "tag")]
+
+    @pytest.mark.asyncio
+    async def test_deactivate_restore_nonexistent_tag(
+        self,
+        module__client: AsyncClient,
+    ) -> None:
+        """
+        Tests deactivating and restoring a tag that doesn't exist
+        """
+        response = await module__client.post("/tags/does_not_exist/deactivate/")
+        assert response.status_code == 404
+        assert (
+            response.json()["message"]
+            == "A tag with name `does_not_exist` does not exist."
+        )
+
+        response = await module__client.post("/tags/does_not_exist/restore/")
+        assert response.status_code == 404
+        assert (
+            response.json()["message"]
+            == "A tag with name `does_not_exist` does not exist."
+        )
+
+    @pytest.mark.asyncio
+    async def test_delete_deactivated_tag(self, module__client: AsyncClient) -> None:
+        """
+        Tests that a deactivated tag can still be hard deleted
+        """
+        response = await self.create_tag(module__client)
+        assert response.status_code == 201
+        response = await module__client.post("/tags/sales_report/deactivate/")
+        assert response.status_code == 200
+
+        response = await module__client.delete("/tags/sales_report/")
+        assert response.status_code == 204
+
+    @pytest.mark.asyncio
+    async def test_deactivated_tag_on_nodes(self, client_with_dbt: AsyncClient) -> None:
+        """
+        Tests that a deactivated tag drops off the nodes it's attached to, but comes
+        back when the tag is restored.
+        """
+        await self.create_tag(client_with_dbt)
+        response = await client_with_dbt.post(
+            "/nodes/default.items_sold_count/tags/?tag_names=sales_report",
+        )
+        assert response.status_code == 200
+
+        response = await client_with_dbt.post("/tags/sales_report/deactivate/")
+        assert response.status_code == 200
+
+        response = await client_with_dbt.get("/nodes/default.items_sold_count/")
+        assert response.json()["tags"] == []
+        response = await client_with_dbt.get("/tags/sales_report/nodes/")
+        assert response.status_code == 404
+        assert (
+            response.json()["message"]
+            == "A tag with name `sales_report` does not exist."
+        )
+
+        # Tagging a node with a deactivated tag fails
+        response = await client_with_dbt.post(
+            "/nodes/default.total_profit/tags/?tag_names=sales_report",
+        )
+        assert response.status_code == 404
+        assert response.json()["message"] == "Tags not found: sales_report"
+
+        # Restoring the tag brings back the existing node relationship
+        response = await client_with_dbt.post("/tags/sales_report/restore/")
+        assert response.status_code == 200
+        response = await client_with_dbt.get("/nodes/default.items_sold_count/")
+        assert [tag["name"] for tag in response.json()["tags"]] == ["sales_report"]
+        response = await client_with_dbt.get("/tags/sales_report/nodes/")
+        assert [node["name"] for node in response.json()] == [
+            "default.items_sold_count",
+        ]
+
+    @pytest.mark.asyncio
     async def test_delete_tag_with_nodes(self, client_with_dbt: AsyncClient) -> None:
         """
         Tests that ``DELETE /tags/{name}/`` refuses a tag that still has nodes

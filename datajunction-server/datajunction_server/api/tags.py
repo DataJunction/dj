@@ -3,9 +3,11 @@ Tag related APIs.
 """
 
 from collections.abc import Callable
+from datetime import UTC, datetime
 from http import HTTPStatus
 
 from fastapi import Depends, Response
+from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import noload
@@ -19,6 +21,7 @@ from datajunction_server.errors import (
     DJActionNotAllowedException,
     DJAlreadyExistsException,
     DJDoesNotExistException,
+    DJInvalidInputException,
 )
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.history import ActivityType, EntityType
@@ -42,7 +45,10 @@ async def get_tags_by_name(
     """
     Retrieves a list of tags by name
     """
-    statement = select(Tag).where(Tag.name.in_(names))  # type: ignore
+    statement = select(Tag).where(
+        Tag.name.in_(names),  # type: ignore
+        Tag.deactivated_at.is_(None),
+    )
     tags = (await session.execute(statement)).scalars().all()
     difference = set(names) - {tag.name for tag in tags}
     if difference:
@@ -57,11 +63,14 @@ async def get_tag_by_name(
     name: str,
     raise_if_not_exists: bool = False,
     for_update: bool = False,
+    include_deactivated: bool = False,
 ):
     """
     Retrieves a tag by its name.
     """
     statement = select(Tag).where(Tag.name == name)
+    if not include_deactivated:
+        statement = statement.where(Tag.deactivated_at.is_(None))
     if for_update:
         statement = statement.with_for_update().execution_options(
             populate_existing=True,
@@ -90,7 +99,7 @@ async def list_tags(
         Tag.description,
         Tag.display_name,
         Tag.tag_metadata,
-    )
+    ).where(Tag.deactivated_at.is_(None))
     if tag_type:
         statement = statement.where(Tag.tag_type == tag_type)
     result = await session.execute(statement)
@@ -129,7 +138,13 @@ async def create_a_tag(
     """
     Create a tag.
     """
-    tag = await get_tag_by_name(session, data.name, raise_if_not_exists=False)
+    # Deactivated tags still hold the name, so they block creation too
+    tag = await get_tag_by_name(
+        session,
+        data.name,
+        raise_if_not_exists=False,
+        include_deactivated=True,
+    )
     if tag:
         raise DJAlreadyExistsException(
             message=f"A tag with name `{data.name}` already exists!",
@@ -213,6 +228,7 @@ async def delete_a_tag(
         name,
         raise_if_not_exists=True,
         for_update=True,
+        include_deactivated=True,
     )
     attached_nodes = (
         await session.execute(
@@ -246,6 +262,81 @@ async def delete_a_tag(
     return Response(status_code=HTTPStatus.NO_CONTENT)
 
 
+@router.post("/tags/{name}/deactivate/")
+async def deactivate_a_tag(
+    name: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    save_history: Callable = Depends(get_save_history),
+) -> JSONResponse:
+    """
+    Deactivate (aka soft delete) a tag. The tag is hidden from reads but keeps
+    its node relationships, so it can be restored later.
+    """
+    tag = await get_tag_by_name(
+        session,
+        name,
+        raise_if_not_exists=True,
+        for_update=True,
+    )
+    tag.deactivated_at = datetime.now(UTC)
+    session.add(tag)
+    await save_history(
+        event=History(
+            entity_type=EntityType.TAG,
+            entity_name=tag.name,
+            activity_type=ActivityType.DELETE,
+            user=current_user.username,
+        ),
+        session=session,
+    )
+    await session.commit()
+    return JSONResponse(
+        status_code=HTTPStatus.OK,
+        content={"message": f"Tag `{name}` has been successfully deactivated."},
+    )
+
+
+@router.post("/tags/{name}/restore/")
+async def restore_a_tag(
+    name: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    save_history: Callable = Depends(get_save_history),
+) -> JSONResponse:
+    """
+    Restore (aka re-activate) a deactivated tag.
+    """
+    tag = await get_tag_by_name(
+        session,
+        name,
+        raise_if_not_exists=True,
+        for_update=True,
+        include_deactivated=True,
+    )
+    if not tag.deactivated_at:
+        raise DJInvalidInputException(
+            http_status_code=HTTPStatus.BAD_REQUEST,
+            message=f"Cannot restore `{name}`, tag already active.",
+        )
+    tag.deactivated_at = None
+    session.add(tag)
+    await save_history(
+        event=History(
+            entity_type=EntityType.TAG,
+            entity_name=tag.name,
+            activity_type=ActivityType.RESTORE,
+            user=current_user.username,
+        ),
+        session=session,
+    )
+    await session.commit()
+    return JSONResponse(
+        status_code=HTTPStatus.OK,
+        content={"message": f"Tag `{name}` has been successfully restored."},
+    )
+
+
 @router.get("/tags/{name}/nodes/", response_model=list[NodeMinimumDetail])
 async def list_nodes_for_a_tag(
     name: str,
@@ -263,6 +354,7 @@ async def list_nodes_for_a_tag(
         .join(TagNodeRelationship, TagNodeRelationship.node_id == Node.id)
         .join(Tag, Tag.id == TagNodeRelationship.tag_id)
         .where(Tag.name == name)
+        .where(Tag.deactivated_at.is_(None))
         .where(Node.deactivated_at.is_(None))
         .order_by(Node.name)
         # Suppress NodeRevision's default eager loads — NodeMinimumDetail
@@ -282,7 +374,9 @@ async def list_nodes_for_a_tag(
 
     # Distinguish unknown tag (404) from tag-with-no-matching-nodes (empty list).
     tag_exists = (
-        await session.execute(select(Tag.id).where(Tag.name == name))
+        await session.execute(
+            select(Tag.id).where(Tag.name == name, Tag.deactivated_at.is_(None)),
+        )
     ).scalar_one_or_none() is not None
     if not tag_exists:
         raise DJDoesNotExistException(

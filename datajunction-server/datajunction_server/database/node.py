@@ -500,7 +500,8 @@ class Node(Base):
         back_populates="nodes",
         secondary="tagnoderelationship",
         primaryjoin="TagNodeRelationship.node_id==Node.id",
-        secondaryjoin="TagNodeRelationship.tag_id==Tag.id",
+        # Deactivated tags stay linked in the join table but drop out of the node's tags
+        secondaryjoin="and_(TagNodeRelationship.tag_id==Tag.id, Tag.deactivated_at.is_(None))",
         lazy="selectin",
     )
 

@@ -94,6 +94,8 @@ INTENTIONAL_EXCLUSIONS: dict[str, list[tuple[str, str]]] = {
         ("POST", "/tags"),
         ("PATCH", "/tags/{name}"),
         ("DELETE", "/tags/{name}"),
+        ("POST", "/tags/{name}/deactivate"),
+        ("POST", "/tags/{name}/restore"),
         ("POST", "/attributes"),
         ("POST", "/measures"),
         ("PATCH", "/measures/{measure_name}"),

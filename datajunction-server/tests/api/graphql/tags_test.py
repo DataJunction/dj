@@ -139,7 +139,7 @@ async def test_list_tag_types(
     response = await client_with_tags.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
-    assert data == {"data": {"listTagTypes": ["report", "drinks"]}}
+    assert data == {"data": {"listTagTypes": ["drinks", "report"]}}
 
 
 @pytest.mark.asyncio

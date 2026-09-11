@@ -6,6 +6,7 @@ from sqlalchemy import (
     JSON,
     BigInteger,
     Column,
+    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -22,6 +23,7 @@ from datajunction_server.database.base import Base
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJDoesNotExistException
 from datajunction_server.models.base import labelize
+from datajunction_server.typing import UTCDatetime
 
 if TYPE_CHECKING:
     from datajunction_server.database.node import Node
@@ -67,6 +69,11 @@ class Tag(Base):
         lazy="selectin",
     )
     tag_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSON, default={})
+    deactivated_at: Mapped[UTCDatetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        default=None,
+    )
 
     nodes: Mapped[list["Node"]] = relationship(
         back_populates="tags",
@@ -86,7 +93,7 @@ class Tag(Base):
         """
         Find tags by name or tag type.
         """
-        statement = select(Tag)
+        statement = select(Tag).where(Tag.deactivated_at.is_(None))
         if tag_names:
             statement = statement.where(Tag.name.in_(tag_names))
         if tag_types:
@@ -112,6 +119,7 @@ class Tag(Base):
             statement = (
                 select(Tag)
                 .where(
+                    Tag.deactivated_at.is_(None),
                     or_(
                         Tag.name.ilike(prefix),
                         Tag.display_name.ilike(prefix),
@@ -130,6 +138,7 @@ class Tag(Base):
             statement = (
                 select(Tag)
                 .where(
+                    Tag.deactivated_at.is_(None),
                     or_(
                         Tag.name.ilike(pattern),
                         Tag.display_name.ilike(pattern),
@@ -146,7 +155,12 @@ class Tag(Base):
         """
         Get all unique tag types.
         """
-        statement = select(Tag.tag_type).distinct()
+        statement = (
+            select(Tag.tag_type)
+            .where(Tag.deactivated_at.is_(None))
+            .distinct()
+            .order_by(Tag.tag_type)
+        )
         return (await session.execute(statement)).scalars().all()
 
     @classmethod
@@ -159,7 +173,10 @@ class Tag(Base):
         """
         Find nodes with the tag.
         """
-        statement = select(cls).where(Tag.name == tag_name)
+        statement = select(cls).where(
+            Tag.name == tag_name,
+            Tag.deactivated_at.is_(None),
+        )
         base_options = joinedload(Tag.nodes)
         if options:  # pragma: no branch
             base_options = base_options.options(*options)
