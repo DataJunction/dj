@@ -1985,6 +1985,26 @@ def test_semantic_diff_canonicalizes_required_dimension_identity():
     assert fingerprint(bare) == fingerprint(qualified)
 
 
+def test_semantic_diff_canonicalizes_required_dimension_with_multiple_parents():
+    bare = MetricSpec(
+        namespace="analytics",
+        name="order_count",
+        query=(
+            "SELECT COUNT(*) FROM analytics.orders "
+            "JOIN analytics.customers "
+            "ON analytics.orders.customer_id = analytics.customers.customer_id"
+        ),
+        required_dimensions=["order_id"],
+    )
+    qualified = bare.model_copy(
+        update={"required_dimensions": ["analytics.orders.order_id"]},
+    )
+
+    assert bare.canonical_required_dimensions == qualified.canonical_required_dimensions
+    assert bare.semantic_diff(qualified) == ([], [])
+    assert fingerprint(bare) == fingerprint(qualified)
+
+
 def test_semantic_diff_compares_unparseable_queries_as_raw_sql():
     original = TransformSpec(name="node", query="SELECT (")
     same = TransformSpec(name="node", query="SELECT (")

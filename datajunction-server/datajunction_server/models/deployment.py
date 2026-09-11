@@ -1148,14 +1148,14 @@ class MetricSpec(NodeSpec):
         Required dimensions rewritten so the two ways of naming the same column
         compare equal.
 
-            ns.date_dim.dateint  ->  ns.date_dim.dateint  (already canonical)
-            currency_code        ->  ns.orders_fact.currency_code  (single parent)
-            currency_code        ->  currency_code  (zero or multiple parents: ambiguous, left as-is)
+            ns.orders_fact.currency_code  ->  currency_code  (a query parent)
+            currency_code                 ->  currency_code  (already canonical)
+            ns.date_dim.dateint            ->  ns.date_dim.dateint  (not a query parent)
 
         Parents come from the spec's own query, so this needs no session.
         """
         required_dims = self.rendered_required_dimensions
-        if all(SEPARATOR in required_dim for required_dim in required_dims):
+        if not any(SEPARATOR in required_dim for required_dim in required_dims):
             return required_dims
 
         from datajunction_server.internal.deployment.utils import (
@@ -1167,10 +1167,10 @@ class MetricSpec(NodeSpec):
             if self.query_ast is not None
             else set()
         )
-        sole_parent = next(iter(parents)) if len(parents) == 1 else None
         return [
-            f"{sole_parent}{SEPARATOR}{required_dim}"
-            if SEPARATOR not in required_dim and sole_parent is not None
+            required_dim.rsplit(SEPARATOR, 1)[1]
+            if SEPARATOR in required_dim
+            and required_dim.rsplit(SEPARATOR, 1)[0] in parents
             else required_dim
             for required_dim in required_dims
         ]
