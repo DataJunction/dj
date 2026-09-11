@@ -292,6 +292,7 @@ async def test_list_frozen_measures(
             "name": "repair_order_id_count_bd241964",
             "rule": {
                 "level": None,
+                "reaggregate": None,
                 "type": "full",
             },
             "upstream_revision": {

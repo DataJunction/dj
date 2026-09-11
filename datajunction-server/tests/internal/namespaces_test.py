@@ -3,6 +3,7 @@ Tests for internal namespace functions
 """
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 from ruamel.yaml import YAML
@@ -22,6 +23,7 @@ from datajunction_server.internal.namespaces import (
     _merge_list_with_key,
     _merge_yaml_preserving_comments,
     create_or_reactivate_namespace,
+    get_node_specs_for_export,
     node_spec_to_yaml,
     provision_namespace_boundary,
 )
@@ -1107,6 +1109,81 @@ class TestNodeSpecToYaml:
             "mode: published",
             "query: SELECT SUM(rev) FROM ns.transforms.t",
         ]
+
+    def test_metric_reaggregate_exports_dimension_rules(self):
+        """metric reaggregate exports the rule list without null future fields"""
+        spec = MetricSpec(
+            name="ns.metrics.daily_balance",
+            node_type=NodeType.METRIC,
+            query="SELECT SUM(balance) FROM ns.transforms.accounts",
+            reaggregate={
+                "rules": [
+                    {
+                        "dimension": "${prefix}v3.date.date_id[order]",
+                        "fn": "last_value",
+                    },
+                ],
+            },
+        )
+        assert node_spec_to_yaml(spec).splitlines() == [
+            "name: ns.metrics.daily_balance",
+            "node_type: metric",
+            "mode: published",
+            "query: SELECT SUM(balance) FROM ns.transforms.accounts",
+            "reaggregate:",
+            "  rules:",
+            "    - dimension: ${prefix}v3.date.date_id[order]",
+            "      fn: last_value",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_metric_reaggregate_export_injects_dimension_prefix(
+        self,
+        monkeypatch,
+    ):
+        """namespace export parameterizes reaggregate rule dimensions."""
+        spec = MetricSpec(
+            name="demo.branch.metrics.daily_balance",
+            node_type=NodeType.METRIC,
+            query="SELECT SUM(balance) FROM demo.branch.transforms.accounts",
+            reaggregate={
+                "rules": [
+                    {
+                        "dimension": "demo.branch.dims.date.date_id[order]",
+                        "fn": "last_value",
+                    },
+                ],
+            },
+        )
+
+        async def to_spec(_session):
+            return spec
+
+        fake_node = SimpleNamespace(
+            name="demo.branch.metrics.daily_balance",
+            current=SimpleNamespace(parents=[], status="valid"),
+            to_spec=to_spec,
+        )
+
+        async def namespace_get(_session, _namespace, raise_if_not_exists=False):
+            return SimpleNamespace(parent_namespace="demo.main")
+
+        async def list_all_nodes(_session, _namespace, options=None):
+            return [fake_node]
+
+        monkeypatch.setattr(NodeNamespace, "get", namespace_get)
+        monkeypatch.setattr(NodeNamespace, "list_all_nodes", list_all_nodes)
+
+        exported = await get_node_specs_for_export(SimpleNamespace(), "demo.branch")
+
+        assert exported[0].name == "${prefix}metrics.daily_balance"
+        assert exported[0].query == (
+            "SELECT SUM(balance) FROM ${prefix}transforms.accounts"
+        )
+        assert (
+            exported[0].reaggregate.rules[0].dimension
+            == "${prefix}dims.date.date_id[order]"
+        )
 
     def test_multiline_query_uses_literal_block_style(self):
         """multiline queries are serialized with |- literal block style"""

@@ -389,6 +389,10 @@ describe('<NodePage />', () => {
         ).toHaveTextContent('');
 
         expect(
+          screen.getByRole('dialog', { name: 'Reaggregate' }),
+        ).toHaveTextContent('None');
+
+        expect(
           screen.getByRole('dialog', { name: 'DisplayName' }),
         ).toHaveTextContent('Default: Num Repair Orders');
 
@@ -412,6 +416,50 @@ describe('<NodePage />', () => {
     });
 
     expect(container.getElementsByClassName('language-sql')).toMatchSnapshot();
+  }, 60000);
+
+  it('renders semi-additive metric information with a dimension link', async () => {
+    const djClient = mockDJClient();
+    djClient.DataJunctionAPI.node.mockReturnValue(mocks.mockMetricNode);
+    djClient.DataJunctionAPI.getMetric.mockResolvedValue({
+      ...mocks.mockMetricNodeJson,
+      current: {
+        ...mocks.mockMetricNodeJson.current,
+        reaggregate: {
+          rules: [
+            {
+              dimension: 'v3.date.date_id[order]',
+              fn: 'LAST_VALUE',
+            },
+          ],
+        },
+      },
+    });
+    const element = (
+      <DJClientContext.Provider value={djClient}>
+        <NodePage {...defaultProps} />
+      </DJClientContext.Provider>
+    );
+    render(
+      <MemoryRouter initialEntries={['/nodes/default.num_repair_orders/info']}>
+        <Routes>
+          <Route path="nodes/:name/:tab" element={element} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    const reaggregate = await screen.findByRole('dialog', {
+      name: 'Reaggregate',
+    });
+    await waitFor(() => {
+      expect(reaggregate).toHaveTextContent(
+        'Last Value on v3.date.date_id[order]',
+      );
+    });
+
+    expect(
+      screen.getByRole('link', { name: 'v3.date.date_id[order]' }),
+    ).toHaveAttribute('href', '/nodes/v3.date');
   }, 60000);
 
   it('hides Edit and shows the read-only badge for a node in a read-only (flat git) namespace', async () => {

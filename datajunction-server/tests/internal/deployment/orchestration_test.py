@@ -27,6 +27,7 @@ from datajunction_server.errors import DJError, DJInvalidDeploymentConfig, Error
 from datajunction_server.internal.deployment.orchestrator import (
     DeploymentOrchestrator,
     DeploymentPlan,
+    DeploymentTimer,
     ResourceRegistry,
     column_changed,
     tag_needs_update,
@@ -80,6 +81,26 @@ def mock_deployment_context(current_user: User):
     context.save_history = AsyncMock()
     context.cache = Mock()
     return context
+
+
+def test_deployment_timer_logs_unaccounted_overhead(monkeypatch, caplog):
+    """
+    Deployment timing summary includes unaccounted overhead when it is meaningful.
+    """
+    timer = DeploymentTimer()
+    timer.record("validate", 10, "1 node")
+    monkeypatch.setattr(
+        "datajunction_server.internal.deployment.orchestrator.time.perf_counter",
+        lambda: timer._start + 0.2,
+    )
+
+    with caplog.at_level(
+        "INFO",
+        logger="datajunction_server.internal.deployment.orchestrator",
+    ):
+        timer.log_summary("default", "deployment-1")
+
+    assert "(unaccounted overhead)" in caplog.text
 
 
 @pytest.fixture

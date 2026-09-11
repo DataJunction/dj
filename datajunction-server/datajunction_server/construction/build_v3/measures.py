@@ -1078,6 +1078,8 @@ def build_select_ast(
     grain_columns: list[str] | None = None,
     grain_col_aliases: dict[str, str] | None = None,
     grain_col_specs: list[tuple[ast.Expression, str]] | None = None,
+    output_dimension_refs: set[str] | None = None,
+    internal_dimension_aliases: dict[str, str] | None = None,
     filters: list[str] | None = None,
     skip_aggregation: bool = False,
 ) -> tuple[ast.Query, list[str]]:
@@ -1096,6 +1098,9 @@ def build_select_ast(
                            the SQL alias to use in the generated SELECT.  When provided,
                            the alias is taken from this dict (keyed by the raw expression
                            string from ``rule.level``).
+        output_dimension_refs: Optional set of dimension refs to expose as user-facing
+                               dimensions. Other resolved dimensions are join/group-only.
+        internal_dimension_aliases: Dimension refs to project as private grain columns.
         filters: Optional list of filter strings to apply as WHERE clause.
                  Filter strings can reference dimensions (e.g., "v3.product.category = 'Electronics'")
                  or local columns (e.g., "status = 'active'").
@@ -1119,16 +1124,29 @@ def build_select_ast(
     spark_hints = _collect_spark_hints(resolved_dimensions, dim_aliases)
 
     # Add dimension columns to projection
-    # Filter-only dimensions are excluded from projection but included in GROUP BY
+    # Filter-only dimensions are excluded from projection but included in GROUP BY.
+    # Internal dimensions are projected under private aliases so the metrics layer
+    # can collapse semi-additive measures without exposing those dimensions.
+    internal_dimension_aliases = internal_dimension_aliases or {}
     for resolved_dim in resolved_dimensions:
         clean_alias = ctx.alias_registry.register(resolved_dim.original_ref)
         if resolved_dim.original_ref in ctx.filter_dimensions:
             continue
+        if (
+            output_dimension_refs is not None
+            and resolved_dim.original_ref not in output_dimension_refs
+            and resolved_dim.original_ref not in internal_dimension_aliases
+        ):
+            continue
+        output_alias = internal_dimension_aliases.get(
+            resolved_dim.original_ref,
+            clean_alias,
+        )
         col_expr = build_dimension_col_expr(
             resolved_dim,
             main_alias,
             dim_aliases,
-            clean_alias,
+            output_alias,
             ctx=ctx,
             resolved_dimensions=resolved_dimensions,
             parent_node_name=parent_node.name,
@@ -1690,6 +1708,7 @@ def build_grain_group_from_preagg(
     select_items: list[ast.Aliasable | ast.Expression | ast.Column] = []
     columns: list[ColumnMetadata] = []
     component_aliases: dict[str, str] = {}
+    reaggregate_dimension_aliases: dict[str, str] = {}
     metrics_covered: set[str] = set()
     unique_components: list[MetricComponent] = []
     seen_components: set[str] = set()
@@ -1785,6 +1804,14 @@ def build_grain_group_from_preagg(
                 type=col_type,
                 semantic_type="dimension",
             ),
+        )
+
+    for (
+        component_name,
+        dimension_ref,
+    ) in grain_group.reaggregate_component_dimensions.items():
+        reaggregate_dimension_aliases[component_name] = ctx.alias_registry.register(
+            dimension_ref,
         )
 
     # Add measure columns with re-aggregation (or grain columns if no merge func)
@@ -1947,6 +1974,7 @@ def build_grain_group_from_preagg(
         metrics=list(metrics_covered),
         parent_name=parent_node.name,
         component_aliases=component_aliases,
+        reaggregate_dimension_aliases=reaggregate_dimension_aliases,
         is_merged=grain_group.is_merged,
         component_aggregabilities=grain_group.component_aggregabilities,
         components=unique_components,
@@ -1960,6 +1988,7 @@ def build_grain_group_sql(
     grain_group: GrainGroup,
     resolved_dimensions: list[ResolvedDimension],
     components_per_metric: dict[str, int],
+    output_dimension_refs: set[str] | None = None,
 ) -> GrainGroupSQL:
     """
     Build SQL for a single grain group.
@@ -2012,6 +2041,21 @@ def build_grain_group_sql(
     # Track mapping from component name to actual SQL alias
     # This is needed for metrics SQL to correctly reference component columns
     component_aliases: dict[str, str] = {}
+    reaggregate_dimension_aliases: dict[str, str] = {}
+    internal_dimension_aliases: dict[str, str] = {}
+
+    if output_dimension_refs:
+        for resolved_dim in resolved_dimensions:
+            if resolved_dim.original_ref in output_dimension_refs:
+                ctx.alias_registry.register(resolved_dim.original_ref)
+
+    for (
+        component_name,
+        dimension_ref,
+    ) in grain_group.reaggregate_component_dimensions.items():
+        dimension_alias = ctx.alias_registry.register(dimension_ref)
+        reaggregate_dimension_aliases[component_name] = dimension_alias
+        internal_dimension_aliases[dimension_ref] = dimension_alias
 
     for metric_node, component in grain_group.components:
         metrics_covered.add(metric_node.name)
@@ -2180,6 +2224,8 @@ def build_grain_group_sql(
             resolved_dimensions=effective_resolved_dimensions,
             parent_node=parent_node,
             grain_columns=pass_through_columns,
+            output_dimension_refs=output_dimension_refs,
+            internal_dimension_aliases=internal_dimension_aliases,
             filters=ctx.dimension_filters,  # Use dimension_filters only (not metric_filters)
             skip_aggregation=True,  # Don't add GROUP BY
         )
@@ -2203,6 +2249,8 @@ def build_grain_group_sql(
             grain_columns=effective_grain_columns,
             grain_col_aliases=grain_group.grain_col_aliases or None,
             grain_col_specs=grain_col_specs,  # already parsed above
+            output_dimension_refs=output_dimension_refs,
+            internal_dimension_aliases=internal_dimension_aliases,
             filters=ctx.dimension_filters,  # Use dimension_filters only (not metric_filters)
             skip_aggregation=skip_agg,
         )
@@ -2211,7 +2259,12 @@ def build_grain_group_sql(
     columns_metadata = []
 
     # Add dimension columns (skip filter-only dimensions as they're not in projection)
+    effective_output_dimension_refs = output_dimension_refs or {
+        resolved_dim.original_ref for resolved_dim in resolved_dimensions
+    }
     for resolved_dim in resolved_dimensions:
+        if resolved_dim.original_ref not in effective_output_dimension_refs:
+            continue
         # Skip filter-only dimensions from column metadata
         if resolved_dim.original_ref in ctx.filter_dimensions:
             continue
@@ -2268,6 +2321,30 @@ def build_grain_group_sql(
             ),
         )
 
+    for dimension_ref, dimension_alias in internal_dimension_aliases.items():
+        internal_resolved_dim = next(
+            (dim for dim in resolved_dimensions if dim.original_ref == dimension_ref),
+            None,
+        )
+        if not internal_resolved_dim:
+            continue  # pragma: no cover
+        dim_node = ctx.nodes.get(internal_resolved_dim.node_name)
+        col_type = (
+            get_column_type(parent_node, internal_resolved_dim.column_name)
+            if internal_resolved_dim.is_local
+            else get_column_type(dim_node, internal_resolved_dim.column_name)
+            if dim_node
+            else "string"
+        )
+        columns_metadata.append(
+            ColumnMetadata(
+                name=dimension_alias,
+                semantic_name=dimension_ref,
+                type=col_type,
+                semantic_type="dimension",
+            ),
+        )
+
     # Add metric component columns
     # All decomposed metrics are now treated as components - no special case for single-component
     for comp_alias, component, metric_node in component_metadata:
@@ -2313,6 +2390,8 @@ def build_grain_group_sql(
     if grain_group.aggregability != Aggregability.NONE:
         # FULL/LIMITED: dimensions are part of the grain
         for resolved_dim in resolved_dimensions:
+            if resolved_dim.original_ref not in effective_output_dimension_refs:
+                continue
             # Skip filter-only dimensions from grain
             if resolved_dim.original_ref in ctx.filter_dimensions:
                 continue
@@ -2327,6 +2406,9 @@ def build_grain_group_sql(
     for gc_alias in effective_grain_aliases:
         if gc_alias not in full_grain:  # pragma: no branch
             full_grain.append(gc_alias)
+    for dimension_alias in internal_dimension_aliases.values():
+        if dimension_alias not in full_grain:
+            full_grain.append(dimension_alias)
 
     # Sort for deterministic output
     full_grain.sort()
@@ -2339,6 +2421,7 @@ def build_grain_group_sql(
         metrics=list(metrics_covered),
         parent_name=grain_group.parent_node.name,
         component_aliases=component_aliases,
+        reaggregate_dimension_aliases=reaggregate_dimension_aliases,
         is_merged=grain_group.is_merged,
         component_aggregabilities=grain_group.component_aggregabilities,
         components=unique_components,
@@ -2375,17 +2458,14 @@ def process_metric_group(
         components_per_metric[decomposed.metric_node.name] = len(decomposed.components)
 
     # Analyze grain groups - split by aggregability
-    # Extract just the column names from dimensions for grain analysis
-    dim_column_names = [parse_dimension_ref(d).column_name for d in ctx.dimensions]
-    grain_groups = analyze_grain_groups(metric_group, dim_column_names)
+    output_dimensions = list(ctx.dimensions)
+    output_dimension_refs = set(output_dimensions)
+    grain_groups = analyze_grain_groups(metric_group, output_dimensions)
 
     # Merge compatible grain groups from same parent into single CTEs
     # This optimization reduces duplicate JOINs by outputting raw values
     # at finest grain, with aggregations applied in final SELECT
     grain_groups = merge_grain_groups(grain_groups)
-
-    # Resolve dimensions (find join paths) - shared across grain groups
-    resolved_dimensions = resolve_dimensions(ctx, parent_node)
 
     # Build SQL for each grain group. Fan-out risk is flagged inside
     # build_grain_group_sql, where the full set of emitted join paths is known.
@@ -2394,13 +2474,26 @@ def process_metric_group(
         # Reset alias registry for each grain group to avoid conflicts
         ctx.alias_registry = AliasRegistry()
         ctx._table_alias_counter = 0
-
-        grain_group_sql = build_grain_group_sql(
-            ctx,
-            grain_group,
-            resolved_dimensions,
-            components_per_metric,
-        )
+        original_dimensions = ctx.dimensions
+        internal_dimensions = [
+            dimension_ref
+            for dimension_ref in dict.fromkeys(
+                grain_group.reaggregate_component_dimensions.values(),
+            )
+            if dimension_ref not in output_dimension_refs
+        ]
+        ctx.dimensions = output_dimensions + internal_dimensions
+        try:
+            resolved_dimensions = resolve_dimensions(ctx, parent_node)
+            grain_group_sql = build_grain_group_sql(
+                ctx,
+                grain_group,
+                resolved_dimensions,
+                components_per_metric,
+                output_dimension_refs=output_dimension_refs,
+            )
+        finally:
+            ctx.dimensions = original_dimensions
         grain_group_sqls.append(grain_group_sql)
     return grain_group_sqls
 
@@ -2514,6 +2607,33 @@ def build_window_metric_grain_groups(
         else:
             return None, base_metrics  # pragma: no cover
 
+    def find_base_metrics_for_window_parent(
+        metric_name: str,
+        visited: set[str],
+    ) -> set[str]:
+        """
+        Recursively find grain-group metrics needed to compute a window parent.
+
+        Window expressions may reference a derived metric directly, but the
+        window grain group still needs the underlying base metric components.
+        """
+        if metric_name in visited:
+            return set()  # pragma: no cover
+        visited.add(metric_name)
+
+        for gg in existing_grain_groups:
+            if metric_name in gg.metrics:
+                return {metric_name}
+
+        grain_group_metrics: set[str] = set()
+        for parent_name in ctx.parent_map.get(metric_name, []):
+            parent_node = ctx.nodes.get(parent_name)
+            if parent_node and parent_node.type.value == "metric":  # pragma: no branch
+                grain_group_metrics.update(
+                    find_base_metrics_for_window_parent(parent_name, visited),
+                )
+        return grain_group_metrics
+
     # Group window metrics by (ORDER BY grain, parent fact)
     # This ensures window metrics from different facts are processed separately
     # Key: (frozenset of grain cols, parent_name or "cross_fact")
@@ -2525,13 +2645,18 @@ def build_window_metric_grain_groups(
         parent_name, base_metrics = find_parent_for_window_metric(metric_name)
         # Use "cross_fact" as a marker for cross-fact window metrics
         parent_key = parent_name if parent_name else "cross_fact"
+        component_metrics = set()
+        for base_metric in base_metrics:
+            component_metrics.update(
+                find_base_metrics_for_window_parent(base_metric, set()),
+            )
 
         group_key = (grain_key, parent_key)
         if group_key not in grain_parent_to_metrics:
             grain_parent_to_metrics[group_key] = []
             grain_parent_to_base_metrics[group_key] = set()
         grain_parent_to_metrics[group_key].append(metric_name)
-        grain_parent_to_base_metrics[group_key].update(base_metrics)
+        grain_parent_to_base_metrics[group_key].update(component_metrics)
 
     additional_grain_groups: list[GrainGroupSQL] = []
 
