@@ -516,6 +516,7 @@ async def test_delete_nodes_success(
             status=DeploymentResult.Status.SUCCESS,
             operation=DeploymentResult.Operation.DELETE,
             message="Node catalog.dim.categories has been removed.",
+            change_tier="major",
         ),
     ]
     assert await Node.get_by_name(session, categories.name) is None
@@ -542,6 +543,7 @@ async def test_delete_nodes_missing(
             status=DeploymentResult.Status.FAILED,
             operation=DeploymentResult.Operation.DELETE,
             message="Node catalog.dim.categoriesbogus not found.",
+            change_tier="major",
         ),
     ]
 

@@ -7,6 +7,7 @@ from enum import Enum
 from pydantic import BaseModel, Field
 
 from datajunction_server.models.node import NodeStatus, NodeType
+from datajunction_server.models.semantic_fingerprint import SemanticFingerprintValue
 
 
 class ImpactType(str, Enum):
@@ -34,3 +35,4 @@ class DownstreamImpact(BaseModel):
     # Defaulted so that deployment rows persisted before this field existed can
     # still be rehydrated from JSON.
     owners: list[str] = Field(default_factory=list)
+    semantic_fingerprint: SemanticFingerprintValue | None = None

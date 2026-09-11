@@ -51,11 +51,15 @@ from datajunction_server.internal.custom_metadata import upsert_schema_specs
 from datajunction_server.internal.deployment.dimension_reachability import (
     DimensionReachability,
 )
+from datajunction_server.internal.deployment.fingerprints import (
+    FingerprintMap,
+    build_deployment_fingerprints,
+)
 from datajunction_server.internal.deployment.utils import (
     DeploymentContext,
     classify_parents,
     creates_cycle,
-    extract_dimension_refs_from_filters as _extract_dimension_refs_from_filters,
+    extract_dimension_refs_from_filters,
     extract_node_graph,
     topological_levels,
 )
@@ -105,6 +109,7 @@ from datajunction_server.models.deployment import (
     SourceSpec,
     TagSpec,
     bump_version,
+    change_tier_name,
     declared_materialization_blocks,
     eq_or_fallback,
     render_prefixes,
@@ -134,6 +139,7 @@ from datajunction_server.models.unit import (
     structured_to_legacy_unit,
 )
 from datajunction_server.sql.dag import get_metric_parents_map
+from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import (
     SEPARATOR,
@@ -320,11 +326,20 @@ class DeploymentPlan:
     node_graph: dict[str, list[str]]
     external_deps: set[str]
     to_delete_namespaces: list[str] = field(default_factory=list)
+    delete_references: dict[str, list[str]] = field(default_factory=dict)
 
     def is_empty(self) -> bool:
         return (
             not self.to_deploy and not self.to_delete and not self.to_delete_namespaces
         )
+
+    @property
+    def deletable_specs(self) -> list[NodeSpec]:
+        return [
+            spec
+            for spec in self.to_delete
+            if spec.rendered_name not in self.delete_references
+        ]
 
     @property
     def linked_dimension_nodes(self) -> set[str]:
@@ -371,6 +386,8 @@ class DeploymentOrchestrator:
         self._cubes_bumped_by_upstream: dict[str, list[str]] = {}
         # Node name -> the tier its change earned, for those cubes to inherit.
         self._change_tiers: dict[str, ChangeTier] = {}
+        self._current_semantic_fingerprints: FingerprintMap = {}
+        self._proposed_semantic_fingerprints: FingerprintMap = {}
 
     @property
     def _history_user(self) -> str:
@@ -545,6 +562,11 @@ class DeploymentOrchestrator:
                 isinstance(spec, CubeSpec) for spec in self.deployment_spec.nodes
             )
             if not needs_preagg_reconcile and not declares_cube:
+                with self._timer.phase("build semantic fingerprints"):
+                    await self._build_and_apply_semantic_fingerprints(
+                        deployment_plan,
+                        [],
+                    )
                 return DeploymentExecuteResult(
                     results=await self._handle_no_changes(),
                     downstream_impacts=[],
@@ -860,6 +882,40 @@ class DeploymentOrchestrator:
         logger.info("No changes detected, skipping deployment")
         await self._update_deployment_status()
         return self.deployed_results
+
+    def _apply_semantic_fingerprints(self) -> None:
+        for result in self.deployed_results:
+            if result.deploy_type != DeploymentResult.Type.NODE:
+                continue
+            fingerprints = (
+                self._current_semantic_fingerprints
+                if result.operation == DeploymentResult.Operation.DELETE
+                else self._proposed_semantic_fingerprints
+            )
+            result.semantic_fingerprint = fingerprints.get(result.name)
+
+    async def _build_and_apply_semantic_fingerprints(
+        self,
+        plan: DeploymentPlan,
+        downstream: list,
+    ) -> None:
+        target_names = {impact.name for impact in downstream} | {
+            spec.rendered_name for spec in plan.to_delete
+        }
+        current, proposed = await build_deployment_fingerprints(
+            self.session,
+            plan.existing_specs,
+            self.deployment_spec.nodes,
+            plan.deletable_specs,
+            additional_target_names=target_names,
+        )
+        self._current_semantic_fingerprints = current
+        self._proposed_semantic_fingerprints = proposed
+        self._apply_semantic_fingerprints()
+        for impact in downstream:
+            proposed_fingerprint = proposed.get(impact.name)
+            if current.get(impact.name) != proposed_fingerprint:
+                impact.semantic_fingerprint = proposed_fingerprint
 
     async def _find_namespaces_to_create(self) -> set[str]:
         """
@@ -1554,6 +1610,21 @@ class DeploymentOrchestrator:
             external_deps=external_dep_names,
         )
 
+    def _extract_plan_node_graph(
+        self,
+        nodes: list[NodeSpec],
+    ) -> dict[str, list[str]]:
+        if not self.dry_run:
+            return extract_node_graph(nodes)
+
+        node_graph = {}
+        for node in nodes:
+            try:
+                node_graph.update(extract_node_graph([node]))
+            except DJParseException:
+                node_graph[node.rendered_name] = []
+        return node_graph
+
     async def _create_deployment_plan(
         self,
     ) -> tuple[DeploymentPlan, list[DeploymentResult]]:
@@ -1606,6 +1677,7 @@ class DeploymentOrchestrator:
                     else DeploymentResult.Status.SKIPPED,
                     operation=DeploymentResult.Operation.NOOP,
                     message="Unchanged, still INVALID" if is_invalid else "Unchanged",
+                    change_tier=change_tier_name(ChangeTier.NONE),
                 ),
             )
 
@@ -1614,7 +1686,7 @@ class DeploymentOrchestrator:
         external_deps: set[str] = set()
         if to_deploy or to_delete:
             with self._timer.phase("  plan: extract node graph") as p:
-                node_graph = extract_node_graph(
+                node_graph = self._extract_plan_node_graph(
                     [node for node in to_deploy if not isinstance(node, CubeSpec)],
                 )
                 p.append(f"{len(node_graph)} nodes in graph")
@@ -1735,7 +1807,7 @@ class DeploymentOrchestrator:
                             existing_node.name,
                         )
 
-                node_graph = extract_node_graph(
+                node_graph = self._extract_plan_node_graph(
                     [node for node in to_deploy if not isinstance(node, CubeSpec)],
                 )
 
@@ -1844,23 +1916,29 @@ class DeploymentOrchestrator:
             if r.deploy_type == DeploymentResult.Type.LINK
             and r.status != DeploymentResult.Status.SKIPPED
         }
+        plan.delete_references = await self._validate_node_deletion(plan.to_delete)
         with timer.phase("propagate impact") as p:
             downstream = await propagate_impact(
                 session=self.session,
                 namespace=self.deployment_spec.namespace,
                 changed_node_names=changed_names,
                 deleted_node_names=frozenset(
-                    spec.rendered_name for spec in plan.to_delete
+                    spec.rendered_name for spec in plan.deletable_specs
                 ),
                 changed_link_node_names=changed_link_names,
             )
             p.append(f"{len(downstream)} downstream")
+        with timer.phase("build downstream semantic fingerprints"):
+            await self._build_and_apply_semantic_fingerprints(plan, downstream)
 
         # Hard-delete after impact propagation (cascade-deletes
         # NodeRelationship rows that were needed for the BFS above).
         if plan.to_delete:
             with timer.phase("delete nodes") as p:
-                delete_results = await self._delete_nodes(plan.to_delete)
+                delete_results = await self._delete_nodes(
+                    plan.to_delete,
+                    references=plan.delete_references,
+                )
                 p.append(f"{len(delete_results)} deleted")
             self.deployed_results.extend(delete_results)
             await self._update_deployment_status()
@@ -3308,7 +3386,7 @@ class DeploymentOrchestrator:
             if cube.rendered_filters:
                 all_dim_node_names |= {
                     node_name
-                    for node_name, _ in _extract_dimension_refs_from_filters(
+                    for node_name, _ in extract_dimension_refs_from_filters(
                         cube.rendered_filters,
                     )
                 }
@@ -3587,7 +3665,7 @@ class DeploymentOrchestrator:
         # reachable only under a role can deploy green and flip on revalidation,
         # the same gap just closed above for cube dimensions.
         if cube_spec.rendered_filters and cube_parent_rev_ids:
-            filter_refs = _extract_dimension_refs_from_filters(
+            filter_refs = extract_dimension_refs_from_filters(
                 cube_spec.rendered_filters,
             )
             filter_dim_nodes = {node_name for node_name, _ in filter_refs}
@@ -3915,6 +3993,12 @@ class DeploymentOrchestrator:
                 + ("\n".join([""] + changelog))
                 + invalid_note,
                 changed_fields=changed_fields,
+                change_tier=change_tier_name(
+                    change_tier if existing else ChangeTier.MAJOR,
+                ),
+                semantic_fingerprint=self._proposed_semantic_fingerprints.get(
+                    cube_spec.rendered_name,
+                ),
             )
 
             deployment_results.append(deployment_result)
@@ -4056,7 +4140,12 @@ class DeploymentOrchestrator:
         references: dict[str, list[str]] = {}
 
         # Query just IDs and names of nodes being deleted (more efficient than loading full objects)
-        stmt = select(Node.id, Node.name).where(Node.name.in_(list(nodes_to_delete)))
+        stmt = select(Node.id, Node.name).where(
+            Node.name.in_(list(nodes_to_delete)),
+        )
+        if not self.dry_run:
+            # Keep new foreign-key references from racing the delete.
+            stmt = stmt.with_for_update()
         result = await self.session.execute(stmt)
         id_to_name = {node_id: node_name for node_id, node_name in result}
         deleted_node_ids = set(id_to_name.keys())
@@ -4140,11 +4229,16 @@ class DeploymentOrchestrator:
 
         return references
 
-    async def _delete_nodes(self, to_delete: list[NodeSpec]) -> list[DeploymentResult]:
+    async def _delete_nodes(
+        self,
+        to_delete: list[NodeSpec],
+        references: dict[str, list[str]] | None = None,
+    ) -> list[DeploymentResult]:
         logger.info("Starting deletion of %d nodes", len(to_delete))
 
         # Check which nodes have references that would prevent deletion
-        references = await self._validate_node_deletion(to_delete)
+        if references is None:
+            references = await self._validate_node_deletion(to_delete)
 
         # Bulk-delete every deletable node via the shared ``hard_delete_nodes``
         # helper (the same machinery ``hard_delete_namespace`` uses): it
@@ -4192,6 +4286,7 @@ class DeploymentOrchestrator:
         results = []
         for node_spec in to_delete:
             node_name = node_spec.rendered_name
+            semantic_fingerprint = self._current_semantic_fingerprints.get(node_name)
             if node_name in references:
                 # Node has references - skip deletion and return FAILED result
                 referencing_nodes = references[node_name]
@@ -4207,6 +4302,8 @@ class DeploymentOrchestrator:
                         status=DeploymentResult.Status.FAILED,
                         operation=DeploymentResult.Operation.DELETE,
                         message=error_msg,
+                        change_tier=change_tier_name(ChangeTier.MAJOR),
+                        semantic_fingerprint=semantic_fingerprint,
                     ),
                 )
             elif node_name in deleted_names:
@@ -4217,6 +4314,8 @@ class DeploymentOrchestrator:
                         status=DeploymentResult.Status.SUCCESS,
                         operation=DeploymentResult.Operation.DELETE,
                         message=f"Node {node_name} has been removed.",
+                        change_tier=change_tier_name(ChangeTier.MAJOR),
+                        semantic_fingerprint=semantic_fingerprint,
                     ),
                 )
             else:
@@ -4228,6 +4327,8 @@ class DeploymentOrchestrator:
                         status=DeploymentResult.Status.FAILED,
                         operation=DeploymentResult.Operation.DELETE,
                         message=f"Node {node_name} not found.",
+                        change_tier=change_tier_name(ChangeTier.MAJOR),
+                        semantic_fingerprint=semantic_fingerprint,
                     ),
                 )
 
@@ -4328,9 +4429,29 @@ class DeploymentOrchestrator:
             existing_spec = existing_nodes_map.get(node_spec.rendered_name)
             if not existing_spec:
                 to_create.append(node_spec)
-            elif force or node_spec != existing_spec:
-                to_update.append(node_spec)
             else:
+                if force:
+                    to_update.append(node_spec)
+                    continue
+                existing_spec.namespace = node_spec.namespace
+                resolved_columns = None
+                proposed_columns = None
+                if isinstance(existing_spec, SourceSpec) and isinstance(
+                    node_spec,
+                    SourceSpec,
+                ):
+                    if not existing_spec.columns:
+                        resolved_columns = node_spec.columns
+                    if not node_spec.columns:
+                        proposed_columns = existing_spec.columns
+                changed_fields, reordered_fields = existing_spec.semantic_diff(
+                    node_spec,
+                    resolved_columns=resolved_columns,
+                    other_resolved_columns=proposed_columns,
+                )
+                if changed_fields or reordered_fields:
+                    to_update.append(node_spec)
+                    continue
                 # Re-deploy unchanged nodes that are stuck in INVALID state so
                 # they get revalidated (e.g. after an upstream fix).
                 existing_node = self.registry.nodes.get(node_spec.rendered_name)
@@ -4962,6 +5083,12 @@ class DeploymentOrchestrator:
             + ("\n".join([""] + changelog))
             + invalid_note,
             changed_fields=changed_fields,
+            change_tier=change_tier_name(
+                change_tier if existing else ChangeTier.MAJOR,
+            ),
+            semantic_fingerprint=self._proposed_semantic_fingerprints.get(
+                result.spec.rendered_name,
+            ),
         )
         return deployment_result, new_node, new_revision
 
@@ -5006,61 +5133,44 @@ class DeploymentOrchestrator:
                 f"└─ Set properties for {sum(changed_count)} columns",
             )
 
-        # Track changes to other node fields
+        # Classify changes from the same normalized values used by fingerprints.
         existing_node_spec = await existing.to_spec(self.session)
-        # to_spec() never sets namespace; diff() needs it to render ${prefix}.
+        # to_spec() never sets namespace; semantic_diff() needs it to render ${prefix}.
         existing_node_spec.namespace = result.spec.namespace
-        changed_fields = existing_node_spec.diff(result.spec) if existing else []
-
-        # Check if query changed (diff() ignores it, but we want to surface it)
-        if hasattr(
-            existing_node_spec,
-            "rendered_query",
-        ) and hasattr(  # pragma: no branch
+        existing_columns: list[ColumnSpec] | None = None
+        proposed_columns: list[ColumnSpec] | None = result.inferred_columns
+        if isinstance(existing_node_spec, SourceSpec) and isinstance(
             result.spec,
-            "rendered_query",
+            SourceSpec,
         ):
-            old_query = existing_node_spec.rendered_query
-            new_query = result.spec.rendered_spec().rendered_query
-            if old_query != new_query:
-                changed_fields = ["query"] + changed_fields
+            if not existing_node_spec.columns:
+                existing_columns = proposed_columns
+            if not proposed_columns:
+                proposed_columns = existing_node_spec.columns
+        changed_fields, reordered_fields = existing_node_spec.semantic_diff(
+            result.spec,
+            resolved_columns=existing_columns,
+            other_resolved_columns=proposed_columns,
+        )
 
-        # Check if column metadata changed (diff() ignores columns)
+        # Keep detailed column notes for the human-readable changelog.
         from datajunction_server.models.deployment import LinkableNodeSpec as LNS
 
-        if isinstance(result.spec, LNS) and isinstance(existing_node_spec, LNS):
+        if (
+            "columns" in changed_fields
+            and isinstance(result.spec, LNS)
+            and isinstance(existing_node_spec, LNS)
+        ):
             col_change_notes = _diff_column_metadata(
                 result.spec.rendered_spec().columns,
                 existing_node_spec.columns,
             )
-            if col_change_notes:
-                changed_fields = changed_fields + ["columns"]
-                for note in col_change_notes:
-                    changelog.append(f"└─ {note}")
-
-        # A cube's columns are derived from its metrics and dimensions; the only
-        # user-authored thing on them is partition config, which is exactly what
-        # CubeSpec.__eq__ compares. So a partition-only edit reaches the update path
-        # and has to be visible here too, or it would earn no version at all.
-        if isinstance(result.spec, CubeSpec) and isinstance(
-            existing_node_spec,
-            CubeSpec,
-        ):
-            from datajunction_server.semantic_fingerprints.normalization import (
-                normalize_cube_columns,
-            )
-
-            if normalize_cube_columns(
-                result.spec.matched_rendered_columns,
-            ) != normalize_cube_columns(existing_node_spec.matched_rendered_columns):
-                changed_fields = changed_fields + ["columns"]
+            for note in col_change_notes:
+                changelog.append(f"└─ {note}")
 
         if changed_fields:
             changelog.append("└─ Updated " + ", ".join(changed_fields))
 
-        # Fields whose contents are unchanged but whose ordering moved. diff()
-        # compares list fields as sets and so cannot see these on its own.
-        reordered_fields = existing_node_spec.order_diff(result.spec)
         if reordered_fields:
             changelog.append("└─ Reordered " + ", ".join(reordered_fields))
 
@@ -5341,13 +5451,18 @@ class DeploymentOrchestrator:
             )
             new_revision.schema_ = schema
             new_revision.table = table
+            source_columns = source_spec.columns
+            if not source_columns and new_node.current:
+                source_columns = [
+                    column.to_spec() for column in new_node.current.columns
+                ]
             new_revision.columns = [
                 self._create_column_from_spec(
                     col,
                     pk_columns,
                     order=col.order if col.order is not None else idx,
                 )
-                for idx, col in enumerate(result.spec.columns)
+                for idx, col in enumerate(source_columns or [])
             ]
 
         if result.spec.node_type == NodeType.METRIC:

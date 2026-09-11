@@ -185,6 +185,11 @@ def normalize_field(
             else value,
             compare_types=isinstance(spec, SourceSpec),
         )
+    if field == "required_dimensions" and isinstance(spec, MetricSpec):
+        try:
+            value = spec.canonical_required_dimensions
+        except DJParseException:
+            value = spec.rendered_required_dimensions
     if field == "dimension_links" and isinstance(spec, LinkableNodeSpec):
         return normalize_dimension_links(
             spec.dimension_links,

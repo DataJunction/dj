@@ -40,6 +40,7 @@ from datajunction_server.models.node import (
     NodeType,
 )
 from datajunction_server.models.partition import Granularity, PartitionType
+from datajunction_server.models.semantic_fingerprint import SemanticFingerprintValue
 from datajunction_server.models.unit import (
     Unit,
     legacy_unit_to_structured,
@@ -65,6 +66,19 @@ class ChangeTier(IntEnum):
     NONE = 0
     MINOR = 10
     MAJOR = 20
+
+
+ChangeTierName = Literal["none", "minor", "major"]
+
+
+def change_tier_name(tier: ChangeTier) -> ChangeTierName:
+    """Return the stable API representation of a change tier."""
+    names: dict[ChangeTier, ChangeTierName] = {
+        ChangeTier.NONE: "none",
+        ChangeTier.MINOR: "minor",
+        ChangeTier.MAJOR: "major",
+    }
+    return names[tier]
 
 
 def fold_change_tiers(tiers: Iterable[ChangeTier]) -> ChangeTier:
@@ -1134,14 +1148,14 @@ class MetricSpec(NodeSpec):
         Required dimensions rewritten so the two ways of naming the same column
         compare equal.
 
-            ns.date_dim.dateint  ->  ns.date_dim.dateint  (already canonical)
-            currency_code        ->  ns.orders_fact.currency_code  (single parent)
-            currency_code        ->  currency_code  (zero or multiple parents: ambiguous, left as-is)
+            ns.orders_fact.currency_code  ->  currency_code  (a query parent)
+            currency_code                 ->  currency_code  (already canonical)
+            ns.date_dim.dateint            ->  ns.date_dim.dateint  (not a query parent)
 
         Parents come from the spec's own query, so this needs no session.
         """
         required_dims = self.rendered_required_dimensions
-        if all(SEPARATOR in required_dim for required_dim in required_dims):
+        if not any(SEPARATOR in required_dim for required_dim in required_dims):
             return required_dims
 
         from datajunction_server.internal.deployment.utils import (
@@ -1153,10 +1167,10 @@ class MetricSpec(NodeSpec):
             if self.query_ast is not None
             else set()
         )
-        sole_parent = next(iter(parents)) if len(parents) == 1 else None
         return [
-            f"{sole_parent}{SEPARATOR}{required_dim}"
-            if SEPARATOR not in required_dim and sole_parent is not None
+            required_dim.rsplit(SEPARATOR, 1)[1]
+            if SEPARATOR in required_dim
+            and required_dim.rsplit(SEPARATOR, 1)[0] in parents
             else required_dim
             for required_dim in required_dims
         ]
@@ -1767,6 +1781,8 @@ class DeploymentResult(BaseModel):
     operation: Operation
     message: str = ""
     changed_fields: list[str] = Field(default_factory=list)
+    change_tier: ChangeTierName | None = None
+    semantic_fingerprint: SemanticFingerprintValue | None = None
 
 
 class DeploymentInfo(BaseModel):
