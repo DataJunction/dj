@@ -20,7 +20,7 @@ from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.column import Column as DBColumn
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
-from datajunction_server.database.tag import Tag
+from datajunction_server.database.tag import Tag, TagNodeRelationship
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.deployment.orchestrator import DeploymentOrchestrator
 from datajunction_server.internal.git.github_service import GitHubServiceError
@@ -4764,6 +4764,144 @@ class TestDeployments:
             "tag_type": "group",
             "tag_metadata": {},
         }
+
+    @pytest.mark.asyncio
+    async def test_deploy_reports_undeclared_tag_without_nodes(
+        self,
+        client,
+        default_us_states,
+    ):
+        """
+        A tag dropped from the spec that has no nodes attached is reported as
+        safely prunable — and is left in place.
+        """
+        namespace = "tag_report_prunable"
+
+        def spec(tags):
+            return DeploymentSpec(
+                namespace=namespace,
+                nodes=[default_us_states],
+                tags=[TagSpec(name=name, tag_type="domain") for name in tags],
+            )
+
+        data = await deploy_and_wait(client, spec(["domain:ads", "domain:growth"]))
+        assert data["status"] == "success"
+        assert [r for r in data["results"] if r["deploy_type"] == "tag"] == []
+
+        data = await deploy_and_wait(client, spec(["domain:ads"]))
+        assert data["status"] == "success"
+        assert [r for r in data["results"] if r["deploy_type"] == "tag"] == [
+            {
+                "name": "domain:growth",
+                "deploy_type": "tag",
+                "status": "warning",
+                "operation": "noop",
+                "message": (
+                    "Tag 'domain:growth' is no longer declared by this deployment. "
+                    "It has no nodes attached and can be safely pruned."
+                ),
+                "changed_fields": [],
+            },
+        ]
+
+        # Report only: the tag is still there.
+        response = await client.get("/tags/domain:growth/")
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_deploy_reports_undeclared_tag_with_nodes(
+        self,
+        session,
+        client,
+        default_us_states,
+    ):
+        """
+        A tag dropped from the spec that still has nodes attached is reported
+        separately, since it is not safe to prune.
+        """
+        namespace = "tag_report_attached"
+
+        def spec(tags):
+            return DeploymentSpec(
+                namespace=namespace,
+                nodes=[default_us_states],
+                tags=[TagSpec(name=name, tag_type="topic") for name in tags],
+            )
+
+        data = await deploy_and_wait(
+            client,
+            spec(["topic:accessibility", "topic:legacy"]),
+        )
+        assert data["status"] == "success"
+
+        # Attach the tag out of band, so dropping it from the spec leaves behind
+        # a tag that still has a node on it.
+        node = await Node.get_by_name(session, f"{namespace}.default.us_states")
+        tag = (
+            (await session.execute(select(Tag).where(Tag.name == "topic:legacy")))
+            .scalars()
+            .one()
+        )
+        session.add(TagNodeRelationship(tag_id=tag.id, node_id=node.id))
+        await session.commit()
+
+        data = await deploy_and_wait(client, spec(["topic:accessibility"]))
+        assert data["status"] == "success"
+        assert [r for r in data["results"] if r["deploy_type"] == "tag"] == [
+            {
+                "name": "topic:legacy",
+                "deploy_type": "tag",
+                "status": "warning",
+                "operation": "noop",
+                "message": (
+                    "Tag 'topic:legacy' is no longer declared by this deployment. "
+                    "It still has 1 node(s) attached and was left intact."
+                ),
+                "changed_fields": [],
+            },
+        ]
+
+        response = await client.get("/tags/topic:legacy/")
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_deploy_without_managed_tag_prefixes(
+        self,
+        session,
+        client,
+        current_user,
+        default_us_states,
+    ):
+        """
+        A spec that declares no tags, or only tags without the ``prefix:name``
+        convention, claims no prefixes and so reports nothing.
+        """
+        session.add(
+            Tag(
+                name="domain:unclaimed",
+                tag_type="domain",
+                created_by_id=current_user.id,
+            ),
+        )
+        await session.commit()
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace="tag_report_none", nodes=[default_us_states]),
+        )
+        assert data["status"] == "success"
+        assert [r for r in data["results"] if r["deploy_type"] == "tag"] == []
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace="tag_report_unprefixed",
+                nodes=[default_us_states],
+                tags=[TagSpec(name="flat", tag_type="misc")],
+            ),
+        )
+        assert data["status"] == "success"
+        assert [r for r in data["results"] if r["deploy_type"] == "tag"] == []
 
     @pytest.mark.asyncio
     async def test_deploy_column_properties(

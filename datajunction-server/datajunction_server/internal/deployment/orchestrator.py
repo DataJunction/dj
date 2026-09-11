@@ -51,6 +51,7 @@ from datajunction_server.internal.custom_metadata import upsert_schema_specs
 from datajunction_server.internal.deployment.dimension_reachability import (
     DimensionReachability,
 )
+from datajunction_server.internal.deployment.tags import find_undeclared_managed_tags
 from datajunction_server.internal.deployment.utils import (
     DeploymentContext,
     classify_parents,
@@ -611,6 +612,7 @@ class DeploymentOrchestrator:
         """
         self.registry.set_namespaces(await self._setup_namespaces())
         self.registry.add_tags(await self._setup_tags())
+        await self._report_undeclared_tags()
         self.registry.add_owners(await self._setup_owners())
         self.registry.add_catalogs(await self._setup_catalogs())
         self.registry.add_attributes(await self._setup_attributes())
@@ -1046,6 +1048,38 @@ class DeploymentOrchestrator:
         if tags_modified:
             await self.session.flush()  # Get IDs but don't commit
         return existing_tags
+
+    async def _report_undeclared_tags(self) -> None:
+        """
+        Report — never remove — tags under a prefix this deployment manages that
+        the spec no longer declares. Tags with no nodes left attached are safely
+        prunable; ones that still have nodes are flagged separately so a
+        reviewer can tell the two apart.
+        """
+        declared_tag_names = {
+            tag_spec.name for tag_spec in self.deployment_spec.tags
+        } | {tag for spec in self.deployment_spec.nodes for tag in spec.tags}
+        if not declared_tag_names:
+            return
+
+        for tag_name, node_count in await find_undeclared_managed_tags(
+            self.session,
+            declared_tag_names,
+        ):
+            message = f"Tag '{tag_name}' is no longer declared by this deployment. " + (
+                f"It still has {node_count} node(s) attached and was left intact."
+                if node_count
+                else "It has no nodes attached and can be safely pruned."
+            )
+            self.deployed_results.append(
+                DeploymentResult(
+                    name=tag_name,
+                    deploy_type=DeploymentResult.Type.TAG,
+                    status=DeploymentResult.Status.WARNING,
+                    operation=DeploymentResult.Operation.NOOP,
+                    message=message,
+                ),
+            )
 
     async def _setup_hierarchies(self) -> None:
         """
