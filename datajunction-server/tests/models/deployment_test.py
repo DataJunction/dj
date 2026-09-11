@@ -50,6 +50,7 @@ from datajunction_server.semantic_fingerprints.engine import (
 )
 from datajunction_server.semantic_fingerprints.normalization import (
     canonical_json,
+    normalize_field,
     normalize_sequence,
     normalize_value,
 )
@@ -2221,6 +2222,19 @@ def test_semantic_fingerprint_normalizes_primary_keys_and_cube_ordering():
     partition_changed = cube.model_copy(deep=True)
     partition_changed.columns[0].partition.type = PartitionType.TEMPORAL
     assert fingerprint(cube) != fingerprint(partition_changed)
+
+
+def test_required_dimensions_normalization_falls_back_for_invalid_query():
+    metric = MetricSpec(
+        namespace="analytics",
+        name="orders",
+        query="SELECT (",
+        required_dimensions=["${prefix}orders.order_id"],
+    )
+
+    assert normalize_field(metric, "required_dimensions") == [
+        "analytics.orders.order_id",
+    ]
 
 
 @pytest.mark.parametrize(
