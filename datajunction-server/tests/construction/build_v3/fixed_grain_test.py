@@ -17,6 +17,7 @@ from datajunction_server.models.decompose import Aggregability
 from datajunction_server.models.deployment import ChangeTier, MetricSpec
 from datajunction_server.sql.decompose import MetricComponentExtractor
 from datajunction_server.sql.parsing.backends.antlr4 import parse
+from tests.construction.build_v3 import assert_sql_equal
 
 
 def test_fixed_grain_change_tier_is_major():
@@ -337,8 +338,31 @@ async def test_global_grain_broadcasts_as_an_unpartitioned_window(
     )
     assert response.status_code == 200, response.json()
     sql = response.json()["sql"]
-    assert "SUM(SUM(order_details_0.line_total_sum_e1f61696)) OVER ()" in sql
-    assert "AS total_line_total_bcast" in sql
+    assert_sql_equal(
+        sql,
+        """
+        WITH v3_order_details AS (
+            SELECT
+                o.order_id,
+                oi.quantity * oi.unit_price AS line_total
+            FROM default.v3.orders o
+            JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+        ),
+        order_details_0 AS (
+            SELECT
+                t1.order_id,
+                SUM(t1.line_total) AS line_total_sum_e1f61696
+            FROM v3_order_details t1
+            GROUP BY t1.order_id
+        )
+        SELECT
+            order_details_0.order_id AS order_id,
+            SUM(SUM(order_details_0.line_total_sum_e1f61696)) OVER ()
+                AS total_line_total_bcast
+        FROM order_details_0
+        GROUP BY order_details_0.order_id
+        """,
+    )
 
 
 @pytest.mark.asyncio
@@ -370,8 +394,34 @@ async def test_partitioned_grain_broadcasts_within_the_partition(
     )
     assert response.status_code == 200, response.json()
     sql = response.json()["sql"]
-    assert "PARTITION BY order_details_0.status" in sql
-    assert "AS status_line_total" in sql
+    assert_sql_equal(
+        sql,
+        """
+        WITH v3_order_details AS (
+            SELECT
+                o.order_id,
+                o.status,
+                oi.quantity * oi.unit_price AS line_total
+            FROM default.v3.orders o
+            JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+        ),
+        order_details_0 AS (
+            SELECT
+                t1.status,
+                t1.order_id,
+                SUM(t1.line_total) AS line_total_sum_e1f61696
+            FROM v3_order_details t1
+            GROUP BY t1.status, t1.order_id
+        )
+        SELECT
+            order_details_0.status AS status,
+            order_details_0.order_id AS order_id,
+            SUM(SUM(order_details_0.line_total_sum_e1f61696))
+                OVER (PARTITION BY order_details_0.status) AS status_line_total
+        FROM order_details_0
+        GROUP BY order_details_0.status, order_details_0.order_id
+        """,
+    )
 
 
 @pytest.mark.asyncio
@@ -507,12 +557,46 @@ async def test_ratio_broadcasts_both_metrics_fixed_to_the_same_grain(
     )
     assert response.status_code == 200, response.json()
     sql = response.json()["sql"]
-
-    assert sql.count("PARTITION BY order_details_0.status") == 2, sql
-    for parent in parents:
-        alias = parent.rsplit(".", 1)[-1]
-        windowed = next(line for line in sql.splitlines() if f"AS {alias}" in line)
-        assert "PARTITION BY order_details_0.status" in windowed
+    assert_sql_equal(
+        sql,
+        """
+        WITH v3_order_details AS (
+            SELECT
+                o.order_id,
+                o.status,
+                oi.quantity * oi.unit_price AS line_total
+            FROM default.v3.orders o
+            JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+        ),
+        order_details_0 AS (
+            SELECT
+                t1.status,
+                t1.order_id,
+                SUM(t1.line_total) AS line_total_sum_e1f61696
+            FROM v3_order_details t1
+            GROUP BY t1.status, t1.order_id
+        ),
+        base_metrics AS (
+            SELECT
+                order_details_0.status AS status,
+                order_details_0.order_id AS order_id,
+                SUM(SUM(order_details_0.line_total_sum_e1f61696))
+                    OVER (PARTITION BY order_details_0.status)
+                    AS fixed_status_denominator,
+                SUM(SUM(order_details_0.line_total_sum_e1f61696))
+                    OVER (PARTITION BY order_details_0.status)
+                    AS fixed_status_numerator
+            FROM order_details_0
+            GROUP BY order_details_0.status, order_details_0.order_id
+        )
+        SELECT
+            base_metrics.status AS status,
+            base_metrics.order_id AS order_id,
+            base_metrics.fixed_status_numerator
+                / base_metrics.fixed_status_denominator AS fixed_status_ratio
+        FROM base_metrics
+        """,
+    )
 
 
 @pytest.mark.asyncio
@@ -545,8 +629,93 @@ async def test_partitioned_grain_allowed_beside_a_window_metric(client_with_buil
     )
     assert response.status_code == 200, response.json()
     sql = response.json()["sql"]
-    assert "PARTITION BY order_details_0.category" in sql
-    assert "LEFT OUTER JOIN order_details_week" in sql
+    assert_sql_equal(
+        sql,
+        """
+        WITH v3_date AS (
+            SELECT date_id, week
+            FROM default.v3.dates
+        ),
+        v3_order_details AS (
+            SELECT
+                o.order_date,
+                oi.product_id,
+                oi.quantity * oi.unit_price AS line_total
+            FROM default.v3.orders o
+            JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+        ),
+        v3_product AS (
+            SELECT product_id, category
+            FROM default.v3.products
+        ),
+        order_details_0 AS (
+            SELECT
+                t2.category,
+                COALESCE(t1.order_date, t3.date_id) AS date_id_order,
+                t3.week,
+                SUM(t1.line_total) AS line_total_sum_e1f61696
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
+            GROUP BY
+                t2.category,
+                COALESCE(t1.order_date, t3.date_id),
+                t3.week
+        ),
+        base_metrics AS (
+            SELECT
+                order_details_0.category AS category,
+                order_details_0.date_id_order AS date_id_order,
+                order_details_0.week AS week,
+                SUM(SUM(order_details_0.line_total_sum_e1f61696))
+                    OVER (PARTITION BY order_details_0.category)
+                    AS grain_beside_window,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            GROUP BY
+                order_details_0.category,
+                order_details_0.date_id_order,
+                order_details_0.week
+        ),
+        order_details_week_agg AS (
+            SELECT
+                order_details_0.category AS category,
+                order_details_0.week AS week,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.category, order_details_0.week
+        ),
+        order_details_week AS (
+            SELECT
+                order_details_week_agg.category AS category,
+                order_details_week_agg.week AS week,
+                (
+                    order_details_week_agg.total_revenue
+                    - LAG(order_details_week_agg.total_revenue, 1) OVER (
+                        PARTITION BY order_details_week_agg.category
+                        ORDER BY order_details_week_agg.week
+                    )
+                ) / NULLIF(
+                    LAG(order_details_week_agg.total_revenue, 1) OVER (
+                        PARTITION BY order_details_week_agg.category
+                        ORDER BY order_details_week_agg.week
+                    ),
+                    0
+                ) * 100 AS wow_revenue_change
+            FROM order_details_week_agg
+        )
+        SELECT
+            base_metrics.category AS category,
+            base_metrics.date_id_order AS date_id_order,
+            base_metrics.week AS week,
+            base_metrics.grain_beside_window AS grain_beside_window,
+            order_details_week.wow_revenue_change AS wow_revenue_change
+        FROM base_metrics
+        LEFT OUTER JOIN order_details_week
+            ON base_metrics.category = order_details_week.category
+            AND base_metrics.week = order_details_week.week
+        """,
+    )
 
 
 @pytest.mark.asyncio
@@ -622,8 +791,33 @@ async def test_broadcast_replaces_the_merge_inside_the_combiner(
     sql = response.json()["sql"]
     # ROUND wraps the broadcast window, not the other way around: rounding
     # before totalling would return a different number.
-    assert "ROUND(SUM(SUM(" in sql.replace(" ", "")
-    assert "SUM(ROUND(" not in sql.replace(" ", "")
+    assert_sql_equal(
+        sql,
+        """
+        WITH v3_order_details AS (
+            SELECT
+                o.order_id,
+                oi.quantity * oi.unit_price AS line_total
+            FROM default.v3.orders o
+            JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+        ),
+        order_details_0 AS (
+            SELECT
+                t1.order_id,
+                SUM(t1.line_total) AS line_total_sum_e1f61696
+            FROM v3_order_details t1
+            GROUP BY t1.order_id
+        )
+        SELECT
+            order_details_0.order_id AS order_id,
+            ROUND(
+                SUM(SUM(order_details_0.line_total_sum_e1f61696)) OVER (),
+                2
+            ) AS rounded_total_global
+        FROM order_details_0
+        GROUP BY order_details_0.order_id
+        """,
+    )
 
 
 class TestFixedGrainGuards:
@@ -827,9 +1021,23 @@ async def test_cube_serves_a_fixed_grain_metric_with_its_broadcast(
     assert response.status_code == 200, response.json()
     sql = response.json()["sql"]
     # Served straight from the cube's own columns -- no fact-table CTEs.
-    assert "FROM cube_with_fixed_grain" in sql
-    assert "FROM v3_order_details" not in sql
-    assert "SUM(SUM(cube_with_fixed_grain_0.line_total_sum_e1f61696)) OVER ()" in sql
+    assert_sql_equal(
+        sql,
+        """
+        WITH cube_with_fixed_grain_0 AS (
+            SELECT
+                category,
+                line_total_sum_e1f61696
+            FROM cube_with_fixed_grain
+        )
+        SELECT
+            cube_with_fixed_grain_0.category AS category,
+            SUM(SUM(cube_with_fixed_grain_0.line_total_sum_e1f61696)) OVER ()
+                AS cube_skip_global
+        FROM cube_with_fixed_grain_0
+        GROUP BY cube_with_fixed_grain_0.category
+        """,
+    )
 
 
 @pytest.mark.asyncio
@@ -1159,8 +1367,41 @@ async def test_window_beside_a_broadcast_divisor_is_allowed(client_with_build_v3
     assert response.status_code == 200, response.json()
     sql = response.json()["sql"]
     # The frame is over the ordinary metric; the broadcast is a plain divisor.
-    assert "ROWS BETWEEN 6 PRECEDING AND CURRENT ROW" in sql
-    assert "/ base_metrics.beside_global" in sql
+    assert_sql_equal(
+        sql,
+        """
+        WITH v3_order_details AS (
+            SELECT
+                o.order_date,
+                oi.quantity * oi.unit_price AS line_total
+            FROM default.v3.orders o
+            JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+        ),
+        order_details_0 AS (
+            SELECT
+                t1.order_date AS date_id_order,
+                SUM(t1.line_total) AS line_total_sum_e1f61696
+            FROM v3_order_details t1
+            GROUP BY t1.order_date
+        ),
+        base_metrics AS (
+            SELECT
+                order_details_0.date_id_order AS date_id_order,
+                SUM(SUM(order_details_0.line_total_sum_e1f61696)) OVER ()
+                    AS beside_global,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            GROUP BY order_details_0.date_id_order
+        )
+        SELECT
+            base_metrics.date_id_order AS date_id_order,
+            SUM(base_metrics.total_revenue) OVER (
+                ORDER BY base_metrics.date_id_order
+                ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+            ) / base_metrics.beside_global AS trailing_share
+        FROM base_metrics
+        """,
+    )
 
 
 @pytest.mark.asyncio
