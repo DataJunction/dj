@@ -460,6 +460,62 @@ async def test_ratio_broadcasts_only_the_fixed_grain_operand(
 
 
 @pytest.mark.asyncio
+async def test_ratio_broadcasts_both_metrics_fixed_to_the_same_grain(
+    client_with_build_v3,
+):
+    """Each fixed-grain parent keeps its own broadcast in a derived ratio.
+
+    The parents deliberately share one underlying component, exercising the
+    component-deduplication path as well as the common declared grain.
+    """
+    fixed_grain = ["v3.order_details.status"]
+    parents = ("v3.fixed_status_numerator", "v3.fixed_status_denominator")
+    for name in parents:
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": name,
+                "description": name,
+                "query": "SELECT SUM(line_total) FROM v3.order_details",
+                "fixed_grain": fixed_grain,
+                "mode": "published",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+    derived = "v3.fixed_status_ratio"
+    response = await client_with_build_v3.post(
+        "/nodes/metric/",
+        json={
+            "name": derived,
+            "description": "Ratio of metrics fixed to the same grain",
+            "query": f"SELECT {parents[0]} / {parents[1]}",
+            "mode": "published",
+        },
+    )
+    assert response.status_code == 201, response.json()
+
+    response = await client_with_build_v3.get(
+        "/sql/metrics/v3/",
+        params={
+            "metrics": [derived],
+            "dimensions": [
+                "v3.order_details.status",
+                "v3.order_details.order_id",
+            ],
+        },
+    )
+    assert response.status_code == 200, response.json()
+    sql = response.json()["sql"]
+
+    assert sql.count("PARTITION BY order_details_0.status") == 2, sql
+    for parent in parents:
+        alias = parent.rsplit(".", 1)[-1]
+        windowed = next(line for line in sql.splitlines() if f"AS {alias}" in line)
+        assert "PARTITION BY order_details_0.status" in windowed
+
+
+@pytest.mark.asyncio
 async def test_partitioned_grain_allowed_beside_a_window_metric(client_with_build_v3):
     """A window metric adds a grain group for the SAME fact table.
 
