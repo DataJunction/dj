@@ -853,6 +853,118 @@ class TestRequiredDimensions:
         assert "test.dim.nonexistent_col" in err.debug["invalid_reaggregate_dimensions"]
 
     @pytest.mark.asyncio
+    async def test_valid_fixed_grain_dimension(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """A fixed grain naming a real dimension column resolves."""
+        dim_node = self._make_dim_node("test.dim", ["dateint"])
+        context = self._make_context(session, parent_node)
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT SUM(value) FROM test.parent",
+            fixed_grain=["test.dim.dateint"],
+        )
+        validator = NodeSpecBulkValidator(context)
+        validator._all_dim_nodes = {**context.dependency_nodes, "test.dim": dim_node}
+        result = validator.validate_query_node(spec)
+
+        assert result.status == NodeStatus.VALID
+        assert ErrorCode.INVALID_COLUMN not in [e.code for e in result.errors]
+
+    @pytest.mark.asyncio
+    async def test_global_fixed_grain_has_nothing_to_resolve(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """`[]` is a declaration, not an omission -- and names no dimension."""
+        context = self._make_context(session, parent_node)
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT SUM(value) FROM test.parent",
+            fixed_grain=[],
+        )
+        validator = NodeSpecBulkValidator(context)
+        result = validator.validate_query_node(spec)
+
+        assert result.status == NodeStatus.VALID
+        assert ErrorCode.INVALID_COLUMN not in [e.code for e in result.errors]
+
+    @pytest.mark.asyncio
+    async def test_fixed_grain_dimension_off_the_query_graph_resolves(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """A grain may name a dimension that is not one of the query's parents.
+
+        Such a node is not in `dependency_nodes`, so it has to be prefetched by
+        name or a valid dimension is reported as an invalid column.
+        """
+        dim_node = self._make_dim_node("test.offgraph_dim", ["dateint"])
+        context = self._make_context(session, parent_node)
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT SUM(value) FROM test.parent",
+            fixed_grain=["test.offgraph_dim.dateint"],
+        )
+        validator = NodeSpecBulkValidator(context)
+        validator._all_dim_nodes = {
+            **context.dependency_nodes,
+            "test.offgraph_dim": dim_node,
+        }
+        result = validator.validate_query_node(spec)
+
+        assert result.status == NodeStatus.VALID
+        assert ErrorCode.INVALID_COLUMN not in [e.code for e in result.errors]
+
+    @pytest.mark.asyncio
+    async def test_invalid_fixed_grain_dimension(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """An unresolvable grain fails at deploy time, not at some later query."""
+        dim_node = self._make_dim_node("test.dim", ["dateint"])
+        context = self._make_context(session, parent_node)
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT SUM(value) FROM test.parent",
+            fixed_grain=["test.dim.nonexistent_col"],
+        )
+        validator = NodeSpecBulkValidator(context)
+        validator._all_dim_nodes = {**context.dependency_nodes, "test.dim": dim_node}
+        result = validator.validate_query_node(spec)
+
+        assert result.status == NodeStatus.INVALID
+        err = next(e for e in result.errors if e.code == ErrorCode.INVALID_COLUMN)
+        assert err.debug is not None
+        assert "test.dim.nonexistent_col" in err.debug["invalid_fixed_grain_dimensions"]
+
+    @pytest.mark.asyncio
+    async def test_fixed_grain_shape_rejected_at_deploy_time(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """A non-mergeable aggregate with a fixed grain fails at deploy
+        time too, not only when the metric is later created via the API."""
+        context = self._make_context(session, parent_node)
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT COUNT(DISTINCT id) FROM test.parent",
+            fixed_grain=[],
+        )
+        validator = NodeSpecBulkValidator(context)
+        result = validator.validate_query_node(spec)
+
+        assert result.status == NodeStatus.INVALID
+        err = next(e for e in result.errors if e.code == ErrorCode.INVALID_METRIC)
+        assert "Unsupported fixed_grain metric shape" in err.message
+
+    @pytest.mark.asyncio
     async def test_invalid_reaggregate_function(
         self,
         session: AsyncSession,
@@ -956,6 +1068,32 @@ class TestRequiredDimensions:
         assert fetched.current is not None
         col_names = {c.name for c in fetched.current.columns}
         assert "region" in col_names
+
+    @pytest.mark.asyncio
+    async def test_prefetch_fetches_fixed_grain_dim_node_from_db(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+        dim_node_in_db: Node,
+    ):
+        """A grain may name a dimension that is not one of the query's parents.
+
+        Such a node is absent from `dependency_nodes`, so it has to be fetched
+        by name or the grain is reported as an invalid column.
+        """
+        context = self._make_context(session, parent_node)
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT SUM(value) FROM test.parent",
+            # A bare column resolves on the parent and names no node to fetch;
+            # a qualified path does. Both shapes are legal in one grain.
+            fixed_grain=["value", "test.external_dim.region"],
+        )
+        validator = NodeSpecBulkValidator(context)
+
+        await validator._prefetch_required_dimension_nodes([spec])
+
+        assert "test.external_dim" in validator._all_dim_nodes
 
     @pytest.mark.asyncio
     async def test_prefetch_fetches_reaggregate_dim_node_from_db(

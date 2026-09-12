@@ -4436,6 +4436,78 @@ class TestCopyNodesToNamespace:
         # The query should reference the branch namespace
         assert "copy_test.feature_copy.source_table" in response.json()["query"]
 
+    @pytest.mark.asyncio
+    async def test_branch_copy_preserves_a_fixed_grain(
+        self,
+        client_with_service_setup: AsyncClient,
+    ):
+        """A copied metric keeps its fixed grain.
+
+        Note this covers the global grain only. `[]` names no dimension, so it
+        does not exercise the `${prefix}` reparameterisation in
+        `get_node_specs_for_export` -- that needs a grain naming a full
+        `node.column` path on an in-deploy dimension node, which this fixture
+        has no dimension for.
+        """
+        await client_with_service_setup.post("/namespaces/fg_copy.main")
+
+        response = await client_with_service_setup.post(
+            "/nodes/source/",
+            json={
+                "name": "fg_copy.main.source_table",
+                "description": "Source table to copy",
+                "catalog": "default",
+                "schema_": "test",
+                "table": "source_table",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "region", "type": "string"},
+                ],
+            },
+        )
+        assert response.status_code <= HTTPStatus.CREATED, response.json()
+
+        response = await client_with_service_setup.post(
+            "/nodes/metric/",
+            json={
+                "name": "fg_copy.main.total_id_global",
+                "description": "Total at the global grain",
+                "query": "SELECT SUM(id) FROM fg_copy.main.source_table",
+                "fixed_grain": [],
+            },
+        )
+        assert response.status_code <= HTTPStatus.CREATED, response.json()
+
+        await client_with_service_setup.patch(
+            "/namespaces/fg_copy.main/git",
+            json={"github_repo_path": "myorg/myrepo", "git_branch": "main"},
+        )
+
+        with patch(
+            "datajunction_server.api.branches.GitHubService",
+        ) as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.create_branch = AsyncMock(
+                return_value={
+                    "ref": "refs/heads/feature-fg",
+                    "object": {"sha": "abc123"},
+                },
+            )
+            mock_github_class.return_value = mock_github
+
+            response = await client_with_service_setup.post(
+                "/namespaces/fg_copy.main/branches",
+                json={"branch_name": "feature-fg"},
+            )
+            assert response.status_code == HTTPStatus.CREATED, response.json()
+
+        response = await client_with_service_setup.get(
+            "/nodes/fg_copy.feature_fg.total_id_global/",
+        )
+        assert response.status_code == HTTPStatus.OK, response.json()
+        # The global grain names no dimension, so there is nothing to repoint.
+        assert response.json()["fixed_grain"] == []
+
 
 @pytest.mark.asyncio
 async def test_branch_copy_preserves_invalid_source_status(

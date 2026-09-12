@@ -320,6 +320,10 @@ class GrainGroupSQL:
     # Maps component.name -> protected dimension column alias emitted by this CTE.
     reaggregate_dimension_aliases: dict[str, str] = field(default_factory=dict)
 
+    # Column alias for every declared partition dimension. For metrics.py to
+    # reference when building the broadcast window.
+    fixed_grain_partition_aliases: dict[str, str] = field(default_factory=dict)
+
     # Merge tracking: when True, aggregations happen in final SELECT, not in CTE
     is_merged: bool = False
 

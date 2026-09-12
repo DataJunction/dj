@@ -21,6 +21,7 @@ from datajunction_server.construction.build_v3.cube_matcher import (
 )
 from datajunction_server.construction.build_v3.decomposition import (
     decompose_and_group_metrics,
+    missing_fixed_grain_dimensions,
     missing_reaggregate_dimensions,
 )
 from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
@@ -326,7 +327,13 @@ async def setup_build_context(
         ctx.decomposed_metrics.values(),
         output_dimensions_after_expression_scan,
     )
-    for dimension in internal_reaggregate_dimensions:
+    # Appended only so `load_nodes` pulls in the join path: `ctx.dimensions` is
+    # reset below and the dimension travels on the grain group instead.
+    internal_fixed_grain_dimensions = missing_fixed_grain_dimensions(
+        ctx.decomposed_metrics.values(),
+        output_dimensions_after_expression_scan,
+    )
+    for dimension in internal_reaggregate_dimensions + internal_fixed_grain_dimensions:
         if dimension not in ctx.dimensions:
             ctx.dimensions.append(dimension)
 
@@ -347,6 +354,7 @@ async def setup_build_context(
             missing_dim_nodes
             or internally_added_roots
             or internal_reaggregate_dimensions
+            or internal_fixed_grain_dimensions
         ):
             await load_nodes(ctx)
     finally:

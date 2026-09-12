@@ -680,6 +680,7 @@ class Node(Base):
             extra_kwargs.update(
                 required_dimensions=required_dimensions_spec,
                 reaggregate=parse_reaggregate_spec(self.current.reaggregate),
+                fixed_grain=self.current.fixed_grain,
                 direction=self.current.metric_metadata.direction
                 if self.current.metric_metadata
                 else None,
@@ -1723,6 +1724,13 @@ class NodeRevision(
         uselist=False,
     )
 
+    # Omitted means the query grain; `[]` means the global grain.
+    fixed_grain: Mapped[list[str] | None] = mapped_column(
+        JSON,
+        nullable=True,
+        default=None,
+    )
+
     # Declares how a metric should roll up across dimensions.
     # Stored as JSON here and validated at the API/deployment boundaries.
     reaggregate: Mapped[dict[str, Any] | None] = mapped_column(
@@ -2075,6 +2083,12 @@ class NodeRevision(
             raise DJInvalidInputException(
                 f"Node {self.name} of type {self.type} cannot have "
                 "bound dimensions which are only for metrics.",
+            )
+
+        if self.type != NodeType.METRIC and self.fixed_grain is not None:
+            raise DJInvalidInputException(
+                f"Node {self.name} of type {self.type} cannot have "
+                "a fixed_grain, which is only for metrics.",
             )
 
         if self.type != NodeType.METRIC and self.reaggregate:

@@ -19,6 +19,7 @@ from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.nodes import (
     _raise_if_frozen_measure_conflicts,
+    _derive_frozen_measures_impl,
     derive_frozen_measures_bulk,
 )
 from datajunction_server.models.decompose import (
@@ -72,6 +73,7 @@ async def _make_metric(
     query: str,
     parents: list[Node],
     reaggregate: dict[str, object] | None = None,
+    fixed_grain: list[str] | None = None,
 ) -> Node:
     node = Node(
         name=name,
@@ -86,6 +88,7 @@ async def _make_metric(
         version="v1.0",
         query=query,
         reaggregate=reaggregate,
+        fixed_grain=fixed_grain,
         status=NodeStatus.VALID,
         parents=parents,
         created_by_id=user.id,
@@ -222,6 +225,98 @@ async def test_reaggregate_rule_is_not_persisted_on_shared_frozen_measure(
     assert all(
         fm.rule.reaggregate is None for fm in reaggregate.current.frozen_measures
     )
+
+
+@pytest.mark.asyncio
+async def test_fixed_grain_is_not_persisted_on_shared_frozen_measure(
+    session: AsyncSession,
+    user: User,
+):
+    """A shared FrozenMeasure.rule must not depend on which metric created it.
+
+    The fixed-grain metric is derived FIRST here: if the declaration were
+    persisted, the ordinary metric would later reuse a measure whose stored rule
+    claims a global grain, because identity comparison ignores the field.
+    """
+    src = await _make_source(
+        session,
+        user,
+        "src_fixed_grain_storage",
+        [Column(name="fg_amount", type=ct.DoubleType(), order=0)],
+    )
+    global_grain = await _make_metric(
+        session,
+        user,
+        "m.fg_amount_global",
+        "SELECT SUM(fg_amount) FROM src_fixed_grain_storage",
+        [src],
+        fixed_grain=[],
+    )
+    ordinary = await _make_metric(
+        session,
+        user,
+        "m.fg_amount_total",
+        "SELECT SUM(fg_amount) FROM src_fixed_grain_storage",
+        [src],
+    )
+    await session.refresh(global_grain, ["current"])
+    await session.refresh(ordinary, ["current"])
+
+    await derive_frozen_measures_bulk(session, [global_grain.current.id])
+    await session.commit()
+    await session.refresh(global_grain.current, ["frozen_measures"])
+
+    assert global_grain.current.frozen_measures
+    assert all(
+        fm.rule.fixed_grain is None for fm in global_grain.current.frozen_measures
+    )
+
+    await derive_frozen_measures_bulk(session, [ordinary.current.id])
+    await session.commit()
+    await session.refresh(ordinary.current, ["frozen_measures"])
+
+    assert {fm.name for fm in ordinary.current.frozen_measures} == {
+        fm.name for fm in global_grain.current.frozen_measures
+    }
+    assert all(fm.rule.fixed_grain is None for fm in ordinary.current.frozen_measures)
+
+
+@pytest.mark.asyncio
+async def test_singular_path_also_strips_metric_level_rule_fields(
+    session: AsyncSession,
+    user: User,
+):
+    """The singular path must strip the same fields as the bulk path.
+
+    The two build `FrozenMeasure` at separate call sites; fixing only the bulk
+    one leaves the create/update path persisting a metric-level declaration onto
+    a measure other metrics go on to share.
+    """
+    src = await _make_source(
+        session,
+        user,
+        "src_singular_strip",
+        [Column(name="sing_amount", type=ct.DoubleType(), order=0)],
+    )
+    declared = await _make_metric(
+        session,
+        user,
+        "m.sing_amount_global",
+        "SELECT SUM(sing_amount) FROM src_singular_strip",
+        [src],
+        fixed_grain=[],
+        reaggregate={
+            "rules": [{"dimension": "default.date_dim.date", "fn": "last_value"}],
+        },
+    )
+    await session.refresh(declared, ["current"])
+
+    frozen = await _derive_frozen_measures_impl(declared.current.id, session)
+    await session.commit()
+
+    assert frozen
+    assert all(fm.rule.fixed_grain is None for fm in frozen)
+    assert all(fm.rule.reaggregate is None for fm in frozen)
 
 
 def test_frozen_measure_conflict_rejects_different_measure_identity():

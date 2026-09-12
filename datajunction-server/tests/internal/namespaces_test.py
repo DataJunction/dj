@@ -22,6 +22,7 @@ from datajunction_server.internal.namespace_locks import (
 from datajunction_server.internal.namespaces import (
     _merge_list_with_key,
     _merge_yaml_preserving_comments,
+    _node_spec_to_yaml_dict,
     create_or_reactivate_namespace,
     get_node_specs_for_export,
     node_spec_to_yaml,
@@ -1137,6 +1138,43 @@ class TestNodeSpecToYaml:
         ]
 
     @pytest.mark.asyncio
+    async def test_metric_fixed_grain_export_injects_dimension_prefix(
+        self,
+        monkeypatch,
+    ):
+        """namespace export parameterizes fixed-grain dimensions."""
+        spec = MetricSpec(
+            name="demo.branch.metrics.region_balance",
+            node_type=NodeType.METRIC,
+            query="SELECT SUM(balance) FROM demo.branch.transforms.accounts",
+            fixed_grain=["demo.branch.dims.region.region_id"],
+        )
+
+        async def to_spec(_session):
+            return spec
+
+        fake_node = SimpleNamespace(
+            name="demo.branch.metrics.region_balance",
+            current=SimpleNamespace(parents=[], status="valid"),
+            to_spec=to_spec,
+        )
+
+        async def namespace_get(_session, _namespace, raise_if_not_exists=False):
+            return SimpleNamespace(parent_namespace="demo.main")
+
+        async def list_all_nodes(_session, _namespace, options=None):
+            return [fake_node]
+
+        monkeypatch.setattr(NodeNamespace, "get", namespace_get)
+        monkeypatch.setattr(NodeNamespace, "list_all_nodes", list_all_nodes)
+
+        exported = await get_node_specs_for_export(SimpleNamespace(), "demo.branch")
+
+        # Without this the copy would partition on the source namespace's
+        # dimension rather than its own.
+        assert exported[0].fixed_grain == ["${prefix}dims.region.region_id"]
+
+    @pytest.mark.asyncio
     async def test_metric_reaggregate_export_injects_dimension_prefix(
         self,
         monkeypatch,
@@ -1220,3 +1258,58 @@ class TestNodeSpecToYaml:
             "mode: published",
             "query: SELECT SUM(rev) FROM ns.transforms.t",
         ]
+
+
+def test_yaml_export_keeps_an_empty_fixed_grain():
+    """`[]` is the global grain, so it must survive the empty-value filter.
+
+    Everything else falsy is dropped for tidiness. Dropping this one turns a
+    globally-grained metric back into a query-grained one with the same name.
+    """
+    from datajunction_server.models.deployment import MetricSpec
+
+    exported = _node_spec_to_yaml_dict(
+        MetricSpec(
+            name="v3.total_revenue",
+            query="SELECT SUM(line_total) FROM v3.order_details",
+            fixed_grain=[],
+        ),
+    )
+    assert exported["fixed_grain"] == []
+
+    # Absent stays absent — the exemption must not invent the key.
+    without = _node_spec_to_yaml_dict(
+        MetricSpec(
+            name="v3.plain_revenue",
+            query="SELECT SUM(line_total) FROM v3.order_details",
+        ),
+    )
+    assert "fixed_grain" not in without
+
+
+def test_merge_keeps_an_empty_fixed_grain_already_in_the_file():
+    """The merge drops keys missing from the new export, so the two interact.
+
+    A `fixed_grain: []` committed to a git-backed namespace must not be deleted
+    by the next sync.
+    """
+    yaml = YAML()
+    existing = yaml.load(
+        "name: v3.total_revenue\ntype: metric\nfixed_grain: []\n",
+    )
+    # Built by the exporter, not by hand: the merge drops keys the export
+    # omits, so the two must be exercised together to catch the real bug.
+    from datajunction_server.models.deployment import MetricSpec
+
+    new_data = _node_spec_to_yaml_dict(
+        MetricSpec(
+            name="v3.total_revenue",
+            query="SELECT SUM(line_total) FROM v3.order_details",
+            fixed_grain=[],
+        ),
+    )
+
+    result = _merge_yaml_preserving_comments(existing, new_data, yaml)
+
+    assert "fixed_grain" in result
+    assert list(result["fixed_grain"]) == []

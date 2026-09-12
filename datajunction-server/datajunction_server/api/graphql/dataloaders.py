@@ -353,9 +353,8 @@ async def batch_load_extracted_measures(
             list(nr_to_name.values()),
         )
 
-        # 3) Bulk-load Node objects for the full ancestor set. We only need
-        # name, type, and current.query — everything else is noloaded so this
-        # is a narrow query. noload(Node.created_by/Node.tags) are safe because
+        # 3) Bulk-load Node objects for the full ancestor set.
+        # noload(Node.created_by/Node.tags) are safe because
         # MetricComponentExtractor never reads them.
         nodes_cache: dict[str, DBNode] = {}
         if all_names:
@@ -372,10 +371,16 @@ async def batch_load_extracted_measures(
                     noload(DBNode.tags),
                     joinedload(DBNode.current).options(
                         noload(DBNodeRevision.created_by),
+                        # Must name every field `_build_metric_data_from_cache`
+                        # reads. An omitted one is deferred, and reading a
+                        # deferred field here raises MissingGreenlet, which the
+                        # loop below turns into a null `extractedMeasures`.
                         load_only(
+                            DBNodeRevision.fixed_grain,
                             DBNodeRevision.id,
                             DBNodeRevision.name,
                             DBNodeRevision.query,
+                            DBNodeRevision.reaggregate,
                         ),
                     ),
                 )

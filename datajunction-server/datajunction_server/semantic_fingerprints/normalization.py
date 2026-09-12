@@ -158,6 +158,21 @@ def normalize_cube_columns(columns: list[ColumnSpec] | None) -> dict[str, Any]:
     }
 
 
+def normalize_fixed_grain(grain: list[str] | None) -> list[str] | None:
+    """
+    The fingerprint form of a declared grain.
+
+    Ordering and de-duplication go through `normalize_sequence` so this field is
+    canonicalised exactly like every other sequence field -- sorting on the raw
+    string instead diverges for any value JSON has to escape. `None` is returned
+    untouched: unlike other optional lists it must not collapse to `[]`, which is
+    a different declaration (the global grain, not the query grain).
+    """
+    if grain is None:
+        return None
+    return normalize_sequence(normalize_value(grain), preserve_order=False)
+
+
 def normalize_field(
     spec: NodeSpec,
     field: str,
@@ -190,6 +205,8 @@ def normalize_field(
             spec.dimension_links,
             preserve_order=preserve_order,
         )
+    if field == "fixed_grain":
+        return normalize_fixed_grain(value)
     if field == "unit_enum" and isinstance(spec, MetricSpec):
         return normalize_value(spec._normalized_unit())
     if field == "direction" and isinstance(spec, MetricSpec):

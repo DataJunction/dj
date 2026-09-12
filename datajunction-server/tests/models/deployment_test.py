@@ -50,6 +50,7 @@ from datajunction_server.semantic_fingerprints.engine import (
 )
 from datajunction_server.semantic_fingerprints.normalization import (
     canonical_json,
+    normalize_fixed_grain,
     normalize_sequence,
     normalize_value,
 )
@@ -1706,7 +1707,7 @@ GOLDEN_FINGERPRINTS = {
     "source": "71dcbc388988c2bdd850670427710384687b58565ee38ca392dc220adfed868d",
     "transform": "978e692880c7bcfb1bd78ece85895a1ec1558e85377b064a8dac3f3719cff2a5",
     "dimension": "f7b3c87a61fdadf9997432fd9334befdf43f2488874ef555e3f7d4c4ba86e3e1",
-    "metric": "f0b5356d75b1f6a39a2809581a9167b9e1298a41980ee8e83040cf6bd0996851",
+    "metric": "adf0927eb31f1ff500f064d7b6a7f286aa1381265e61e2e3421920059d9a2922",
     "cube": "9b0a56d974d1e3769bc2db94e2cfbae7a6a4839f664eebd2a4387ef112ceea81",
 }
 
@@ -1991,6 +1992,7 @@ def test_metric_presentation_fields_preserve_semantic_fingerprint():
             "columns",
             "required_dimensions",
             "reaggregate",
+            "fixed_grain",
         }
     )
     assert all(
@@ -2195,3 +2197,32 @@ def test_semantic_fingerprint_combines_sorted_parent_hashes():
     mismatched = SemanticFingerprint.model_construct(version=2, digest="b" * 64)
     with pytest.raises(ValueError, match="Parent fingerprint version"):
         compose_node_fingerprint(node, parent_fingerprints=[mismatched])
+
+
+def test_normalize_fixed_grain_keeps_absent_distinct_from_global():
+    """`None` is the query grain; `[]` is the global grain. Never the same digest."""
+    assert normalize_fixed_grain(None) is None
+    assert normalize_fixed_grain([]) == []
+    assert canonical_json(normalize_fixed_grain(None)) != canonical_json(
+        normalize_fixed_grain([]),
+    )
+
+
+@pytest.mark.parametrize(
+    ("grain", "expected"),
+    [
+        (["b", "a"], ["a", "b"]),
+        (["a", "b", "a"], ["a", "b"]),
+        # Ordering must follow the canonical-JSON key used for every other
+        # sequence field: sorting the raw strings puts "\n" first instead.
+        (["0", "\n"], ["0", "\n"]),
+    ],
+    ids=["reordered", "duplicated", "json-escaped"],
+)
+def test_normalize_fixed_grain_matches_the_canonical_sequence_form(grain, expected):
+    """A declared grain is a set, canonicalised like any other sequence field."""
+    assert normalize_fixed_grain(grain) == expected
+    assert normalize_fixed_grain(grain) == normalize_sequence(
+        normalize_value(grain),
+        preserve_order=False,
+    )

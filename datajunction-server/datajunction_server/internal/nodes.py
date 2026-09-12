@@ -129,6 +129,7 @@ from datajunction_server.models.node import (
     NodeStatus,
     UpdateNode,
 )
+from datajunction_server.models.fixed_grain import fixed_grain_identity
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import QueryCreate
 from datajunction_server.models.reaggregate import dump_reaggregate_spec
@@ -595,6 +596,9 @@ async def create_node_revision(
             if node_type == NodeType.METRIC
             else None
         ),
+        # Passed through for every node type so `extra_validation` can reject
+        # it, rather than silently dropping a declaration the author wrote.
+        fixed_grain=data.fixed_grain,
         created_by_id=current_user.id,
         custom_metadata=data.custom_metadata,
     )
@@ -904,7 +908,7 @@ async def _derive_frozen_measures_impl(
                 upstream_revision_id=upstream_revision_id,
                 expression=measure.expression,
                 aggregation=measure.aggregation,
-                rule=measure.rule,
+                rule=_frozen_measure_rule(measure.rule),
                 used_by_node_revisions=[],
             )
             session.add(frozen_measure)
@@ -1041,16 +1045,31 @@ async def derive_frozen_measures_bulk(
             frozen_measure.used_by_node_revisions.append(rev)
 
 
+# Declarations that ride on the aggregation rule but are not part of a measure's
+# identity, so two metrics differing only in grain share one frozen measure.
+#
+# Comparison and persistence must agree on this set. When they drift, the stored
+# rule depends on whichever metric happened to create the measure first.
+_METRIC_LEVEL_RULE_FIELDS = frozenset({"reaggregate", "fixed_grain"})
+
+
 def _aggregation_rule_identity(rule: DecomposeAggregationRule) -> dict[str, Any]:
     """Return the stable JSON shape used for frozen-measure rule comparison."""
-    return rule.model_dump(mode="json", exclude_none=True, exclude={"reaggregate"})
+    # `[]` survives `exclude_none`, keeping the global grain distinct from absent.
+    return rule.model_dump(
+        mode="json",
+        exclude_none=True,
+        exclude=set(_METRIC_LEVEL_RULE_FIELDS),
+    )
 
 
 def _frozen_measure_rule(rule: DecomposeAggregationRule) -> DecomposeAggregationRule:
     """
     Return the metric-independent rule persisted on a shared frozen measure.
     """
-    return rule.model_copy(update={"reaggregate": None})
+    return rule.model_copy(
+        update={field: None for field in _METRIC_LEVEL_RULE_FIELDS},
+    )
 
 
 def _raise_if_frozen_measure_conflicts(
@@ -1176,6 +1195,7 @@ async def copy_to_new_node(
         required_dimensions=list(old_revision.required_dimensions),
         metric_metadata=old_revision.metric_metadata,
         reaggregate=old_revision.reaggregate,
+        fixed_grain=old_revision.fixed_grain,
         cube_elements=list(old_revision.cube_elements),
         cube_filters=old_revision.cube_filters,
         status=old_revision.status,
@@ -2554,6 +2574,7 @@ def copy_existing_node_revision(old_revision: NodeRevision, current_user: User):
         required_dimensions=list(old_revision.required_dimensions),
         metric_metadata=old_revision.metric_metadata,
         reaggregate=old_revision.reaggregate,
+        fixed_grain=old_revision.fixed_grain,
         dimension_links=[
             DimensionLink(
                 dimension_id=link.dimension_id,
@@ -2776,6 +2797,15 @@ async def create_new_revision_from_existing(
         and {col.name for col in old_revision.required_dimensions}
         != set(data.required_dimensions)
     )
+    # An explicit null clears the grain, an absent one carries it forward; both
+    # arrive as `None`, so `model_fields_set` is what separates them.
+    fixed_grain_was_set = bool(data and "fixed_grain" in data.model_fields_set)
+    new_fixed_grain = (
+        data.fixed_grain if fixed_grain_was_set else old_revision.fixed_grain
+    )
+    fixed_grain_changes = fixed_grain_was_set and fixed_grain_identity(
+        old_revision.fixed_grain,
+    ) != fixed_grain_identity(new_fixed_grain)
     reaggregate_was_set = bool(
         data and "reaggregate" in data.model_fields_set,
     )
@@ -2790,6 +2820,7 @@ async def create_new_revision_from_existing(
         or pk_changes
         or required_dim_changes
         or reaggregate_changes
+        or fixed_grain_changes
     )
 
     # If nothing has changed, do not create the new node revision
@@ -2846,6 +2877,7 @@ async def create_new_revision_from_existing(
             if reaggregate_was_set
             else old_revision.reaggregate
         ),
+        fixed_grain=new_fixed_grain,
         dimension_links=[
             DimensionLink(
                 dimension_id=link.dimension_id,

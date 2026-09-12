@@ -548,3 +548,64 @@ async def test_attach_git_info_empty_list_short_circuits():
     await _attach_git_info(info, [])
 
     loader.load_many.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_extraction_survives_a_cold_session(session, session_factory):
+    """The batch loader must not need a warm identity map to succeed.
+
+    Its `load_only` has to name every field `_build_metric_data_from_cache`
+    reads; an omitted one is deferred, reading it raises MissingGreenlet, and
+    the loop's `except` turns that into a null `extractedMeasures` rather than
+    an error. The rest of the suite cannot catch this, because `session_context`
+    hands DataLoaders back `request.state.test_session`, whose identity map
+    already holds fully-loaded revisions, so nothing is ever deferred.
+    """
+    from contextlib import asynccontextmanager
+
+    from sqlalchemy import select
+    from sqlalchemy.orm import joinedload
+
+    from datajunction_server.database.node import Node as DBNode
+    from datajunction_server.models.node_type import NodeType
+
+    metric = (
+        (
+            await session.execute(
+                select(DBNode)
+                .where(DBNode.type == NodeType.METRIC)
+                .where(DBNode.name.like("%total_repair_cost%"))
+                .options(joinedload(DBNode.current))
+                .limit(1),
+            )
+        )
+        .unique()
+        .scalars()
+        .first()
+    )
+    assert metric is not None, "examples should provide a single-measure metric"
+    # Only `fixed_grain` is set: reading a deferred attribute raises whatever its
+    # value is, so an omitted `reaggregate` trips this too.
+    metric.current.fixed_grain = []
+    await session.commit()
+
+    @asynccontextmanager
+    async def cold_session(*_args, **_kwargs):
+        opened = await session_factory()
+        try:
+            yield opened
+        finally:
+            await opened.close()
+
+    with patch(
+        "datajunction_server.api.graphql.dataloaders.session_context",
+        cold_session,
+    ):
+        result = await batch_load_extracted_measures(
+            [metric.current.id],
+            MagicMock(),
+        )
+
+    assert result[0] is not None, "extraction was swallowed into None"
+    components, _ = result[0]
+    assert components

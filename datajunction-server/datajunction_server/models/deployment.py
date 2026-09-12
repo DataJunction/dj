@@ -25,6 +25,7 @@ from datajunction_server.models.dimensionlink import (
     LinkType,
     SparkJoinStrategy,
 )
+from datajunction_server.models.fixed_grain import fixed_grain_identity
 from datajunction_server.models.impact import DownstreamImpact
 from datajunction_server.models.materialization import (
     DEFAULT_CUBE_RETENTION,
@@ -1023,6 +1024,8 @@ class MetricSpec(NodeSpec):
     # Excluded from serialization so it's never exported.
     columns: list[ColumnSpec] | None = Field(default=None, exclude=True)
     required_dimensions: list[str] | None = None  # Field(default_factory=list)
+    # Omitted means the query grain; `[]` means the global grain.
+    fixed_grain: list[str] | None = None
     reaggregate: ReaggregateSpec | None = None
     direction: MetricDirection | None = None
     unit_enum: MetricUnit | None = Field(default=None, exclude=True)
@@ -1040,6 +1043,8 @@ class MetricSpec(NodeSpec):
         "columns": ChangeTier.NONE,
         # Required dimensions constrain which queries the metric can answer.
         "required_dimensions": ChangeTier.MAJOR,
+        # Where the aggregate is computed -- changes the number, not its label.
+        "fixed_grain": ChangeTier.MAJOR,
         "reaggregate": ChangeTier.MAJOR,
         # Everything below is presentation metadata on the metric's single output
         # column -- the same set the PATCH path already treats as minor via
@@ -1054,6 +1059,8 @@ class MetricSpec(NodeSpec):
     FIELD_ORDER_CHANGE_TIERS: ClassVar[dict[str, ChangeTier]] = {
         "columns": ChangeTier.NONE,
         "required_dimensions": ChangeTier.NONE,
+        # A grain is a partition, so reordering carries no meaning.
+        "fixed_grain": ChangeTier.NONE,
     }
 
     # Class-level adapter used by __init__ to eagerly validate structured
@@ -1113,6 +1120,21 @@ class MetricSpec(NodeSpec):
         if self.unit_enum is None or self.unit_enum == MetricUnit.UNKNOWN:
             return None
         return self.unit_enum.value.name.lower()
+
+    @property
+    def rendered_fixed_grain(self) -> list[str] | None:
+        """
+        Fixed grain with `${prefix}` resolved to this spec's namespace.
+
+        `[]` is preserved rather than folded to `None`: query grain and global
+        grain are different declarations.
+        """
+        if self.fixed_grain is None:
+            return None
+        return [
+            render_prefixes(dim, self.namespace) if "${prefix}" in dim else dim
+            for dim in self.fixed_grain
+        ]
 
     @property
     def rendered_required_dimensions(self) -> list[str]:
@@ -1180,6 +1202,17 @@ class MetricSpec(NodeSpec):
             == set(other.canonical_required_dimensions)
         ):
             changed.remove("required_dimensions")
+
+        # `_values_differ` compares the raw field as a set, so it sees no change
+        # between `None` (query grain) and `[]` (global grain). Decide on the
+        # rendered value, the same one `__eq__` compares.
+        if (
+            isinstance(other, MetricSpec)
+            and "fixed_grain" not in changed
+            and fixed_grain_identity(self.rendered_fixed_grain)
+            != fixed_grain_identity(other.rendered_fixed_grain)
+        ):
+            changed.append("fixed_grain")
         return changed
 
     @property
@@ -1245,6 +1278,8 @@ class MetricSpec(NodeSpec):
                 preserve_order=False,
             )
             and self.rendered_reaggregate == other.rendered_reaggregate
+            and fixed_grain_identity(self.rendered_fixed_grain)
+            == fixed_grain_identity(other.rendered_fixed_grain)
             and eq_or_fallback(self.direction, other.direction, MetricDirection.NEUTRAL)
             and self._normalized_unit() == other._normalized_unit()
             and self.significant_digits == other.significant_digits

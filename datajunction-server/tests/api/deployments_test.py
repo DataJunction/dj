@@ -2233,6 +2233,46 @@ class TestDeployments:
             "status": "skipped",
         }
 
+    def test_deploy_fixed_grain_metric_updates(self):
+        """Declaring, changing and clearing a grain each register as a change."""
+        from datajunction_server.models.deployment import ChangeTier, MetricSpec
+
+        query = "SELECT SUM(price) FROM foo.bar.orders"
+        query_grain = MetricSpec(name="m", namespace="foo.bar", query=query)
+        global_grain = MetricSpec(
+            name="m",
+            namespace="foo.bar",
+            query=query,
+            fixed_grain=[],
+        )
+        by_region = MetricSpec(
+            name="m",
+            namespace="foo.bar",
+            query=query,
+            fixed_grain=["foo.bar.region_dim.region"],
+        )
+
+        assert MetricSpec.field_change_tier("fixed_grain") == ChangeTier.MAJOR
+
+        assert "fixed_grain" in query_grain.diff(global_grain)
+        assert "fixed_grain" in global_grain.diff(by_region)
+        assert "fixed_grain" in global_grain.diff(query_grain)
+
+        # Reordering is not a change: a grain is a partition.
+        reordered = MetricSpec(
+            name="m",
+            namespace="foo.bar",
+            query=query,
+            fixed_grain=["b", "a"],
+        )
+        ordered = MetricSpec(
+            name="m",
+            namespace="foo.bar",
+            query=query,
+            fixed_grain=["a", "b"],
+        )
+        assert "fixed_grain" not in ordered.diff(reordered)
+
     @pytest.mark.asyncio
     async def test_deploy_metric_with_update(
         self,

@@ -371,6 +371,22 @@ def _reaggregate_dimension_requested(
     return False
 
 
+def missing_fixed_grain_dimensions(
+    decomposed_metrics: Iterable[DecomposedMetricInfo],
+    requested_dimensions: list[str],
+) -> list[str]:
+    """
+    Partition dimensions needed as private grain but absent from output grain.
+    """
+    missing: list[str] = []
+    for decomposed in decomposed_metrics:
+        for component in decomposed.components:
+            for dimension in component.rule.fixed_grain or []:
+                if dimension not in requested_dimensions and dimension not in missing:
+                    missing.append(dimension)
+    return missing
+
+
 def missing_reaggregate_dimensions(
     decomposed_metrics: Iterable[DecomposedMetricInfo],
     requested_dimensions: list[str],
