@@ -53,9 +53,9 @@ async def test_population_metric_at_unit_grain_is_refused(client_with_build_v3):
     """The allocated population cannot be declared at unit grain.
 
     `COUNT(DISTINCT unit)` is one per unit at unit grain, so summing it gives
-    the population -- but the shape check rejects the distinct aggregate before
-    noticing that its key is the declared grain. The node stores as valid, so
-    the refusal only arrives when someone queries it.
+    the population -- but the shape check rejects the distinct aggregate
+    before noticing that its key is the declared grain. The shape check now
+    runs at write time, so the refusal arrives on creation, not on query.
     """
     client = client_with_build_v3
     created = await create_metric(
@@ -65,12 +65,8 @@ async def test_population_metric_at_unit_grain_is_refused(client_with_build_v3):
         fixed_grain=[UNIT],
         reaggregate={"fn": "sum"},
     )
-    assert created.status_code == 201
-    assert created.json()["status"] == "valid"
-
-    response = await build_sql(client, "v3.xp_allocated_units")
-    assert response.status_code == 422
-    assert response.json()["message"] == (
+    assert created.status_code == 422
+    assert created.json()["message"] == (
         "Unsupported fixed_grain metric shape: a fixed grain requires one "
         "non-distinct fully-aggregatable component, because broadcasting "
         "re-applies the merge."
@@ -85,6 +81,11 @@ async def test_cross_fact_ratio_at_unit_grain_is_refused(client_with_build_v3):
     fact table, so the ratio always spans two grain groups. Any non-empty
     `fixed_grain` on either side refuses the combination, which puts this
     constraint on the proposal's central shape rather than on an edge case.
+
+    The unit dimension is requested here alongside month so the query reaches
+    this refusal at all -- an unrequested `fixed_grain` dimension is refused
+    on its own terms first (see `fixed_grain_test.py`'s
+    `test_grain_absent_from_the_query_is_refused`).
     """
     client = client_with_build_v3
     await create_metric(
@@ -101,7 +102,13 @@ async def test_cross_fact_ratio_at_unit_grain_is_refused(client_with_build_v3):
     )
     assert created.status_code == 201
 
-    response = await build_sql(client, "v3.xp_avg_per_allocated")
+    response = await client.get(
+        "/sql/metrics/v3/",
+        params={
+            "metrics": ["v3.xp_avg_per_allocated"],
+            "dimensions": ["v3.date.month", UNIT],
+        },
+    )
     assert response.status_code == 422
     assert response.json()["message"] == (
         "Metric `v3.xp_activity` declares a non-empty `fixed_grain` and cannot "
@@ -186,27 +193,16 @@ async def test_global_grain_ratio_builds_but_is_a_different_number(
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "A fixed-grain dimension outside the query grain is never projected "
-        "into the measures CTE, so the outer window partitions by a column "
-        "that does not exist. Remove this marker when the CTE emits it."
-    ),
-)
 @pytest.mark.asyncio
-async def test_activity_at_unit_grain_projects_its_partition_column(
+async def test_activity_at_unit_grain_without_the_unit_is_refused(
     client_with_build_v3,
 ):
-    """The unit grain has to reach the CTE the window reads from.
+    """The unit grain has to be part of the query, one way or another.
 
-    `customer_id` is not a requested dimension here, so it is private grain.
-    The generated SQL still partitions by `order_details_0.customer_id`, and
-    that CTE groups by month alone. No engine accepts the result.
-
-    Asserting the whole statement would pin the broken SQL, so this asserts
-    only the invariant it breaks: every column the outer query reads from a
-    CTE has to be projected by it.
+    `customer_id` is not a requested dimension here, so it is an unrequested
+    `fixed_grain` dimension: refused outright, rather than silently
+    generating a window that partitions by a column no CTE projects (the
+    shape this used to produce, and no engine accepted).
     """
     client = client_with_build_v3
     await create_metric(
@@ -218,12 +214,9 @@ async def test_activity_at_unit_grain_projects_its_partition_column(
     )
 
     response = await build_sql(client, "v3.xp_activity_private")
-    assert response.status_code == 200
-    sql = response.json()["sql"]
-
-    assert "PARTITION BY order_details_0.customer_id" in sql
-    cte_body = sql.split("order_details_0 AS (", 1)[1].split(")", 1)[0]
-    assert "customer_id" in cte_body, (
-        "order_details_0 must project customer_id for the window to partition "
-        f"by it, but it selects only:\n{cte_body}"
+    assert response.status_code == 422
+    assert response.json()["message"] == (
+        f"Metric `v3.xp_activity_private` declares `fixed_grain` on `{UNIT}`, "
+        "which is not a requested output dimension. Add it to the query's "
+        "dimensions before requesting this metric."
     )
