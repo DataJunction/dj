@@ -4821,6 +4821,7 @@ class TestDeployments:
             "description": "Inventory tag",
             "tag_type": "group",
             "tag_metadata": {"order": 1, "display": {"color": "blue"}},
+            "owned_by_namespace": None,
         }
 
         # A key is added out-of-band, outside the deployment
@@ -4850,6 +4851,7 @@ class TestDeployments:
             "description": "Inventory tag",
             "tag_type": "group",
             "tag_metadata": {"order": 2, "display": {"icon": "box"}},
+            "owned_by_namespace": None,
         }
 
         # Removing tag_metadata from the spec clears it on the server
@@ -4862,6 +4864,7 @@ class TestDeployments:
             "description": "Inventory tag",
             "tag_type": "group",
             "tag_metadata": {},
+            "owned_by_namespace": None,
         }
 
     @pytest.mark.asyncio

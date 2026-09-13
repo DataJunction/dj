@@ -25,6 +25,7 @@ __all__ = [
     "RoleScope",
     "Table",
     "Tag",
+    "TagTypeClaim",
     "User",
 ]
 
@@ -46,5 +47,6 @@ from datajunction_server.database.preaggregation import PreAggregation
 from datajunction_server.database.queryrequest import QueryRequest
 from datajunction_server.database.rbac import Role, RoleAssignment, RoleScope
 from datajunction_server.database.tag import Tag
+from datajunction_server.database.tag_type_claim import TagTypeClaim
 from datajunction_server.database.user import User
 from datajunction_server.models.history import History

@@ -1581,6 +1581,21 @@ class DeploymentRulesetSpec(BaseModel):
     when: str | None = None
 
 
+class TagTypeClaimSpec(BaseModel):
+    """
+    Specification for a tag type this namespace claims.
+
+    A claimed type can only be created by deployments of the claiming namespace, which
+    is how a governed vocabulary -- one synced from an external taxonomy, say -- stops
+    accumulating entries from callers that do not own it. The namespace defaults to the
+    enclosing DeploymentSpec's; naming a sub-namespace narrows the claim, and a
+    namespace outside the deploying one is rejected.
+    """
+
+    tag_type: str
+    namespace: str | None = None
+
+
 class GitDeploymentSource(BaseModel):
     """
     Deployment from a tracked git repository.
@@ -1687,6 +1702,9 @@ class DeploymentSpec(BaseModel):
     custom_metadata_schemas: list[CustomMetadataSchemaSpec] | None = None
     checks: list[DeploymentCheckSpec] | None = None
     rulesets: list[DeploymentRulesetSpec] | None = None
+    # None and [] differ here too: None leaves existing claims alone, [] releases the
+    # ones this namespace holds, so a vocabulary can move to another repo.
+    tag_type_claims: list[TagTypeClaimSpec] | None = None
     source: DeploymentSource | None = None  # CI/CD provenance tracking
     git_config: NamespaceGitConfig | None = None  # Git branch management config
     force: bool = Field(
@@ -1769,6 +1787,22 @@ class DeploymentSpec(BaseModel):
                         f"custom_metadata schema '{schema.key}' declares namespace "
                         f"'{schema.namespace}', which is not '{self.namespace}' or "
                         "beneath it. A deployment may scope a schema to its own "
+                        "namespace or a sub-namespace, never to another."
+                    ),
+                )
+        for claim in self.tag_type_claims or []:
+            if not claim.namespace:
+                claim.namespace = self.namespace
+            elif claim.namespace != self.namespace and not claim.namespace.startswith(
+                f"{self.namespace}.",
+            ):
+                # Narrower than the deploying namespace is a rollout choice;
+                # wider, or sideways, would let one repo govern another's tags.
+                raise DJInvalidDeploymentConfig(
+                    message=(
+                        f"Tag type claim '{claim.tag_type}' declares namespace "
+                        f"'{claim.namespace}', which is not '{self.namespace}' or "
+                        "beneath it. A deployment may scope a claim to its own "
                         "namespace or a sub-namespace, never to another."
                     ),
                 )

@@ -34,6 +34,7 @@ from datajunction_server.models.deployment import (
     PreAggSpec,
     SourceSpec,
     TagSpec,
+    TagTypeClaimSpec,
     TransformSpec,
     bump_version,
     eq_columns,
@@ -285,6 +286,7 @@ def test_deployment_spec():
         "custom_metadata_schemas": None,
         "checks": None,
         "rulesets": None,
+        "tag_type_claims": None,
         "source": None,
         "auto_register_sources": True,
         "force": False,
@@ -1835,6 +1837,46 @@ def test_a_cycle_in_includes_is_rejected(includes, cycle):
             ],
         )
     assert f"Ruleset includes form a cycle: {cycle}." in str(exc_info.value)
+
+
+def test_a_tag_type_claim_namespace_defaults_to_the_deployment():
+    """Omitting it claims the type for the deploying namespace."""
+    spec = DeploymentSpec(
+        namespace="shared",
+        nodes=[],
+        tag_type_claims=[TagTypeClaimSpec(tag_type="domain")],
+    )
+    assert spec.tag_type_claims[0].namespace == "shared"
+
+
+def test_a_tag_type_claim_may_be_scoped_to_a_sub_namespace():
+    """Narrower than the deployment is a rollout choice, same as schemas."""
+    spec = DeploymentSpec(
+        namespace="shared",
+        nodes=[],
+        tag_type_claims=[
+            TagTypeClaimSpec(tag_type="domain", namespace="shared.conformed"),
+        ],
+    )
+    assert spec.tag_type_claims[0].namespace == "shared.conformed"
+
+
+@pytest.mark.parametrize(
+    "outside",
+    ["elsewhere", "shared_other", "other.shared", "sharedx"],
+)
+def test_a_tag_type_claim_namespace_outside_the_deployment_is_rejected(outside):
+    """
+    Sideways claims would let one repo govern another repo's vocabulary. The
+    prefix traps (`shared_other`, `sharedx`) are rejected too.
+    """
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        DeploymentSpec(
+            namespace="shared",
+            nodes=[],
+            tag_type_claims=[TagTypeClaimSpec(tag_type="domain", namespace=outside)],
+        )
+    assert "not 'shared' or beneath it" in str(exc_info.value)
 
 
 def semantic_specs() -> dict[str, NodeSpec]:
