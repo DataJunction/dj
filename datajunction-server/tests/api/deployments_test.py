@@ -12136,3 +12136,239 @@ class TestDimensionAttributeAddedInSamePush:
                 "changed_fields": [],
             },
         ]
+
+
+@pytest.mark.xdist_group(name="deployments")
+class TestClaimedTagTypeDeployment:
+    """
+    Tags are global while deployments are not, so every namespace declaring the
+    same tag file is a writer of the same rows. When a tag type is claimed, only
+    the claiming namespace's own deployment writes its tags.
+    """
+
+    @staticmethod
+    def claim(mocker, claims):
+        """Inject a claim mapping through the claim-store seam."""
+        return mocker.patch(
+            "datajunction_server.internal.deployment.orchestrator."
+            "claimed_tag_type_namespaces",
+            new=AsyncMock(return_value=claims),
+        )
+
+    @staticmethod
+    def tag_results(data):
+        return [r for r in data["results"] if r["deploy_type"] == "tag"]
+
+    @pytest.mark.asyncio
+    async def test_claim_owner_writes(
+        self,
+        mocker,
+        client,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        The namespace holding the claim writes the tags of the claimed type.
+        """
+        namespace = "tag_claim_owner"
+        self.claim(mocker, {"vocabulary": namespace})
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[default_us_states, default_us_state],
+                tags=[
+                    TagSpec(
+                        name="claim_owner_writes",
+                        description="Owned",
+                        tag_type="vocabulary",
+                    ),
+                ],
+            ),
+        )
+        assert data["status"] == "success"
+        assert self.tag_results(data) == []
+        response = await client.get("/tags/claim_owner_writes/")
+        assert response.json()["description"] == "Owned"
+
+    @pytest.mark.asyncio
+    async def test_sub_namespace_deploy_skips(
+        self,
+        mocker,
+        session,
+        client,
+        current_user,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        A branch deploy targets `<root>.<branch>`, which is not the claiming
+        namespace, so its declarations are skipped rather than failing -- and it
+        can still tag its nodes with the tags it did not write.
+        """
+        session.add_all(
+            [
+                Tag(
+                    name="skipped_existing",
+                    display_name="Skipped Existing",
+                    description="On the server",
+                    tag_type="vocabulary",
+                    created_by_id=current_user.id,
+                ),
+                # Already agrees with its declaration, so nothing is withheld
+                Tag(
+                    name="skipped_in_sync",
+                    display_name="Skipped In Sync",
+                    description="Agrees with the spec",
+                    tag_type="vocabulary",
+                    tag_metadata={},
+                    created_by_id=current_user.id,
+                ),
+            ],
+        )
+        await session.commit()
+
+        self.claim(mocker, {"vocabulary": "tag_claim_root"})
+        default_us_state.tags = ["skipped_existing"]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace="tag_claim_root.branch_one",
+                nodes=[default_us_states, default_us_state],
+                tags=[
+                    TagSpec(
+                        name="skipped_existing",
+                        description="Stale copy from an older checkout",
+                        tag_type="vocabulary",
+                    ),
+                    TagSpec(
+                        name="skipped_in_sync",
+                        display_name="Skipped In Sync",
+                        description="Agrees with the spec",
+                        tag_type="vocabulary",
+                    ),
+                    TagSpec(
+                        name="skipped_missing",
+                        description="Dropped upstream",
+                        tag_type="vocabulary",
+                    ),
+                    TagSpec(
+                        name="unclaimed_written",
+                        description="Not a claimed type",
+                        tag_type="grouping",
+                    ),
+                ],
+            ),
+        )
+        assert data["status"] == "success"
+
+        # The withheld update and the withheld creation are both reported; the
+        # in-sync tag had nothing to withhold and is not reported.
+        assert self.tag_results(data) == [
+            {
+                "name": "skipped_existing",
+                "deploy_type": "tag",
+                "status": "skipped",
+                "operation": "noop",
+                "message": (
+                    "Tag type 'vocabulary' is claimed by namespace "
+                    "'tag_claim_root', so the update of tag 'skipped_existing' "
+                    "declared here was skipped."
+                ),
+                "changed_fields": [],
+            },
+            {
+                "name": "skipped_missing",
+                "deploy_type": "tag",
+                "status": "skipped",
+                "operation": "noop",
+                "message": (
+                    "Tag type 'vocabulary' is claimed by namespace "
+                    "'tag_claim_root', so the creation of tag 'skipped_missing' "
+                    "declared here was skipped."
+                ),
+                "changed_fields": [],
+            },
+        ]
+
+        # The existing row is untouched and the dropped tag was not recreated.
+        response = await client.get("/tags/skipped_existing/")
+        assert response.json()["description"] == "On the server"
+        response = await client.get("/tags/skipped_missing/")
+        assert response.status_code == 404
+
+        # An unclaimed tag type is written exactly as before.
+        response = await client.get("/tags/unclaimed_written/")
+        assert response.json()["description"] == "Not a claimed type"
+
+        # The node is tagged with the tag this deployment did not write.
+        node = await Node.get_by_name(
+            session,
+            "tag_claim_root.branch_one.default.us_state",
+        )
+        assert [tag.name for tag in node.tags] == ["skipped_existing"]
+
+    @pytest.mark.asyncio
+    async def test_skipped_tag_that_does_not_exist_still_errors(
+        self,
+        mocker,
+        client,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        Skipping a write does not invent the tag: a node tagged with a claimed
+        tag that does not exist on the server is still an error.
+        """
+        self.claim(mocker, {"vocabulary": "tag_claim_root"})
+        default_us_state.tags = ["never_created"]
+        data = await deploy_and_poll(
+            client,
+            DeploymentSpec(
+                namespace="tag_claim_root.branch_two",
+                nodes=[default_us_states, default_us_state],
+                tags=[
+                    TagSpec(
+                        name="never_created",
+                        description="Nowhere on the server",
+                        tag_type="vocabulary",
+                    ),
+                ],
+            ),
+        )
+        assert data["status"] == "failed"
+        assert "Tags used by nodes but not defined: never_created" in json.dumps(
+            data,
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_claims_is_unchanged(
+        self,
+        client,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        With nothing claimed -- the seam's current state -- every declared tag
+        is written and no tag is reported as skipped.
+        """
+        namespace = "tag_claim_absent"
+        default_us_state.tags = ["unclaimed_vocabulary"]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[default_us_states, default_us_state],
+                tags=[
+                    TagSpec(
+                        name="unclaimed_vocabulary",
+                        description="Written as before",
+                        tag_type="vocabulary",
+                    ),
+                ],
+            ),
+        )
+        assert data["status"] == "success"
+        assert self.tag_results(data) == []
+        response = await client.get("/tags/unclaimed_vocabulary/")
+        assert response.json()["description"] == "Written as before"

@@ -55,6 +55,10 @@ from datajunction_server.internal.deployment.fingerprints import (
     FingerprintMap,
     build_deployment_fingerprints,
 )
+from datajunction_server.internal.deployment.tag_claims import (
+    claim_owner_blocking_write,
+    claimed_tag_type_namespaces,
+)
 from datajunction_server.internal.deployment.utils import (
     DeploymentContext,
     classify_parents,
@@ -1029,14 +1033,30 @@ class DeploymentOrchestrator:
     ) -> dict[str, Tag]:
         """
         Validate and upsert all tags defined in the deployment spec and used by nodes.
+
+        Tags of a claimed tag type are only written by the claiming namespace's
+        own deployment; other deployments may reference them but leave the
+        stored rows untouched.
         """
-        deployment_tag_specs = {
-            tag_spec.name: tag_spec for tag_spec in self.deployment_spec.tags
-        }
+        claims = await claimed_tag_type_namespaces(self.session)
+        deployment_tag_specs: dict[str, TagSpec] = {}
+        skipped_tag_specs: dict[str, tuple[TagSpec, str]] = {}
+        for tag_spec in self.deployment_spec.tags:
+            claim_owner = claim_owner_blocking_write(
+                claims,
+                tag_spec.tag_type,
+                self.deployment_spec.namespace,
+            )
+            if claim_owner:
+                skipped_tag_specs[tag_spec.name] = (tag_spec, claim_owner)
+            else:
+                deployment_tag_specs[tag_spec.name] = tag_spec
         used_tag_names = {
             tag for spec in self.deployment_spec.nodes for tag in spec.tags
         }
-        all_tag_names = deployment_tag_specs.keys() | used_tag_names
+        all_tag_names = (
+            deployment_tag_specs.keys() | skipped_tag_specs.keys() | used_tag_names
+        )
         existing_tags = {
             tag.name: tag
             for tag in (
@@ -1062,7 +1082,10 @@ class DeploymentOrchestrator:
             )
         }
 
-        # Validate all used tags are defined, either in the deployment spec or already exist
+        self._report_skipped_claimed_tags(skipped_tag_specs, existing_tags)
+
+        # Validate all used tags are defined, either in the deployment spec or already exist.
+        # A skipped tag counts as defined only if it already exists on the server.
         undefined_tags = (
             used_tag_names
             - set(deployment_tag_specs.keys())
@@ -1104,6 +1127,37 @@ class DeploymentOrchestrator:
         if tags_modified:
             await self.session.flush()  # Get IDs but don't commit
         return existing_tags
+
+    def _report_skipped_claimed_tags(
+        self,
+        skipped_tag_specs: dict[str, tuple[TagSpec, str]],
+        existing_tags: dict[str, Tag],
+    ) -> None:
+        """
+        Surface the writes withheld because another namespace claims the tag type.
+
+        Only divergent declarations are reported: a skipped tag that already
+        matches the spec had nothing to write, so it is not worth a line in the
+        deploy report.
+        """
+        for tag_name, (tag_spec, claim_owner) in skipped_tag_specs.items():
+            existing_tag = existing_tags.get(tag_name)
+            if existing_tag and not tag_needs_update(existing_tag, tag_spec):
+                continue
+            withheld = "update" if existing_tag else "creation"
+            self.deployed_results.append(
+                DeploymentResult(
+                    name=tag_name,
+                    deploy_type=DeploymentResult.Type.TAG,
+                    status=DeploymentResult.Status.SKIPPED,
+                    operation=DeploymentResult.Operation.NOOP,
+                    message=(
+                        f"Tag type '{tag_spec.tag_type}' is claimed by namespace "
+                        f"'{claim_owner}', so the {withheld} of tag '{tag_name}' "
+                        f"declared here was skipped."
+                    ),
+                ),
+            )
 
     async def _setup_hierarchies(self) -> None:
         """
