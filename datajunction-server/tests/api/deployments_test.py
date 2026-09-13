@@ -1331,9 +1331,7 @@ def deployment_payload(deployment_spec: DeploymentSpec) -> dict:
     return deployment_spec.model_dump()
 
 
-# Fields added to `DeploymentResult` after the exact-dict assertions below were
-# written. Stripped rather than asserted, so one more additive field does not
-# mean editing every expected dict in this file.
+# Additive `DeploymentResult` fields, stripped rather than asserted below.
 ADDITIVE_RESULT_FIELDS = (
     "change_tier",
     "semantic_fingerprint",

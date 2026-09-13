@@ -4418,9 +4418,8 @@ class DeploymentOrchestrator:
         version. So `force` and the INVALID re-deploy below can re-process a node
         without that implying anything about what changed.
 
-        Nodes re-processed only by that INVALID re-deploy are recorded in
-        `_revalidation_only`, which each node's `DeploymentResult` carries so a
-        caller can tell a failure this deployment caused from one it inherited.
+        Those re-deployed only for that retry are recorded in `_revalidation_only`
+        and marked on their `DeploymentResult`.
 
         A cube whose own spec is unchanged is still processed when something
         upstream of it is changing, matching what `_propagate_update_downstream`
