@@ -1,4 +1,6 @@
+import json
 import logging
+import re
 from collections.abc import Callable, Iterable
 from heapq import heappop, heappush
 
@@ -496,6 +498,93 @@ class SemanticFingerprintGraph:
                 version=self._version,
             )
         return self._fingerprints
+
+
+def rebase_spec_namespace(
+    spec: NodeSpec,
+    source_namespace: str,
+    target_namespace: str,
+) -> NodeSpec:
+    """
+    Rewrite a spec's fully-qualified names from one namespace onto another.
+
+    Fingerprints hash rendered names, so specs from two namespaces only compare
+    once one of them is expressed in the other's names. The boundary lookbehind
+    keeps a namespace that merely ends in the source name from being rewritten.
+    """
+    pattern = re.compile(
+        r"(?<![\w.])" + re.escape(f"{source_namespace}{SEPARATOR}"),
+    )
+    replacement = f"{target_namespace}{SEPARATOR}"
+    rebased = pattern.sub(
+        lambda _: replacement,
+        json.dumps(spec.model_dump(mode="json")),
+    )
+    return type(spec).model_validate_json(rebased)
+
+
+def _fingerprints_match(
+    one: SemanticFingerprintValue | None,
+    two: SemanticFingerprintValue | None,
+) -> bool:
+    """
+    Whether two fingerprints are both known and equal.
+
+    A missing or unknown fingerprint never matches, so a node that fails to parse
+    counts as changed instead of escaping classification.
+    """
+    if one is None or two is None:
+        return False
+    if UNKNOWN_SEMANTIC_FINGERPRINT in (one, two):
+        return False
+    return one == two
+
+
+async def build_reference_changed_names(
+    session: AsyncSession,
+    reference_specs: dict[str, NodeSpec],
+    existing_specs: dict[str, NodeSpec],
+    proposed_specs: Iterable[NodeSpec],
+    deleted_specs: Iterable[NodeSpec],
+    *,
+    version: int = LATEST_SEMANTIC_FINGERPRINT_VERSION,
+) -> set[str]:
+    """
+    Names whose semantics differ between a reference namespace and the deployed tree.
+
+    ``reference_specs`` are the reference namespace's stored specs, already rebased
+    onto the deployed namespace's names. A node on only one side is changed.
+    """
+    deleted_names = {spec.rendered_name for spec in deleted_specs}
+    proposed = _resolved_proposed_specs(
+        existing_specs,
+        proposed_specs,
+        deleted_names,
+    )
+    parent_cache: ParentCandidateCache = {}
+    external = await _load_external_specs(
+        session,
+        [*reference_specs.values(), *proposed.values()],
+        ignored_parse_errors=deleted_names,
+        parent_cache=parent_cache,
+    )
+    names = reference_specs.keys() | proposed.keys()
+    reference = SemanticFingerprintGraph(
+        {**external, **reference_specs},
+        parent_cache=parent_cache,
+        version=version,
+    ).fingerprints(names)
+    deployed = SemanticFingerprintGraph(
+        {**external, **proposed},
+        ignored_parse_errors=deleted_names,
+        parent_cache=parent_cache,
+        version=version,
+    ).fingerprints(names)
+    return {
+        name
+        for name in names
+        if not _fingerprints_match(reference.get(name), deployed.get(name))
+    }
 
 
 async def build_deployment_fingerprints(

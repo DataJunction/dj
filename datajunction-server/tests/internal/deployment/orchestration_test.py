@@ -841,6 +841,35 @@ class TestDeploymentPlanning:
         assert len(to_skip) == len(sample_deployment_spec.nodes)
         assert to_delete == []
 
+    def test_filter_nodes_records_revalidation_only(
+        self,
+        orchestrator,
+        sample_deployment_spec,
+    ):
+        """An unchanged node that is stuck INVALID is queued for revalidation."""
+        existing_specs = {
+            node.rendered_name: node for node in sample_deployment_spec.nodes
+        }
+        stuck = sample_deployment_spec.nodes[1]
+        orchestrator.registry.add_nodes(
+            {
+                stuck.rendered_name: SimpleNamespace(
+                    current=SimpleNamespace(
+                        status=NodeStatus.INVALID,
+                        parents=[],
+                    ),
+                ),
+            },
+        )
+        to_deploy, to_skip, _ = orchestrator.filter_nodes_to_deploy(existing_specs)
+        assert to_deploy == [stuck]
+        assert orchestrator._revalidation_only == {stuck.rendered_name}
+        assert [spec.rendered_name for spec in to_skip] == [
+            spec.rendered_name
+            for spec in sample_deployment_spec.nodes
+            if spec is not stuck
+        ]
+
     def test_filter_nodes_uses_normalized_query_and_source_columns(self):
         incoming = [
             TransformSpec(name="transform", query=" SELECT id\nFROM source "),
@@ -914,6 +943,53 @@ class TestDeploymentPlanning:
         assert len(to_deploy) == len(sample_deployment_spec.nodes)
         assert to_skip == []
         assert to_delete == []
+
+
+class TestReferenceClassification:
+    """Stamping node results against a declared reference namespace."""
+
+    def _results(self):
+        return [
+            DeploymentResult(
+                name="test.source_node",
+                deploy_type=DeploymentResult.Type.NODE,
+                status=DeploymentResult.Status.SUCCESS,
+                operation=DeploymentResult.Operation.UPDATE,
+            ),
+            DeploymentResult(
+                name="test.transform_node",
+                deploy_type=DeploymentResult.Type.NODE,
+                status=DeploymentResult.Status.SKIPPED,
+                operation=DeploymentResult.Operation.NOOP,
+            ),
+            DeploymentResult(
+                name="test.source_node -> test.dimension",
+                deploy_type=DeploymentResult.Type.LINK,
+                status=DeploymentResult.Status.SUCCESS,
+                operation=DeploymentResult.Operation.CREATE,
+            ),
+        ]
+
+    def test_node_results_are_stamped_and_others_left_alone(self, orchestrator):
+        orchestrator.deployed_results = self._results()
+        orchestrator._reference_changed_names = {"test.source_node"}
+        orchestrator._apply_reference_changed()
+
+        assert [
+            result.reference_changed for result in orchestrator.deployed_results
+        ] == [
+            True,
+            False,
+            None,
+        ]
+
+    def test_no_reference_namespace_leaves_results_untouched(self, orchestrator):
+        orchestrator.deployed_results = self._results()
+        orchestrator._apply_reference_changed()
+
+        assert [
+            result.reference_changed for result in orchestrator.deployed_results
+        ] == [None, None, None]
 
 
 class TestOrchestrationFlow:

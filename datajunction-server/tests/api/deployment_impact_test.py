@@ -714,3 +714,136 @@ class TestDeploymentImpactEndpoint:
             consumer.nodes[2].rendered_name,
         )
         assert external["semantic_fingerprint"] == expected.model_dump()
+
+
+def _branch_project(
+    namespace: str,
+    *,
+    table: str,
+    extra: bool = False,
+) -> DeploymentSpec:
+    """A project of a source and the transform reading it, under one namespace."""
+    nodes = [
+        SourceSpec(
+            name="raw",
+            catalog="default",
+            schema_="test",
+            table=table,
+            columns=[ColumnSpec(name="id", type="int")],
+        ),
+        TransformSpec(
+            name="summary",
+            query="SELECT id FROM ${prefix}raw",
+        ),
+    ]
+    if extra:
+        nodes.append(
+            TransformSpec(name="extra", query="SELECT id FROM ${prefix}raw"),
+        )
+    return DeploymentSpec(namespace=namespace, nodes=nodes)
+
+
+class TestReferenceRelativeChanges:
+    """A deployment classified against a reference namespace, not its target."""
+
+    @pytest.mark.asyncio
+    async def test_stale_target_copy_is_written_but_not_counted(
+        self,
+        client_with_roads,
+    ):
+        """The motivating case: the target namespace holds a stale copy of a node
+        that the deployed tree shares byte-for-byte with the reference namespace."""
+        reference = _branch_project("reference_main", table="raw")
+        stale_branch = _branch_project("reference_branch", table="raw_stale")
+        await _deploy(client_with_roads, reference, stale_branch)
+
+        deployed = _branch_project("reference_branch", table="raw", extra=True)
+        deployed.reference_namespace = "reference_main"
+        results = await _impact_nodes(client_with_roads, deployed)
+
+        # Still written, because the target namespace must match the deployed tree.
+        assert results["reference_branch.raw"]["operation"] == "update"
+        assert results["reference_branch.raw"]["reference_changed"] is False
+        assert results["reference_branch.summary"]["operation"] == "noop"
+        assert results["reference_branch.summary"]["reference_changed"] is False
+        # Absent from the reference namespace, so a change.
+        assert results["reference_branch.extra"]["operation"] == "create"
+        assert results["reference_branch.extra"]["reference_changed"] is True
+
+    @pytest.mark.asyncio
+    async def test_reference_relative_set_drives_impact_propagation(
+        self,
+        client_with_roads,
+    ):
+        reference = _branch_project("propagate_main", table="raw")
+        stale_branch = _branch_project("propagate_branch", table="raw_stale")
+        consumer = DeploymentSpec(
+            namespace="propagate_consumer",
+            nodes=[
+                TransformSpec(
+                    name="downstream",
+                    query="SELECT id FROM propagate_branch.summary",
+                ),
+            ],
+        )
+        await _deploy(client_with_roads, reference, stale_branch, consumer)
+
+        deployed = _branch_project("propagate_branch", table="raw")
+        namespace_relative = await _impact(client_with_roads, deployed)
+        assert [
+            impact["name"] for impact in namespace_relative["downstream_impacts"]
+        ] == ["propagate_branch.summary", "propagate_consumer.downstream"]
+
+        deployed.reference_namespace = "propagate_main"
+        main_relative = await _impact(client_with_roads, deployed)
+        assert main_relative["downstream_impacts"] == []
+
+    @pytest.mark.asyncio
+    async def test_nodes_dropped_relative_to_the_reference_count_as_changed(
+        self,
+        client_with_roads,
+    ):
+        reference = _branch_project("dropped_main", table="raw", extra=True)
+        branch = _branch_project("dropped_branch", table="raw", extra=True)
+        await _deploy(client_with_roads, reference, branch)
+
+        deployed = _branch_project("dropped_branch", table="raw")
+        deployed.reference_namespace = "dropped_main"
+        results = await _impact_nodes(client_with_roads, deployed)
+
+        assert results["dropped_branch.extra"]["operation"] == "delete"
+        assert results["dropped_branch.extra"]["reference_changed"] is True
+        assert results["dropped_branch.raw"]["reference_changed"] is False
+
+    @pytest.mark.asyncio
+    async def test_no_reference_namespace_leaves_the_field_unset(
+        self,
+        client_with_roads,
+    ):
+        branch = _branch_project("unset_branch", table="raw")
+        await _deploy(client_with_roads, branch)
+
+        deployed = _branch_project("unset_branch", table="raw_v2")
+        results = await _impact_nodes(client_with_roads, deployed)
+
+        assert {name: r["reference_changed"] for name, r in results.items()} == {
+            "unset_branch.raw": None,
+            "unset_branch.summary": None,
+        }
+
+    @pytest.mark.asyncio
+    async def test_missing_reference_namespace_falls_back_to_the_target(
+        self,
+        client_with_roads,
+    ):
+        branch = _branch_project("missing_ref_branch", table="raw")
+        await _deploy(client_with_roads, branch)
+
+        deployed = _branch_project("missing_ref_branch", table="raw_v2")
+        deployed.reference_namespace = "no_such_reference_namespace"
+        results = await _impact_nodes(client_with_roads, deployed)
+
+        assert {name: r["reference_changed"] for name, r in results.items()} == {
+            "missing_ref_branch.raw": None,
+            "missing_ref_branch.summary": None,
+        }

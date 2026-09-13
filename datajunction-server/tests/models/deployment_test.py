@@ -259,6 +259,7 @@ def test_deployment_spec():
             "git_root_namespace": None,
         },
         "namespace": "test_deployment",
+        "reference_namespace": None,
         "nodes": [
             {
                 "columns": None,

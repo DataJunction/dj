@@ -54,6 +54,8 @@ from datajunction_server.internal.deployment.dimension_reachability import (
 from datajunction_server.internal.deployment.fingerprints import (
     FingerprintMap,
     build_deployment_fingerprints,
+    build_reference_changed_names,
+    rebase_spec_namespace,
 )
 from datajunction_server.internal.deployment.utils import (
     DeploymentContext,
@@ -386,8 +388,12 @@ class DeploymentOrchestrator:
         self._cubes_bumped_by_upstream: dict[str, list[str]] = {}
         # Node name -> the tier its change earned, for those cubes to inherit.
         self._change_tiers: dict[str, ChangeTier] = {}
+        # Unchanged nodes re-deployed only to retry a pre-existing failure.
+        self._revalidation_only: set[str] = set()
         self._current_semantic_fingerprints: FingerprintMap = {}
         self._proposed_semantic_fingerprints: FingerprintMap = {}
+        # Names that differ from the reference namespace; None when none is declared.
+        self._reference_changed_names: set[str] | None = None
 
     @property
     def _history_user(self) -> str:
@@ -916,6 +922,78 @@ class DeploymentOrchestrator:
             proposed_fingerprint = proposed.get(impact.name)
             if current.get(impact.name) != proposed_fingerprint:
                 impact.semantic_fingerprint = proposed_fingerprint
+
+    async def _load_reference_specs(self) -> dict[str, NodeSpec] | None:
+        """
+        The declared reference namespace's stored specs, under deployed names.
+
+        Returns None when no reference namespace is declared, or when the declared
+        one does not exist -- change classification then stays namespace-relative,
+        as it was before.
+        """
+        reference_namespace = self.deployment_spec.reference_namespace
+        if not reference_namespace:
+            return None
+        if not await NodeNamespace.get(
+            self.session,
+            reference_namespace,
+            raise_if_not_exists=False,
+        ):
+            logger.warning(
+                "Reference namespace %s does not exist; "
+                "classifying changes against %s instead",
+                reference_namespace,
+                self.deployment_spec.namespace,
+            )
+            return None
+        nodes = await NodeNamespace.list_all_nodes(
+            self.session,
+            reference_namespace,
+            options=Node.cube_load_options(),
+        )
+        specs = [
+            rebase_spec_namespace(
+                await node.to_spec(self.session),
+                reference_namespace,
+                self.deployment_spec.namespace,
+            )
+            for node in nodes
+        ]
+        return {spec.rendered_name: spec for spec in specs}
+
+    async def _classify_against_reference(self, plan: DeploymentPlan) -> None:
+        """
+        Record which nodes differ from the reference namespace rather than from the
+        namespace being deployed into.
+
+        Observational only: the plan still writes whatever the target namespace
+        needs to match the deployed tree, so a node can be written here and still
+        not be counted as a change.
+
+        This set is what `propagate_impact` runs from, so a node whose own spec is
+        unchanged still surfaces as a downstream impact when something above it
+        changed. That is deliberate: neither this nor `_revalidation_only` is on
+        its own enough to excuse a failure, since a node can break for a new
+        reason without its own spec moving.
+        """
+        reference_specs = await self._load_reference_specs()
+        if reference_specs is None:
+            return
+        self._reference_changed_names = await build_reference_changed_names(
+            self.session,
+            reference_specs,
+            plan.existing_specs,
+            self.deployment_spec.nodes,
+            plan.deletable_specs,
+        )
+
+    def _apply_reference_changed(self) -> None:
+        """Stamp each node result with whether the reference namespace differs."""
+        if self._reference_changed_names is None:
+            return
+        for result in self.deployed_results:
+            if result.deploy_type == DeploymentResult.Type.NODE:
+                result.reference_changed = result.name in self._reference_changed_names
 
     async def _find_namespaces_to_create(self) -> set[str]:
         """
@@ -1917,11 +1995,17 @@ class DeploymentOrchestrator:
             and r.status != DeploymentResult.Status.SKIPPED
         }
         plan.delete_references = await self._validate_node_deletion(plan.to_delete)
+        with timer.phase("classify against reference"):
+            await self._classify_against_reference(plan)
         with timer.phase("propagate impact") as p:
             downstream = await propagate_impact(
                 session=self.session,
                 namespace=self.deployment_spec.namespace,
-                changed_node_names=changed_names,
+                changed_node_names=(
+                    changed_names
+                    if self._reference_changed_names is None
+                    else self._reference_changed_names
+                ),
                 deleted_node_names=frozenset(
                     spec.rendered_name for spec in plan.deletable_specs
                 ),
@@ -1955,6 +2039,7 @@ class DeploymentOrchestrator:
             self.deployed_results.extend(ns_results)
             await self._update_deployment_status()
 
+        self._apply_reference_changed()
         return downstream
 
     async def _derive_measures_for_deployed_metrics(self) -> int:
@@ -3999,6 +4084,7 @@ class DeploymentOrchestrator:
                 semantic_fingerprint=self._proposed_semantic_fingerprints.get(
                     cube_spec.rendered_name,
                 ),
+                revalidation_only=cube_spec.rendered_name in self._revalidation_only,
             )
 
             deployment_results.append(deployment_result)
@@ -4415,6 +4501,10 @@ class DeploymentOrchestrator:
         version. So `force` and the INVALID re-deploy below can re-process a node
         without that implying anything about what changed.
 
+        Nodes re-processed only by that INVALID re-deploy are recorded in
+        `_revalidation_only`, which each node's `DeploymentResult` carries so a
+        caller can tell a failure this deployment caused from one it inherited.
+
         A cube whose own spec is unchanged is still processed when something
         upstream of it is changing, matching what `_propagate_update_downstream`
         does for a `PATCH`: the cube names the same metrics and dimensions, but
@@ -4424,6 +4514,7 @@ class DeploymentOrchestrator:
         to_create: list[NodeSpec] = []
         to_update: list[NodeSpec] = []
         to_skip: list[NodeSpec] = []
+        revalidation_only: set[str] = set()
         force = self.deployment_spec.force
         for node_spec in self.deployment_spec.nodes:
             existing_spec = existing_nodes_map.get(node_spec.rendered_name)
@@ -4461,9 +4552,11 @@ class DeploymentOrchestrator:
                     and existing_node.current.status == NodeStatus.INVALID
                 ):
                     to_update.append(node_spec)
+                    revalidation_only.add(node_spec.rendered_name)
                 else:
                     to_skip.append(node_spec)
 
+        self._revalidation_only = revalidation_only
         changed_names = {spec.rendered_name for spec in to_create + to_update}
         self._cubes_bumped_by_upstream = self._cubes_below_changed_nodes(
             to_skip,
@@ -5089,6 +5182,7 @@ class DeploymentOrchestrator:
             semantic_fingerprint=self._proposed_semantic_fingerprints.get(
                 result.spec.rendered_name,
             ),
+            revalidation_only=result.spec.rendered_name in self._revalidation_only,
         )
         return deployment_result, new_node, new_revision
 

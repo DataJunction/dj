@@ -10,6 +10,8 @@ from datajunction_server.internal.deployment.fingerprints import (
     _parent_candidates,
     _resolved_proposed_specs,
     build_deployment_fingerprints,
+    build_reference_changed_names,
+    rebase_spec_namespace,
 )
 from datajunction_server.models.deployment import (
     ColumnSpec,
@@ -557,3 +559,106 @@ async def test_build_deployment_fingerprints_loads_external_ancestors(session):
     )
     assert current["default.hard_hat"] != UNKNOWN_SEMANTIC_FINGERPRINT
     assert proposed["default.hard_hat"] != UNKNOWN_SEMANTIC_FINGERPRINT
+
+
+def stored_spec(spec: NodeSpec) -> NodeSpec:
+    """A spec as the database hands it back: fully-qualified name, no namespace."""
+    return spec.rendered_spec().model_copy(update={"name": spec.rendered_name})
+
+
+def reference_specs(*specs: NodeSpec) -> dict[str, NodeSpec]:
+    """Specs stored under `main`, rebased onto the names `ns` deploys."""
+    rebased = [rebase_spec_namespace(stored_spec(spec), "main", "ns") for spec in specs]
+    return {spec.rendered_name: spec for spec in rebased}
+
+
+async def _reference_changed(
+    reference: dict[str, NodeSpec],
+    proposed: list[NodeSpec],
+    deleted: list[NodeSpec] | None = None,
+) -> set[str]:
+    return await build_reference_changed_names(
+        MagicMock(),
+        reference,
+        {},
+        proposed,
+        deleted or [],
+    )
+
+
+def test_rebase_spec_namespace_rewrites_only_leading_namespace():
+    spec = stored_spec(
+        transform_spec(
+            "child",
+            "SELECT * FROM ${prefix}parent JOIN other.ns.parent JOIN nsx.parent",
+        ),
+    )
+    rebased = rebase_spec_namespace(spec, "ns", "branch")
+
+    assert rebased.name == "branch.child"
+    assert rebased.query == (
+        "SELECT * FROM branch.parent JOIN other.ns.parent JOIN nsx.parent"
+    )
+
+
+@pytest.mark.asyncio
+async def test_reference_changed_names_ignores_an_identical_tree():
+    reference = reference_specs(
+        source_spec("source", namespace="main", table="table"),
+        transform_spec("transform", "SELECT * FROM ${prefix}source", namespace="main"),
+    )
+
+    assert (
+        await _reference_changed(
+            reference,
+            [
+                source_spec("source", table="table"),
+                transform_spec("transform", "SELECT * FROM ${prefix}source"),
+            ],
+        )
+        == set()
+    )
+
+
+@pytest.mark.asyncio
+async def test_reference_changed_names_reports_changes_and_descendants():
+    reference = reference_specs(
+        source_spec("source", namespace="main", table="older_table"),
+        transform_spec("transform", "SELECT * FROM ${prefix}source", namespace="main"),
+    )
+
+    assert await _reference_changed(
+        reference,
+        [
+            source_spec("source", table="table"),
+            transform_spec("transform", "SELECT * FROM ${prefix}source"),
+        ],
+    ) == {"ns.source", "ns.transform"}
+
+
+@pytest.mark.asyncio
+async def test_reference_changed_names_covers_nodes_on_only_one_side():
+    reference = reference_specs(
+        source_spec("source", namespace="main", table="table"),
+        transform_spec("dropped", "SELECT 2 AS two", namespace="main"),
+    )
+    dropped = transform_spec("dropped", "SELECT 2 AS two")
+
+    assert await _reference_changed(
+        reference,
+        [
+            source_spec("source", table="table"),
+            transform_spec("added", "SELECT 1 AS one"),
+        ],
+        [dropped],
+    ) == {"ns.added", "ns.dropped"}
+
+
+@pytest.mark.asyncio
+async def test_reference_changed_names_treats_unparseable_as_changed():
+    reference = reference_specs(transform_spec("legacy", "SELECT (", namespace="main"))
+
+    assert await _reference_changed(
+        reference,
+        [transform_spec("legacy", "SELECT (")],
+    ) == {"ns.legacy"}

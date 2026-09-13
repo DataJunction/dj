@@ -4410,11 +4410,21 @@ class TestCopyNodesToNamespace:
                 result["semantic_fingerprint"]["version"] == 1
                 for result in data["deployment_results"]
             )
+            assert all(
+                result["revalidation_only"] is False
+                for result in data["deployment_results"]
+            )
             deployment_results = [
                 {
                     key: value
                     for key, value in result.items()
-                    if key not in {"change_tier", "semantic_fingerprint"}
+                    if key
+                    not in {
+                        "change_tier",
+                        "semantic_fingerprint",
+                        "revalidation_only",
+                        "reference_changed",
+                    }
                 }
                 for result in data["deployment_results"]
             ]

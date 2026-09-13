@@ -406,6 +406,12 @@ class DeploymentResult:
     deploy_type: str = ""
     change_tier: Literal["none", "minor", "major"] | None = None
     semantic_fingerprint: SemanticFingerprintValue | None = None
+    # True when the node was re-deployed only to retry a pre-existing failure.
+    # None on responses from servers that predate the field.
+    revalidation_only: bool | None = None
+    # True when the node's spec differs from the deployment's reference namespace.
+    # None when none was declared, and on servers that predate the field.
+    reference_changed: bool | None = None
 
     @classmethod
     def from_dict(cls, d: dict) -> DeploymentResult:
@@ -419,6 +425,8 @@ class DeploymentResult:
             deploy_type=d.get("deploy_type", ""),
             change_tier=d.get("change_tier"),
             semantic_fingerprint=_parse_semantic_fingerprint(fingerprint),
+            revalidation_only=d.get("revalidation_only"),
+            reference_changed=d.get("reference_changed"),
         )
 
 

@@ -1639,6 +1639,19 @@ class DeploymentSpec(BaseModel):
     """
 
     namespace: str
+    # Namespace whose stored nodes this deployment's changes are measured against.
+    # Declared rather than derived: the namespace a branch deploys into is a stale
+    # copy, and nothing on the server knows which namespace holds the tree the
+    # branch forked from.
+    reference_namespace: str | None = Field(
+        default=None,
+        description=(
+            "Namespace to classify this deployment's changes against. When set, a "
+            "node counts as changed only if its semantics differ from the node of "
+            "the same relative name in this namespace. Purely observational: it "
+            "does not change what gets written."
+        ),
+    )
     nodes: list[NodeUnion] = Field(default_factory=list)
     tags: list[TagSpec] = Field(default_factory=list)
     hierarchies: list[HierarchySpec] = Field(default_factory=list)
@@ -1783,6 +1796,22 @@ class DeploymentResult(BaseModel):
     changed_fields: list[str] = Field(default_factory=list)
     change_tier: ChangeTierName | None = None
     semantic_fingerprint: SemanticFingerprintValue | None = None
+    # The two fields below say how much of this result the deployment is
+    # answerable for. Neither is sufficient on its own: `revalidation_only` does
+    # not compare failure reasons, and `reference_changed` speaks only for the
+    # node's own spec. A node can be unchanged by both measures and still be
+    # broken by an edit upstream of it -- that shows up in `downstream_impacts`.
+    # Both are nullable so that rows persisted before they existed still
+    # rehydrate from JSON.
+    #
+    # True when the node carried no change and was re-deployed only to retry a
+    # pre-existing failure, so an INVALID result here is not this deployment's
+    # doing.
+    revalidation_only: bool | None = None
+    # True when the node's spec differs from the node of the same relative name
+    # in the deployment's `reference_namespace`. None when the deployment
+    # declared no reference namespace, and on results that are not nodes.
+    reference_changed: bool | None = None
 
 
 class DeploymentInfo(BaseModel):
