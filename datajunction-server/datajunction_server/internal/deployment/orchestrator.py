@@ -386,6 +386,8 @@ class DeploymentOrchestrator:
         self._cubes_bumped_by_upstream: dict[str, list[str]] = {}
         # Node name -> the tier its change earned, for those cubes to inherit.
         self._change_tiers: dict[str, ChangeTier] = {}
+        # Unchanged nodes re-deployed only to retry a pre-existing failure.
+        self._revalidation_only: set[str] = set()
         self._current_semantic_fingerprints: FingerprintMap = {}
         self._proposed_semantic_fingerprints: FingerprintMap = {}
 
@@ -3999,6 +4001,7 @@ class DeploymentOrchestrator:
                 semantic_fingerprint=self._proposed_semantic_fingerprints.get(
                     cube_spec.rendered_name,
                 ),
+                revalidation_only=cube_spec.rendered_name in self._revalidation_only,
             )
 
             deployment_results.append(deployment_result)
@@ -4415,6 +4418,10 @@ class DeploymentOrchestrator:
         version. So `force` and the INVALID re-deploy below can re-process a node
         without that implying anything about what changed.
 
+        Nodes re-processed only by that INVALID re-deploy are recorded in
+        `_revalidation_only`, which each node's `DeploymentResult` carries so a
+        caller can tell a failure this deployment caused from one it inherited.
+
         A cube whose own spec is unchanged is still processed when something
         upstream of it is changing, matching what `_propagate_update_downstream`
         does for a `PATCH`: the cube names the same metrics and dimensions, but
@@ -4424,6 +4431,7 @@ class DeploymentOrchestrator:
         to_create: list[NodeSpec] = []
         to_update: list[NodeSpec] = []
         to_skip: list[NodeSpec] = []
+        revalidation_only: set[str] = set()
         force = self.deployment_spec.force
         for node_spec in self.deployment_spec.nodes:
             existing_spec = existing_nodes_map.get(node_spec.rendered_name)
@@ -4461,9 +4469,11 @@ class DeploymentOrchestrator:
                     and existing_node.current.status == NodeStatus.INVALID
                 ):
                     to_update.append(node_spec)
+                    revalidation_only.add(node_spec.rendered_name)
                 else:
                     to_skip.append(node_spec)
 
+        self._revalidation_only = revalidation_only
         changed_names = {spec.rendered_name for spec in to_create + to_update}
         self._cubes_bumped_by_upstream = self._cubes_below_changed_nodes(
             to_skip,
@@ -5089,6 +5099,7 @@ class DeploymentOrchestrator:
             semantic_fingerprint=self._proposed_semantic_fingerprints.get(
                 result.spec.rendered_name,
             ),
+            revalidation_only=result.spec.rendered_name in self._revalidation_only,
         )
         return deployment_result, new_node, new_revision
 

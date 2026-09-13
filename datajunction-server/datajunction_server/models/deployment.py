@@ -1783,6 +1783,14 @@ class DeploymentResult(BaseModel):
     changed_fields: list[str] = Field(default_factory=list)
     change_tier: ChangeTierName | None = None
     semantic_fingerprint: SemanticFingerprintValue | None = None
+    # True when the node carried no change and was re-deployed only to retry a
+    # pre-existing failure, so an INVALID result here is not this deployment's
+    # doing. It is not on its own enough to excuse a failure: failure reasons are
+    # not compared, so a node whose own spec never moved can fail for a new
+    # reason caused by an edit upstream of it -- that shows up in
+    # `downstream_impacts`. Nullable so that rows persisted before the field
+    # existed still rehydrate from JSON.
+    revalidation_only: bool | None = None
 
 
 class DeploymentInfo(BaseModel):

@@ -1331,7 +1331,18 @@ def deployment_payload(deployment_spec: DeploymentSpec) -> dict:
     return deployment_spec.model_dump()
 
 
-async def deploy_and_wait(client, deployment_spec: DeploymentSpec):
+# Fields added to `DeploymentResult` after the exact-dict assertions below were
+# written. Stripped rather than asserted, so one more additive field does not
+# mean editing every expected dict in this file.
+ADDITIVE_RESULT_FIELDS = (
+    "change_tier",
+    "semantic_fingerprint",
+    "revalidation_only",
+)
+
+
+async def deploy_and_poll(client, deployment_spec: DeploymentSpec):
+    """Deploy and wait, keeping every field the API returned."""
     response = await client.post(
         "/deployments",
         json=deployment_payload(deployment_spec),
@@ -1345,11 +1356,15 @@ async def deploy_and_wait(client, deployment_spec: DeploymentSpec):
         await asyncio.sleep(1)
         response = await client.get(f"/deployments/{deployment_uuid}")
         data = response.json()
+    return data
+
+
+async def deploy_and_wait(client, deployment_spec: DeploymentSpec):
+    data = await deploy_and_poll(client, deployment_spec)
     for result in data.get("results", []):
-        assert "change_tier" in result
-        assert "semantic_fingerprint" in result
-        result.pop("change_tier", None)
-        result.pop("semantic_fingerprint", None)
+        for additive in ADDITIVE_RESULT_FIELDS:
+            assert additive in result
+            result.pop(additive)
     return data
 
 
@@ -1434,6 +1449,69 @@ class TestDeployments:
         link_result = next(r for r in data["results"] if r["deploy_type"] == "link")
         assert f"{namespace}.default.us_state" in link_result["name"]
         assert link_result["status"] == "failed"
+
+    @pytest.mark.asyncio
+    async def test_revalidation_only_marks_pre_existing_failures(self, client):
+        """
+        An unchanged node re-deployed only to retry a pre-existing failure is
+        marked `revalidation_only`, so a caller can tell the failures this
+        deployment caused from the ones it inherited -- and still sees the
+        recovery when a later deploy fixes the node's upstream.
+        """
+        namespace = "revalidation_only"
+        transform = TransformSpec(
+            name="${prefix}default.repair_totals",
+            query="SELECT repair_order_id, price FROM ${prefix}default.repairs",
+            owners=["dj"],
+        )
+        source = SourceSpec(
+            name="${prefix}default.repairs",
+            table="repairs",
+            catalog="default",
+            schema_="roads",
+            columns=[
+                ColumnSpec(name="repair_order_id", type="int"),
+                ColumnSpec(name="price", type="float"),
+            ],
+            owners=["dj"],
+        )
+
+        # The transform is created broken: its source is not in the deployment.
+        data = await deploy_and_poll(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=[transform]),
+        )
+        created = next(r for r in data["results"] if r["deploy_type"] == "node")
+        assert created["status"] == "invalid"
+        assert created["operation"] == "create"
+        assert created["revalidation_only"] is False
+
+        # Re-deploying the same spec retries the node, which is still broken.
+        data = await deploy_and_poll(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=[transform]),
+        )
+        retried = next(r for r in data["results"] if r["deploy_type"] == "node")
+        assert retried["status"] == "invalid"
+        assert retried["operation"] == "update"
+        assert retried["revalidation_only"] is True
+
+        # Adding the missing source fixes the node, which reports as a success.
+        data = await deploy_and_poll(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=[transform, source]),
+        )
+        recovered = next(
+            r
+            for r in data["results"]
+            if r["name"] == f"{namespace}.default.repair_totals"
+        )
+        assert recovered["status"] == "success"
+        assert recovered["revalidation_only"] is True
+        added_source = next(
+            r for r in data["results"] if r["name"] == f"{namespace}.default.repairs"
+        )
+        assert added_source["revalidation_only"] is False
 
     @pytest.mark.asyncio
     async def test_deploy_failed_on_non_existent_link_deps(
