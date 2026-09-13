@@ -2483,6 +2483,59 @@ class TestDeployments:
         }
 
     @pytest.mark.asyncio
+    async def test_redeploy_is_noop_for_metric_without_a_direction(
+        self,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        A metric that declares no direction is deployed twice. The stored node
+        carries the `neutral` default while the spec leaves it unset, and the
+        two must still compare equal.
+        """
+        namespace = "metric_direction"
+        metric = MetricSpec(
+            name="default.avg_length_of_employment",
+            query="""SELECT avg(CAST(NOW() AS DATE) - hire_date) FROM ${prefix}default.hard_hat""",
+            owners=["dj"],
+            significant_digits=3,
+        )
+        nodes_list = [
+            default_hard_hats,
+            default_hard_hat,
+            default_us_states,
+            default_us_state,
+            metric,
+        ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_list),
+        )
+        assert data["status"] == "success"
+        metric_result = next(
+            res
+            for res in data["results"]
+            if res["name"] == f"{namespace}.default.avg_length_of_employment"
+        )
+        assert metric_result == {
+            "deploy_type": "node",
+            "message": "Unchanged",
+            "name": f"{namespace}.default.avg_length_of_employment",
+            "operation": "noop",
+            "changed_fields": [],
+            "status": "skipped",
+        }
+
+    @pytest.mark.asyncio
     async def test_deploy_metric_with_update(
         self,
         client,
