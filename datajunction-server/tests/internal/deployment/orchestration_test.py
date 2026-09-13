@@ -841,6 +841,35 @@ class TestDeploymentPlanning:
         assert len(to_skip) == len(sample_deployment_spec.nodes)
         assert to_delete == []
 
+    def test_filter_nodes_records_revalidation_only(
+        self,
+        orchestrator,
+        sample_deployment_spec,
+    ):
+        """An unchanged node that is stuck INVALID is queued for revalidation."""
+        existing_specs = {
+            node.rendered_name: node for node in sample_deployment_spec.nodes
+        }
+        stuck = sample_deployment_spec.nodes[1]
+        orchestrator.registry.add_nodes(
+            {
+                stuck.rendered_name: SimpleNamespace(
+                    current=SimpleNamespace(
+                        status=NodeStatus.INVALID,
+                        parents=[],
+                    ),
+                ),
+            },
+        )
+        to_deploy, to_skip, _ = orchestrator.filter_nodes_to_deploy(existing_specs)
+        assert to_deploy == [stuck]
+        assert orchestrator._revalidation_only == {stuck.rendered_name}
+        assert [spec.rendered_name for spec in to_skip] == [
+            spec.rendered_name
+            for spec in sample_deployment_spec.nodes
+            if spec is not stuck
+        ]
+
     def test_filter_nodes_uses_normalized_query_and_source_columns(self):
         incoming = [
             TransformSpec(name="transform", query=" SELECT id\nFROM source "),
