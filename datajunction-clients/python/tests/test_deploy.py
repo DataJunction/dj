@@ -1418,6 +1418,7 @@ class TestGetImpact:
                         "version": 1,
                         "digest": "a" * 64,
                     },
+                    "revalidation_only": True,
                 },
             ],
             "downstream_impacts": [
@@ -1448,6 +1449,7 @@ class TestGetImpact:
         parsed = DeploymentInfo.from_dict(result)
         assert parsed.results[0].deploy_type == "node"
         assert parsed.results[0].change_tier == "none"
+        assert parsed.results[0].revalidation_only is True
         assert parsed.results[0].semantic_fingerprint == SemanticFingerprint(
             digest="a" * 64,
         )

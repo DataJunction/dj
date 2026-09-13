@@ -1783,6 +1783,9 @@ class DeploymentResult(BaseModel):
     changed_fields: list[str] = Field(default_factory=list)
     change_tier: ChangeTierName | None = None
     semantic_fingerprint: SemanticFingerprintValue | None = None
+    # True when the node was re-deployed only to retry a pre-existing failure.
+    # Failure reasons are not compared. Nullable for older persisted rows.
+    revalidation_only: bool | None = None
 
 
 class DeploymentInfo(BaseModel):
