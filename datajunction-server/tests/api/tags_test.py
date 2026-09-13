@@ -12,6 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.base import Base
+from datajunction_server.database.tag_type_claim import TagTypeClaim
 
 
 class TestTags:
@@ -69,12 +70,13 @@ class TestTags:
         Test ``POST /tags`` and ``GET /tags/{name}``
         """
         response = await self.create_tag(module__client)
-        expected_tag_output = {
+        expected_tag_output: dict[str, Any] = {
             "tag_metadata": {},
             "display_name": "Sales Report",
             "description": "All metrics for sales",
             "name": "sales_report",
             "tag_type": "group",
+            "owned_by_namespace": None,
         }
         assert response.status_code == 201
         assert response.json() == expected_tag_output
@@ -94,6 +96,7 @@ class TestTags:
             "description": None,
             "name": "sales_report2",
             "tag_type": "group",
+            "owned_by_namespace": None,
         }
         assert response.json() == expected_tag_output2
 
@@ -164,6 +167,7 @@ class TestTags:
             "description": "Helpful sales metrics",
             "name": "sales_report",
             "tag_type": "group",
+            "owned_by_namespace": None,
         }
 
         # Trying updating the tag
@@ -177,6 +181,7 @@ class TestTags:
             "description": "Helpful sales metrics",
             "name": "sales_report",
             "tag_type": "group",
+            "owned_by_namespace": None,
         }
 
         # Check history
@@ -265,6 +270,7 @@ class TestTags:
                 "name": "sales_report",
                 "tag_metadata": {},
                 "tag_type": "group",
+                "owned_by_namespace": None,
             },
         ]
 
@@ -300,6 +306,7 @@ class TestTags:
                 "name": "sales_report",
                 "display_name": "Sales Report",
                 "tag_type": "group",
+                "owned_by_namespace": None,
             },
             {
                 "description": "Metrics for various types of impressions",
@@ -307,6 +314,7 @@ class TestTags:
                 "name": "impressions_report",
                 "display_name": "Impressions Report",
                 "tag_type": "group",
+                "owned_by_namespace": None,
             },
         ]
 
@@ -320,8 +328,65 @@ class TestTags:
                 "description": "Department of brakes",
                 "tag_type": "business_area",
                 "tag_metadata": {},
+                "owned_by_namespace": None,
             },
         ]
+
+    @pytest.mark.asyncio
+    async def test_create_tag_of_a_claimed_type_is_refused(
+        self,
+        module__client: AsyncClient,
+        module__session: AsyncSession,
+    ) -> None:
+        """A claimed vocabulary only grows through its namespace's deployment."""
+        module__session.add(TagTypeClaim(tag_type="domain", namespace="taxonomy"))
+        await module__session.commit()
+
+        response = await module__client.post(
+            "/tags/",
+            json={"name": "payments", "tag_type": "domain"},
+        )
+        assert response.status_code == 409
+        assert response.json()["message"] == (
+            "Tag type `domain` is claimed by namespace `taxonomy`. Tags of this "
+            "type can only be created by a deployment of that namespace."
+        )
+
+        # An unclaimed type is unaffected.
+        response = await module__client.post(
+            "/tags/",
+            json={"name": "payments", "tag_type": "group"},
+        )
+        assert response.status_code == 201
+        assert response.json()["owned_by_namespace"] is None
+
+    @pytest.mark.asyncio
+    async def test_reads_surface_the_claiming_namespace(
+        self,
+        module__client: AsyncClient,
+        module__session: AsyncSession,
+    ) -> None:
+        """The owner is derived from the tag's type, not stored on the tag."""
+        response = await module__client.post(
+            "/tags/",
+            json={"name": "payments", "tag_type": "domain"},
+        )
+        assert response.status_code == 201
+
+        module__session.add(TagTypeClaim(tag_type="domain", namespace="taxonomy"))
+        await module__session.commit()
+
+        response = await module__client.get("/tags/payments/")
+        assert response.json()["owned_by_namespace"] == "taxonomy"
+
+        response = await module__client.get("/tags/?tag_type=domain")
+        assert response.json()[0]["owned_by_namespace"] == "taxonomy"
+
+        response = await module__client.patch(
+            "/tags/payments/",
+            json={"description": "Payments domain"},
+        )
+        assert response.json()["owned_by_namespace"] == "taxonomy"
 
     @pytest.mark.asyncio
     async def test_add_tag_to_node(self, client_with_dbt: AsyncClient) -> None:

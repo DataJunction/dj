@@ -170,6 +170,34 @@ def test_reconstruct_deployment_spec_forwards_custom_metadata_schemas(tmp_path):
     ]
 
 
+def test_reconstruct_deployment_spec_forwards_tag_type_claims(tmp_path):
+    """A `tag_type_claims:` block in dj.yaml reaches the deployment payload."""
+    (tmp_path / "dj.yaml").write_text(
+        "namespace: ns\ntag_type_claims:\n  - tag_type: domain\n",
+    )
+    (tmp_path / "revenue.yaml").write_text(
+        "name: ns.revenue\nnode_type: metric\nquery: SELECT SUM(amount) FROM ns.fct\n",
+    )
+
+    svc = DeploymentService(MagicMock())
+    spec, _ = svc._reconstruct_deployment_spec(tmp_path)
+
+    assert spec["tag_type_claims"] == [{"tag_type": "domain"}]
+
+
+def test_reconstruct_deployment_spec_omits_absent_tag_type_claims(tmp_path):
+    """A manifest with no claims must not send the key: [] would release them."""
+    (tmp_path / "dj.yaml").write_text("namespace: ns\n")
+    (tmp_path / "revenue.yaml").write_text(
+        "name: ns.revenue\nnode_type: metric\nquery: SELECT SUM(amount) FROM ns.fct\n",
+    )
+
+    svc = DeploymentService(MagicMock())
+    spec, _ = svc._reconstruct_deployment_spec(tmp_path)
+
+    assert "tag_type_claims" not in spec
+
+
 def test_reconstruct_deployment_spec_omits_absent_custom_metadata_schemas(tmp_path):
     """A manifest that never mentions schemas must not send the key at all.
 
