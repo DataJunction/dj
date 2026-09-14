@@ -6,6 +6,8 @@ from unittest import mock
 import pytest
 
 from datajunction_server.database.node import Node
+from datajunction_server.internal.access.authorization import AuthorizationService
+from datajunction_server.models import access
 from datajunction_server.models.deployment import (
     ColumnSpec,
     CubeSpec,
@@ -14,6 +16,7 @@ from datajunction_server.models.deployment import (
     SourceSpec,
     TransformSpec,
 )
+from tests.authz import VALIDATOR_AUTH_SERVICE
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -296,3 +299,61 @@ async def test_namespace_snapshot_rejects_unsupported_version(client_with_roads)
 
     assert response.status_code == 422
     assert response.json()["message"] == "Unsupported semantic fingerprint version: 2"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("restrict_reader", [False, True])
+async def test_namespace_snapshot_keeps_underscore_boundary_literal(
+    client_with_roads,
+    mocker,
+    restrict_reader,
+):
+    namespace = "fingerprints.taco_truck"
+    specs = [
+        DeploymentSpec(
+            namespace=target,
+            nodes=[
+                SourceSpec(
+                    name="orders",
+                    catalog="default",
+                    schema_="food",
+                    table="orders",
+                    columns=[ColumnSpec(name="id", type="int")],
+                ),
+            ],
+        )
+        for target in (
+            namespace,
+            f"{namespace}.child",
+            "fingerprints.tacoxtruck.child",
+        )
+    ]
+    await deploy(client_with_roads, *specs)
+
+    if restrict_reader:
+
+        class SnapshotTreeAuthorizationService(AuthorizationService):
+            """Allow the requested tree while denying its similarly named sibling."""
+
+            name = "snapshot_tree"
+
+            def authorize(self, auth_context, requests):
+                return [
+                    access.AccessDecision(
+                        request=request,
+                        approved=request.access_object.name == namespace
+                        or request.access_object.name.startswith(f"{namespace}."),
+                    )
+                    for request in requests
+                ]
+
+        mocker.patch(
+            VALIDATOR_AUTH_SERVICE,
+            return_value=SnapshotTreeAuthorizationService(),
+        )
+
+    data = await snapshot(client_with_roads, namespace)
+    assert [node["name"] for node in data["nodes"]] == [
+        f"{namespace}.child.orders",
+        f"{namespace}.orders",
+    ]
