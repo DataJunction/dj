@@ -139,8 +139,9 @@ async def list_namespaces_in_hierarchy(
     """
     statement = select(NodeNamespace).where(
         or_(
-            NodeNamespace.namespace.like(
-                f"{namespace}.%",
+            NodeNamespace.namespace.startswith(
+                f"{namespace}.",
+                autoescape=True,
             ),
             NodeNamespace.namespace == namespace,
         ),
@@ -998,7 +999,7 @@ async def hard_delete_namespace(
             select(Node.id, Node.name, Node.type)
             .where(
                 or_(
-                    Node.namespace.like(f"{namespace}.%"),
+                    Node.namespace.startswith(f"{namespace}.", autoescape=True),
                     Node.namespace == namespace,
                 ),
             )

@@ -523,7 +523,10 @@ async def hard_delete_node_namespace(
                     NodeNamespace.is_governed_boundary.is_(True),
                     or_(
                         NodeNamespace.namespace == namespace,
-                        NodeNamespace.namespace.like(f"{namespace}.%"),
+                        NodeNamespace.namespace.startswith(
+                            f"{namespace}.",
+                            autoescape=True,
+                        ),
                     ),
                 ),
             )

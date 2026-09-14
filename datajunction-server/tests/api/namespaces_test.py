@@ -373,6 +373,80 @@ async def test_hard_delete_ancestor_requires_manage_on_every_boundary(
             assert await session.scalar(select(Node.name).where(Node.name == node_name))
 
 
+@pytest.mark.parametrize("outside_governed", [False, True])
+async def test_hard_delete_namespace_preserves_underscore_collision(
+    client: AsyncClient,
+    session: AsyncSession,
+    current_user: User,
+    mocker,
+    outside_governed: bool,
+):
+    """A literal namespace prefix must govern both authorization and deletion."""
+    root = "lunch.taco_truck"
+    child = f"{root}.child"
+    outside = "lunch.tacoXtruck.child"
+    session.add_all(
+        NodeNamespace(namespace=name) for name in ["lunch", root, child, outside]
+    )
+    await session.commit()
+    for namespace in [child, outside]:
+        response = await client.post(
+            "/nodes/source/",
+            json={
+                "name": f"{namespace}.source",
+                "catalog": "default",
+                "schema_": "public",
+                "table": "example",
+                "columns": [{"name": "id", "type": "int"}],
+            },
+        )
+        assert response.status_code == HTTPStatus.OK, response.json()
+
+    boundary = await session.get(NodeNamespace, root)
+    boundary.is_governed_boundary = True
+    outside_boundary = await session.get(NodeNamespace, outside)
+    outside_boundary.is_governed_boundary = outside_governed
+    role = Role(name="literal-boundary-owner", created_by_id=current_user.id)
+    session.add(role)
+    await session.flush()
+    session.add_all(
+        [
+            RoleScope(
+                role_id=role.id,
+                action=ResourceAction.MANAGE,
+                scope_type=ResourceType.NAMESPACE,
+                scope_value=root,
+            ),
+            RoleAssignment(
+                principal_id=current_user.id,
+                role_id=role.id,
+                granted_by_id=current_user.id,
+            ),
+        ],
+    )
+    await session.commit()
+    service_settings = mocker.patch(
+        "datajunction_server.internal.access.authorization.service.settings",
+    )
+    service_settings.default_access_policy = "permissive"
+    service_settings.restrictive_scopes = []
+    mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: RBACAuthorizationService())
+
+    response = await client.delete(f"/namespaces/{root}/hard/?cascade=true")
+    assert response.status_code == HTTPStatus.OK, response.json()
+    assert set(response.json()["impact"]["deleted_namespaces"]) == {root, child}
+    assert response.json()["impact"]["deleted_nodes"] == [f"{child}.source"]
+    remaining = set((await session.execute(select(NodeNamespace.namespace))).scalars())
+    assert {"lunch", outside} <= remaining
+    assert not {root, child} & remaining
+    assert (
+        await session.scalar(
+            select(Node.name).where(Node.name == f"{outside}.source"),
+        )
+        == f"{outside}.source"
+    )
+
+
 @pytest.mark.asyncio
 async def test_list_all_namespaces(
     module__client_with_all_examples: AsyncClient,
