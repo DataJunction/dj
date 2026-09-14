@@ -1103,6 +1103,82 @@ def test_push_format_json_raises_on_success_with_invalid_nodes(monkeypatch, tmp_
     assert exc_info.value.errors[0]["name"] == "foo.bar"
 
 
+def test_push_ignores_revalidation_only_invalid_nodes(monkeypatch, tmp_path):
+    """A revalidation_only invalid node is a pre-existing failure unrelated to this
+    deployment (its own spec never moved) -- it must not fail the build."""
+    (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
+    (tmp_path / "bar.yaml").write_text(yaml.safe_dump({"name": "foo.bar"}))
+
+    results = [
+        {
+            "deploy_type": "node",
+            "name": "foo.bar",
+            "operation": "update",
+            "status": "invalid",
+            "message": "One or more metrics are INVALID",
+            "revalidation_only": True,
+        },
+    ]
+    client = MagicMock()
+    client.deploy.return_value = {
+        "uuid": "456",
+        "status": "success",
+        "results": results,
+        "namespace": "foo",
+    }
+
+    svc = DeploymentService(client, console=Console(file=io.StringIO()))
+    monkeypatch.setattr(time, "sleep", lambda _: None)
+
+    svc.push(tmp_path)  # must not raise
+
+
+def test_push_raises_on_mix_of_revalidation_only_and_real_invalid_nodes(
+    monkeypatch,
+    tmp_path,
+):
+    """A revalidation_only node is ignored, but a real invalid node in the same
+    deployment still fails the build."""
+    (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
+    (tmp_path / "bar.yaml").write_text(yaml.safe_dump({"name": "foo.bar"}))
+    (tmp_path / "baz.yaml").write_text(yaml.safe_dump({"name": "foo.baz"}))
+
+    results = [
+        {
+            "deploy_type": "node",
+            "name": "foo.bar",
+            "operation": "update",
+            "status": "invalid",
+            "message": "Pre-existing breakage",
+            "revalidation_only": True,
+        },
+        {
+            "deploy_type": "node",
+            "name": "foo.baz",
+            "operation": "update",
+            "status": "invalid",
+            "message": "This deployment broke it",
+            "revalidation_only": False,
+        },
+    ]
+    client = MagicMock()
+    client.deploy.return_value = {
+        "uuid": "456",
+        "status": "success",
+        "results": results,
+        "namespace": "foo",
+    }
+
+    svc = DeploymentService(client, console=Console(file=io.StringIO()))
+    monkeypatch.setattr(time, "sleep", lambda _: None)
+
+    with pytest.raises(DJDeploymentFailure) as exc_info:
+        svc.push(tmp_path)
+
+    assert len(exc_info.value.errors) == 1
+    assert exc_info.value.errors[0]["name"] == "foo.baz"
+
+
 @pytest.mark.timeout(2)
 def test_push_raises_after_polling_to_failure(monkeypatch, tmp_path):
     (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "ns"}))

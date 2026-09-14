@@ -226,8 +226,21 @@ class DeploymentService:
             )
         if deployment.status == DeploymentStatus.SUCCESS:
             invalid_results = [
-                r for r in deployment.results if r.status == ResultStatus.INVALID
+                r
+                for r in deployment.results
+                if r.status == ResultStatus.INVALID and not r.revalidation_only
             ]
+            skipped = [
+                r
+                for r in deployment.results
+                if r.status == ResultStatus.INVALID and r.revalidation_only
+            ]
+            if skipped and not as_json:
+                console.print(
+                    f"\n[dim]Ignoring {len(skipped)} pre-existing invalid node(s), "
+                    "unrelated to this deployment: "
+                    f"{', '.join(r.name for r in skipped)}[/dim]",
+                )
             if invalid_results:
                 if not as_json:
                     console.print(
@@ -244,6 +257,7 @@ class DeploymentService:
                 r
                 for r in deployment.results
                 if r.status in (ResultStatus.FAILED, ResultStatus.INVALID)
+                and not r.revalidation_only
             ]
             raise DJDeploymentFailure(
                 project_name=deployment_spec.get("namespace", source_path),
