@@ -42,7 +42,10 @@ from datajunction_server.internal.namespace_locks import (
     lock_namespace_boundary_lifecycle,
 )
 from datajunction_server.internal.nodes import get_single_cube_revision_metadata
-from datajunction_server.models.access import ResourceAction, ResourceType
+from datajunction_server.models.access import (
+    ResourceAction,
+    namespace_boundary_scope_targets,
+)
 from datajunction_server.models.deployment import (
     CubeSpec,
     DeploymentSourceType,
@@ -433,17 +436,6 @@ async def create_namespace(
         )
     await session.commit()
     return parents
-
-
-def namespace_boundary_scope_targets(
-    namespace: str,
-) -> list[tuple[ResourceType, str]]:
-    """Return every scope governed by a namespace boundary."""
-    return [
-        (ResourceType.NAMESPACE, namespace),
-        (ResourceType.NAMESPACE, f"{namespace}.*"),
-        (ResourceType.NODE, f"{namespace}.*"),
-    ]
 
 
 def _namespace_boundary_scopes(
