@@ -340,6 +340,17 @@ async def create_a_node(
         save_history=save_history,
     )
 
+    # Scheduled before `derive_frozen_measures`: Starlette's `BackgroundTasks`
+    # runs queued tasks sequentially and stops at the first one that raises,
+    # so lineage must not be ordered after a task that's allowed to raise on
+    # a real bug.
+    background_tasks.add_task(
+        save_column_level_lineage,
+        node_revision_id=node_revision.id,
+        current_user=current_user,
+        access_target=create_access_target,
+    )
+
     # For metric nodes, derive the referenced frozen measures and save them
     if node.type == NodeType.METRIC:
         background_tasks.add_task(
@@ -348,13 +359,6 @@ async def create_a_node(
             current_user=current_user,
             access_target=create_access_target,
         )
-
-    background_tasks.add_task(
-        save_column_level_lineage,
-        node_revision_id=node_revision.id,
-        current_user=current_user,
-        access_target=create_access_target,
-    )
 
     return await Node.get_by_name(  # type: ignore
         session,
@@ -842,11 +846,16 @@ async def derive_frozen_measures(
             await session.commit()
             return result
     except Exception:
+        # Re-raise exceptions so extraction failures are logged by Starlette
+        # instead of silently saving a metric with an empty measures list.
+        # This runs as a BackgroundTask after the HTTP response is sent.
+        # Note: BackgroundTasks abort on the first exception, so this must be
+        # scheduled after other critical tasks (like save_column_level_lineage).
         _logger.exception(
             "Error deriving frozen measures for node revision %s",
             node_revision_id,
         )
-        return []
+        raise
 
 
 async def _derive_frozen_measures_impl(

@@ -7,6 +7,7 @@ import logging
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import MissingGreenlet
 from sqlalchemy.orm import joinedload, load_only, noload, selectinload
 from starlette.requests import Request
 from strawberry.dataloader import DataLoader
@@ -404,6 +405,12 @@ async def batch_load_extracted_measures(
                     metric_node=metric_node,
                 )
                 results.append((components, derived_ast))
+            except MissingGreenlet:
+                # A deferred-column read here means this loader's `load_only`
+                # allowlist is missing a field extract() needs -- a bug in
+                # the allowlist, not bad metric data. Don't turn it into a
+                # silent null.
+                raise
             except Exception as exc:  # pragma: no cover
                 logger.warning(
                     "extracted_measures extraction failed for nr_id=%s: %s",
