@@ -199,6 +199,7 @@ enum ErrorCode {
   TAG_NOT_FOUND
   CATALOG_NOT_FOUND
   INVALID_NAMESPACE
+  INVALID_SPEC_FIELD
 }
 
 type GeneratedSQL {
