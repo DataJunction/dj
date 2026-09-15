@@ -58,6 +58,44 @@ curl -X POST $DJ_SERVER/metadata-schemas/ \
 
 If a repo manages the namespace, this is refused. A deployment reconciles that namespace to exactly what its manifest declares, so anything you register here would be undone on the next push. The error tells you to declare it in the repo instead.
 
+### Built-in semantic-layer schema
+
+DJ automatically registers `semantic_layer` as a global, reserved metadata key.
+It validates the portable metadata returned by the semantic-layer API, including
+units, formats, filter hints, and namespaced client extensions. You do not need to
+declare this schema in individual deployment manifests.
+
+Metric nodes put column metadata directly beneath the key:
+
+```yaml
+custom_metadata:
+  semantic_layer:
+    format:
+      preset: currency
+      precision: 2
+    extensions:
+      superset:
+        d3format: "$,.2f"
+```
+
+Dimension nodes declare metadata by column:
+
+```yaml
+custom_metadata:
+  semantic_layer:
+    columns:
+      country:
+        filter:
+          kind: select
+          operators: [IN, NOT IN]
+          default_operator: IN
+          multi: true
+```
+
+The key is reserved so namespace-scoped schemas cannot redefine the shared
+contract. Producer-specific fields must be placed inside an object under
+`extensions`.
+
 ## What validation does and does not do
 
 Validation is **lax about keys it does not know**. A key with no registered schema passes untouched. That means registering your first schema breaks nothing that already exists, and the feature is inert until you opt into it.
