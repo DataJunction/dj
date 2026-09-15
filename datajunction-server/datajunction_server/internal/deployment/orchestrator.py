@@ -642,11 +642,11 @@ class DeploymentOrchestrator:
         self.registry.set_namespaces(await self._setup_namespaces())
         # Claims first: a manifest may claim a tag type and create tags of that type
         # in the same deploy, which only works if the claim is already recorded.
-        if self.deployment_spec.tag_type_claims is not None:
+        if self.deployment_spec.managed_tag_types is not None:
             await upsert_tag_type_claims(
                 self.session,
                 self.deployment_spec.namespace,
-                self.deployment_spec.tag_type_claims,
+                self.deployment_spec.managed_tag_types,
                 current_user_id=self.context.current_user.id,
             )
         self.registry.add_tags(await self._setup_tags())
