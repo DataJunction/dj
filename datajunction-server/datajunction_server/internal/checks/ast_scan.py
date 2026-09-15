@@ -1,16 +1,12 @@
 """
 Extract the functions a compiled check actually calls.
 
-cel-expr-python accepts the CEL env-config `stdlib: include:` block that would
-restrict the callable surface, but silently drops it -- it does not survive
-``EnvConfig.to_yaml()`` and ``matches()`` still compiles -- so the allowlist has
-to be built here instead. ``Expression.serialize()`` returns a protobuf Any
-wrapping a ``cel.expr.CheckedExpr``, whose reference map holds every resolved
-reference by name and overload id. That map is what we scan, by walking the wire
-format directly rather than generating protos for one field path.
+The library silently drops the CEL env-config `stdlib: include:` block, so the
+allowlist has to be built from the compiled AST instead: `serialize()` returns a
+`cel.expr.CheckedExpr` whose reference map names every resolved overload. Walked
+as wire format to avoid generating protos for one field path.
 
-Recheck on each upgrade: if the library ever honours stdlib subsetting, this
-module deletes.
+If an upgrade ever honours stdlib subsetting, this module deletes.
 """
 
 from collections.abc import Iterator
@@ -23,7 +19,6 @@ _REFERENCE_OVERLOAD_ID = 3
 # google.protobuf.Any.value.
 _ANY_VALUE = 2
 
-# Protobuf wire types.
 _WIRE_VARINT = 0
 _WIRE_64BIT = 1
 _WIRE_LENGTH_DELIMITED = 2
@@ -55,8 +50,8 @@ def _references(serialized: bytes) -> Iterator[bytes]:
     for field, entry in _fields(checked):
         if field != _CHECKED_EXPR_REFERENCE_MAP:
             continue
-        # A map entry's key here is the int64 expression id, which the walker
-        # skips as a varint, so the Reference value is all that surfaces.
+        # The entry's key is an int64 expr id, skipped as a varint, so only the
+        # Reference value surfaces.
         for _, reference in _fields(entry):
             yield reference
 

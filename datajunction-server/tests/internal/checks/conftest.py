@@ -1,8 +1,6 @@
 """
-Shared vocabulary for the check-engine tests.
-
-Deliberately invented and generic: the engine is indifferent to which metadata
-keys, properties or tag types an installation registers, and hardcoding a real
+Invented vocabulary for the check-engine tests. The engine is indifferent to
+which metadata keys or tag types an installation registers, so a real
 governance vocabulary here would imply otherwise.
 """
 

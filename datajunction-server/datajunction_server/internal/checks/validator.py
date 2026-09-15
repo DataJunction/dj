@@ -1,11 +1,10 @@
 """
-The config-load gate for governance checks.
+The config-load gate: compile every check, refuse anything off the allowed
+function surface, require a boolean, and evaluate each clause against fixtures.
 
-Compiles every check, refuses anything outside the allowed function surface,
-asserts the result is a boolean, and evaluates each clause against fixtures so a
-typo cannot reach a deploy. The fixture step is the one that earns its keep:
-custom_metadata binds as ``map<string, dyn>``, so a misspelled property name
-type-checks cleanly and only fails once it reaches real data.
+The fixture step is the one that earns its keep -- custom_metadata binds as
+``map<string, dyn>``, so a misspelled property type-checks cleanly and would
+otherwise only fail on real data.
 """
 
 from collections.abc import Iterable, Sequence
@@ -22,18 +21,12 @@ from datajunction_server.internal.checks.context import (
     custom_metadata,
 )
 
-# The callable surface. Start narrow: widening it is backward-compatible,
-# narrowing it is not. The has/all/exists/filter macros expand into
-# comprehensions whose machinery (not_strictly_false, add_list, conditional)
-# shows up here too, even though the macros themselves never do.
-#
-# Deliberately excluded, with the reasons worth keeping in a config review:
-#   matches_string  - re2 regex, unbounded evaluation cost on hostile input
-#   *timestamp*     - time-dependent checks make deploy results irreproducible
-#   to_dyn          - defeats the type checker
+# Start narrow: widening is backward-compatible, narrowing is not. The
+# has/all/exists/filter macros never appear, but their expansions do.
+# Excluded on purpose: matches_string (unbounded re2 cost), timestamp overloads
+# (irreproducible deploys), to_dyn (defeats the type checker).
 ALLOWED_OVERLOADS = frozenset(
     {
-        # Boolean and comparison.
         "logical_and",
         "logical_or",
         "logical_not",
@@ -46,21 +39,18 @@ ALLOWED_OVERLOADS = frozenset(
         "greater_int64",
         "less_equals_int64",
         "less_int64",
-        # Size, for coverage thresholds and cardinality checks.
         "size_list",
         "size_map",
         "size_string",
         "size_bytes",
-        # Integer arithmetic, for ratio thresholds expressed without floats.
         "multiply_int64",
         "add_int64",
-        # Emitted by filter macro expansion.
-        "add_list",
+        "add_list",  # filter macro expansion
     },
 )
 
-# A clause may type-check as DYN when every branch reads dynamic metadata; the
-# fixture evaluation below is what pins it down to an actual boolean.
+# A clause reading only dynamic metadata type-checks as DYN; fixture evaluation
+# is what pins it to an actual boolean.
 _BOOLEAN_RETURN_TYPES = ("BOOL", "DYN")
 _CLAUSES = ("when", "condition")
 
@@ -68,9 +58,7 @@ _CLAUSES = ("when", "condition")
 class CheckGate(StrEnum):
     """What a failing check does to a deploy."""
 
-    # Record the failure and carry on.
     WARN = "warn"
-    # Refuse the deploy.
     BLOCK = "block"
     # Refuse only if this check passed against the deployed state.
     BLOCK_ON_REGRESSION = "block_on_regression"
@@ -82,8 +70,8 @@ class CheckSpec:
 
     name: str
     condition: str
-    # Accepted as a raw string too, since this is what a config load hands over;
-    # an unrecognised gate comes back as a validation issue rather than raising.
+    # A raw string too, since that is what a config load hands over; an
+    # unrecognised gate becomes a validation issue rather than raising.
     gate: CheckGate | str
     when: str | None = None
     description: str = ""
@@ -91,7 +79,7 @@ class CheckSpec:
 
 @dataclass
 class ValidationIssue:
-    """Why one clause of one check was refused at load."""
+    """Why one clause of one check was refused."""
 
     check: str
     clause: str
@@ -111,24 +99,21 @@ class ValidatedCheck:
 
 @dataclass
 class ValidationResult:
-    """The outcome of a config load: what is usable, and what was refused."""
+    """What is usable after a config load, and what was refused."""
 
     checks: list[ValidatedCheck] = field(default_factory=list)
     issues: list[ValidationIssue] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
-        """True when every check compiled and validated."""
         return not self.issues
 
 
 def build_fixtures(declared_properties: DeclaredProperties) -> list[dict[str, Any]]:
     """
-    Two activations, enough to force every clause down both branches.
-
-    One entity with nothing set and one fully populated. Both are built from the
-    declared schemas rather than a constant, so a property that no schema
-    declares fails validation instead of silently reading null forever.
+    One bare entity and one fully populated, enough to force every clause down
+    both branches. Built from the declared schemas, so a property no schema
+    declares fails validation rather than reading null forever.
     """
     populated = {
         key: {prop: f"fixture-{prop}" for prop in properties}

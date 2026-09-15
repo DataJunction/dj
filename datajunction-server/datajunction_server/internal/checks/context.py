@@ -1,9 +1,6 @@
 """
-The surface a check author writes against: the CEL environment and the values
-bound into it.
-
-Everything a check can name is declared here; anything else is a compile error.
-Cost lives here too -- a check is free, a binding is not.
+What a check may name: the CEL environment and the values bound into it.
+Anything not declared here is a compile error.
 """
 
 from collections.abc import Iterable, Mapping, Sequence
@@ -13,23 +10,17 @@ from cel_expr_python import cel
 
 _STR_MAP = cel.Type.Map(cel.Type.STRING, cel.Type.DYN)
 
-# Root bindings. Adding one here is a deliberate, reviewable cost decision.
 VARIABLES: dict[str, Any] = {
-    # The entity under evaluation, including its custom_metadata.
     "node": _STR_MAP,
-    # Upstream entities, each {name, type, custom_metadata}.
     "dependencies": cel.Type.List(_STR_MAP),
-    # The currently deployed revision: {exists, custom_metadata}.
     "previous": _STR_MAP,
-    # What the deploy is doing to this entity: {is_new, is_removal}. Typed BOOL
-    # rather than DYN so `change.is_removal` type-checks as a boolean guard.
+    # BOOL rather than DYN so `change.is_removal` type-checks as a guard.
     "change": cel.Type.Map(cel.Type.STRING, cel.Type.BOOL),
 }
 
-# Custom-metadata key -> the property names its registered schema declares. Each
-# declared property is null-prefilled below, so callers must pass the real
-# schemas rather than a hardcoded list: a property renamed in the schema but not
-# here would be prefilled to null and its check would report "not set" forever.
+# Metadata key -> the properties its registered schema declares. Must come from
+# the real schemas: a stale list prefills a renamed property to null, and its
+# check then reports "not set" forever.
 DeclaredProperties = Mapping[str, Sequence[str]]
 
 
@@ -43,16 +34,11 @@ def custom_metadata(
     declared_properties: DeclaredProperties,
 ) -> dict[str, Any]:
     """
-    custom_metadata as authored, with every schema-declared property prefilled.
+    custom_metadata as authored, with every declared property prefilled to null.
 
-    Reading an absent key from a CEL map yields an error value rather than
-    false, so each declared property is filled with null to make
-    `node.custom_metadata.<key>.<property> != null` safe. Normalizing to a dict
-    matters as well: a revision may store JSON null here, and selecting a field
-    from null is a different CEL error from a missing key.
-
-    Keys with no registered schema pass through untouched, so a check can still
-    walk any path -- it just has to guard with has() where a key may be absent.
+    An absent CEL map key evaluates to an error rather than false, so prefilling
+    is what makes `!= null` safe. Unschematised keys pass through untouched and
+    need has() guards.
     """
     normalized = dict(raw or {})
     for key, properties in declared_properties.items():
@@ -67,9 +53,8 @@ def node_snapshot(node: Any, declared_properties: DeclaredProperties) -> dict[st
     """
     Flatten a node and its current revision into plain values.
 
-    Deliberately not ORM objects: DJ runs on AsyncSession and CEL evaluation is
-    synchronous, so a lazy load inside an expression would raise MissingGreenlet.
-    Every relationship read here must already be eager-loaded by the caller.
+    Relationships must already be eager-loaded: CEL evaluates synchronously, so
+    a lazy load here would raise MissingGreenlet.
     """
     revision = node.current
     return {
@@ -114,7 +99,7 @@ def dependency_snapshot(
     parent: Any,
     declared_properties: DeclaredProperties,
 ) -> dict[str, Any]:
-    """Upstream entities carry only what checks need, not a full snapshot."""
+    """Upstream entities carry only what checks need."""
     return {
         "name": parent.name,
         "type": _plain(parent.type),
@@ -152,7 +137,7 @@ def activation(
 
 
 def _plain(value: Any) -> Any:
-    """Enum members bind as their value; CEL has no notion of a Python enum."""
+    """Enum members bind as their value; CEL has no Python enums."""
     if value is None:
         return None
     return str(value.value if hasattr(value, "value") else value)
