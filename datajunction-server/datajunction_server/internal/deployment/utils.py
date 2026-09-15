@@ -158,6 +158,23 @@ def _find_upstreams_for_node(node: NodeSpec) -> tuple[str, list[str], ast.Query 
     return node.rendered_name, [], None
 
 
+def creates_cycle(graph: dict[str, list[str]], source: str, target: str) -> bool:
+    """
+    Whether adding ``source -> target`` to ``graph`` would close a cycle.
+
+    True when ``source`` is already reachable from ``target``, which includes
+    a self-edge. Assumes ``graph`` is currently acyclic.
+    """
+    seen: set[str] = set()
+    frontier = {target}
+    while frontier:
+        if source in frontier:
+            return True
+        seen |= frontier
+        frontier = {dep for node in frontier for dep in graph.get(node, [])} - seen
+    return False
+
+
 def topological_levels(
     graph: dict[str, list[str]],
     ascending: bool = True,

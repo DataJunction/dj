@@ -405,12 +405,23 @@ class QueryServiceClient:
         request_headers: dict[str, str] | None = None,
     ) -> QueryWithResults:
         """Submit a query to the query service."""
-        # ``request_headers`` intentionally not forwarded — see
-        # ``get_columns_for_table`` for the reason.
+        # Request credentials must not be forwarded. Cache-Control is deliberately
+        # preserved because DJQS uses it to choose result-cache retention.
+        headers = {"accept": "application/json"}
+        cache_control = next(
+            (
+                value
+                for name, value in (request_headers or {}).items()
+                if name.lower() == "cache-control"
+            ),
+            None,
+        )
+        if cache_control:
+            headers["cache-control"] = cache_control
         response = await self._arequest(
             "POST",
             "/queries/",
-            headers={"accept": "application/json"},
+            headers=headers,
             json=query_create.model_dump(),
         )
         if response.status_code not in (200, 201):

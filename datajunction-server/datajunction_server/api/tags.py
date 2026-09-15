@@ -3,9 +3,10 @@ Tag related APIs.
 """
 
 from collections.abc import Callable
+from http import HTTPStatus
 
-from fastapi import Depends
-from sqlalchemy import select
+from fastapi import Depends, Response
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import noload
 
@@ -14,7 +15,11 @@ from datajunction_server.database import Node, NodeRevision
 from datajunction_server.database.history import History
 from datajunction_server.database.tag import Tag, TagNodeRelationship
 from datajunction_server.database.user import User
-from datajunction_server.errors import DJAlreadyExistsException, DJDoesNotExistException
+from datajunction_server.errors import (
+    DJActionNotAllowedException,
+    DJAlreadyExistsException,
+    DJDoesNotExistException,
+)
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.models.node import NodeMinimumDetail
@@ -63,7 +68,7 @@ async def get_tag_by_name(
         )
     tag = (await session.execute(statement)).scalars().one_or_none()
     if not tag and raise_if_not_exists:
-        raise DJDoesNotExistException(  # pragma: no cover
+        raise DJDoesNotExistException(
             message=(f"A tag with name `{name}` does not exist."),
             http_status_code=404,
         )
@@ -191,6 +196,54 @@ async def update_a_tag(
     await session.commit()
     await session.refresh(tag)
     return tag
+
+
+@router.delete("/tags/{name}/", status_code=HTTPStatus.NO_CONTENT)
+async def delete_a_tag(
+    name: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    save_history: Callable = Depends(get_save_history),
+):
+    """
+    Delete a tag. Only tags with no nodes attached can be deleted.
+    """
+    tag = await get_tag_by_name(
+        session,
+        name,
+        raise_if_not_exists=True,
+        for_update=True,
+    )
+    attached_nodes = (
+        await session.execute(
+            select(func.count())
+            .select_from(TagNodeRelationship)
+            .join(Node, Node.id == TagNodeRelationship.node_id)
+            .where(TagNodeRelationship.tag_id == tag.id)
+            .where(Node.deactivated_at.is_(None)),
+        )
+    ).scalar_one()
+    if attached_nodes:
+        raise DJActionNotAllowedException(
+            message=(
+                f"Cannot delete tag `{name}` as it is still attached to "
+                f"{attached_nodes} node(s). Remove the tag from these nodes first."
+            ),
+            http_status_code=HTTPStatus.CONFLICT,
+        )
+
+    await save_history(
+        event=History(
+            entity_type=EntityType.TAG,
+            entity_name=tag.name,
+            activity_type=ActivityType.DELETE,
+            user=current_user.username,
+        ),
+        session=session,
+    )
+    await session.delete(tag)
+    await session.commit()
+    return Response(status_code=HTTPStatus.NO_CONTENT)
 
 
 @router.get("/tags/{name}/nodes/", response_model=list[NodeMinimumDetail])

@@ -733,6 +733,38 @@ describe('DataJunctionAPI', () => {
     );
   });
 
+  it('uses a caller-provided nodeData max age', () => {
+    fetch.mockResponseOnce(JSON.stringify({}));
+
+    DataJunctionAPI.nodeData('transform1', null, 604800);
+
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/data/transform1?limit=1000&async_=true`,
+      {
+        credentials: 'include',
+        headers: {
+          'Cache-Control': 'max-age=604800',
+        },
+      },
+    );
+  });
+
+  it('uses caller-provided nodeData stale-while-revalidate', () => {
+    fetch.mockResponseOnce(JSON.stringify({}));
+
+    DataJunctionAPI.nodeData('transform1', null, 604800, true);
+
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/data/transform1?limit=1000&async_=true`,
+      {
+        credentials: 'include',
+        headers: {
+          'Cache-Control': 'max-age=604800, stale-while-revalidate',
+        },
+      },
+    );
+  });
+
   it('calls dag correctly and processes response', async () => {
     const mockResponse = [
       {

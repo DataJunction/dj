@@ -1331,7 +1331,16 @@ def deployment_payload(deployment_spec: DeploymentSpec) -> dict:
     return deployment_spec.model_dump()
 
 
-async def deploy_and_wait(client, deployment_spec: DeploymentSpec):
+# Additive `DeploymentResult` fields, stripped rather than asserted below.
+ADDITIVE_RESULT_FIELDS = (
+    "change_tier",
+    "semantic_fingerprint",
+    "revalidation_only",
+)
+
+
+async def deploy_and_poll(client, deployment_spec: DeploymentSpec):
+    """Deploy and wait, keeping every field the API returned."""
     response = await client.post(
         "/deployments",
         json=deployment_payload(deployment_spec),
@@ -1345,6 +1354,15 @@ async def deploy_and_wait(client, deployment_spec: DeploymentSpec):
         await asyncio.sleep(1)
         response = await client.get(f"/deployments/{deployment_uuid}")
         data = response.json()
+    return data
+
+
+async def deploy_and_wait(client, deployment_spec: DeploymentSpec):
+    data = await deploy_and_poll(client, deployment_spec)
+    for result in data.get("results", []):
+        for additive in ADDITIVE_RESULT_FIELDS:
+            assert additive in result
+            result.pop(additive)
     return data
 
 
@@ -1429,6 +1447,69 @@ class TestDeployments:
         link_result = next(r for r in data["results"] if r["deploy_type"] == "link")
         assert f"{namespace}.default.us_state" in link_result["name"]
         assert link_result["status"] == "failed"
+
+    @pytest.mark.asyncio
+    async def test_revalidation_only_marks_pre_existing_failures(self, client):
+        """
+        An unchanged node re-deployed only to retry a pre-existing failure is
+        marked `revalidation_only`, so a caller can tell the failures this
+        deployment caused from the ones it inherited -- and still sees the
+        recovery when a later deploy fixes the node's upstream.
+        """
+        namespace = "revalidation_only"
+        transform = TransformSpec(
+            name="${prefix}default.repair_totals",
+            query="SELECT repair_order_id, price FROM ${prefix}default.repairs",
+            owners=["dj"],
+        )
+        source = SourceSpec(
+            name="${prefix}default.repairs",
+            table="repairs",
+            catalog="default",
+            schema_="roads",
+            columns=[
+                ColumnSpec(name="repair_order_id", type="int"),
+                ColumnSpec(name="price", type="float"),
+            ],
+            owners=["dj"],
+        )
+
+        # The transform is created broken: its source is not in the deployment.
+        data = await deploy_and_poll(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=[transform]),
+        )
+        created = next(r for r in data["results"] if r["deploy_type"] == "node")
+        assert created["status"] == "invalid"
+        assert created["operation"] == "create"
+        assert created["revalidation_only"] is False
+
+        # Re-deploying the same spec retries the node, which is still broken.
+        data = await deploy_and_poll(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=[transform]),
+        )
+        retried = next(r for r in data["results"] if r["deploy_type"] == "node")
+        assert retried["status"] == "invalid"
+        assert retried["operation"] == "update"
+        assert retried["revalidation_only"] is True
+
+        # Adding the missing source fixes the node, which reports as a success.
+        data = await deploy_and_poll(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=[transform, source]),
+        )
+        recovered = next(
+            r
+            for r in data["results"]
+            if r["name"] == f"{namespace}.default.repair_totals"
+        )
+        assert recovered["status"] == "success"
+        assert recovered["revalidation_only"] is True
+        added_source = next(
+            r for r in data["results"] if r["name"] == f"{namespace}.default.repairs"
+        )
+        assert added_source["revalidation_only"] is False
 
     @pytest.mark.asyncio
     async def test_deploy_failed_on_non_existent_link_deps(
@@ -2460,8 +2541,8 @@ class TestDeployments:
             "name": f"{namespace}.default.hard_hat",
             "status": "success",
             "operation": "update",
-            "changed_fields": ["query", "columns"],
-            "message": "Updated dimension (v2.0)\n└─ Column removed: hard_hat_id, state\n└─ Updated query, columns",
+            "changed_fields": ["query"],
+            "message": "Updated dimension (v2.0)\n└─ Updated query",
         }
         update_us_state = next(
             res
@@ -2520,12 +2601,12 @@ class TestDeployments:
         )
         assert metric_result == {
             "deploy_type": "node",
-            "message": "Updated metric (v2.0)\n└─ Updated query, display_name\n"
+            "message": "Updated metric (v2.0)\n└─ Updated query\n"
             "[invalid] Metric metric_update.default.avg_length_of_employment has an invalid "
             "query, should have an aggregate expression",
             "name": "metric_update.default.avg_length_of_employment",
             "operation": "update",
-            "changed_fields": ["query", "display_name"],
+            "changed_fields": ["query"],
             "status": "invalid",
         }
 
@@ -2545,10 +2626,10 @@ class TestDeployments:
         )
         assert metric_result == {
             "deploy_type": "node",
-            "message": "Updated metric (v3.0)\n└─ Updated query, display_name",
+            "message": "Updated metric (v3.0)\n└─ Updated query",
             "name": "metric_update.default.avg_length_of_employment",
             "operation": "update",
-            "changed_fields": ["query", "display_name"],
+            "changed_fields": ["query"],
             "status": "success",
         }
 
@@ -3212,7 +3293,7 @@ class TestDeployments:
         await deploy(description="Hard hats, revised")
         response = await client.get(f"/nodes/{name}/")
         assert response.status_code == 200, response.json()
-        assert response.json()["version"] == "v2.0"
+        assert response.json()["version"] == "v1.1"
         assert response.json()["description"] == "Hard hats, revised"
 
     @pytest.mark.asyncio
@@ -4298,7 +4379,7 @@ class TestDeployments:
                 {
                     "deploy_type": "node",
                     "message": "Created source (v1.0)",
-                    "name": f"{namespace}.default.hard_hats",
+                    "name": f"{namespace}.default.us_states",
                     "status": "success",
                     "operation": "create",
                     "changed_fields": [],
@@ -4306,7 +4387,15 @@ class TestDeployments:
                 {
                     "deploy_type": "node",
                     "message": "Created source (v1.0)",
-                    "name": f"{namespace}.default.us_states",
+                    "name": f"{namespace}.default.hard_hats",
+                    "status": "success",
+                    "operation": "create",
+                    "changed_fields": [],
+                },
+                {
+                    "deploy_type": "node",
+                    "message": "Created dimension (v1.0)",
+                    "name": f"{namespace}.default.us_state",
                     "status": "success",
                     "operation": "create",
                     "changed_fields": [],
@@ -4319,14 +4408,6 @@ class TestDeployments:
                     f"'{namespace}.default.hard_hat'",
                     "name": f"{namespace}.default.hard_hat",
                     "status": "invalid",
-                    "operation": "create",
-                    "changed_fields": [],
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created dimension (v1.0)",
-                    "name": f"{namespace}.default.us_state",
-                    "status": "success",
                     "operation": "create",
                     "changed_fields": [],
                 },
@@ -4379,14 +4460,6 @@ class TestDeployments:
                 {
                     "deploy_type": "node",
                     "message": "Created source (v1.0)",
-                    "name": f"{namespace}.default.hard_hats",
-                    "status": "success",
-                    "operation": "create",
-                    "changed_fields": [],
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created source (v1.0)",
                     "name": f"{namespace}.default.us_states",
                     "status": "success",
                     "operation": "create",
@@ -4394,8 +4467,8 @@ class TestDeployments:
                 },
                 {
                     "deploy_type": "node",
-                    "message": "Created dimension (v1.0)",
-                    "name": f"{namespace}.default.hard_hat",
+                    "message": "Created source (v1.0)",
+                    "name": f"{namespace}.default.hard_hats",
                     "status": "success",
                     "operation": "create",
                     "changed_fields": [],
@@ -4404,6 +4477,14 @@ class TestDeployments:
                     "deploy_type": "node",
                     "message": "Created dimension (v1.0)",
                     "name": f"{namespace}.default.us_state",
+                    "status": "success",
+                    "operation": "create",
+                    "changed_fields": [],
+                },
+                {
+                    "deploy_type": "node",
+                    "message": "Created dimension (v1.0)",
+                    "name": f"{namespace}.default.hard_hat",
                     "status": "success",
                     "operation": "create",
                     "changed_fields": [],
@@ -4667,10 +4748,10 @@ class TestDeployments:
         )
         assert data["results"][-1] == {
             "deploy_type": "node",
-            "message": "Updated dimension (v2.0)\n└─ Column removed: state_id, state_name, state_region, state_short\n└─ Updated tags, columns",
+            "message": "Updated dimension (v1.1)\n└─ Updated tags",
             "name": "node_update.default.us_state",
             "operation": "update",
-            "changed_fields": ["tags", "columns"],
+            "changed_fields": ["tags"],
             "status": "success",
         }
         node = await Node.get_by_name(session, f"{namespace}.default.us_state")
@@ -4839,7 +4920,23 @@ class TestDeployments:
                 {
                     "deploy_type": "node",
                     "message": "Created source (v1.0)",
-                    "name": f"{namespace}.default.contractors",
+                    "name": f"{namespace}.default.dispatchers",
+                    "status": "success",
+                    "operation": "create",
+                    "changed_fields": [],
+                },
+                {
+                    "deploy_type": "node",
+                    "message": "Created source (v1.0)",
+                    "name": f"{namespace}.default.us_states",
+                    "status": "success",
+                    "operation": "create",
+                    "changed_fields": [],
+                },
+                {
+                    "deploy_type": "node",
+                    "message": "Created dimension (v1.0)",
+                    "name": f"{namespace}.default.dispatcher",
                     "status": "success",
                     "operation": "create",
                     "changed_fields": [],
@@ -4863,7 +4960,47 @@ class TestDeployments:
                 {
                     "deploy_type": "node",
                     "message": "Created source (v1.0)",
-                    "name": f"{namespace}.default.repair_order_details",
+                    "name": f"{namespace}.default.municipality_municipality_type",
+                    "status": "success",
+                    "operation": "create",
+                    "changed_fields": [],
+                },
+                {
+                    "deploy_type": "node",
+                    "message": "Created source (v1.0)",
+                    "name": f"{namespace}.default.municipality_type",
+                    "status": "success",
+                    "operation": "create",
+                    "changed_fields": [],
+                },
+                {
+                    "deploy_type": "node",
+                    "message": "Created dimension (v1.0)",
+                    "name": f"{namespace}.default.us_state",
+                    "status": "success",
+                    "operation": "create",
+                    "changed_fields": [],
+                },
+                {
+                    "deploy_type": "node",
+                    "message": "Created source (v1.0)",
+                    "name": f"{namespace}.default.contractors",
+                    "status": "success",
+                    "operation": "create",
+                    "changed_fields": [],
+                },
+                {
+                    "deploy_type": "node",
+                    "message": "Created dimension (v1.0)",
+                    "name": f"{namespace}.default.hard_hat",
+                    "status": "success",
+                    "operation": "create",
+                    "changed_fields": [],
+                },
+                {
+                    "deploy_type": "node",
+                    "message": "Created dimension (v1.0)",
+                    "name": f"{namespace}.default.municipality_dim",
                     "status": "success",
                     "operation": "create",
                     "changed_fields": [],
@@ -4872,6 +5009,30 @@ class TestDeployments:
                     "deploy_type": "node",
                     "message": "Created source (v1.0)",
                     "name": f"{namespace}.default.repair_orders",
+                    "status": "success",
+                    "operation": "create",
+                    "changed_fields": [],
+                },
+                {
+                    "deploy_type": "node",
+                    "message": "Created dimension (v1.0)",
+                    "name": f"{namespace}.default.contractor",
+                    "status": "success",
+                    "operation": "create",
+                    "changed_fields": [],
+                },
+                {
+                    "deploy_type": "node",
+                    "message": "Created dimension (v1.0)",
+                    "name": f"{namespace}.default.repair_order",
+                    "status": "success",
+                    "operation": "create",
+                    "changed_fields": [],
+                },
+                {
+                    "deploy_type": "node",
+                    "message": "Created source (v1.0)",
+                    "name": f"{namespace}.default.repair_order_details",
                     "status": "success",
                     "operation": "create",
                     "changed_fields": [],
@@ -4888,46 +5049,6 @@ class TestDeployments:
                     "deploy_type": "node",
                     "message": "Created source (v1.0)",
                     "name": f"{namespace}.default.us_region",
-                    "status": "success",
-                    "operation": "create",
-                    "changed_fields": [],
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created source (v1.0)",
-                    "name": f"{namespace}.default.us_states",
-                    "status": "success",
-                    "operation": "create",
-                    "changed_fields": [],
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created source (v1.0)",
-                    "name": f"{namespace}.default.dispatchers",
-                    "status": "success",
-                    "operation": "create",
-                    "changed_fields": [],
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created dimension (v1.0)",
-                    "name": f"{namespace}.default.hard_hat",
-                    "status": "success",
-                    "operation": "create",
-                    "changed_fields": [],
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created source (v1.0)",
-                    "name": f"{namespace}.default.municipality_municipality_type",
-                    "status": "success",
-                    "operation": "create",
-                    "changed_fields": [],
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created source (v1.0)",
-                    "name": f"{namespace}.default.municipality_type",
                     "status": "success",
                     "operation": "create",
                     "changed_fields": [],
@@ -4990,14 +5111,6 @@ class TestDeployments:
                 },
                 {
                     "deploy_type": "node",
-                    "message": "Created dimension (v1.0)",
-                    "name": f"{namespace}.default.contractor",
-                    "status": "success",
-                    "operation": "create",
-                    "changed_fields": [],
-                },
-                {
-                    "deploy_type": "node",
                     "message": "Created metric (v1.0)",
                     "name": f"{namespace}.default.discounted_orders_rate",
                     "status": "success",
@@ -5006,24 +5119,8 @@ class TestDeployments:
                 },
                 {
                     "deploy_type": "node",
-                    "message": "Created dimension (v1.0)",
-                    "name": f"{namespace}.default.dispatcher",
-                    "status": "success",
-                    "operation": "create",
-                    "changed_fields": [],
-                },
-                {
-                    "deploy_type": "node",
                     "message": "Created source (v1.0)",
                     "name": f"{namespace}.default.hard_hat_state",
-                    "status": "success",
-                    "operation": "create",
-                    "changed_fields": [],
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created dimension (v1.0)",
-                    "name": f"{namespace}.default.municipality_dim",
                     "status": "success",
                     "operation": "create",
                     "changed_fields": [],
@@ -5040,14 +5137,6 @@ class TestDeployments:
                     "deploy_type": "node",
                     "message": "Created metric (v1.0)",
                     "name": f"{namespace}.default.regional_repair_efficiency",
-                    "status": "success",
-                    "operation": "create",
-                    "changed_fields": [],
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created dimension (v1.0)",
-                    "name": f"{namespace}.default.repair_order",
                     "status": "success",
                     "operation": "create",
                     "changed_fields": [],
@@ -5072,14 +5161,6 @@ class TestDeployments:
                     "deploy_type": "node",
                     "message": "Created metric (v1.0)",
                     "name": f"{namespace}.default.total_repair_order_discounts",
-                    "status": "success",
-                    "operation": "create",
-                    "changed_fields": [],
-                },
-                {
-                    "deploy_type": "node",
-                    "message": "Created dimension (v1.0)",
-                    "name": f"{namespace}.default.us_state",
                     "status": "success",
                     "operation": "create",
                     "changed_fields": [],
@@ -8613,8 +8694,11 @@ class TestCubeRedeployIdempotence:
         ]
 
         second = await deploy_and_wait(client, deployment())
-        cube_result = next(
+        cube_results = [
             result for result in second["results"] if result["name"] == cube_name
+        ]
+        cube_result = next(
+            result for result in cube_results if result["status"] != "warning"
         )
         assert cube_result["changed_fields"] == [], cube_result["message"]
 
@@ -8628,6 +8712,16 @@ class TestCubeRedeployIdempotence:
             "declares column 'hire_date'" in warning["message"]
             for warning in second["warnings"]
         ), second["warnings"]
+
+        # The same warning is also reported structurally, against the cube's
+        # rendered name (not the raw `${prefix}...` spec name), so a consumer
+        # can attach it to that node without parsing free text.
+        cube_warning_result = next(
+            result for result in cube_results if result["status"] == "warning"
+        )
+        assert cube_warning_result["operation"] == "noop"
+        assert "declares column 'hire_date'" in cube_warning_result["message"]
+        assert "${prefix}" not in cube_warning_result["message"]
 
 
 class TestDeploymentColumnOrdering:
@@ -11437,3 +11531,608 @@ class TestRequiredDimensionsRedeployIdempotence:
         response = await client.get(f"/nodes/{metric_name}/")
         assert response.status_code == 200, response.json()
         assert response.json()["version"] == "v1.0"
+
+
+def _us_state_dim(*, with_abbr: bool) -> DimensionSpec:
+    """The us_state dimension, optionally carrying a new `state_abbr` column."""
+    columns = ["state_id", "state_name"] + (["state_abbr"] if with_abbr else [])
+    return DimensionSpec(
+        name="default.us_state",
+        description="US state dimension",
+        query=f"SELECT {', '.join(columns)} FROM ${{prefix}}default.us_states",
+        primary_key=["state_id"],
+        owners=["dj"],
+    )
+
+
+def _hard_hat_dim_with_reference_link() -> DimensionSpec:
+    """Hard hat dimension whose reference link points at `us_state.state_abbr`."""
+    return DimensionSpec(
+        name="default.hard_hat",
+        description="Hard hat dimension",
+        query="SELECT hard_hat_id, state FROM ${prefix}default.hard_hats",
+        primary_key=["hard_hat_id"],
+        owners=["dj"],
+        dimension_links=[
+            DimensionReferenceLinkSpec(
+                node_column="state",
+                dimension="${prefix}default.us_state.state_abbr",
+            ),
+        ],
+    )
+
+
+@pytest.mark.xdist_group(name="deployments")
+class TestDimensionAttributeAddedInSamePush:
+    """
+    One push that both adds an attribute to an existing dimension and adds a node
+    linking to that attribute.
+
+    Link validation resolves the attribute against the dimension's *persisted*
+    columns, so a linked dimension has to deploy in an earlier topological level
+    than the node linking to it, whether or not there is query lineage between
+    them.
+    """
+
+    @pytest.mark.asyncio
+    async def test_reference_link_to_attribute_added_in_same_push(
+        self,
+        client,
+        default_us_states,
+        default_hard_hats,
+    ):
+        namespace = "dim_attr_same_push_ref"
+
+        first = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[
+                    default_us_states,
+                    default_hard_hats,
+                    _us_state_dim(with_abbr=False),
+                ],
+            ),
+        )
+        assert first["status"] == "success", first
+
+        nodes = [
+            default_us_states,
+            default_hard_hats,
+            _us_state_dim(with_abbr=True),
+            _hard_hat_dim_with_reference_link(),
+        ]
+        second = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert second["status"] == "success", second["results"]
+        assert second["results"] == [
+            {
+                "name": f"{namespace}.default.us_states",
+                "deploy_type": "node",
+                "status": "skipped",
+                "operation": "noop",
+                "message": "Unchanged",
+                "changed_fields": [],
+            },
+            {
+                "name": f"{namespace}.default.hard_hats",
+                "deploy_type": "node",
+                "status": "skipped",
+                "operation": "noop",
+                "message": "Unchanged",
+                "changed_fields": [],
+            },
+            {
+                "name": f"{namespace}.default.us_state",
+                "deploy_type": "node",
+                "status": "success",
+                "operation": "update",
+                "message": "Updated dimension (v2.0)\n\u2514\u2500 Updated query",
+                "changed_fields": ["query"],
+            },
+            {
+                "name": f"{namespace}.default.hard_hat",
+                "deploy_type": "node",
+                "status": "success",
+                "operation": "create",
+                "message": "Created dimension (v1.0)",
+                "changed_fields": [],
+            },
+            {
+                "name": (
+                    f"{namespace}.default.hard_hat -> {namespace}.default.us_state"
+                ),
+                "deploy_type": "link",
+                "status": "success",
+                "operation": "create",
+                "message": "Reference link successfully deployed",
+                "changed_fields": [],
+            },
+        ]
+
+        # The identical push a second time is a noop for every node.
+        third = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert third["status"] == "success", third["results"]
+        assert third["results"] == [
+            {
+                "name": f"{namespace}.default.us_states",
+                "deploy_type": "node",
+                "status": "skipped",
+                "operation": "noop",
+                "message": "Unchanged",
+                "changed_fields": [],
+            },
+            {
+                "name": f"{namespace}.default.hard_hats",
+                "deploy_type": "node",
+                "status": "skipped",
+                "operation": "noop",
+                "message": "Unchanged",
+                "changed_fields": [],
+            },
+            {
+                "name": f"{namespace}.default.us_state",
+                "deploy_type": "node",
+                "status": "skipped",
+                "operation": "noop",
+                "message": "Unchanged",
+                "changed_fields": [],
+            },
+            {
+                "name": f"{namespace}.default.hard_hat",
+                "deploy_type": "node",
+                "status": "skipped",
+                "operation": "noop",
+                "message": "Unchanged",
+                "changed_fields": [],
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_join_link_to_attribute_added_in_same_push(
+        self,
+        client,
+        default_us_states,
+        default_hard_hats,
+    ):
+        """
+        The join-link form of the same push. The join_on clause names the new
+        dimension column, so the dimension has to deploy first here too.
+        """
+        namespace = "dim_attr_same_push_join"
+
+        first = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[
+                    default_us_states,
+                    default_hard_hats,
+                    _us_state_dim(with_abbr=False),
+                ],
+            ),
+        )
+        assert first["status"] == "success", first
+
+        second = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[
+                    default_us_states,
+                    default_hard_hats,
+                    _us_state_dim(with_abbr=True),
+                    TransformSpec(
+                        name="default.hard_hats_fact",
+                        description="Hard hats fact",
+                        query=(
+                            "SELECT hard_hat_id, state FROM ${prefix}default.hard_hats"
+                        ),
+                        owners=["dj"],
+                        dimension_links=[
+                            DimensionJoinLinkSpec(
+                                dimension_node="${prefix}default.us_state",
+                                join_type="inner",
+                                join_on=(
+                                    "${prefix}default.hard_hats_fact.state"
+                                    " = ${prefix}default.us_state.state_abbr"
+                                ),
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+        )
+        assert second["status"] == "success", second["results"]
+        assert [
+            result
+            for result in second["results"]
+            if result["deploy_type"] == "link"
+            or result["name"] == f"{namespace}.default.hard_hats_fact"
+        ] == [
+            {
+                "name": f"{namespace}.default.hard_hats_fact",
+                "deploy_type": "node",
+                "status": "success",
+                "operation": "create",
+                "message": "Created transform (v1.0)",
+                "changed_fields": [],
+            },
+            {
+                "name": (
+                    f"{namespace}.default.hard_hats_fact ->"
+                    f" {namespace}.default.us_state"
+                ),
+                "deploy_type": "link",
+                "status": "success",
+                "operation": "create",
+                "message": "Join link successfully deployed",
+                "changed_fields": [],
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_query_lineage_on_the_dimension_avoids_the_failure(
+        self,
+        client,
+        default_us_states,
+        default_hard_hats,
+    ):
+        """
+        The same push, except the linking node's query also reads the dimension.
+        The dimension is already a query parent, so the link adds no new ordering
+        edge and the deploy order is the same either way.
+        """
+        namespace = "dim_attr_same_push_lineage"
+
+        first = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[
+                    default_us_states,
+                    default_hard_hats,
+                    _us_state_dim(with_abbr=False),
+                ],
+            ),
+        )
+        assert first["status"] == "success", first
+
+        second = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[
+                    default_us_states,
+                    default_hard_hats,
+                    _us_state_dim(with_abbr=True),
+                    TransformSpec(
+                        name="default.hard_hats_fact",
+                        description="Hard hats fact",
+                        query=(
+                            "SELECT h.hard_hat_id, h.state, s.state_abbr AS abbr"
+                            " FROM ${prefix}default.hard_hats h"
+                            " LEFT JOIN ${prefix}default.us_state s"
+                            " ON h.state = s.state_abbr"
+                        ),
+                        owners=["dj"],
+                        dimension_links=[
+                            DimensionJoinLinkSpec(
+                                dimension_node="${prefix}default.us_state",
+                                join_type="inner",
+                                join_on=(
+                                    "${prefix}default.hard_hats_fact.state"
+                                    " = ${prefix}default.us_state.state_abbr"
+                                ),
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+        )
+        assert second["status"] == "success", second["results"]
+        assert second["results"] == [
+            {
+                "name": f"{namespace}.default.us_states",
+                "deploy_type": "node",
+                "status": "skipped",
+                "operation": "noop",
+                "message": "Unchanged",
+                "changed_fields": [],
+            },
+            {
+                "name": f"{namespace}.default.hard_hats",
+                "deploy_type": "node",
+                "status": "skipped",
+                "operation": "noop",
+                "message": "Unchanged",
+                "changed_fields": [],
+            },
+            {
+                "name": f"{namespace}.default.us_state",
+                "deploy_type": "node",
+                "status": "success",
+                "operation": "update",
+                "message": "Updated dimension (v2.0)\n\u2514\u2500 Updated query",
+                "changed_fields": ["query"],
+            },
+            {
+                "name": f"{namespace}.default.hard_hats_fact",
+                "deploy_type": "node",
+                "status": "success",
+                "operation": "create",
+                "message": "Created transform (v1.0)",
+                "changed_fields": [],
+            },
+            {
+                "name": (
+                    f"{namespace}.default.hard_hats_fact ->"
+                    f" {namespace}.default.us_state"
+                ),
+                "deploy_type": "link",
+                "status": "success",
+                "operation": "create",
+                "message": "Join link successfully deployed",
+                "changed_fields": [],
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_brand_new_dimension_and_link_in_one_push(
+        self,
+        client,
+        default_us_states,
+        default_hard_hats,
+    ):
+        """
+        Both halves in one push into an empty namespace. The link orders the
+        dimension ahead of the node linking to it, and the push succeeds.
+        """
+        namespace = "dim_attr_fresh_ns"
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[
+                    default_us_states,
+                    default_hard_hats,
+                    _us_state_dim(with_abbr=True),
+                    _hard_hat_dim_with_reference_link(),
+                ],
+            ),
+        )
+        assert data["status"] == "success", data["results"]
+        assert data["results"] == [
+            {
+                "name": f"{namespace}.default.us_states",
+                "deploy_type": "node",
+                "status": "success",
+                "operation": "create",
+                "message": "Created source (v1.0)",
+                "changed_fields": [],
+            },
+            {
+                "name": f"{namespace}.default.hard_hats",
+                "deploy_type": "node",
+                "status": "success",
+                "operation": "create",
+                "message": "Created source (v1.0)",
+                "changed_fields": [],
+            },
+            {
+                "name": f"{namespace}.default.us_state",
+                "deploy_type": "node",
+                "status": "success",
+                "operation": "create",
+                "message": "Created dimension (v1.0)",
+                "changed_fields": [],
+            },
+            {
+                "name": f"{namespace}.default.hard_hat",
+                "deploy_type": "node",
+                "status": "success",
+                "operation": "create",
+                "message": "Created dimension (v1.0)",
+                "changed_fields": [],
+            },
+            {
+                "name": (
+                    f"{namespace}.default.hard_hat -> {namespace}.default.us_state"
+                ),
+                "deploy_type": "link",
+                "status": "success",
+                "operation": "create",
+                "message": "Reference link successfully deployed",
+                "changed_fields": [],
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_self_link_still_deploys(self, client, default_us_states):
+        """
+        A dimension that joins to itself with a role. The link cannot be an
+        ordering edge, so it is dropped from the deploy order.
+        """
+        namespace = "dim_link_self_join"
+        link_name = (
+            f"{namespace}.default.us_state -> {namespace}.default.us_state[abbr]"
+        )
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[
+                    default_us_states,
+                    DimensionSpec(
+                        name="default.us_state",
+                        description="US state dimension",
+                        query=(
+                            "SELECT state_id, state_name, state_abbr"
+                            " FROM ${prefix}default.us_states"
+                        ),
+                        primary_key=["state_id"],
+                        owners=["dj"],
+                        dimension_links=[
+                            DimensionJoinLinkSpec(
+                                dimension_node="${prefix}default.us_state",
+                                role="abbr",
+                                join_on=(
+                                    "${prefix}default.us_state.state_name"
+                                    " = ${prefix}default.us_state.state_abbr"
+                                ),
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+        )
+        assert data["status"] == "success", data["results"]
+        assert data["results"] == [
+            {
+                "name": f"{namespace}.default.us_states",
+                "deploy_type": "node",
+                "status": "success",
+                "operation": "create",
+                "message": "Created source (v1.0)",
+                "changed_fields": [],
+            },
+            {
+                "name": f"{namespace}.default.us_state",
+                "deploy_type": "node",
+                "status": "success",
+                "operation": "create",
+                "message": "Created dimension (v1.0)",
+                "changed_fields": [],
+            },
+            {
+                "name": link_name,
+                "deploy_type": "link",
+                "status": "success",
+                "operation": "create",
+                "message": "Join link successfully deployed",
+                "changed_fields": [],
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_mutually_linked_dimensions_still_deploy(
+        self,
+        client,
+        default_us_states,
+        default_hard_hats,
+    ):
+        """
+        Two dimensions that link to each other. One of the two link edges would
+        close a cycle, so it is dropped and both deploy in the same level.
+        """
+        namespace = "dim_link_mutual"
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=[
+                    default_us_states,
+                    default_hard_hats,
+                    DimensionSpec(
+                        name="default.us_state",
+                        description="US state dimension",
+                        query=(
+                            "SELECT state_id, state_name, state_abbr"
+                            " FROM ${prefix}default.us_states"
+                        ),
+                        primary_key=["state_id"],
+                        owners=["dj"],
+                        dimension_links=[
+                            DimensionJoinLinkSpec(
+                                dimension_node="${prefix}default.hard_hat",
+                                join_on=(
+                                    "${prefix}default.us_state.state_abbr"
+                                    " = ${prefix}default.hard_hat.state"
+                                ),
+                            ),
+                        ],
+                    ),
+                    DimensionSpec(
+                        name="default.hard_hat",
+                        description="Hard hat dimension",
+                        query=(
+                            "SELECT hard_hat_id, state FROM ${prefix}default.hard_hats"
+                        ),
+                        primary_key=["hard_hat_id"],
+                        owners=["dj"],
+                        dimension_links=[
+                            DimensionJoinLinkSpec(
+                                dimension_node="${prefix}default.us_state",
+                                join_on=(
+                                    "${prefix}default.hard_hat.state"
+                                    " = ${prefix}default.us_state.state_abbr"
+                                ),
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+        )
+        assert data["status"] == "success", data["results"]
+        assert data["results"] == [
+            {
+                "name": f"{namespace}.default.hard_hats",
+                "deploy_type": "node",
+                "status": "success",
+                "operation": "create",
+                "message": "Created source (v1.0)",
+                "changed_fields": [],
+            },
+            {
+                "name": f"{namespace}.default.hard_hat",
+                "deploy_type": "node",
+                "status": "success",
+                "operation": "create",
+                "message": "Created dimension (v1.0)",
+                "changed_fields": [],
+            },
+            {
+                "name": f"{namespace}.default.us_states",
+                "deploy_type": "node",
+                "status": "success",
+                "operation": "create",
+                "message": "Created source (v1.0)",
+                "changed_fields": [],
+            },
+            {
+                "name": f"{namespace}.default.us_state",
+                "deploy_type": "node",
+                "status": "success",
+                "operation": "create",
+                "message": "Created dimension (v1.0)",
+                "changed_fields": [],
+            },
+            {
+                "name": (
+                    f"{namespace}.default.us_state -> {namespace}.default.hard_hat"
+                ),
+                "deploy_type": "link",
+                "status": "success",
+                "operation": "create",
+                "message": "Join link successfully deployed",
+                "changed_fields": [],
+            },
+            {
+                "name": (
+                    f"{namespace}.default.hard_hat -> {namespace}.default.us_state"
+                ),
+                "deploy_type": "link",
+                "status": "success",
+                "operation": "create",
+                "message": "Join link successfully deployed",
+                "changed_fields": [],
+            },
+        ]

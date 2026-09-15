@@ -187,6 +187,66 @@ class TestTags:
         ] == [("update", "tag"), ("update", "tag"), ("create", "tag")]
 
     @pytest.mark.asyncio
+    async def test_delete_tag(self, module__client: AsyncClient) -> None:
+        """
+        Tests ``DELETE /tags/{name}/``
+        """
+        response = await self.create_tag(module__client)
+        assert response.status_code == 201
+
+        response = await module__client.delete("/tags/sales_report/")
+        assert response.status_code == 204
+
+        response = await module__client.get("/tags/sales_report/")
+        assert response.status_code == 404
+        assert (
+            response.json()["message"]
+            == "A tag with name `sales_report` does not exist."
+        )
+
+        # Check history
+        response = await module__client.get("/history/tag/sales_report/")
+        assert [
+            (activity["activity_type"], activity["entity_type"])
+            for activity in response.json()
+        ] == [("delete", "tag"), ("create", "tag")]
+
+    @pytest.mark.asyncio
+    async def test_delete_nonexistent_tag(self, module__client: AsyncClient) -> None:
+        """
+        Tests ``DELETE /tags/{name}/`` for a tag that doesn't exist
+        """
+        response = await module__client.delete("/tags/does_not_exist/")
+        assert response.status_code == 404
+        assert (
+            response.json()["message"]
+            == "A tag with name `does_not_exist` does not exist."
+        )
+
+    @pytest.mark.asyncio
+    async def test_delete_tag_with_nodes(self, client_with_dbt: AsyncClient) -> None:
+        """
+        Tests that ``DELETE /tags/{name}/`` refuses a tag that still has nodes
+        """
+        await self.create_tag(client_with_dbt)
+        response = await client_with_dbt.post(
+            "/nodes/default.items_sold_count/tags/?tag_names=sales_report",
+        )
+        assert response.status_code == 200
+
+        response = await client_with_dbt.delete("/tags/sales_report/")
+        assert response.status_code == 409
+        assert response.json()["message"] == (
+            "Cannot delete tag `sales_report` as it is still attached to 1 node(s). "
+            "Remove the tag from these nodes first."
+        )
+
+        # Deactivated nodes don't block the delete
+        await client_with_dbt.delete("/nodes/default.items_sold_count")
+        response = await client_with_dbt.delete("/tags/sales_report/")
+        assert response.status_code == 204
+
+    @pytest.mark.asyncio
     async def test_list_tags(self, module__client: AsyncClient) -> None:
         """
         Test ``GET /tags``
