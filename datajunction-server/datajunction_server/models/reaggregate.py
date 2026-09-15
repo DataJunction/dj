@@ -1,6 +1,8 @@
 """Models for metric reaggregation declarations."""
 
-from pydantic import BaseModel, Field
+from typing import Any
+
+from pydantic import BaseModel, Field, model_validator
 
 from datajunction_server.enum import StrEnum
 
@@ -29,6 +31,18 @@ DIMENSION_REAGGREGATE_FUNCTIONS = frozenset(
         ReaggregationFunction.MAX,
     },
 )
+
+
+PARAMETERIZED_REAGGREGATE_FUNCTIONS: frozenset[ReaggregationFunction] = frozenset()
+
+
+def is_parameterized_reaggregate_function(
+    function: ReaggregationFunction | None,
+) -> bool:
+    """
+    Return whether a function accepts tuning parameters in `params`.
+    """
+    return function in PARAMETERIZED_REAGGREGATE_FUNCTIONS
 
 
 def is_supported_dimension_reaggregate_function(
@@ -75,6 +89,23 @@ class ReaggregateSpec(BaseModel):
     fn: ReaggregationFunction | None = None
     weight: str | None = None
     rules: list[DimensionReaggregateRule] = Field(default_factory=list)
+
+    # Tuning parameters for `fn` (e.g., compression for t-digest).
+    # Rejected for functions that do not accept parameters.
+    params: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def check_params_supported(self) -> "ReaggregateSpec":
+        """
+        Reject `params` for unparameterized functions.
+        """
+        if self.params and not is_parameterized_reaggregate_function(self.fn):
+            named = f"`{self.fn.value}`" if self.fn else "no reaggregation function"
+            raise ValueError(
+                f"Reaggregation function {named} does not accept parameters, "
+                f"but got: {', '.join(sorted(self.params))}.",
+            )
+        return self
 
 
 def dump_reaggregate_spec(

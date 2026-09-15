@@ -426,6 +426,7 @@ class NodeRevision:
         return ReaggregateSpec(
             fn=spec.fn,  # type: ignore
             weight=spec.weight,
+            params=spec.params,
             rules=[
                 DimensionReaggregateRule(
                     dimension=rule.dimension,

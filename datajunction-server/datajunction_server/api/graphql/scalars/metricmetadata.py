@@ -1,6 +1,7 @@
 """Metric metadata scalars"""
 
 import strawberry
+from strawberry.scalars import JSON
 
 from datajunction_server.models.cube_materialization import (
     Aggregability as Aggregability_,
@@ -45,16 +46,41 @@ class Unit:
 class DimensionReaggregateRule: ...
 
 
-@strawberry.experimental.pydantic.type(model=ReaggregateSpec_, all_fields=True)
-class ReaggregateSpec: ...
+@strawberry.experimental.pydantic.type(model=ReaggregateSpec_)
+class ReaggregateSpec:
+    """
+    Metric reaggregation declaration.
+
+    Fields are listed explicitly rather than via `all_fields` because `params`
+    is an open dict, which has no automatic GraphQL mapping.
+    """
+
+    fn: strawberry.auto
+    weight: strawberry.auto
+    rules: strawberry.auto
+    params: JSON | None = None
 
 
 @strawberry.experimental.pydantic.type(model=AggregationRule_, all_fields=True)
 class AggregationRule: ...
 
 
-@strawberry.experimental.pydantic.type(model=MetricComponent_, all_fields=True)
-class MetricComponent: ...
+@strawberry.experimental.pydantic.type(model=MetricComponent_)
+class MetricComponent:
+    """
+    A single measure with accumulate/merge phases.
+
+    Fields are listed explicitly rather than via `all_fields` because `params`
+    is an open dict, which has no automatic GraphQL mapping.
+    """
+
+    name: strawberry.auto
+    expression: strawberry.auto
+    aggregation: strawberry.auto
+    merge: strawberry.auto
+    rule: strawberry.auto
+    grain_alias: strawberry.auto
+    params: JSON | None = None
 
 
 @strawberry.experimental.pydantic.type(model=DecomposedMetric_, all_fields=True)

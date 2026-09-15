@@ -552,16 +552,16 @@ class ApproxPercentile(Function):
 def infer_type(
     col: ct.NumberType,
     percentage: ct.ListType,
-    accuracy: ct.NumberType | None,
-) -> ct.DoubleType:
+    accuracy: ct.NumberType | None = None,
+) -> ct.ListType:
     return ct.ListType(element_type=col.type)  # type: ignore
 
 
 @ApproxPercentile.register
 def infer_type(
     col: ct.NumberType,
-    percentage: ct.FloatType,
-    accuracy: ct.NumberType | None,
+    percentage: ct.FloatingBase,
+    accuracy: ct.NumberType | None = None,
 ) -> ct.NumberType:
     return col.type  # type: ignore
 
