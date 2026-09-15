@@ -119,6 +119,12 @@ class FrozenMeasure(Base):
     # How to aggregate the resolved expression (e.g., SUM, COUNT, AVG)
     aggregation: Mapped[str]
 
+    # Tuning parameters for `aggregation`, for sketch-backed measures whose
+    # function name alone doesn't pin down the accumulate (a t-digest still needs
+    # a compression). Part of the measure's identity: a sketch frozen at one
+    # accuracy must not be reused for a metric asking for another.
+    params: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
     # Additivity or rollup rule - tells the planner if this measure can be summed,
     # needs special handling, or is non-additive.
     rule: Mapped[MeasureAggregationRule] = mapped_column(MeasureAggregationRuleType)

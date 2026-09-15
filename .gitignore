@@ -134,3 +134,6 @@ Untitled*
 postgres_metadata
 postgres_superset
 node_modules
+
+# Local Claude Code workspace state (large; never committed)
+.claude/

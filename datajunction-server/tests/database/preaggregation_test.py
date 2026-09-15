@@ -716,3 +716,81 @@ class TestPreAggregationDBMethods:
             },
         )
         assert result is None
+
+
+class TestMeasureIdentityParams:
+    """
+    Tuning parameters participate in measure identity.
+    """
+
+    def test_existing_tokens_are_unchanged(self):
+        """
+        A component without params produces the token byte-for-byte.
+        """
+        assert measure_identity_token("abc123", "SUM") == "abc123:SUM"
+        assert measure_identity_token("abc123", "SUM", None) == "abc123:SUM"
+        assert measure_identity_token("abc123", "SUM", {}) == "abc123:SUM"
+        assert measure_identity_token("abc123", None) == "abc123:"
+        assert measure_identity_token("abc123", " count ") == "abc123:COUNT"
+
+    def test_differing_params_differ(self):
+        """Two sketches over one column at different accuracies are distinct."""
+        low = measure_identity_token("abc123", "TDIGEST_AGG", {"compression": 100})
+        high = measure_identity_token("abc123", "TDIGEST_AGG", {"compression": 1000})
+        assert low != high
+        # ...and neither collides with the un-parameterized token.
+        assert low != measure_identity_token("abc123", "TDIGEST_AGG")
+
+    def test_params_are_order_and_spelling_insensitive(self):
+        """
+        One sketch declaration yields one identity. Key order and type variations (e.g. 200 vs 200.0) do not change the identity token.
+        """
+        assert measure_identity_token(
+            "abc123",
+            "TDIGEST_AGG",
+            {"compression": 200, "k": 12},
+        ) == measure_identity_token(
+            "abc123",
+            "TDIGEST_AGG",
+            {"k": 12, "compression": 200},
+        )
+        assert measure_identity_token(
+            "abc123",
+            "TDIGEST_AGG",
+            {"compression": 200.0},
+        ) == measure_identity_token("abc123", "TDIGEST_AGG", {"compression": 200})
+        # Fractional values are preserved.
+        assert measure_identity_token(
+            "abc123",
+            "TDIGEST_AGG",
+            {"compression": 200.5},
+        ) != measure_identity_token("abc123", "TDIGEST_AGG", {"compression": 200})
+
+    def test_get_measure_identities_carries_params(self):
+        """Stored measures round-trip their params into the identity set."""
+        plain = make_measure("latency_sum", "latency_ms")
+        sketched = make_measure(
+            "latency_tdigest",
+            "latency_ms",
+            aggregation="TDIGEST_AGG",
+            merge="TDIGEST_AGG",
+        )
+        sketched.params = {"compression": 200}
+        identities = get_measure_identities([plain, sketched])
+        assert identities == {
+            measure_identity_token(compute_expression_hash("latency_ms"), "SUM"),
+            measure_identity_token(
+                compute_expression_hash("latency_ms"),
+                "TDIGEST_AGG",
+                {"compression": 200},
+            ),
+        }
+        # Ensure the sketch identity distinguishes different compressions.
+        assert (
+            measure_identity_token(
+                compute_expression_hash("latency_ms"),
+                "TDIGEST_AGG",
+                {"compression": 1000},
+            )
+            not in identities
+        )

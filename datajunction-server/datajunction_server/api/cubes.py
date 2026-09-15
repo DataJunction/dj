@@ -14,11 +14,11 @@ from datajunction_server.construction.build_v3.combiners import (
     _reorder_partition_column_last,
     build_combiner_sql_from_preaggs,
 )
+from datajunction_server.construction.build_v3.cte import strip_role_suffix
 from datajunction_server.construction.build_v3.cube_matcher import (
     _metric_graph_has_reaggregate,
     validate_cube_reaggregate_materialization,
 )
-from datajunction_server.construction.build_v3.cte import strip_role_suffix
 from datajunction_server.construction.dimensions import build_dimensions_from_cube_query
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.node import Node
@@ -34,7 +34,6 @@ from datajunction_server.internal.access.authorization import (
     AccessDenialMode,
     get_access_checker,
 )
-from datajunction_server.models.access import ResourceAction
 from datajunction_server.internal.materializations import (
     build_cube_materialization,
     stop_cube_materialization_workflows,
@@ -44,6 +43,7 @@ from datajunction_server.internal.nodes import (
     get_single_cube_revision_metadata,
 )
 from datajunction_server.internal.views import CubeViewNames, _build_view_body
+from datajunction_server.models.access import ResourceAction
 from datajunction_server.models.cube import (
     CubeRevisionMetadata,
     DimensionValue,
@@ -63,11 +63,10 @@ from datajunction_server.models.cube_materialization import (
 )
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.materialization import (
-    DRUID_AGG_MAPPING,
-    DRUID_SKETCH_TYPES,
     Granularity,
     MaterializationJobTypeEnum,
     MaterializationStrategy,
+    get_druid_aggregator_spec,
 )
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.node_type import NodeNameVersion
@@ -179,26 +178,24 @@ def _build_metrics_spec(
             if internal_name:
                 component = component_by_name.get(internal_name)
 
-        druid_type = "longSum"  # Default fallback
-
-        if component:
-            # Use merge function for pre-aggregated data, fall back to aggregation
-            agg_func = component.merge or component.aggregation
-            if agg_func:
-                key = (col.type, agg_func.lower())
-                if key in DRUID_AGG_MAPPING:
-                    druid_type = DRUID_AGG_MAPPING[key]
-
-        metric_spec = {
+        metric_spec = (
+            get_druid_aggregator_spec(
+                column_name=col.name,
+                column_type=col.type,
+                aggregation=component.aggregation,
+                merge=component.merge,
+                params=component.params,
+            )
+            if component
+            else None
+        )
+        # Unmappable measures fall back to longSum here, since we're loading
+        # pre-aggregated data; the materialization config omits them instead.
+        metric_spec = metric_spec or {
             "fieldName": col.name,
             "name": col.name,
-            "type": druid_type,
+            "type": "longSum",
         }
-
-        # HLL sketches need additional configuration
-        if druid_type in DRUID_SKETCH_TYPES:
-            metric_spec["lgK"] = 12  # Log2 of K, controls precision (4-21)
-            metric_spec["tgtHllType"] = "HLL_4"  # HLL_4, HLL_6, or HLL_8
 
         metrics.append(metric_spec)
 

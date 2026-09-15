@@ -16,11 +16,11 @@ from datajunction_server.models.decompose import (
 )
 from datajunction_server.models.materialization import (
     DEFAULT_CUBE_RETENTION,
-    DRUID_AGG_MAPPING,
     CoverageSpec,
     MaterializationJobTypeEnum,
     MaterializationStrategy,
     SparkSpec,
+    get_druid_aggregator_spec,
 )
 from datajunction_server.models.node_type import NodeNameVersion
 from datajunction_server.models.partition import Granularity
@@ -385,22 +385,19 @@ class CombineMaterialization(BaseModel):
         Returns the Druid metrics spec for ingestion
         """
         column_mapping = {col.name: col.type for col in self.columns}  # type: ignore
-        return [
-            {
-                "fieldName": measure.name,
-                "name": measure.name,
-                "type": DRUID_AGG_MAPPING[
-                    (column_mapping[measure.name], measure.aggregation.lower())
-                ],
-            }
-            for measure in self.measures
-            if measure.aggregation
-            and (
-                column_mapping.get(measure.name),
-                measure.aggregation.lower(),
+        specs = (
+            get_druid_aggregator_spec(
+                column_name=measure.name,
+                column_type=column_mapping.get(measure.name),
+                aggregation=measure.aggregation,
+                merge=measure.merge,
+                params=measure.params,
             )
-            in DRUID_AGG_MAPPING
-        ]
+            for measure in self.measures
+        )
+        # Unmappable measures are omitted, as they always have been here -- the
+        # cube API substitutes longSum instead. See get_druid_aggregator_spec.
+        return [spec for spec in specs if spec is not None]
 
     @computed_field  # type: ignore[misc]
     @property

@@ -4,7 +4,19 @@ Tests for _build_metrics_spec function in cubes.py.
 This function builds Druid metricsSpec from measure columns and their components.
 """
 
+import pytest
+
 from datajunction_server.api.cubes import _build_metrics_spec
+from datajunction_server.models.cube_materialization import MetricMeasures
+from datajunction_server.models.materialization import (
+    DRUID_AGG_MAPPING,
+    DRUID_SKETCH_CONFIG,
+    DruidMeasuresCubeConfig,
+    Measure,
+    get_druid_aggregator_spec,
+    register_druid_aggregator,
+)
+from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.decompose import AggregationRule, MetricComponent
 from datajunction_server.models.query import ColumnMetadata
 
@@ -374,3 +386,293 @@ class TestBuildMetricsSpec:
         result = _build_metrics_spec(columns, components, aliases)
 
         assert [r["name"] for r in result] == ["z_col", "a_col", "m_col"]
+
+
+class TestDruidAggregatorSpec:
+    """
+    Tests for the shared aggregator helper behind both metricsSpec builders.
+    """
+
+    def test_merge_is_preferred_over_accumulate(self):
+        """
+        Ingestion merges stored partials, so the merge function keys the lookup.
+        """
+        spec = get_druid_aggregator_spec(
+            column_name="orders_count",
+            column_type="bigint",
+            aggregation="COUNT",
+            merge="SUM",
+        )
+        assert spec == {
+            "fieldName": "orders_count",
+            "name": "orders_count",
+            "type": "longSum",
+        }
+
+    def test_falls_back_to_accumulate_without_merge(self):
+        """A component with no merge phase keys off its accumulate."""
+        spec = get_druid_aggregator_spec(
+            column_name="revenue_sum",
+            column_type="double",
+            aggregation="SUM",
+            merge=None,
+        )
+        assert spec is not None
+        assert spec["type"] == "doubleSum"
+
+    def test_unmappable_returns_none(self):
+        """
+        Return None for unmappable measures so callers determine fallback behavior.
+        """
+        assert (
+            get_druid_aggregator_spec(
+                column_name="x",
+                column_type="varchar",
+                aggregation="SUM",
+                merge="SUM",
+            )
+            is None
+        )
+        assert (
+            get_druid_aggregator_spec(
+                column_name="x",
+                column_type=None,
+                aggregation="SUM",
+                merge="SUM",
+            )
+            is None
+        )
+        assert (
+            get_druid_aggregator_spec(
+                column_name="x",
+                column_type="bigint",
+                aggregation=None,
+                merge=None,
+            )
+            is None
+        )
+
+    def test_sketch_gets_default_config(self):
+        """An HLL sketch carries its precision defaults into the spec."""
+        spec = get_druid_aggregator_spec(
+            column_name="accounts_hll",
+            column_type="binary",
+            aggregation="hll_sketch_agg",
+            merge="hll_union_agg",
+        )
+        assert spec == {
+            "fieldName": "accounts_hll",
+            "name": "accounts_hll",
+            "type": "HLLSketchMerge",
+            "lgK": 12,
+            "tgtHllType": "HLL_4",
+        }
+
+    def test_declared_params_override_defaults_partially(self):
+        """
+        Metric-level params override defaults for specific keys while retaining others.
+        """
+        spec = get_druid_aggregator_spec(
+            column_name="accounts_hll",
+            column_type="binary",
+            aggregation="hll_sketch_agg",
+            merge="hll_union_agg",
+            params={"lgK": 17},
+        )
+        assert spec is not None
+        assert spec["lgK"] == 17
+        assert spec["tgtHllType"] == "HLL_4"
+
+    def test_params_cannot_overwrite_structural_keys(self):
+        """
+        `params` must not overwrite structural keys like `type` or `fieldName`.
+        """
+        with pytest.raises(DJInvalidInputException) as excinfo:
+            get_druid_aggregator_spec(
+                column_name="accounts_hll",
+                column_type="binary",
+                aggregation="hll_sketch_agg",
+                merge="hll_union_agg",
+                params={"type": "doubleSum", "fieldName": "some_other_column"},
+            )
+        assert "does not accept" in str(excinfo.value)
+        assert "`fieldName`" in str(excinfo.value)
+        assert "`type`" in str(excinfo.value)
+
+    def test_unknown_param_is_rejected(self):
+        """Unknown parameters are rejected loudly."""
+        with pytest.raises(DJInvalidInputException) as excinfo:
+            get_druid_aggregator_spec(
+                column_name="accounts_hll",
+                column_type="binary",
+                aggregation="hll_sketch_agg",
+                merge="hll_union_agg",
+                params={"lgk": 17},  # lowercase k
+            )
+        assert "lgk" in str(excinfo.value)
+        assert "lgK" in str(excinfo.value)  # the supported spelling is named
+
+    def test_params_rejected_for_unparameterized_aggregator(self):
+        """Params passed to an unparameterized aggregator raise an error."""
+        with pytest.raises(DJInvalidInputException) as excinfo:
+            get_druid_aggregator_spec(
+                column_name="orders_count",
+                column_type="bigint",
+                aggregation="COUNT",
+                merge="SUM",
+                params={"compression": 200},
+            )
+        assert "takes no parameters" in str(excinfo.value)
+
+
+class TestRegisterDruidAggregator:
+    """
+    Tests for registering custom sketch families.
+    """
+
+    def test_register_and_use(self):
+        """A registered family is mappable and carries its default config."""
+        try:
+            register_druid_aggregator(
+                column_type="binary",
+                merge_func="test_tdigest_agg",
+                aggregator="testTDigestSketch",
+                default_config={"compression": 200},
+            )
+            spec = get_druid_aggregator_spec(
+                column_name="latency_tdigest",
+                column_type="binary",
+                aggregation="test_tdigest",
+                merge="test_tdigest_agg",
+            )
+            assert spec == {
+                "fieldName": "latency_tdigest",
+                "name": "latency_tdigest",
+                "type": "testTDigestSketch",
+                "compression": 200,
+            }
+            # A metric's own params win over the family default.
+            tuned = get_druid_aggregator_spec(
+                column_name="latency_tdigest",
+                column_type="binary",
+                aggregation="test_tdigest",
+                merge="test_tdigest_agg",
+                params={"compression": 1000},
+            )
+            assert tuned is not None
+            assert tuned["compression"] == 1000
+            assert "testTDigestSketch" in DRUID_SKETCH_CONFIG
+        finally:
+            DRUID_AGG_MAPPING.pop(("binary", "test_tdigest_agg"), None)
+            DRUID_SKETCH_CONFIG.pop("testTDigestSketch", None)
+
+    def test_register_without_config(self):
+        """A family with nothing to tune registers without extra config keys."""
+        try:
+            register_druid_aggregator(
+                column_type="bigint",
+                merge_func="test_plain_merge",
+                aggregator="testPlainAgg",
+            )
+            spec = get_druid_aggregator_spec(
+                column_name="c",
+                column_type="bigint",
+                aggregation="test_plain",
+                merge="test_plain_merge",
+            )
+            assert spec == {
+                "fieldName": "c",
+                "name": "c",
+                "type": "testPlainAgg",
+            }
+        finally:
+            DRUID_AGG_MAPPING.pop(("bigint", "test_plain_merge"), None)
+
+    def test_conflicting_defaults_are_rejected(self):
+        """
+        Re-registering an aggregator with different defaults raises an error.
+        """
+        try:
+            register_druid_aggregator(
+                column_type="binary",
+                merge_func="test_conflict_agg",
+                aggregator="testConflictSketch",
+                default_config={"compression": 100},
+            )
+            with pytest.raises(DJInvalidInputException) as excinfo:
+                register_druid_aggregator(
+                    column_type="binary",
+                    merge_func="test_conflict_agg",
+                    aggregator="testConflictSketch",
+                    default_config={"compression": 200},
+                )
+            assert "already registered with different defaults" in str(excinfo.value)
+            # Re-registering exactly what is there is a no-op.
+            register_druid_aggregator(
+                column_type="binary",
+                merge_func="test_conflict_agg",
+                aggregator="testConflictSketch",
+                default_config={"compression": 100},
+            )
+            assert DRUID_SKETCH_CONFIG["testConflictSketch"] == {"compression": 100}
+        finally:
+            DRUID_AGG_MAPPING.pop(("binary", "test_conflict_agg"), None)
+            DRUID_SKETCH_CONFIG.pop("testConflictSketch", None)
+
+    def test_conflicting_aggregator_is_rejected(self):
+        """Two families cannot claim the same (column type, merge func) pair."""
+        try:
+            register_druid_aggregator(
+                column_type="binary",
+                merge_func="test_claimed",
+                aggregator="testFirstSketch",
+            )
+            with pytest.raises(DJInvalidInputException) as excinfo:
+                register_druid_aggregator(
+                    column_type="binary",
+                    merge_func="test_claimed",
+                    aggregator="testSecondSketch",
+                )
+            assert "already registered as" in str(excinfo.value)
+        finally:
+            DRUID_AGG_MAPPING.pop(("binary", "test_claimed"), None)
+
+    def test_v2_measures_cube_config_gets_family_defaults(self):
+        """
+        The V2 path uses the aggregator fallback with `merge=None` to pull correct specs.
+        """
+        try:
+            register_druid_aggregator(
+                column_type="binary",
+                merge_func="test_v2_tdigest",
+                aggregator="testV2Sketch",
+                default_config={"compression": 200},
+            )
+            config = DruidMeasuresCubeConfig.model_construct(
+                dimensions=[],
+                measures={
+                    "some.metric": MetricMeasures.model_construct(
+                        metric="some.metric",
+                        combiner="x",
+                        measures=[
+                            Measure(
+                                name="latency_tdigest",
+                                field_name="latency_tdigest",
+                                agg="test_v2_tdigest",
+                                type="binary",
+                            ),
+                        ],
+                    ),
+                },
+            )
+            assert config.metrics_spec() == {
+                "latency_tdigest": {
+                    "fieldName": "latency_tdigest",
+                    "name": "latency_tdigest",
+                    "type": "testV2Sketch",
+                    "compression": 200,
+                },
+            }
+        finally:
+            DRUID_AGG_MAPPING.pop(("binary", "test_v2_tdigest"), None)
+            DRUID_SKETCH_CONFIG.pop("testV2Sketch", None)

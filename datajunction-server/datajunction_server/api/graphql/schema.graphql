@@ -303,6 +303,7 @@ type MetricComponent {
   merge: String
   rule: AggregationRule!
   grainAlias: String
+  params: JSON
 }
 
 enum MetricDirection {
@@ -727,6 +728,7 @@ type Query {
 
 type ReaggregateSpec {
   rules: [DimensionReaggregateRule!]!
+  params: JSON
 }
 
 enum ReaggregationFunction {
