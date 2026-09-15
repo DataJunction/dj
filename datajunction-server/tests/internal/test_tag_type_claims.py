@@ -57,7 +57,7 @@ async def test_a_manifest_records_a_claim(session, current_user):
     spec = DeploymentSpec(
         namespace="taxonomy",
         nodes=[],
-        tag_type_claims=[TagTypeClaimSpec(tag_type="domain")],
+        managed_tag_types=[TagTypeClaimSpec(tag_type="domain")],
     )
     await orchestrator_for(spec, session, current_user)._setup_deployment_resources()
 
@@ -167,7 +167,7 @@ async def test_a_sideways_claim_is_rejected():
         DeploymentSpec(
             namespace="taxonomy",
             nodes=[],
-            tag_type_claims=[
+            managed_tag_types=[
                 TagTypeClaimSpec(tag_type="domain", namespace="analytics"),
             ],
         )

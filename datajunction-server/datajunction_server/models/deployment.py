@@ -1546,17 +1546,25 @@ class CustomMetadataSchemaSpec(BaseModel):
 
 class TagTypeClaimSpec(BaseModel):
     """
-    Specification for a tag type this namespace claims.
+    Specification for a tag type this deployment manages.
 
-    A claimed type can only be created by deployments of the claiming namespace, which
+    A managed type can only be created by deployments of the managing namespace, which
     is how a governed vocabulary -- one synced from an external taxonomy, say -- stops
     accumulating entries from callers that do not own it. The namespace defaults to the
-    enclosing DeploymentSpec's; naming a sub-namespace narrows the claim, and a
-    namespace outside the deploying one is rejected.
+    enclosing DeploymentSpec's; naming a sub-namespace narrows it, and a namespace
+    outside the deploying one is rejected.
+
+    A bare string is the common case, so `managed_tag_types: [domain]` and
+    `[{tag_type: domain}]` mean the same thing.
     """
 
     tag_type: str
     namespace: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_bare_tag_type(cls, value: Any) -> Any:
+        return {"tag_type": value} if isinstance(value, str) else value
 
 
 class GitDeploymentSource(BaseModel):
@@ -1665,7 +1673,7 @@ class DeploymentSpec(BaseModel):
     custom_metadata_schemas: list[CustomMetadataSchemaSpec] | None = None
     # None and [] differ here too: None leaves existing claims alone, [] releases the
     # ones this namespace holds, so a vocabulary can move to another repo.
-    tag_type_claims: list[TagTypeClaimSpec] | None = None
+    managed_tag_types: list[TagTypeClaimSpec] | None = None
     source: DeploymentSource | None = None  # CI/CD provenance tracking
     git_config: NamespaceGitConfig | None = None  # Git branch management config
     force: bool = Field(
@@ -1751,7 +1759,7 @@ class DeploymentSpec(BaseModel):
                         "namespace or a sub-namespace, never to another."
                     ),
                 )
-        for claim in self.tag_type_claims or []:
+        for claim in self.managed_tag_types or []:
             if not claim.namespace:
                 claim.namespace = self.namespace
             elif claim.namespace != self.namespace and not claim.namespace.startswith(
@@ -1761,10 +1769,10 @@ class DeploymentSpec(BaseModel):
                 # wider, or sideways, would let one repo govern another's tags.
                 raise DJInvalidDeploymentConfig(
                     message=(
-                        f"Tag type claim '{claim.tag_type}' declares namespace "
+                        f"Managed tag type '{claim.tag_type}' declares namespace "
                         f"'{claim.namespace}', which is not '{self.namespace}' or "
-                        "beneath it. A deployment may scope a claim to its own "
-                        "namespace or a sub-namespace, never to another."
+                        "beneath it. A deployment may scope a managed tag type to its "
+                        "own namespace or a sub-namespace, never to another."
                     ),
                 )
         return self
