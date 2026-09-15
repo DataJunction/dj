@@ -590,6 +590,11 @@ class DeploymentService:
                 "custom_metadata_schemas"
             ]
 
+        # Same absent/empty distinction: absent leaves the namespace's tag type
+        # claims alone, while an empty list releases them.
+        if "managed_tag_types" in project_metadata:
+            deployment_spec["managed_tag_types"] = project_metadata["managed_tag_types"]
+
         # Add deployment source if available from env vars
         source = self._build_deployment_source(cwd=base_dir)
         if source:  # pragma: no branch

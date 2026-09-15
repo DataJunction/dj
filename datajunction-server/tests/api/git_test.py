@@ -5629,6 +5629,7 @@ columns:
             "description": "Inventory tag",
             "tag_type": "group",
             "tag_metadata": {"order": 1, "display": {"color": "blue"}},
+            "owned_by_namespace": None,
         }
 
     @pytest.mark.asyncio
@@ -5710,6 +5711,7 @@ columns:
             "description": "Well formed tag",
             "tag_type": "group",
             "tag_metadata": {"order": 1},
+            "owned_by_namespace": None,
         }
 
         # The bare string was not turned into a tag

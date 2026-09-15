@@ -49,6 +49,10 @@ class TagOutput(ImmutableTagFields, MutableTagFields):
     Output tag model.
     """
 
+    # Derived from the tag's type rather than stored on the tag: a namespace claims a
+    # tag type, and every tag of that type belongs to it.
+    owned_by_namespace: str | None = None
+
     model_config = ConfigDict(from_attributes=True)
 
 

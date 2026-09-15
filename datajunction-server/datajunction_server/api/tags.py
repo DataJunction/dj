@@ -14,6 +14,7 @@ from datajunction_server.api.helpers import get_save_history
 from datajunction_server.database import Node, NodeRevision
 from datajunction_server.database.history import History
 from datajunction_server.database.tag import Tag, TagNodeRelationship
+from datajunction_server.database.tag_type_claim import TagTypeClaim
 from datajunction_server.database.user import User
 from datajunction_server.errors import (
     DJActionNotAllowedException,
@@ -22,6 +23,10 @@ from datajunction_server.errors import (
 )
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.history import ActivityType, EntityType
+from datajunction_server.internal.tag_type_claims import (
+    assert_tag_type_unclaimed,
+    claim_owner,
+)
 from datajunction_server.models.node import NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.tag import CreateTag, TagOutput, UpdateTag
@@ -33,6 +38,15 @@ from datajunction_server.utils import (
 
 settings = get_settings()
 router = SecureAPIRouter(tags=["tags"])
+
+
+async def with_owner(session: AsyncSession, tag: Tag) -> TagOutput:
+    """
+    Tag output carrying the namespace that claims its type, if any.
+    """
+    output = TagOutput.model_validate(tag)
+    output.owned_by_namespace = await claim_owner(session, tag.tag_type)
+    return output
 
 
 async def get_tags_by_name(
@@ -94,6 +108,7 @@ async def list_tags(
     if tag_type:
         statement = statement.where(Tag.tag_type == tag_type)
     result = await session.execute(statement)
+    owners = await TagTypeClaim.get_owners(session)
     return [
         TagOutput(
             name=tag[0],
@@ -101,6 +116,7 @@ async def list_tags(
             description=tag[2],
             display_name=tag[3],
             tag_metadata=tag[4],
+            owned_by_namespace=owners.get(tag[1]),
         )
         for tag in result.all()
     ]
@@ -116,7 +132,7 @@ async def get_a_tag(
     Return a tag by name.
     """
     tag = await get_tag_by_name(session, name, raise_if_not_exists=True)
-    return tag
+    return await with_owner(session, tag)
 
 
 @router.post("/tags/", response_model=TagOutput, status_code=201)
@@ -135,6 +151,7 @@ async def create_a_tag(
             message=f"A tag with name `{data.name}` already exists!",
             http_status_code=500,
         )
+    await assert_tag_type_unclaimed(session, data.tag_type)
     tag = Tag(
         name=data.name,
         tag_type=data.tag_type,
@@ -195,7 +212,7 @@ async def update_a_tag(
     )
     await session.commit()
     await session.refresh(tag)
-    return tag
+    return await with_owner(session, tag)
 
 
 @router.delete("/tags/{name}/", status_code=HTTPStatus.NO_CONTENT)
