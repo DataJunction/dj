@@ -28,6 +28,7 @@ def test_dump_reaggregate_spec_from_dict():
             ],
         },
     ) == {
+        "params": None,
         "rules": [
             {
                 "dimension": "default.date_dim.date",
@@ -51,6 +52,7 @@ def test_dump_reaggregate_spec_from_model():
             ],
         ),
     ) == {
+        "params": None,
         "rules": [
             {
                 "dimension": "default.date_dim.date",
@@ -131,3 +133,22 @@ def test_unsupported_dimension_reaggregate_functions_handles_empty_and_invalid()
             ],
         },
     ) == ["sum"]
+
+
+def test_empty_params_allowed():
+    """
+    An absent or empty `params` declaration is preserved.
+    """
+    assert ReaggregateSpec().params is None
+    assert ReaggregateSpec(params={}).params == {}
+
+
+def test_params_round_trip_through_parse():
+    """
+    `params` survives dict -> model -> dict without loss.
+    """
+    spec = parse_reaggregate_spec({"params": {"compression": 200}})
+    assert spec.params == {"compression": 200}
+    assert parse_reaggregate_spec(dump_reaggregate_spec(spec)).params == {
+        "compression": 200,
+    }

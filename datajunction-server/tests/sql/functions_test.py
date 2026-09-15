@@ -288,6 +288,33 @@ async def test_approx_percentile(session: AsyncSession):
     assert not exc.errors
     assert query_with_list.select.projection[0].type == ct.FloatType()  # type: ignore
 
+    # The two-argument form -- `accuracy` is optional in Spark, and this is the
+    # spelling metric authors actually use.
+    query = parse("SELECT approx_percentile(10.0, 0.5)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.FloatType()  # type: ignore
+
+    query = parse("SELECT approx_percentile(10.0, array(0.5, 0.9))")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.ListType(  # type: ignore
+        element_type=ct.FloatType(),
+    )
+
+    # A double-typed percentage dispatches too: DoubleType and FloatType are
+    # siblings under FloatingBase, so a FloatType-only registration missed it.
+    query = parse("SELECT approx_percentile(10.0, CAST(0.5 AS DOUBLE))")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    await query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.FloatType()  # type: ignore
+
 
 @pytest.mark.asyncio
 async def test_array(session: AsyncSession):

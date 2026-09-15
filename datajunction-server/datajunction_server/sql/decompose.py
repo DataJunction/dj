@@ -1443,6 +1443,9 @@ class MetricComponentExtractor:
         if reaggregate is not None and dimension_reaggregate_rules(reaggregate):
             self._attach_reaggregate_spec(components, reaggregate)
 
+        if reaggregate is not None and reaggregate.params:
+            self._attach_reaggregate_params(components, reaggregate)
+
         if fixed_grain is not None:
             self._attach_fixed_grain_spec(components, fixed_grain, query_ast)
 
@@ -1495,6 +1498,26 @@ class MetricComponentExtractor:
         raise DJInvalidInputException(
             f"Unsupported fixed_grain metric shape: {reason}.",
         )
+
+    def _attach_reaggregate_params(
+        self,
+        components: list[MetricComponent],
+        reaggregate: ReaggregateSpec,
+    ) -> None:
+        """
+        Propagate tuning parameters from the reaggregate spec to aggregating components.
+        """
+        configurable = [
+            component
+            for component in components
+            if component.aggregation is not None and component.merge is not None
+        ]
+        if not configurable:
+            self._raise_unsupported_reaggregate_shape(
+                "parameterized reaggregation requires an aggregating component",
+            )
+        for component in configurable:
+            component.params = dict(reaggregate.params or {})
 
     def _attach_reaggregate_spec(
         self,
