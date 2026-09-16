@@ -268,12 +268,33 @@ def _resolved_proposed_specs(
     existing_specs: dict[str, NodeSpec],
     proposed_specs: Iterable[NodeSpec],
     deleted_names: set[str],
+    unchanged_names: Iterable[str] = (),
 ) -> dict[str, NodeSpec]:
+    """
+    ``unchanged_names`` are submitted names the caller has already determined
+    are identical to what's deployed (e.g. the orchestrator's own
+    ``plan.to_skip``, from its ``semantic_diff`` pass during planning) --
+    trusted as given, not re-checked here. For those, the existing object is
+    reused instead of the freshly-parsed submitted one, so per-instance
+    caches (the parsed query AST, the id()-keyed parent-candidate cache)
+    carry over instead of redoing identical parsing/hashing work for a node
+    that didn't change. A full push resubmits every node on every run, so
+    this is the common case. Deliberately NOT re-derived via equality here:
+    the comparison itself (``NodeSpec.__eq__`` calls ``query_ast.compare()``
+    for query-bearing specs) is exactly the expensive parse this is trying
+    to avoid, and doing it again for every submitted node would cost more
+    than it saves.
+    """
+    unchanged_names = set(unchanged_names)
     specs = {
         name: spec for name, spec in existing_specs.items() if name not in deleted_names
     }
     for proposed in proposed_specs:
-        existing = existing_specs.get(proposed.rendered_name)
+        name = proposed.rendered_name
+        existing = existing_specs.get(name)
+        if name in unchanged_names and existing is not None:
+            specs[name] = existing
+            continue
         if (
             isinstance(proposed, SourceSpec)
             and not proposed.columns
@@ -283,7 +304,7 @@ def _resolved_proposed_specs(
                 deep=True,
                 update={"columns": existing.columns},
             )
-        specs[proposed.rendered_name] = proposed
+        specs[name] = proposed
     return specs
 
 
@@ -575,12 +596,21 @@ async def build_deployment_fingerprints(
     proposed_specs = list(proposed_specs)
     additional_target_names = set(additional_target_names)
     deleted_names = {spec.rendered_name for spec in deleted_specs}
+    submitted_names = {spec.rendered_name for spec in proposed_specs}
+    proposed_target_names = (
+        submitted_names if only_proposed_names is None else set(only_proposed_names)
+    ) | additional_target_names
+    # Names the caller already knows won't get a freshly-computed proposed
+    # fingerprint -- safe to substitute the existing object for (see
+    # `_resolved_proposed_specs`), since only_proposed_names/additional_target_names
+    # are exactly the names that might have changed.
+    unchanged_names = submitted_names - proposed_target_names
     proposed = _resolved_proposed_specs(
         existing_specs,
         proposed_specs,
         deleted_names,
+        unchanged_names,
     )
-    submitted_names = {spec.rendered_name for spec in proposed_specs}
     target_specs: dict[str, NodeSpec] = {}
     target_names_to_load = (
         additional_target_names - existing_specs.keys() - submitted_names
@@ -624,10 +654,5 @@ async def build_deployment_fingerprints(
     current = current_graph.fingerprints(
         deleted_names | additional_target_names,
     )
-    proposed_target_names = (
-        submitted_names if only_proposed_names is None else set(only_proposed_names)
-    )
-    proposed_hashes = proposed_graph.fingerprints(
-        proposed_target_names | additional_target_names,
-    )
+    proposed_hashes = proposed_graph.fingerprints(proposed_target_names)
     return current, proposed_hashes

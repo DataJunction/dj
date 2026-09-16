@@ -500,6 +500,59 @@ def test_proposed_sources_reuse_resolved_columns_and_remove_deletes():
     assert deleted.rendered_name not in resolved
 
 
+def test_resolved_proposed_specs_reuses_existing_object_for_unchanged_names():
+    """A full push resubmits every node on every run. For names the caller
+    has already determined are unchanged (e.g. `plan.to_skip`), the existing
+    object is reused instead of the freshly-parsed submitted one, so
+    per-instance caches (the parsed query AST, the id()-keyed
+    parent-candidate cache) carry over -- without re-deriving equality here,
+    since that comparison is exactly the expensive parse this avoids."""
+    unchanged = transform_spec("unchanged", "SELECT * FROM ${prefix}orders")
+    other = transform_spec("other", "SELECT 1")
+    resubmitted_unchanged = unchanged.model_copy(deep=True)
+    resubmitted_other = other.model_copy(update={"query": "SELECT 2"})
+
+    resolved = _resolved_proposed_specs(
+        {unchanged.rendered_name: unchanged, other.rendered_name: other},
+        [resubmitted_unchanged, resubmitted_other],
+        set(),
+        {unchanged.rendered_name},
+    )
+
+    assert resolved[unchanged.rendered_name] is unchanged
+    assert resolved[other.rendered_name] is resubmitted_other
+
+
+@pytest.mark.asyncio
+async def test_build_deployment_fingerprints_only_proposed_names_reuses_unchanged():
+    """`only_proposed_names` also drives which unrequested names are safe to
+    substitute the existing object for -- everything outside it (and outside
+    `additional_target_names`) is, by construction, unchanged."""
+    source = source_spec("source", table="table")
+    unrelated = source_spec("unrelated", table="unrelated")
+    downstream = transform_spec("downstream", "SELECT * FROM ${prefix}source")
+
+    _, full = await build_deployment_fingerprints(
+        MagicMock(),
+        {},
+        [source, unrelated, downstream],
+        [],
+    )
+    _, scoped = await build_deployment_fingerprints(
+        MagicMock(),
+        {
+            source.rendered_name: source,
+            unrelated.rendered_name: unrelated,
+            downstream.rendered_name: downstream,
+        },
+        [source, unrelated, downstream],
+        [],
+        only_proposed_names={downstream.rendered_name},
+    )
+
+    assert scoped == {downstream.rendered_name: full[downstream.rendered_name]}
+
+
 @pytest.mark.asyncio
 async def test_build_deployment_fingerprints_without_external_parents():
     source = source_spec("source", table="table")
