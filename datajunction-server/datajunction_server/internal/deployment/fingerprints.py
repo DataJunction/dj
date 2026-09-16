@@ -287,18 +287,51 @@ def _resolved_proposed_specs(
     return specs
 
 
+def _ancestor_closure(
+    target_names: Iterable[str],
+    specs: dict[str, NodeSpec],
+    parent_cache: ParentCandidateCache,
+) -> set[str]:
+    """
+    All names in `specs` that some name in `target_names` transitively
+    depends on, plus the target names themselves.
+
+    A node's Merkle fingerprint is composed only from its own spec and its
+    ancestors' fingerprints -- it never depends on siblings or descendants --
+    so this is exactly the set of specs whose content can affect the target
+    names' fingerprints. Parent candidates are still resolved against the
+    full `specs` universe (cheap dict lookups); only the expensive per-node
+    hashing in `_compute_merkle_fingerprints` gets scoped down to this set.
+    """
+    closure: set[str] = set()
+    frontier = [name for name in target_names if name in specs]
+    while frontier:
+        name = frontier.pop()
+        if name in closure:
+            continue
+        closure.add(name)
+        try:
+            parents, _ = _resolved_parent_names(specs[name], specs, parent_cache)
+        except (DJParseException, TypeError, ValueError):
+            parents = []
+        frontier.extend(parent for parent in parents if parent not in closure)
+    return closure
+
+
 def _compute_merkle_fingerprints(
     specs: dict[str, NodeSpec],
     ignored_parse_errors: set[str],
     parent_cache: ParentCandidateCache | None = None,
     *,
     version: int = LATEST_SEMANTIC_FINGERPRINT_VERSION,
+    only_names: set[str] | None = None,
 ) -> FingerprintMap:
     parent_cache = parent_cache if parent_cache is not None else {}
+    names_to_process = sorted(specs) if only_names is None else sorted(only_names)
     graph: dict[str, list[str]] = {}
     failed_names: set[str] = set()
     fingerprint_specs: dict[str, NodeSpec] = {}
-    for name in sorted(specs):
+    for name in names_to_process:
         spec = specs[name]
         try:
             graph[name], unresolved = _resolved_parent_names(
@@ -450,7 +483,10 @@ def _compute_merkle_fingerprints(
     if processed != len(components):  # pragma: no cover
         raise RuntimeError("SCC condensation graph contains a cycle")
 
-    return {name: component_results[component_by_name[name]][name] for name in specs}
+    return {
+        name: component_results[component_by_name[name]][name]
+        for name in names_to_process
+    }
 
 
 class SemanticFingerprintGraph:
@@ -472,7 +508,7 @@ class SemanticFingerprintGraph:
 
     def fingerprint(self, name: str) -> SemanticFingerprintValue:
         """Return one node's fingerprint in this graph snapshot."""
-        return self._evaluate()[name]
+        return self._evaluate({name})[name]
 
     def fingerprints(
         self,
@@ -482,20 +518,37 @@ class SemanticFingerprintGraph:
         target_names = list(self._specs if names is None else names)
         if not target_names:
             return {}
-        fingerprints = self._evaluate()
+        fingerprints = self._evaluate(None if names is None else target_names)
         return {
             name: fingerprints[name] for name in target_names if name in fingerprints
         }
 
-    def _evaluate(self) -> FingerprintMap:
-        if self._fingerprints is None:
-            self._fingerprints = _compute_merkle_fingerprints(
-                self._specs,
-                self._ignored_parse_errors,
-                self._parent_cache,
-                version=self._version,
-            )
-        return self._fingerprints
+    def _evaluate(self, target_names: Iterable[str] | None) -> FingerprintMap:
+        # A fingerprint only depends on a node's own spec and its ancestors'
+        # fingerprints, never on siblings or descendants -- so a scoped
+        # request only needs the ancestor closure of `target_names` hashed,
+        # not the whole graph. Only the unscoped (whole-graph) result is
+        # cached: it's the one repeat callers actually reuse, and caching a
+        # narrow result risks serving it back to a later, broader request.
+        if target_names is None:
+            if self._fingerprints is None:
+                self._fingerprints = _compute_merkle_fingerprints(
+                    self._specs,
+                    self._ignored_parse_errors,
+                    self._parent_cache,
+                    version=self._version,
+                )
+            return self._fingerprints
+        if self._fingerprints is not None:
+            return self._fingerprints
+        only_names = _ancestor_closure(target_names, self._specs, self._parent_cache)
+        return _compute_merkle_fingerprints(
+            self._specs,
+            self._ignored_parse_errors,
+            self._parent_cache,
+            version=self._version,
+            only_names=only_names,
+        )
 
 
 async def build_deployment_fingerprints(

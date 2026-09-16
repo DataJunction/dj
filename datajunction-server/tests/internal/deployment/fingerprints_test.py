@@ -172,8 +172,11 @@ def test_graph_fingerprint_uses_its_parent_snapshot():
     current = SemanticFingerprintGraph(spec_map(orders_v1, revenue))
     proposed = SemanticFingerprintGraph(spec_map(orders_v2, revenue))
 
+    # Scoped single-name lookups aren't cached across calls (only a full,
+    # unscoped `.fingerprints()` result is), so this checks for the same
+    # value, not the same object.
     current_fingerprint = current.fingerprint(revenue.rendered_name)
-    assert current.fingerprint(revenue.rendered_name) is current_fingerprint
+    assert current.fingerprint(revenue.rendered_name) == current_fingerprint
     assert current_fingerprint != proposed.fingerprint(
         revenue.rendered_name,
     )
@@ -371,6 +374,37 @@ def test_cycle_hashing_is_stable_and_propagates_member_changes():
     broken_specs = {**specs, broken_third.rendered_name: broken_third}
     broken = SemanticFingerprintGraph(broken_specs).fingerprints()
     assert all(original[name] != broken[name] for name in specs)
+
+
+def test_scoped_fingerprints_match_full_graph_computation():
+    """A `.fingerprints(names)` request only hashes the ancestor closure of
+    `names`, as a performance scope-down -- it must return exactly what a
+    full-graph computation would for those same names, including through
+    unrelated siblings and a cycle."""
+    orders = source_spec("orders", table="orders")
+    revenue = transform_spec("revenue", "SELECT * FROM ${prefix}orders")
+    unrelated = source_spec("unrelated", table="unrelated")
+
+    first = linked_dimension("first", "second")
+    second = linked_dimension("second", "third")
+    third = linked_dimension("third", "first")
+    downstream = transform_spec(
+        "downstream",
+        "SELECT * FROM ${prefix}first",
+        namespace="cycle",
+    )
+
+    specs = spec_map(orders, revenue, unrelated, first, second, third, downstream)
+    graph = SemanticFingerprintGraph(specs)
+    full = graph.fingerprints()
+
+    for names in (
+        {revenue.rendered_name},
+        {downstream.rendered_name},
+        {first.rendered_name, second.rendered_name, third.rendered_name},
+    ):
+        scoped = SemanticFingerprintGraph(specs).fingerprints(names)
+        assert scoped == {name: full[name] for name in names}
 
 
 def test_self_link_and_external_parent_cycles_have_stable_hashes():
