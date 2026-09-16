@@ -558,8 +558,20 @@ async def build_deployment_fingerprints(
     deleted_specs: Iterable[NodeSpec],
     *,
     additional_target_names: Iterable[str] = (),
+    only_proposed_names: Iterable[str] | None = None,
     version: int = LATEST_SEMANTIC_FINGERPRINT_VERSION,
 ) -> tuple[FingerprintMap, FingerprintMap]:
+    """
+    ``only_proposed_names``, when given, restricts which submitted nodes get
+    a freshly-computed *proposed* fingerprint -- e.g. just the nodes actually
+    being deployed. A full repo push submits every node on every run, so
+    without this the proposed side always requests (and pays to hash) nearly
+    the entire namespace, even though a node whose own spec is unchanged and
+    that isn't downstream of a change is guaranteed to have the same
+    fingerprint it already has. Callers that omit unaffected nodes here must
+    fall back to the *current* fingerprint for those names (see
+    ``DeploymentOrchestrator._apply_semantic_fingerprints``).
+    """
     proposed_specs = list(proposed_specs)
     additional_target_names = set(additional_target_names)
     deleted_names = {spec.rendered_name for spec in deleted_specs}
@@ -612,7 +624,10 @@ async def build_deployment_fingerprints(
     current = current_graph.fingerprints(
         deleted_names | additional_target_names,
     )
+    proposed_target_names = (
+        submitted_names if only_proposed_names is None else set(only_proposed_names)
+    )
     proposed_hashes = proposed_graph.fingerprints(
-        submitted_names | additional_target_names,
+        proposed_target_names | additional_target_names,
     )
     return current, proposed_hashes

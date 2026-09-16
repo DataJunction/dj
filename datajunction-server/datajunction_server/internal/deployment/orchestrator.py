@@ -889,12 +889,19 @@ class DeploymentOrchestrator:
         for result in self.deployed_results:
             if result.deploy_type != DeploymentResult.Type.NODE:
                 continue
-            fingerprints = (
-                self._current_semantic_fingerprints
-                if result.operation == DeploymentResult.Operation.DELETE
-                else self._proposed_semantic_fingerprints
-            )
-            result.semantic_fingerprint = fingerprints.get(result.name)
+            if result.operation == DeploymentResult.Operation.DELETE:
+                result.semantic_fingerprint = self._current_semantic_fingerprints.get(
+                    result.name,
+                )
+                continue
+            # A skipped node outside `plan.to_deploy` and not downstream of a
+            # change never got a freshly-computed proposed fingerprint (see
+            # `only_proposed_names` below) -- its current fingerprint is
+            # guaranteed to be the same value, since neither it nor any
+            # ancestor changed.
+            result.semantic_fingerprint = self._proposed_semantic_fingerprints.get(
+                result.name,
+            ) or self._current_semantic_fingerprints.get(result.name)
 
     async def _build_and_apply_semantic_fingerprints(
         self,
@@ -910,6 +917,7 @@ class DeploymentOrchestrator:
             self.deployment_spec.nodes,
             plan.deletable_specs,
             additional_target_names=target_names,
+            only_proposed_names={spec.rendered_name for spec in plan.to_deploy},
         )
         self._current_semantic_fingerprints = current
         self._proposed_semantic_fingerprints = proposed

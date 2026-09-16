@@ -524,6 +524,34 @@ async def test_build_deployment_fingerprints_without_external_parents():
     )
 
 
+async def test_build_deployment_fingerprints_only_proposed_names():
+    """`only_proposed_names` must return exactly the same values as computing
+    every submitted node's proposed fingerprint, just for a smaller set --
+    it's a performance scope-down for a full-repo push, not a behavior
+    change."""
+    source = source_spec("source", table="table")
+    unrelated = source_spec("unrelated", table="unrelated")
+    downstream = transform_spec("downstream", "SELECT * FROM ${prefix}source")
+
+    _, full = await build_deployment_fingerprints(
+        MagicMock(),
+        {},
+        [source, unrelated, downstream],
+        [],
+    )
+    _, scoped = await build_deployment_fingerprints(
+        MagicMock(),
+        {},
+        [source, unrelated, downstream],
+        [],
+        only_proposed_names={downstream.rendered_name},
+    )
+
+    assert scoped == {downstream.rendered_name: full[downstream.rendered_name]}
+    assert unrelated.rendered_name not in scoped
+    assert source.rendered_name not in scoped
+
+
 @pytest.mark.asyncio
 async def test_build_deployment_fingerprints_loads_external_ancestors(session):
     transform = transform_spec(
