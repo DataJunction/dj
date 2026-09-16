@@ -346,14 +346,40 @@ def _compute_merkle_fingerprints(
     *,
     version: int = LATEST_SEMANTIC_FINGERPRINT_VERSION,
     only_names: set[str] | None = None,
+    shared_fingerprints: dict[int, SemanticFingerprintValue] | None = None,
 ) -> FingerprintMap:
+    """
+    ``shared_fingerprints``, when given, is a cache keyed by ``id(spec)``
+    shared across multiple graph snapshots (e.g. the current and proposed
+    graphs for the same deployment). A node's fingerprint is a pure function
+    of its own spec object and its ancestors' fingerprints, so if the exact
+    same spec object appears in two snapshots, reusing a value already
+    computed for it is safe *only if* every one of its ancestors is also the
+    same object in both -- which holds whenever a node is unresolved-unchanged
+    (not itself modified, not downstream of anything that changed): if any
+    ancestor had changed, propagate_impact's downstream BFS would have found
+    this node too, and `_resolved_proposed_specs` only substitutes the
+    existing object for names outside that changed/downstream set. So a
+    cache hit here never needs to check ancestor equality -- the id() match
+    already implies the whole upstream chain matches.
+    """
     parent_cache = parent_cache if parent_cache is not None else {}
+    shared_fingerprints = shared_fingerprints if shared_fingerprints is not None else {}
     names_to_process = sorted(specs) if only_names is None else sorted(only_names)
     graph: dict[str, list[str]] = {}
     failed_names: set[str] = set()
     fingerprint_specs: dict[str, NodeSpec] = {}
+    cached_results: dict[str, SemanticFingerprintValue] = {}
     for name in names_to_process:
         spec = specs[name]
+        if id(spec) in shared_fingerprints:
+            # Already computed for this exact spec object in another
+            # snapshot -- treat as a parent-less singleton so it's ready
+            # immediately, without resolving its (already-accounted-for)
+            # parents again.
+            graph[name] = []
+            cached_results[name] = shared_fingerprints[id(spec)]
+            continue
         try:
             graph[name], unresolved = _resolved_parent_names(
                 spec,
@@ -424,7 +450,9 @@ def _compute_merkle_fingerprints(
         unavailable: FingerprintMap = {
             name: UNKNOWN_SEMANTIC_FINGERPRINT for name in members
         }
-        if any(name in failed_names for name in members):
+        if len(members) == 1 and members[0] in cached_results:
+            component_results[component_index] = {members[0]: cached_results[members[0]]}
+        elif any(name in failed_names for name in members):
             component_results[component_index] = unavailable
         else:
             external_edges: list[tuple[str, str, SemanticFingerprint]] = []
@@ -448,15 +476,13 @@ def _compute_merkle_fingerprints(
                 is_cycle = len(members) > 1 or members[0] in graph[members[0]]
                 try:
                     if not is_cycle:
-                        component_results[component_index] = {
-                            members[0]: compose_node_fingerprint(
-                                fingerprint_specs[members[0]],
-                                version,
-                                parent_fingerprints=[
-                                    edge[2] for edge in external_edges
-                                ],
-                            ),
-                        }
+                        value = compose_node_fingerprint(
+                            fingerprint_specs[members[0]],
+                            version,
+                            parent_fingerprints=[edge[2] for edge in external_edges],
+                        )
+                        component_results[component_index] = {members[0]: value}
+                        shared_fingerprints[id(specs[members[0]])] = value
                     else:
                         local_fingerprints = {
                             name: local_node_fingerprint(
@@ -520,12 +546,19 @@ class SemanticFingerprintGraph:
         ignored_parse_errors: set[str] | None = None,
         parent_cache: ParentCandidateCache | None = None,
         version: int = LATEST_SEMANTIC_FINGERPRINT_VERSION,
+        shared_fingerprints: dict[int, SemanticFingerprintValue] | None = None,
     ):
         self._specs = dict(specs)
         self._ignored_parse_errors = set(ignored_parse_errors or ())
         self._parent_cache = parent_cache if parent_cache is not None else {}
         self._version = version
         self._fingerprints: FingerprintMap | None = None
+        # Shared, keyed by id(spec), across sibling snapshots (e.g. the
+        # current/proposed pair for one deployment) -- see
+        # `_compute_merkle_fingerprints` for why an id() match is sufficient.
+        self._shared_fingerprints = (
+            shared_fingerprints if shared_fingerprints is not None else {}
+        )
 
     def fingerprint(self, name: str) -> SemanticFingerprintValue:
         """Return one node's fingerprint in this graph snapshot."""
@@ -558,6 +591,7 @@ class SemanticFingerprintGraph:
                     self._ignored_parse_errors,
                     self._parent_cache,
                     version=self._version,
+                    shared_fingerprints=self._shared_fingerprints,
                 )
             return self._fingerprints
         if self._fingerprints is not None:
@@ -569,6 +603,7 @@ class SemanticFingerprintGraph:
             self._parent_cache,
             version=self._version,
             only_names=only_names,
+            shared_fingerprints=self._shared_fingerprints,
         )
 
 
@@ -640,16 +675,23 @@ async def build_deployment_fingerprints(
         parent_cache=parent_cache,
     )
     external.update(target_specs)
+    # Shared across both snapshots: a node that's the same spec object in
+    # both (an unchanged, non-downstream node -- see _resolved_proposed_specs)
+    # is guaranteed to have the same fingerprint in both, so computing it for
+    # one graph and reusing it in the other is safe.
+    shared_fingerprints: dict[int, SemanticFingerprintValue] = {}
     current_graph = SemanticFingerprintGraph(
         {**external, **existing_specs},
         ignored_parse_errors=deleted_names,
         parent_cache=parent_cache,
         version=version,
+        shared_fingerprints=shared_fingerprints,
     )
     proposed_graph = SemanticFingerprintGraph(
         {**external, **proposed},
         parent_cache=parent_cache,
         version=version,
+        shared_fingerprints=shared_fingerprints,
     )
     current = current_graph.fingerprints(
         deleted_names | additional_target_names,

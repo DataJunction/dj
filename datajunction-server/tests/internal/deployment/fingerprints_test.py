@@ -407,6 +407,57 @@ def test_scoped_fingerprints_match_full_graph_computation():
         assert scoped == {name: full[name] for name in names}
 
 
+def test_shared_fingerprints_cache_reused_across_snapshots():
+    """Two graph snapshots sharing an unchanged ancestor's spec object (same
+    id()) can share its computed fingerprint -- the shared cache must produce
+    the exact same result an independent computation would, for both the
+    reused ancestor and a changed descendant that depends on it."""
+    source = source_spec("source", table="table")
+    unchanged = transform_spec("unchanged", "SELECT * FROM ${prefix}source")
+    changed_v1 = transform_spec("changed", "SELECT * FROM ${prefix}unchanged")
+    changed_v2 = changed_v1.model_copy(update={"query": "SELECT 1"})
+
+    current_specs = spec_map(source, unchanged, changed_v1)
+    proposed_specs = {**current_specs, changed_v2.rendered_name: changed_v2}
+
+    shared: dict[int, object] = {}
+    current_graph = SemanticFingerprintGraph(current_specs, shared_fingerprints=shared)
+    proposed_graph = SemanticFingerprintGraph(
+        proposed_specs,
+        shared_fingerprints=shared,
+    )
+    current = current_graph.fingerprints()
+    proposed = proposed_graph.fingerprints()
+
+    unshared_current = SemanticFingerprintGraph(current_specs).fingerprints()
+    unshared_proposed = SemanticFingerprintGraph(proposed_specs).fingerprints()
+
+    assert current == unshared_current
+    assert proposed == unshared_proposed
+    assert proposed[unchanged.rendered_name] == current[unchanged.rendered_name]
+    assert proposed[changed_v2.rendered_name] != current[changed_v1.rendered_name]
+    assert id(source) in shared
+    assert id(unchanged) in shared
+
+
+def test_shared_fingerprints_cache_safe_across_a_shared_cycle():
+    """A cycle where every member is the same object in both snapshots must
+    still match an independent (unshared) computation."""
+    first = linked_dimension("first", "second")
+    second = linked_dimension("second", "first")
+    specs = spec_map(first, second)
+
+    shared: dict[int, object] = {}
+    graph_a = SemanticFingerprintGraph(specs, shared_fingerprints=shared)
+    graph_b = SemanticFingerprintGraph(specs, shared_fingerprints=shared)
+    result_a = graph_a.fingerprints()
+    result_b = graph_b.fingerprints()
+
+    unshared = SemanticFingerprintGraph(specs).fingerprints()
+    assert result_a == unshared
+    assert result_b == unshared
+
+
 def test_self_link_and_external_parent_cycles_have_stable_hashes():
     self_link = linked_dimension("self", "self")
     assert (
