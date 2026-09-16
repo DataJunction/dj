@@ -9,6 +9,7 @@ from datajunction_server.database import Node, NodeRevision
 from datajunction_server.internal.deployment.utils import (
     extract_dimension_refs_from_filters,
     extract_node_graph,
+    extract_upstream_candidates,
 )
 from datajunction_server.models.deployment import (
     CubeSpec,
@@ -34,6 +35,7 @@ from datajunction_server.semantic_fingerprints.merkle import (
     cycle_component_fingerprint,
     strongly_connected_components,
 )
+from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.utils import SEPARATOR
 
@@ -124,6 +126,78 @@ def _candidate_parts(
     return cache[key]
 
 
+def _seed_parent_cache_entry(
+    spec: NodeSpec,
+    parent_cache: ParentCandidateCache,
+    query_ast: ast.Query,
+) -> None:
+    """Populate a spec's parent-candidate cache entry from an AST obtained
+    some other way than `_candidate_parts`'s own parse, skipping that parse.
+    """
+    key = id(spec)
+    if key in parent_cache:
+        return
+    spec._query_ast = query_ast
+    candidates = extract_upstream_candidates(
+        query_ast,
+        is_metric=isinstance(spec, MetricSpec),
+    )
+    resolver = SEMANTIC_PARENT_RESOLVERS[type(spec)]
+    parent_cache[key] = (frozenset(candidates), resolver(spec))
+
+
+def _seed_parent_cache_from_pre_parsed(
+    specs: dict[str, NodeSpec],
+    parent_cache: ParentCandidateCache,
+    pre_parsed_queries: dict[str, tuple[str, ast.Query]] | None,
+) -> None:
+    """Reuse ASTs already parsed elsewhere (e.g. impact propagation).
+
+    Metrics are excluded: fingerprinting parses an alias-wrapped form of
+    their query, which a raw pre-parsed AST can't stand in for. The parsed
+    text is checked against the spec's own query text before reuse, in
+    case the two loads observed different data.
+    """
+    if not pre_parsed_queries:
+        return
+    for name, (query_text, query_ast) in pre_parsed_queries.items():
+        spec = specs.get(name)
+        if not isinstance(spec, (TransformSpec, DimensionSpec)):
+            continue
+        if spec.rendered_query != query_text:
+            continue
+        _seed_parent_cache_entry(spec, parent_cache, query_ast)
+
+
+def _reuse_unchanged_query_asts(
+    proposed: dict[str, NodeSpec],
+    existing_specs: dict[str, NodeSpec],
+    parent_cache: ParentCandidateCache,
+) -> None:
+    """Skip re-parsing a proposed spec whose query text didn't change.
+
+    A downstream-impacted node gets a fresh proposed spec object even when
+    untouched (see `_resolved_proposed_specs`), so `id(spec)` can't match
+    the current graph's object for it. Only the AST is reused — parent
+    candidates are recomputed from the proposed spec's own fields, so an
+    edit to something other than the query (e.g. required_dimensions) is
+    still picked up correctly.
+    """
+    for name, proposed_spec in proposed.items():
+        if not isinstance(proposed_spec, (TransformSpec, DimensionSpec, MetricSpec)):
+            continue
+        existing_spec = existing_specs.get(name)
+        if (
+            existing_spec is None
+            or proposed_spec is existing_spec
+            or type(existing_spec) is not type(proposed_spec)
+            or existing_spec._query_ast is None
+            or proposed_spec.rendered_query != existing_spec.rendered_query
+        ):
+            continue
+        _seed_parent_cache_entry(proposed_spec, parent_cache, existing_spec._query_ast)
+
+
 def _parent_candidates(
     spec: NodeSpec,
     cache: ParentCandidateCache | None = None,
@@ -161,14 +235,14 @@ def _resolve_parent_references(
     references: ParentReferences,
     specs: dict[str, NodeSpec],
 ) -> tuple[set[str], set[str]]:
-    resolved = set()
-    unresolved = set()
+    resolved: set[str] = set()
+    unresolved: set[str] = set()
     for options in references:
         parent = next((candidate for candidate in options if candidate in specs), None)
         if parent is not None:
             resolved.add(parent)
         else:
-            unresolved.add(options[0])
+            unresolved.update(options)
     return resolved, unresolved
 
 
@@ -224,29 +298,21 @@ def _spec_with_normalized_required_dimensions(
 
 async def _load_external_specs(
     session: AsyncSession,
-    seed_specs: Iterable[NodeSpec],
+    initial_frontier: Iterable[str],
+    known_names: set[str],
     ignored_parse_errors: set[str],
     parent_cache: ParentCandidateCache,
 ) -> dict[str, NodeSpec]:
-    seeds = list(seed_specs)
-    known_names = {spec.rendered_name for spec in seeds}
+    """Load names unresolved within the deployment's own specs, transitively.
+
+    `initial_frontier` is the caller's own unresolved-parent-name discovery
+    (e.g. from `_ancestor_closure`) — reused here instead of re-scanning the
+    full spec universe to rediscover the same candidates.
+    """
+    known_names = set(known_names)
     external_specs: dict[str, NodeSpec] = {}
-    pending = seeds
-    while pending:
-        candidates: set[str] = set()
-        for spec in pending:
-            try:
-                candidates.update(_parent_candidates(spec, parent_cache))
-            except (DJParseException, TypeError, ValueError) as exc:
-                if spec.rendered_name not in ignored_parse_errors:
-                    logger.warning(
-                        "Semantic parent extraction failed for %s: %s",
-                        spec.rendered_name,
-                        exc,
-                    )
-        frontier = sorted(candidates - known_names)
-        if not frontier:
-            break
+    frontier = sorted(set(initial_frontier) - known_names)
+    while frontier:
         known_names.update(frontier)
         nodes = await Node.get_by_names(
             session,
@@ -261,6 +327,18 @@ async def _load_external_specs(
         )
         pending = [await node.to_spec(session) for node in nodes]
         external_specs.update({spec.rendered_name: spec for spec in pending})
+        candidates: set[str] = set()
+        for spec in pending:
+            try:
+                candidates.update(_parent_candidates(spec, parent_cache))
+            except (DJParseException, TypeError, ValueError) as exc:
+                if spec.rendered_name not in ignored_parse_errors:
+                    logger.warning(
+                        "Semantic parent extraction failed for %s: %s",
+                        spec.rendered_name,
+                        exc,
+                    )
+        frontier = sorted(candidates - known_names)
     return external_specs
 
 
@@ -298,9 +376,14 @@ def _ancestor_closure(
     target_names: Iterable[str],
     specs: dict[str, NodeSpec],
     parent_cache: ParentCandidateCache,
-) -> set[str]:
-    """Transitive ancestors of `target_names`, plus the targets themselves."""
+) -> tuple[set[str], set[str]]:
+    """Transitive ancestors of `target_names`, plus the targets themselves.
+
+    Also returns parent names unresolved within `specs` — candidates for
+    external lookup, surfaced so callers can avoid a separate full scan.
+    """
     closure: set[str] = set()
+    unresolved_names: set[str] = set()
     frontier = [name for name in target_names if name in specs]
     while frontier:
         name = frontier.pop()
@@ -308,11 +391,16 @@ def _ancestor_closure(
             continue
         closure.add(name)
         try:
-            parents, _ = _resolved_parent_names(specs[name], specs, parent_cache)
+            parents, unresolved = _resolved_parent_names(
+                specs[name],
+                specs,
+                parent_cache,
+            )
         except (DJParseException, TypeError, ValueError):
-            parents = []
+            parents, unresolved = [], []
+        unresolved_names.update(unresolved)
         frontier.extend(parent for parent in parents if parent not in closure)
-    return closure
+    return closure, unresolved_names
 
 
 def _compute_merkle_fingerprints(
@@ -414,7 +502,9 @@ def _compute_merkle_fingerprints(
             name: UNKNOWN_SEMANTIC_FINGERPRINT for name in members
         }
         if len(members) == 1 and members[0] in cached_results:
-            component_results[component_index] = {members[0]: cached_results[members[0]]}
+            component_results[component_index] = {
+                members[0]: cached_results[members[0]],
+            }
         elif any(name in failed_names for name in members):
             component_results[component_index] = unavailable
         else:
@@ -552,7 +642,7 @@ class SemanticFingerprintGraph:
             return self._fingerprints
         if self._fingerprints is not None:
             return self._fingerprints
-        only_names = _ancestor_closure(target_names, self._specs, self._parent_cache)
+        only_names, _ = _ancestor_closure(target_names, self._specs, self._parent_cache)
         return _compute_merkle_fingerprints(
             self._specs,
             self._ignored_parse_errors,
@@ -572,6 +662,7 @@ async def build_deployment_fingerprints(
     additional_target_names: Iterable[str] = (),
     only_proposed_names: Iterable[str] | None = None,
     version: int = LATEST_SEMANTIC_FINGERPRINT_VERSION,
+    pre_parsed_queries: dict[str, tuple[str, ast.Query]] | None = None,
 ) -> tuple[FingerprintMap, FingerprintMap]:
     """`only_proposed_names` limits which nodes get a fresh proposed hash.
 
@@ -615,9 +706,36 @@ async def build_deployment_fingerprints(
         }
 
     parent_cache: ParentCandidateCache = {}
+    # Reuse ASTs propagate_impact already parsed, before the closure walks
+    # below would otherwise force a fresh parse for them.
+    current_seed_specs = {**existing_specs, **target_specs}
+    _seed_parent_cache_from_pre_parsed(
+        current_seed_specs,
+        parent_cache,
+        pre_parsed_queries,
+    )
+    # Compute each side's closure against its own specs only (no externals
+    # yet) so _load_external_specs can be seeded with just the unresolved
+    # names this deployment actually needs, instead of re-parsing every
+    # spec in the deployment to rediscover the same candidates.
+    _current_closure_names, current_unresolved = _ancestor_closure(
+        deleted_names | additional_target_names,
+        current_seed_specs,
+        parent_cache,
+    )
+    # Cross-pollinate before the proposed closure walk so an unedited,
+    # resubmitted downstream node reuses the AST just parsed above instead
+    # of parsing its own (textually identical) copy from scratch.
+    _reuse_unchanged_query_asts(proposed, existing_specs, parent_cache)
+    _proposed_closure_names, proposed_unresolved = _ancestor_closure(
+        proposed_target_names,
+        proposed,
+        parent_cache,
+    )
     external = await _load_external_specs(
         session,
-        [*existing_specs.values(), *proposed.values(), *target_specs.values()],
+        current_unresolved | proposed_unresolved,
+        current_seed_specs.keys() | proposed.keys(),
         ignored_parse_errors=deleted_names,
         parent_cache=parent_cache,
     )
