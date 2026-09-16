@@ -243,6 +243,13 @@ def semantic_diff(
         if field == "display_name" and getattr(rendered_two, field) is None:
             continue
 
+        # Identical raw text skips the ANTLR parse below.
+        if (
+            field == "query"
+            and rendered_one.rendered_query == rendered_two.rendered_query
+        ):
+            continue
+
         try:
             left = normalize_field(
                 rendered_one,
