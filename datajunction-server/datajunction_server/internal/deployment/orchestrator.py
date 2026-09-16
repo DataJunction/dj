@@ -894,11 +894,7 @@ class DeploymentOrchestrator:
                     result.name,
                 )
                 continue
-            # A skipped node outside `plan.to_deploy` and not downstream of a
-            # change never got a freshly-computed proposed fingerprint (see
-            # `only_proposed_names` below) -- its current fingerprint is
-            # guaranteed to be the same value, since neither it nor any
-            # ancestor changed.
+            # Unchanged nodes have no fresh proposed value; fall back.
             result.semantic_fingerprint = self._proposed_semantic_fingerprints.get(
                 result.name,
             ) or self._current_semantic_fingerprints.get(result.name)

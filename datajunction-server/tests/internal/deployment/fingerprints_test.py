@@ -377,10 +377,7 @@ def test_cycle_hashing_is_stable_and_propagates_member_changes():
 
 
 def test_scoped_fingerprints_match_full_graph_computation():
-    """A `.fingerprints(names)` request only hashes the ancestor closure of
-    `names`, as a performance scope-down -- it must return exactly what a
-    full-graph computation would for those same names, including through
-    unrelated siblings and a cycle."""
+    """Scoped `.fingerprints(names)` matches an unscoped computation."""
     orders = source_spec("orders", table="orders")
     revenue = transform_spec("revenue", "SELECT * FROM ${prefix}orders")
     unrelated = source_spec("unrelated", table="unrelated")
@@ -408,10 +405,7 @@ def test_scoped_fingerprints_match_full_graph_computation():
 
 
 def test_shared_fingerprints_cache_reused_across_snapshots():
-    """Two graph snapshots sharing an unchanged ancestor's spec object (same
-    id()) can share its computed fingerprint -- the shared cache must produce
-    the exact same result an independent computation would, for both the
-    reused ancestor and a changed descendant that depends on it."""
+    """Sharing an id()-matched ancestor's fingerprint matches unshared."""
     source = source_spec("source", table="table")
     unchanged = transform_spec("unchanged", "SELECT * FROM ${prefix}source")
     changed_v1 = transform_spec("changed", "SELECT * FROM ${prefix}unchanged")
@@ -441,8 +435,7 @@ def test_shared_fingerprints_cache_reused_across_snapshots():
 
 
 def test_shared_fingerprints_cache_safe_across_a_shared_cycle():
-    """A cycle where every member is the same object in both snapshots must
-    still match an independent (unshared) computation."""
+    """A fully-shared cycle still matches an unshared computation."""
     first = linked_dimension("first", "second")
     second = linked_dimension("second", "first")
     specs = spec_map(first, second)
@@ -552,12 +545,7 @@ def test_proposed_sources_reuse_resolved_columns_and_remove_deletes():
 
 
 def test_resolved_proposed_specs_reuses_existing_object_for_unchanged_names():
-    """A full push resubmits every node on every run. For names the caller
-    has already determined are unchanged (e.g. `plan.to_skip`), the existing
-    object is reused instead of the freshly-parsed submitted one, so
-    per-instance caches (the parsed query AST, the id()-keyed
-    parent-candidate cache) carry over -- without re-deriving equality here,
-    since that comparison is exactly the expensive parse this avoids."""
+    """Unchanged names reuse the existing object; changed ones don't."""
     unchanged = transform_spec("unchanged", "SELECT * FROM ${prefix}orders")
     other = transform_spec("other", "SELECT 1")
     resubmitted_unchanged = unchanged.model_copy(deep=True)
@@ -576,9 +564,7 @@ def test_resolved_proposed_specs_reuses_existing_object_for_unchanged_names():
 
 @pytest.mark.asyncio
 async def test_build_deployment_fingerprints_only_proposed_names_reuses_unchanged():
-    """`only_proposed_names` also drives which unrequested names are safe to
-    substitute the existing object for -- everything outside it (and outside
-    `additional_target_names`) is, by construction, unchanged."""
+    """`only_proposed_names` scopes results without changing them."""
     source = source_spec("source", table="table")
     unrelated = source_spec("unrelated", table="unrelated")
     downstream = transform_spec("downstream", "SELECT * FROM ${prefix}source")

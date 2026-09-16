@@ -270,21 +270,7 @@ def _resolved_proposed_specs(
     deleted_names: set[str],
     unchanged_names: Iterable[str] = (),
 ) -> dict[str, NodeSpec]:
-    """
-    ``unchanged_names`` are submitted names the caller has already determined
-    are identical to what's deployed (e.g. the orchestrator's own
-    ``plan.to_skip``, from its ``semantic_diff`` pass during planning) --
-    trusted as given, not re-checked here. For those, the existing object is
-    reused instead of the freshly-parsed submitted one, so per-instance
-    caches (the parsed query AST, the id()-keyed parent-candidate cache)
-    carry over instead of redoing identical parsing/hashing work for a node
-    that didn't change. A full push resubmits every node on every run, so
-    this is the common case. Deliberately NOT re-derived via equality here:
-    the comparison itself (``NodeSpec.__eq__`` calls ``query_ast.compare()``
-    for query-bearing specs) is exactly the expensive parse this is trying
-    to avoid, and doing it again for every submitted node would cost more
-    than it saves.
-    """
+    """Reuses the existing object for names the caller marks unchanged."""
     unchanged_names = set(unchanged_names)
     specs = {
         name: spec for name, spec in existing_specs.items() if name not in deleted_names
@@ -313,17 +299,7 @@ def _ancestor_closure(
     specs: dict[str, NodeSpec],
     parent_cache: ParentCandidateCache,
 ) -> set[str]:
-    """
-    All names in `specs` that some name in `target_names` transitively
-    depends on, plus the target names themselves.
-
-    A node's Merkle fingerprint is composed only from its own spec and its
-    ancestors' fingerprints -- it never depends on siblings or descendants --
-    so this is exactly the set of specs whose content can affect the target
-    names' fingerprints. Parent candidates are still resolved against the
-    full `specs` universe (cheap dict lookups); only the expensive per-node
-    hashing in `_compute_merkle_fingerprints` gets scoped down to this set.
-    """
+    """Transitive ancestors of `target_names`, plus the targets themselves."""
     closure: set[str] = set()
     frontier = [name for name in target_names if name in specs]
     while frontier:
@@ -348,20 +324,10 @@ def _compute_merkle_fingerprints(
     only_names: set[str] | None = None,
     shared_fingerprints: dict[int, SemanticFingerprintValue] | None = None,
 ) -> FingerprintMap:
-    """
-    ``shared_fingerprints``, when given, is a cache keyed by ``id(spec)``
-    shared across multiple graph snapshots (e.g. the current and proposed
-    graphs for the same deployment). A node's fingerprint is a pure function
-    of its own spec object and its ancestors' fingerprints, so if the exact
-    same spec object appears in two snapshots, reusing a value already
-    computed for it is safe *only if* every one of its ancestors is also the
-    same object in both -- which holds whenever a node is unresolved-unchanged
-    (not itself modified, not downstream of anything that changed): if any
-    ancestor had changed, propagate_impact's downstream BFS would have found
-    this node too, and `_resolved_proposed_specs` only substitutes the
-    existing object for names outside that changed/downstream set. So a
-    cache hit here never needs to check ancestor equality -- the id() match
-    already implies the whole upstream chain matches.
+    """`shared_fingerprints`: cache keyed by id(spec), shared across snapshots.
+
+    An id() match implies the whole ancestor chain matches too (see
+    `_resolved_proposed_specs`), so no ancestor equality check is needed.
     """
     parent_cache = parent_cache if parent_cache is not None else {}
     shared_fingerprints = shared_fingerprints if shared_fingerprints is not None else {}
@@ -373,10 +339,7 @@ def _compute_merkle_fingerprints(
     for name in names_to_process:
         spec = specs[name]
         if id(spec) in shared_fingerprints:
-            # Already computed for this exact spec object in another
-            # snapshot -- treat as a parent-less singleton so it's ready
-            # immediately, without resolving its (already-accounted-for)
-            # parents again.
+            # Cache hit: treat as parent-less singleton.
             graph[name] = []
             cached_results[name] = shared_fingerprints[id(spec)]
             continue
@@ -553,9 +516,7 @@ class SemanticFingerprintGraph:
         self._parent_cache = parent_cache if parent_cache is not None else {}
         self._version = version
         self._fingerprints: FingerprintMap | None = None
-        # Shared, keyed by id(spec), across sibling snapshots (e.g. the
-        # current/proposed pair for one deployment) -- see
-        # `_compute_merkle_fingerprints` for why an id() match is sufficient.
+        # Cache keyed by id(spec), shared across sibling snapshots.
         self._shared_fingerprints = (
             shared_fingerprints if shared_fingerprints is not None else {}
         )
@@ -578,12 +539,7 @@ class SemanticFingerprintGraph:
         }
 
     def _evaluate(self, target_names: Iterable[str] | None) -> FingerprintMap:
-        # A fingerprint only depends on a node's own spec and its ancestors'
-        # fingerprints, never on siblings or descendants -- so a scoped
-        # request only needs the ancestor closure of `target_names` hashed,
-        # not the whole graph. Only the unscoped (whole-graph) result is
-        # cached: it's the one repeat callers actually reuse, and caching a
-        # narrow result risks serving it back to a later, broader request.
+        # Only the unscoped (whole-graph) result is cached.
         if target_names is None:
             if self._fingerprints is None:
                 self._fingerprints = _compute_merkle_fingerprints(
@@ -617,16 +573,10 @@ async def build_deployment_fingerprints(
     only_proposed_names: Iterable[str] | None = None,
     version: int = LATEST_SEMANTIC_FINGERPRINT_VERSION,
 ) -> tuple[FingerprintMap, FingerprintMap]:
-    """
-    ``only_proposed_names``, when given, restricts which submitted nodes get
-    a freshly-computed *proposed* fingerprint -- e.g. just the nodes actually
-    being deployed. A full repo push submits every node on every run, so
-    without this the proposed side always requests (and pays to hash) nearly
-    the entire namespace, even though a node whose own spec is unchanged and
-    that isn't downstream of a change is guaranteed to have the same
-    fingerprint it already has. Callers that omit unaffected nodes here must
-    fall back to the *current* fingerprint for those names (see
-    ``DeploymentOrchestrator._apply_semantic_fingerprints``).
+    """`only_proposed_names` limits which nodes get a fresh proposed hash.
+
+    Omitted names must fall back to the current fingerprint (see
+    `DeploymentOrchestrator._apply_semantic_fingerprints`).
     """
     proposed_specs = list(proposed_specs)
     additional_target_names = set(additional_target_names)
@@ -635,10 +585,7 @@ async def build_deployment_fingerprints(
     proposed_target_names = (
         submitted_names if only_proposed_names is None else set(only_proposed_names)
     ) | additional_target_names
-    # Names the caller already knows won't get a freshly-computed proposed
-    # fingerprint -- safe to substitute the existing object for (see
-    # `_resolved_proposed_specs`), since only_proposed_names/additional_target_names
-    # are exactly the names that might have changed.
+    # Names safe to reuse (no fresh proposed hash).
     unchanged_names = submitted_names - proposed_target_names
     proposed = _resolved_proposed_specs(
         existing_specs,
@@ -675,10 +622,7 @@ async def build_deployment_fingerprints(
         parent_cache=parent_cache,
     )
     external.update(target_specs)
-    # Shared across both snapshots: a node that's the same spec object in
-    # both (an unchanged, non-downstream node -- see _resolved_proposed_specs)
-    # is guaranteed to have the same fingerprint in both, so computing it for
-    # one graph and reusing it in the other is safe.
+    # Cache shared between the two graphs.
     shared_fingerprints: dict[int, SemanticFingerprintValue] = {}
     current_graph = SemanticFingerprintGraph(
         {**external, **existing_specs},
