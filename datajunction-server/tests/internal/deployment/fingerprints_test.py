@@ -1,5 +1,5 @@
 from typing import get_args
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -7,8 +7,11 @@ from datajunction_server.internal.deployment.fingerprints import (
     SEMANTIC_PARENT_RESOLVERS,
     SemanticFingerprintGraph,
     _candidate_parts,
+    _load_external_specs,
     _parent_candidates,
     _resolved_proposed_specs,
+    _seed_parent_cache_entry,
+    _seed_parent_cache_from_pre_parsed,
     build_deployment_fingerprints,
 )
 from datajunction_server.models.deployment import (
@@ -709,3 +712,95 @@ async def test_build_deployment_fingerprints_loads_external_ancestors(session):
     )
     assert current["default.hard_hat"] != UNKNOWN_SEMANTIC_FINGERPRINT
     assert proposed["default.hard_hat"] != UNKNOWN_SEMANTIC_FINGERPRINT
+
+
+def test_seed_parent_cache_entry_is_idempotent():
+    """A second call for a spec already in the cache is a no-op."""
+    transform = transform_spec("cache_once", "SELECT * FROM ${prefix}source")
+    cache = {}
+    query_ast = transform.query_ast
+    _seed_parent_cache_entry(transform, cache, query_ast)
+    seeded = cache[id(transform)]
+
+    _seed_parent_cache_entry(transform, cache, query_ast)
+    assert cache[id(transform)] is seeded
+
+
+def test_seed_parent_cache_from_pre_parsed_skips_non_reusable_and_stale_entries():
+    """Metrics are excluded (fingerprinting needs their alias-wrapped AST),
+    and an entry whose parsed text no longer matches the spec's own query
+    text is skipped so a fresh parse is forced instead."""
+    metric = MetricSpec(
+        namespace="ns",
+        name="skip_metric",
+        query="SELECT COUNT(*) FROM ${prefix}source",
+    )
+    transform = transform_spec("stale_text", "SELECT * FROM ${prefix}source")
+    specs = spec_map(metric, transform)
+    cache: dict = {}
+    pre_parsed = {
+        metric.rendered_name: (metric.rendered_query, MagicMock()),
+        transform.rendered_name: ("SELECT this text does not match", MagicMock()),
+    }
+
+    _seed_parent_cache_from_pre_parsed(specs, cache, pre_parsed)
+
+    assert cache == {}
+
+
+@pytest.mark.asyncio
+async def test_load_external_specs_logs_unparseable_external_dependency(caplog):
+    """An external spec that fails to parse is still returned (so the
+    deployment can report it as unavailable rather than erroring), and the
+    failure is logged unless the name is in `ignored_parse_errors`."""
+    broken = transform_spec("broken_external", "SELECT (", namespace="ext")
+    fake_node = MagicMock()
+    fake_node.to_spec = AsyncMock(return_value=broken)
+
+    with patch(
+        "datajunction_server.internal.deployment.fingerprints.Node.get_by_names",
+        AsyncMock(return_value=[fake_node]),
+    ):
+        external = await _load_external_specs(
+            MagicMock(),
+            [broken.rendered_name],
+            set(),
+            ignored_parse_errors=set(),
+            parent_cache={},
+        )
+    assert external == {broken.rendered_name: broken}
+    assert "Semantic parent extraction failed" in caplog.text
+
+    caplog.clear()
+    with patch(
+        "datajunction_server.internal.deployment.fingerprints.Node.get_by_names",
+        AsyncMock(return_value=[fake_node]),
+    ):
+        await _load_external_specs(
+            MagicMock(),
+            [broken.rendered_name],
+            set(),
+            ignored_parse_errors={broken.rendered_name},
+            parent_cache={},
+        )
+    assert "Semantic parent extraction failed" not in caplog.text
+
+
+def test_semantic_fingerprint_graph_caches_whole_graph_result():
+    """A second `.fingerprints()` call (no names) reuses the cached result
+    instead of recomputing (`_evaluate`'s `target_names is None` branch)."""
+    source = source_spec("cached_source", table="table")
+    transform = transform_spec(
+        "cached_transform",
+        "SELECT * FROM ${prefix}cached_source",
+    )
+    graph = SemanticFingerprintGraph(spec_map(source, transform))
+
+    first = graph.fingerprints()
+    second = graph.fingerprints()
+    assert second == first
+    assert graph._fingerprints is not None
+
+    # A subsequent scoped call also reuses the already-cached result.
+    scoped = graph.fingerprints({transform.rendered_name})
+    assert scoped[transform.rendered_name] == first[transform.rendered_name]
