@@ -204,3 +204,10 @@ async def test_seeded_semantic_layer_schema_validates_node_writes(
             NodeType.METRIC,
             {"semantic_layer": {"sematic_type": "currency"}},
         )
+    with pytest.raises(DJInvalidInputException, match="owner"):
+        await validate_custom_metadata(
+            clean_session,
+            "finance",
+            NodeType.METRIC,
+            {"semantic_layer": {"owner": "finance"}},
+        )
