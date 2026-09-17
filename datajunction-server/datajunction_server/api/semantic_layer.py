@@ -38,6 +38,9 @@ from datajunction_server.internal.sql import (
     generate_metrics_sql,
 )
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.semantic_layer_metadata import (
+    SEMANTIC_LAYER_METADATA_KEY,
+)
 from datajunction_server.models.unit import Unit, unit_to_dict
 from datajunction_server.sql.parsing.types import ColumnType
 from datajunction_server.utils import get_current_user, get_session
@@ -127,6 +130,9 @@ def _semantic_type(
     unit: Unit | None = None,
 ) -> str:
     """Derive the portable business type from DJ's structured column fields."""
+    if getattr(column, "name", "").rsplit(".", 1)[-1] == "dateint":
+        return "date"
+
     unit_data = unit_to_dict(unit or column.unit)
     if unit_data and "kind" in unit_data:
         unit_kind = unit_data["kind"]
@@ -137,7 +143,6 @@ def _semantic_type(
             "percentage",
             "proportion",
             "count",
-            "duration",
             "data_size",
         }:
             return unit_kind
@@ -209,10 +214,14 @@ def _inferred_filter_metadata(arrow_type: str | None) -> "FilterMetadata | None"
     )
 
 
+def _decimal_places_pattern(precision: int) -> str:
+    """Build the decimal-place portion of a number format pattern."""
+    return f".{''.join('0' for _ in range(precision))}" if precision else ""
+
+
 def _fixed_decimal_pattern(prefix: str, precision: int) -> str:
     """Build a Google Sheets fixed-decimal pattern."""
-    decimals = f".{''.join('0' for _ in range(precision))}" if precision else ""
-    return f"{prefix}#,##0{decimals}"
+    return f"{prefix}#,##0{_decimal_places_pattern(precision)}"
 
 
 def _client_format_extensions(
@@ -254,10 +263,9 @@ def _client_format_extensions(
         }
     elif format_is_explicit and preset == "percentage":
         d3format = f".{precision}%"
-        decimals = f".{''.join('0' for _ in range(precision))}" if precision else ""
         number_format = {
             "type": "PERCENT",
-            "pattern": f"0{decimals}%",
+            "pattern": f"0{_decimal_places_pattern(precision)}%",
         }
     elif format_is_explicit and preset == "smart_number":
         d3format = "SMART_NUMBER"
@@ -288,31 +296,27 @@ def _raw_column_metadata(cube: NodeRevision, column_id: str) -> JSONObject:
 
     Metric nodes describe one value, so their metadata may be declared directly.
     Dimension nodes can expose several values and use a ``columns`` mapping.
-    An optional ``semantic_layer`` wrapper keeps this contract separate from other
-    DJ custom metadata.
+    The reserved ``semantic_layer`` key keeps this contract separate from other DJ
+    custom metadata.
     """
     for element in getattr(cube, "cube_elements", []):
         revision = element.node_revision
         if revision is None:
             continue
-        if revision.type == NodeType.METRIC:
-            if revision.name != column_id:
-                continue
-            raw = revision.custom_metadata or {}
-        else:
+        if revision.type == NodeType.METRIC and revision.name != column_id:
+            continue
+        if revision.type != NodeType.METRIC:
             base_id = f"{revision.name}.{element.name}"
             if column_id != base_id and not column_id.startswith(f"{base_id}["):
                 continue
-            raw = revision.custom_metadata or {}
-            if isinstance(raw, Mapping) and isinstance(
-                raw.get("semantic_layer"),
-                Mapping,
-            ):
-                raw = raw["semantic_layer"]
-            raw = raw.get("columns", {}).get(element.name, {})
 
-        if isinstance(raw, Mapping) and isinstance(raw.get("semantic_layer"), Mapping):
-            raw = raw["semantic_layer"]
+        custom_metadata = revision.custom_metadata or {}
+        if not isinstance(custom_metadata, Mapping):
+            return {}
+        raw = custom_metadata.get(SEMANTIC_LAYER_METADATA_KEY, {})
+        if revision.type != NodeType.METRIC and isinstance(raw, Mapping):
+            columns = raw.get("columns", {})
+            raw = columns.get(element.name, {}) if isinstance(columns, Mapping) else {}
         return cast(JSONObject, dict(raw)) if isinstance(raw, Mapping) else {}
     return {}
 

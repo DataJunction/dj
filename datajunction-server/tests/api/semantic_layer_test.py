@@ -273,8 +273,8 @@ class TestSemanticViewPayloadTypes:
                                 "pattern": "€#,##0.00",
                             },
                         },
+                        "datajunction": {"owner": "finance"},
                     },
-                    "owner": "finance",
                 },
             },
         )
@@ -318,6 +318,21 @@ class TestSemanticViewPayloadTypes:
                 "datajunction": {"owner": "finance"},
             },
         }
+
+    def test_metric_metadata_ignores_custom_metadata_outside_reserved_key(self):
+        metric_revision = SimpleNamespace(
+            name="sem.total_amount",
+            type=NodeType.METRIC,
+            custom_metadata={
+                "format": {"preset": "percentage"},
+                "owner": "finance",
+            },
+        )
+        cube = SimpleNamespace(
+            cube_elements=[SimpleNamespace(node_revision=metric_revision)],
+        )
+
+        assert _raw_column_metadata(cube, "sem.total_amount") == {}
 
     @pytest.mark.parametrize(
         ("format_metadata", "expected_extensions"),
@@ -478,6 +493,24 @@ class TestSemanticViewPayloadTypes:
 
         assert metadata is not None
         assert metadata.semantic_type == expected_semantic_type
+
+    @pytest.mark.parametrize(
+        "column_name",
+        ["dateint", "common.dimensions.time.date.dateint"],
+    )
+    def test_dateint_columns_infer_date_semantic_type(self, column_name):
+        column = SimpleNamespace(
+            name=column_name,
+            type="int",
+            display_name="Date",
+            unit=None,
+            attribute_names=lambda: ["primary_key"],
+        )
+
+        metadata = _column_metadata(column, is_metric=False)
+
+        assert metadata is not None
+        assert metadata.semantic_type == "date"
 
     @pytest.mark.parametrize(
         ("column_type", "expected_kind", "expected_operators"),
