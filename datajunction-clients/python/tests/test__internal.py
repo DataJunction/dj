@@ -104,9 +104,12 @@ class TestDJClient:  # pylint: disable=too-many-public-methods, protected-access
             },
         )
 
-        with patch("datajunction._internal.time.sleep"), patch(
-            "datajunction._internal.time.time",
-            side_effect=[0, 0, 400],
+        with (
+            patch("datajunction._internal.time.sleep"),
+            patch(
+                "datajunction._internal.time.time",
+                side_effect=[0, 0, 400],
+            ),
         ):
             with pytest.raises(DJClientException, match="timed out"):
                 client.get_deployment_impact({"namespace": "test.ns", "nodes": []})
