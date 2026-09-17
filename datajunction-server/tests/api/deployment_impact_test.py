@@ -102,13 +102,17 @@ async def _deploy(client, *specs: DeploymentSpec):
         await _wait_for_deployment(client, response.json()["uuid"])
 
 
+IMPACT_HEADERS = {"Prefer": "respond-async"}
+
+
 async def _impact(client, spec: DeploymentSpec):
     response = await client.post(
         "/deployments/impact",
         json=spec.model_dump(by_alias=True),
+        headers=IMPACT_HEADERS,
     )
     assert response.status_code == 200
-    return response.json()
+    return await _wait_for_deployment(client, response.json()["uuid"])
 
 
 async def _impact_nodes(client, spec):
@@ -122,6 +126,39 @@ async def _impact_nodes(client, spec):
 
 class TestDeploymentImpactEndpoint:
     """Tests for POST /deployments/impact (orchestrator dry-run)."""
+
+    @pytest.mark.asyncio
+    async def test_impact_requires_async_preference(self, client_with_roads):
+        """A client that doesn't send `Prefer: respond-async` gets a clear
+        upgrade-required error rather than a stub response."""
+        spec = DeploymentSpec(
+            namespace="impact_no_header_test",
+            nodes=[_source("orders")],
+        )
+
+        response = await client_with_roads.post(
+            "/deployments/impact",
+            json=spec.model_dump(by_alias=True),
+        )
+        assert response.status_code == 426
+        assert "asynchronous" in response.json()["message"]
+
+    @pytest.mark.asyncio
+    async def test_impact_echoes_preference_applied(self, client_with_roads):
+        """A request that sends `Prefer: respond-async` gets back
+        `Preference-Applied: respond-async`, per RFC 7240."""
+        spec = DeploymentSpec(
+            namespace="impact_preference_applied_test",
+            nodes=[_source("orders")],
+        )
+
+        response = await client_with_roads.post(
+            "/deployments/impact",
+            json=spec.model_dump(by_alias=True),
+            headers=IMPACT_HEADERS,
+        )
+        assert response.status_code == 200
+        assert response.headers["Preference-Applied"] == "respond-async"
 
     @pytest.mark.asyncio
     async def test_impact_create_new_nodes(self, client_with_roads):
@@ -142,15 +179,10 @@ class TestDeploymentImpactEndpoint:
             ],
         )
 
-        response = await client_with_roads.post(
-            "/deployments/impact",
-            json=spec.model_dump(by_alias=True),
-        )
-        assert response.status_code == 200
+        data = await _impact(client_with_roads, spec)
 
-        data = response.json()
         info = DeploymentInfo(**data)
-        assert info.uuid == "dry_run"
+        assert info.status == "success"
         assert info.namespace == "impact_create_test"
 
         node_results = [r for r in info.results if r.deploy_type == "node"]
@@ -223,13 +255,7 @@ class TestDeploymentImpactEndpoint:
             ],
         )
 
-        response = await client_with_roads.post(
-            "/deployments/impact",
-            json=updated_spec.model_dump(by_alias=True),
-        )
-        assert response.status_code == 200
-
-        data = response.json()
+        data = await _impact(client_with_roads, updated_spec)
         update_results = [
             r
             for r in data["results"]
@@ -312,13 +338,7 @@ class TestDeploymentImpactEndpoint:
             ],
         )
 
-        response = await client_with_roads.post(
-            "/deployments/impact",
-            json=modified_spec.model_dump(by_alias=True),
-        )
-        assert response.status_code == 200
-
-        data = response.json()
+        data = await _impact(client_with_roads, modified_spec)
         delete_results = [r for r in data["results"] if r["operation"] == "delete"]
         assert len(delete_results) == 1
         assert "to_delete" in delete_results[0]["name"]
@@ -396,12 +416,8 @@ class TestDeploymentImpactEndpoint:
         )
 
         # Call dry-run
-        impact_resp = await client_with_roads.post(
-            "/deployments/impact",
-            json=spec.model_dump(by_alias=True),
-        )
-        assert impact_resp.status_code == 200
-        assert impact_resp.json()["uuid"] == "dry_run"
+        data = await _impact(client_with_roads, spec)
+        assert data["status"] == "success"
 
         # The node must NOT exist in the namespace
         nodes_resp = await client_with_roads.get(
@@ -470,13 +486,7 @@ class TestDeploymentImpactEndpoint:
             ],
         )
 
-        response = await client_with_roads.post(
-            "/deployments/impact",
-            json=modified_spec.model_dump(by_alias=True),
-        )
-        assert response.status_code == 200
-
-        data = response.json()
+        data = await _impact(client_with_roads, modified_spec)
         # At minimum the request succeeds and returns the expected shape
         assert "results" in data
         assert "downstream_impacts" in data
