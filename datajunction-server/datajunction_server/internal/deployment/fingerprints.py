@@ -739,24 +739,38 @@ async def build_deployment_fingerprints(
         ignored_parse_errors=deleted_names,
         parent_cache=parent_cache,
     )
-    external.update(target_specs)
+    # `target_specs` are outside the deployment's own namespace, so they
+    # skip `_resolved_proposed_specs` (which is what normally guarantees a
+    # fresh object identity for any name whose resolved ancestors might
+    # differ between the two graphs). Give the proposed side its own copy
+    # so the id()-keyed `shared_fingerprints` cache below can't reuse a
+    # value computed against the *current* graph's ancestor chain for a
+    # node whose ancestors changed on the *proposed* side.
+    current_external = {**external, **target_specs}
+    proposed_external = {
+        **external,
+        **{name: spec.model_copy(deep=True) for name, spec in target_specs.items()},
+    }
     # Cache shared between the two graphs.
     shared_fingerprints: dict[int, SemanticFingerprintValue] = {}
     current_graph = SemanticFingerprintGraph(
-        {**external, **existing_specs},
+        {**current_external, **existing_specs},
         ignored_parse_errors=deleted_names,
         parent_cache=parent_cache,
         version=version,
         shared_fingerprints=shared_fingerprints,
     )
     proposed_graph = SemanticFingerprintGraph(
-        {**external, **proposed},
+        {**proposed_external, **proposed},
         parent_cache=parent_cache,
         version=version,
         shared_fingerprints=shared_fingerprints,
     )
+    # Include `unchanged_names` so a no-op node still has a current
+    # fingerprint to fall back on when it's omitted from `proposed_hashes`
+    # below (see `DeploymentOrchestrator._apply_semantic_fingerprints`).
     current = current_graph.fingerprints(
-        deleted_names | additional_target_names,
+        deleted_names | additional_target_names | unchanged_names,
     )
     proposed_hashes = proposed_graph.fingerprints(proposed_target_names)
     return current, proposed_hashes
