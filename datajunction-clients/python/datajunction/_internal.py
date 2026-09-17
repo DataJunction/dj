@@ -244,7 +244,7 @@ class DJClient:
         response = self._session.post(
             "/deployments/impact",
             json=deployment_spec,
-            headers={"X-DJ-Client-Capabilities": "async-deployment-impact"},
+            headers={"Prefer": "respond-async"},
             timeout=self._timeout,
         )
         deployment_data = response.json()

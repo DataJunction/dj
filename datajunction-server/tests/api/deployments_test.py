@@ -1371,7 +1371,7 @@ async def impact_and_poll(client, deployment_spec: DeploymentSpec):
     response = await client.post(
         "/deployments/impact",
         json=deployment_payload(deployment_spec),
-        headers={"X-DJ-Client-Capabilities": "async-deployment-impact"},
+        headers={"Prefer": "respond-async"},
     )
     assert response.status_code == 200, response.json()
     data = response.json()

@@ -41,8 +41,8 @@ class TestDJClient:  # pylint: disable=too-many-public-methods, protected-access
     def test_get_deployment_impact_polls_until_terminal(self, client):
         """
         `get_deployment_impact()` submits the dry-run with the required
-        capability header, then polls `check_deployment()` until the
-        deployment reaches a terminal status.
+        `Prefer: respond-async` header, then polls `check_deployment()`
+        until the deployment reaches a terminal status.
         """
         client._session.post = MagicMock(
             return_value=MagicMock(
@@ -74,7 +74,7 @@ class TestDJClient:  # pylint: disable=too-many-public-methods, protected-access
         assert client._session.post.call_args == call(
             "/deployments/impact",
             json={"namespace": "test.ns", "nodes": []},
-            headers={"X-DJ-Client-Capabilities": "async-deployment-impact"},
+            headers={"Prefer": "respond-async"},
             timeout=client._timeout,
         )
         assert client.check_deployment.call_count == 2

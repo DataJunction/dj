@@ -8,7 +8,7 @@ import time
 import uuid
 from abc import ABC, abstractmethod
 
-from fastapi import BackgroundTasks, Depends, Request
+from fastapi import BackgroundTasks, Depends, Request, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -482,8 +482,8 @@ async def list_deployments(  # pragma: no cover
     return results
 
 
-IMPACT_CAPABILITY_HEADER = "X-DJ-Client-Capabilities"
-IMPACT_CAPABILITY_VALUE = "async-deployment-impact"
+PREFER_HEADER = "Prefer"
+PREFER_RESPOND_ASYNC = "respond-async"
 
 
 @router.post(
@@ -494,6 +494,7 @@ IMPACT_CAPABILITY_VALUE = "async-deployment-impact"
 async def preview_deployment_impact(
     deployment_spec: DeploymentSpec,
     request: Request,
+    response: Response,
     background_tasks: BackgroundTasks,
     *,
     session: AsyncSession = Depends(get_session),
@@ -513,19 +514,20 @@ async def preview_deployment_impact(
     impact is computed via BFS, then the SAVEPOINT is rolled back so no changes
     are persisted.
 
-    Requires the ``X-DJ-Client-Capabilities: async-deployment-impact`` header,
-    since this endpoint used to respond synchronously with the full result.
+    Requires a ``Prefer: respond-async`` header (RFC 7240), since this endpoint
+    used to respond synchronously with the full result.
     """
-    capabilities = request.headers.get(IMPACT_CAPABILITY_HEADER, "")
-    if IMPACT_CAPABILITY_VALUE not in [
-        capability.strip() for capability in capabilities.split(",")
-    ]:
+    prefer = request.headers.get(PREFER_HEADER, "")
+    preferences = [p.strip().split("=")[0] for p in prefer.split(",")]
+    if PREFER_RESPOND_ASYNC not in preferences:
         raise DJClientUpgradeRequiredException(
             message=(
                 "This endpoint is now asynchronous — upgrade datajunction-clients "
-                "to a version that submits and polls for /deployments/impact."
+                "to a version that sends `Prefer: respond-async` and polls for "
+                "/deployments/impact."
             ),
         )
+    response.headers["Preference-Applied"] = PREFER_RESPOND_ASYNC
 
     access_checker.add_request(
         access.ResourceRequest(
