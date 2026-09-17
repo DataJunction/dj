@@ -3,6 +3,7 @@ Test internal http authentication logic
 """
 
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -20,6 +21,7 @@ def test_dj_http_bearer_raise_when_unauthenticated():
     """
     bearer = DJHTTPBearer()
     request = MagicMock()
+    request.state = SimpleNamespace()
     request.cookies.get.return_value = None
     request.headers.get.return_value = None
     with pytest.raises(DJException) as exc_info:
@@ -33,6 +35,7 @@ def test_dj_http_bearer_raise_with_empty_bearer_token():
     """
     bearer = DJHTTPBearer()
     request = MagicMock()
+    request.state = SimpleNamespace()
     request.cookies.get.return_value = None
     request.headers.get.return_value = "Bearer "
     with pytest.raises(DJException) as exc_info:
@@ -46,6 +49,7 @@ def test_dj_http_bearer_raise_with_unsupported_scheme(jwt_token):
     """
     bearer = DJHTTPBearer()
     request = MagicMock()
+    request.state = SimpleNamespace()
     request.cookies.get.return_value = None
     request.headers.get.return_value = f"Foo {jwt_token}"
     with pytest.raises(DJException) as exc_info:
@@ -59,6 +63,7 @@ def test_dj_http_bearer_raise_with_non_jwt_token():
     """
     bearer = DJHTTPBearer()
     request = MagicMock()
+    request.state = SimpleNamespace()
     request.cookies.get.return_value = None
     request.headers.get.return_value = "Foo NotAJWT"
     with pytest.raises(DJException) as exc_info:
@@ -76,6 +81,7 @@ def test_dj_http_bearer_w_cookie(
     """
     bearer = DJHTTPBearer()
     request = MagicMock()
+    request.state = SimpleNamespace()
     request.cookies.get.return_value = jwt_token
 
     asyncio.run(bearer(request, session))
@@ -100,6 +106,7 @@ def test_dj_http_bearer_w_auth_headers(
     """
     bearer = DJHTTPBearer()
     request = MagicMock()
+    request.state = SimpleNamespace()
     request.cookies.get.return_value = None
     request.headers.get.return_value = f"Bearer {jwt_token}"
 
@@ -121,7 +128,23 @@ def test_raise_on_non_jwt_cookie():
     """
     bearer = DJHTTPBearer()
     request = MagicMock()
+    request.state = SimpleNamespace()
     request.cookies.get.return_value = "NotAJWT"
     with pytest.raises(DJException) as exc_info:
         asyncio.run(bearer(request))
     assert "Cannot decode authorization token" in str(exc_info.value)
+
+
+def test_dj_http_bearer_skips_when_already_authenticated():
+    """
+    Test that a request authenticated upstream is left alone
+    """
+    bearer = DJHTTPBearer()
+    request = MagicMock()
+    user = User(id=1, username="dj", oauth_provider=OAuthProvider.BASIC)
+    request.state = SimpleNamespace(user=user)
+
+    asyncio.run(bearer(request))
+    assert request.state.user == user
+    assert request.cookies.get.call_count == 0
+    assert request.headers.get.call_count == 0

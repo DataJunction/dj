@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from fastapi.security import HTTPBearer
 from fastapi.security.utils import get_authorization_scheme_param
 from fastapi.types import DecoratedCallable
-from jose.exceptions import JWEError, JWTError
+from jose.exceptions import JOSEError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
@@ -31,12 +31,18 @@ class DJHTTPBearer(HTTPBearer):
         request: Request,
         session: AsyncSession = Depends(get_session),
     ) -> None:
+        # A deployment may authenticate ahead of this dependency and set the user
+        # itself. Its credential is its own, not a DJ token, so decoding what it
+        # leaves behind would fail on a request that is already authenticated.
+        if getattr(request.state, "user", None) is not None:
+            return
+
         # First check for a JWT sent in a cookie
         jwt = request.cookies.get(AUTH_COOKIE)
         if jwt:
             try:
                 jwt_data = decode_token(jwt)
-            except (JWEError, JWTError) as exc:
+            except JOSEError as exc:
                 raise DJAuthenticationException(
                     http_status_code=HTTPStatus.UNAUTHORIZED,
                     errors=[
@@ -78,7 +84,18 @@ class DJHTTPBearer(HTTPBearer):
                     ],
                 )
             return  # pragma: no cover
-        jwt_data = decode_token(credentials)
+        try:
+            jwt_data = decode_token(credentials)
+        except JOSEError as exc:
+            raise DJAuthenticationException(
+                http_status_code=HTTPStatus.UNAUTHORIZED,
+                errors=[
+                    DJError(
+                        message="Cannot decode authorization token",
+                        code=ErrorCode.AUTHENTICATION_ERROR,
+                    ),
+                ],
+            ) from exc
         request.state.user = await get_user(
             username=jwt_data["username"],
             session=session,
