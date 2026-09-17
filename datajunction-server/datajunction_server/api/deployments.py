@@ -16,6 +16,7 @@ from datajunction_server.database.deployment import Deployment
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.user import User
 from datajunction_server.errors import (
+    DJClientUpgradeRequiredException,
     DJDoesNotExistException,
     DJError,
     DJInvalidInputException,
@@ -30,7 +31,6 @@ from datajunction_server.internal.access.authorization import (
 from datajunction_server.internal.caching.cachelib_cache import get_cache
 from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.internal.deployment.deployment import deploy
-from datajunction_server.internal.deployment.orchestrator import DeploymentOrchestrator
 from datajunction_server.internal.deployment.utils import DeploymentContext
 from datajunction_server.internal.git.github_service import (
     GitHubService,
@@ -202,7 +202,12 @@ async def _maybe_autolock_git_namespace(deployment_spec: DeploymentSpec) -> None
 
 class DeploymentExecutor(ABC):
     @abstractmethod
-    async def submit(self, spec: DeploymentSpec, context: DeploymentContext) -> str:
+    async def submit(
+        self,
+        spec: DeploymentSpec,
+        context: DeploymentContext,
+        dry_run: bool = False,
+    ) -> str:
         """
         Kick off a deployment job asynchronously.
         Should not block. Should update deployment status externally.
@@ -214,7 +219,12 @@ class InProcessExecutor(DeploymentExecutor):
     def __init__(self):
         self.statuses: dict[str, DeploymentStatus] = {}
 
-    async def submit(self, spec: DeploymentSpec, context: DeploymentContext) -> str:
+    async def submit(
+        self,
+        spec: DeploymentSpec,
+        context: DeploymentContext,
+        dry_run: bool = False,
+    ) -> str:
         deployment_uuid = str(uuid.uuid4())
         async with session_context() as session:
             deployment = Deployment(
@@ -232,6 +242,7 @@ class InProcessExecutor(DeploymentExecutor):
                 deployment_id=deployment_uuid,
                 deployment_spec=spec,
                 context=context,
+                dry_run=dry_run,
             ),
         )
         return deployment_uuid
@@ -265,6 +276,7 @@ class InProcessExecutor(DeploymentExecutor):
         deployment_id: str,
         deployment_spec: DeploymentSpec,
         context: DeploymentContext,
+        dry_run: bool = False,
     ):
         await InProcessExecutor.update_status(deployment_id, DeploymentStatus.RUNNING)
 
@@ -275,6 +287,7 @@ class InProcessExecutor(DeploymentExecutor):
                     deployment_id=deployment_id,
                     deployment=deployment_spec,
                     context=context,
+                    dry_run=dry_run,
                 )
                 results = execute_result.results
                 final_status = (
@@ -298,7 +311,7 @@ class InProcessExecutor(DeploymentExecutor):
                     downstream_impacts=execute_result.downstream_impacts,
                     warnings=execute_result.warnings,
                 )
-                if final_status == DeploymentStatus.SUCCESS:
+                if final_status == DeploymentStatus.SUCCESS and not dry_run:
                     await _maybe_autolock_git_namespace(deployment_spec)
         except Exception as exc:
             logger.error("Deployment %s failed: %s", deployment_id, exc, exc_info=True)
@@ -469,6 +482,10 @@ async def list_deployments(  # pragma: no cover
     return results
 
 
+IMPACT_CAPABILITY_HEADER = "X-DJ-Client-Capabilities"
+IMPACT_CAPABILITY_VALUE = "async-deployment-impact"
+
+
 @router.post(
     "/deployments/impact",
     name="Preview deployment impact",
@@ -486,16 +503,30 @@ async def preview_deployment_impact(
     access_checker: AccessChecker = Depends(get_access_checker),
 ) -> DeploymentInfo:
     """
-    Analyze the impact of a deployment WITHOUT actually deploying.
+    Submit a deployment impact preview for asynchronous processing.
 
-    Runs a full dry-run through the deployment orchestrator: nodes are validated
-    and deployed into a database SAVEPOINT, downstream impact is computed via BFS,
-    then the SAVEPOINT is rolled back so no changes are persisted.
+    This endpoint is asynchronous: it submits a dry-run through the deployment
+    orchestrator and returns immediately with a deployment ``uuid`` in
+    PENDING/RUNNING status. Callers must poll ``GET /deployments/{uuid}`` until
+    the status is terminal (SUCCESS/FAILED) to get the full impact analysis:
+    nodes are validated and deployed into a database SAVEPOINT, downstream
+    impact is computed via BFS, then the SAVEPOINT is rolled back so no changes
+    are persisted.
 
-    Returns the same ``DeploymentInfo`` shape as ``POST /deployments``, with
-    ``results`` showing what would change and ``downstream_impacts`` showing
-    which downstream nodes would be affected.
+    Requires the ``X-DJ-Client-Capabilities: async-deployment-impact`` header,
+    since this endpoint used to respond synchronously with the full result.
     """
+    capabilities = request.headers.get(IMPACT_CAPABILITY_HEADER, "")
+    if IMPACT_CAPABILITY_VALUE not in [
+        capability.strip() for capability in capabilities.split(",")
+    ]:
+        raise DJClientUpgradeRequiredException(
+            message=(
+                "This endpoint is now asynchronous — upgrade datajunction-clients "
+                "to a version that submits and polls for /deployments/impact."
+            ),
+        )
+
     access_checker.add_request(
         access.ResourceRequest(
             verb=access.ResourceAction.READ,
@@ -507,10 +538,8 @@ async def preview_deployment_impact(
     )
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
-    orchestrator = DeploymentOrchestrator(
-        deployment_id="dry_run",
-        deployment_spec=deployment_spec,
-        session=session,
+    deployment_id = await executor.submit(
+        spec=deployment_spec,
         context=DeploymentContext(
             current_user=current_user,
             request=request,
@@ -520,12 +549,13 @@ async def preview_deployment_impact(
         ),
         dry_run=True,
     )
-    execute_result = await orchestrator.execute()
+
+    deployment = await session.get(Deployment, deployment_id)
     return DeploymentInfo(
-        uuid="dry_run",
-        namespace=deployment_spec.namespace,
-        status=DeploymentStatus.SUCCESS,
-        results=execute_result.results,
-        warnings=execute_result.warnings,
-        downstream_impacts=execute_result.downstream_impacts,
+        uuid=deployment_id,
+        namespace=deployment.namespace,
+        status=deployment.status.value,
+        results=deployment.deployment_results,
+        warnings=deployment.deployment_warnings,
+        downstream_impacts=deployment.deployment_downstream_impacts,
     )

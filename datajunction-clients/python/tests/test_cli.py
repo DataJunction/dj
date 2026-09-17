@@ -1221,8 +1221,8 @@ class TestImpactAnalysis:
                 main(builder_client=builder_client)
 
         captured = capsys.readouterr()
-        # Panel title includes "dry_run" and namespace
-        assert "dry_run" in captured.out
+        # Header shows the "dry run" mode
+        assert "dry run" in captured.out
 
     def test_deploy_dryrun_json_format(
         self,
@@ -1272,7 +1272,7 @@ class TestImpactAnalysis:
                 main(builder_client=builder_client)
 
         captured = capsys.readouterr()
-        assert "dry_run" in captured.out
+        assert "dry run" in captured.out
 
     def test_push_dryrun_json_format(
         self,
@@ -1329,7 +1329,7 @@ class TestImpactAnalysis:
                 main(builder_client=builder_client)
 
         captured = capsys.readouterr()
-        assert "dry_run" in captured.out
+        assert "dry run" in captured.out
 
     def test_dryrun_shows_downstream_impacts_in_panel(self, capsys):
         """Downstream impacts appear inside the results panel when predicted_status is invalid."""

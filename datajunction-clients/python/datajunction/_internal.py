@@ -4,6 +4,7 @@
 import logging
 import os
 import platform
+import time
 from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any, TypedDict, Union
 from urllib.parse import urljoin
@@ -235,13 +236,29 @@ class DJClient:
     def get_deployment_impact(self, deployment_spec: dict[str, Any]):
         """
         Get impact analysis for a deployment spec without deploying.
+
+        The endpoint is asynchronous: it submits a dry-run deployment and
+        returns immediately, so this polls ``check_deployment`` until the
+        deployment reaches a terminal status (success/failed).
         """
         response = self._session.post(
             "/deployments/impact",
             json=deployment_spec,
+            headers={"X-DJ-Client-Capabilities": "async-deployment-impact"},
             timeout=self._timeout,
         )
-        return response.json()
+        deployment_data = response.json()
+        deployment_uuid = deployment_data["uuid"]
+
+        timeout = time.time() + 300  # 5 minutes
+        while deployment_data.get("status") not in ("failed", "success"):
+            time.sleep(1)
+            deployment_data = self.check_deployment(deployment_uuid)
+            if time.time() > timeout:
+                raise DJClientException(
+                    "Deployment impact analysis timed out after 5 minutes",
+                )
+        return deployment_data
 
     @staticmethod
     def _primary_key_from_columns(columns) -> list[str]:

@@ -38,6 +38,79 @@ class TestDJClient:  # pylint: disable=too-many-public-methods, protected-access
             json={"email": "foo", "username": "bar", "password": "baz"},
         )
 
+    def test_get_deployment_impact_polls_until_terminal(self, client):
+        """
+        `get_deployment_impact()` submits the dry-run with the required
+        capability header, then polls `check_deployment()` until the
+        deployment reaches a terminal status.
+        """
+        client._session.post = MagicMock(
+            return_value=MagicMock(
+                json=MagicMock(
+                    return_value={
+                        "uuid": "abc-123",
+                        "namespace": "test.ns",
+                        "status": "pending",
+                    },
+                ),
+            ),
+        )
+        client.check_deployment = MagicMock(
+            side_effect=[
+                {"uuid": "abc-123", "namespace": "test.ns", "status": "running"},
+                {
+                    "uuid": "abc-123",
+                    "namespace": "test.ns",
+                    "status": "success",
+                    "results": [],
+                    "downstream_impacts": [],
+                },
+            ],
+        )
+
+        with patch("datajunction._internal.time.sleep"):
+            result = client.get_deployment_impact({"namespace": "test.ns", "nodes": []})
+
+        assert client._session.post.call_args == call(
+            "/deployments/impact",
+            json={"namespace": "test.ns", "nodes": []},
+            headers={"X-DJ-Client-Capabilities": "async-deployment-impact"},
+            timeout=client._timeout,
+        )
+        assert client.check_deployment.call_count == 2
+        assert result["status"] == "success"
+
+    def test_get_deployment_impact_times_out(self, client):
+        """
+        `get_deployment_impact()` raises if the deployment never reaches a
+        terminal status within the timeout window.
+        """
+        client._session.post = MagicMock(
+            return_value=MagicMock(
+                json=MagicMock(
+                    return_value={
+                        "uuid": "abc-123",
+                        "namespace": "test.ns",
+                        "status": "pending",
+                    },
+                ),
+            ),
+        )
+        client.check_deployment = MagicMock(
+            return_value={
+                "uuid": "abc-123",
+                "namespace": "test.ns",
+                "status": "running",
+            },
+        )
+
+        with patch("datajunction._internal.time.sleep"), patch(
+            "datajunction._internal.time.time",
+            side_effect=[0, 0, 400],
+        ):
+            with pytest.raises(DJClientException, match="timed out"):
+                client.get_deployment_impact({"namespace": "test.ns", "nodes": []})
+
     def test_basic_login(self, client):
         """
         Check that `client.basic_login()` works as expected.

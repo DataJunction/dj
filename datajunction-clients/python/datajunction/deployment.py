@@ -299,7 +299,7 @@ class DeploymentService:
         deployment = DeploymentInfo.from_dict(data)
         if display:
             print_results(
-                "dry_run",
+                data.get("uuid", "dry_run"),
                 deployment,
                 console,
                 verbose=verbose,

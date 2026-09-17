@@ -1366,6 +1366,26 @@ async def deploy_and_wait(client, deployment_spec: DeploymentSpec):
     return data
 
 
+async def impact_and_poll(client, deployment_spec: DeploymentSpec):
+    """Submit a `/deployments/impact` dry-run and poll until it terminates."""
+    response = await client.post(
+        "/deployments/impact",
+        json=deployment_payload(deployment_spec),
+        headers={"X-DJ-Client-Capabilities": "async-deployment-impact"},
+    )
+    assert response.status_code == 200, response.json()
+    data = response.json()
+    deployment_uuid = data["uuid"]
+    while data["status"] not in (
+        DeploymentStatus.FAILED.value,
+        DeploymentStatus.SUCCESS.value,
+    ):
+        await asyncio.sleep(1)
+        response = await client.get(f"/deployments/{deployment_uuid}")
+        data = response.json()
+    return data
+
+
 @pytest.mark.xdist_group(name="deployments")
 class TestDeploymentAuthorization:
     @pytest.mark.asyncio
@@ -3546,13 +3566,11 @@ class TestDeployments:
 
         mock_qs.reset_mock()
         cube.description = "Cube for analyzing repair orders, revised"
-        response = await client.post(
-            "/deployments/impact",
-            json=deployment_payload(
-                DeploymentSpec(namespace=namespace, nodes=nodes),
-            ),
+        data = await impact_and_poll(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
         )
-        assert response.status_code == 200, response.json()
+        assert data["status"] == "success", data
         assert mock_qs.method_calls == []
 
         body = (await client.get(f"/nodes/{cube_name}/")).json()
@@ -7087,14 +7105,12 @@ class TestDeclaredCubeMaterializations:
             schedule="0 3 * * *",
             lookback_window="1 DAY",
         )
-        response = await client.post(
-            "/deployments/impact",
-            json=deployment_payload(
-                DeploymentSpec(namespace=namespace, nodes=nodes),
-            ),
+        data = await impact_and_poll(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
         )
-        assert response.status_code == 200, response.json()
-        assert self._materialization_results(response.json()) == [
+        assert data["status"] == "success", data
+        assert self._materialization_results(data) == [
             (
                 cube_name,
                 "update",
@@ -7114,14 +7130,12 @@ class TestDeclaredCubeMaterializations:
 
         # A planned teardown is reported and equally not carried out.
         cube.materialization = MaterializationAction.NONE
-        response = await client.post(
-            "/deployments/impact",
-            json=deployment_payload(
-                DeploymentSpec(namespace=namespace, nodes=nodes),
-            ),
+        data = await impact_and_poll(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
         )
-        assert response.status_code == 200, response.json()
-        assert self._materialization_results(response.json()) == [
+        assert data["status"] == "success", data
+        assert self._materialization_results(data) == [
             (
                 cube_name,
                 "delete",
@@ -10352,19 +10366,17 @@ class TestExternalPreAggDeploy:
             )
 
             async def _impact_preagg_results(preaggs, allow_empty=False):
-                impact = await client.post(
-                    "/deployments/impact",
-                    json=DeploymentSpec(
+                impact = await impact_and_poll(
+                    client,
+                    DeploymentSpec(
                         namespace="preagg_dry",
                         nodes=nodes,
                         preaggregations=preaggs,
                         allow_empty=allow_empty,
-                    ).model_dump(),
+                    ),
                 )
                 return [
-                    r
-                    for r in impact.json()["results"]
-                    if r["deploy_type"] == "preaggregation"
+                    r for r in impact["results"] if r["deploy_type"] == "preaggregation"
                 ]
 
             # Not yet registered -> planned CREATE, nothing persisted.
