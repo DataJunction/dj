@@ -1966,8 +1966,8 @@ async def update_cube_node(
         name=node_revision.name,
         display_name=data.display_name or node_revision.display_name,
         description=data.description or node_revision.description,
-        metrics=data.metrics or old_metrics,
-        dimensions=data.dimensions or old_dimensions,
+        metrics=data.metrics if data.metrics is not None else old_metrics,
+        dimensions=data.dimensions if data.dimensions is not None else old_dimensions,
         mode=data.mode or node_revision.mode,
         filters=data.filters
         if data.filters is not None

@@ -7116,3 +7116,30 @@ class TestStopStaleCubeMaterializationWorkflows:
             version="v1.0",
             request_headers=mock.ANY,
         )
+
+
+@pytest.mark.asyncio
+async def test_updating_cube_to_no_dimensions(
+    client_with_repairs_cube: AsyncClient,
+):
+    """
+    Verify removing every dimension from a cube
+    """
+    await make_a_test_cube(
+        client_with_repairs_cube,
+        "default.repairs_cube_no_dims",
+    )
+    response = await client_with_repairs_cube.patch(
+        "/nodes/default.repairs_cube_no_dims",
+        json={"dimensions": []},
+    )
+    assert response.status_code in (200, 201)
+    assert response.json()["version"] == "v2.0"
+
+    response = await client_with_repairs_cube.get(
+        "/cubes/default.repairs_cube_no_dims",
+    )
+    elements = response.json()["cube_elements"]
+    assert [
+        element["type"] for element in elements if element["type"] != "metric"
+    ] == []
