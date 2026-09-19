@@ -59,6 +59,7 @@ from datajunction_server.internal.deployment.checks import (
     build_activation,
     build_fixtures,
     resolve_declared_schemas,
+    resolve_tag_types,
     roll_up,
     unsupported_ruleset_guards,
 )
@@ -666,6 +667,11 @@ class DeploymentOrchestrator:
             self.deployment_spec.namespace,
             {spec.node_type for spec, _ in entities},
         )
+        tag_types = await resolve_tag_types(
+            self.session,
+            self.deployment_spec.tags,
+            {tag for spec, _ in entities for tag in spec.tags},
+        )
         loaded = load_checks(manifest.checks, build_fixtures(declared))
         malformed = loaded.malformed + unsupported_ruleset_guards(manifest.rulesets)
         if malformed:
@@ -701,6 +707,7 @@ class DeploymentOrchestrator:
                 dependencies=self._checked_dependencies(plan, name, in_flight),
                 operation=operation,
                 declared=declared.properties,
+                tag_types=tag_types,
             )
             previous_activation = None
             if wants_previous and previous is not None:
@@ -710,6 +717,7 @@ class DeploymentOrchestrator:
                     dependencies=self._checked_dependencies(plan, name, {}),
                     operation=DeploymentResult.Operation.NOOP,
                     declared=declared.properties,
+                    tag_types=tag_types,
                 )
             results = evaluate_checks(loaded.checks, activation, previous_activation)
             for result in results:

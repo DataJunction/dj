@@ -33,9 +33,25 @@ CHECKS = [
         gate=CheckGate.BLOCK,
     ),
     CheckSpec(
-        name="demo.tagged",
-        description="At least one tag is set.",
-        condition="node.tags.exists(t, t != '')",
+        name="demo.flavor_tagged",
+        description="A tag of type flavor is set.",
+        condition="node.tags.exists(t, t.tag_type == 'flavor')",
+        gate=CheckGate.WARN,
+    ),
+    CheckSpec(
+        name="demo.left_joins_or_default",
+        description="Every join link is a left join or carries a default.",
+        condition=(
+            "node.dimension_links.all(l,"
+            " l.join_type != 'inner' || l.default_value != '')"
+        ),
+        gate=CheckGate.WARN,
+    ),
+    CheckSpec(
+        name="demo.retiring_names_a_successor",
+        description="An entity being retired names what replaces it.",
+        when="node.custom_metadata.sample.color in ['amber', 'red']",
+        condition="node.custom_metadata.sample.shape != null",
         gate=CheckGate.WARN,
     ),
     CheckSpec(

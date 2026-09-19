@@ -11,8 +11,10 @@ from datajunction_server.internal.custom_metadata import upsert_schema_specs
 from datajunction_server.internal.deployment.checks import (
     DeclaredSchemas,
     build_fixtures,
+    project_link,
     project_node,
     resolve_declared_schemas,
+    resolve_tag_types,
     unsupported_ruleset_guards,
 )
 from datajunction_server.internal.deployment.orchestrator import (
@@ -25,9 +27,12 @@ from datajunction_server.models.deployment import (
     DeploymentResult,
     DeploymentRulesetSpec,
     DeploymentSpec,
+    DimensionJoinLinkSpec,
+    DimensionReferenceLinkSpec,
     DimensionSpec,
     MetricSpec,
     NodeSpec,
+    TagSpec,
     TransformSpec,
 )
 from datajunction_server.models.node_type import NodeType
@@ -44,12 +49,20 @@ def transform(name: str, **kwargs) -> TransformSpec:
     )
 
 
-def make_orchestrator(session, current_user, checks, rulesets=None, nodes=None):
+def make_orchestrator(
+    session,
+    current_user,
+    checks,
+    rulesets=None,
+    nodes=None,
+    tags=None,
+):
     spec = DeploymentSpec(
         namespace=NAMESPACE,
         nodes=nodes or [],
         checks=checks,
         rulesets=rulesets,
+        tags=tags or [],
     )
     context = MagicMock(spec=DeploymentContext)
     context.current_user = current_user
@@ -716,13 +729,14 @@ def test_an_absent_node_projects_the_same_keys_as_a_real_one():
     """`previous` is projected like `node`, so a check reads either one."""
     declared = {"sample": ("color",)}
     assert (
-        project_node(None, declared).keys()
+        project_node(None, declared, {}).keys()
         == project_node(
             transform("one"),
             declared,
+            {},
         ).keys()
     )
-    assert project_node(None, declared)["custom_metadata"] == custom_metadata(
+    assert project_node(None, declared, {})["custom_metadata"] == custom_metadata(
         None,
         declared,
     )
@@ -764,7 +778,7 @@ def test_every_node_spec_field_is_projected():
         declared |= set(cls.model_fields)
         pending.extend(cls.__subclasses__())
 
-    projected = set(project_node(None, {}))
+    projected = set(project_node(None, {}, {}))
     assert declared - projected == set()
 
 
@@ -776,11 +790,90 @@ def test_a_subclass_without_a_field_still_projects_it_empty():
     metric = project_node(
         MetricSpec(name="m", node_type="metric", query="SELECT 1"),
         {},
+        {},
     )
     dimension = project_node(
         DimensionSpec(name="d", node_type="dimension", query="SELECT 1"),
         {},
+        {},
     )
-    assert set(metric) == set(dimension) == set(project_node(None, {}))
+    assert set(metric) == set(dimension) == set(project_node(None, {}, {}))
     assert metric["dimension_links"] == []
     assert metric["catalog"] == ""
+
+
+def _linked(*links) -> DimensionSpec:
+    return DimensionSpec(
+        name="d",
+        node_type="dimension",
+        query="SELECT 1",
+        dimension_links=list(links),
+    )
+
+
+def test_both_kinds_of_dimension_link_project_the_same_keys():
+    """
+    A reference link declares no join fields. Without the shared key set, a
+    check reading `l.join_type` would error on the first reference link it met
+    rather than reading it empty.
+    """
+    reference = DimensionReferenceLinkSpec(node_column="c", dimension="a.b")
+    join = DimensionJoinLinkSpec(dimension_node="a.b", node_column="c")
+    projected = project_node(_linked(reference, join), {}, {})["dimension_links"]
+    assert set(projected[0]) == set(projected[1])
+    assert projected[0]["join_type"] == ""
+    assert projected[1]["join_type"] == "left"
+
+
+def test_a_link_names_its_target_through_dimension():
+    # The two kinds spell the target differently, so a rule reads one key.
+    reference = DimensionReferenceLinkSpec(node_column="c", dimension="a.b")
+    join = DimensionJoinLinkSpec(dimension_node="a.b", node_column="c")
+    assert project_link(reference.model_dump())["dimension"] == "a.b"
+    assert project_link(join.model_dump())["dimension"] == "a.b"
+
+
+def test_tags_project_with_their_type():
+    spec = transform("one", tags=["sweet", "unknown"])
+    tags = project_node(spec, {}, {"sweet": "flavor"})["tags"]
+    assert tags == [
+        {"name": "sweet", "tag_type": "flavor"},
+        # A tag whose type the deploy could not resolve still reads as empty
+        # rather than as a missing key.
+        {"name": "unknown", "tag_type": ""},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_tag_defined_by_this_deploy_supplies_its_type(session):
+    # Checks run before tags are written, so the manifest is the only source.
+    resolved = await resolve_tag_types(
+        session,
+        [TagSpec(name="sweet", tag_type="flavor")],
+        ["sweet"],
+    )
+    assert resolved == {"sweet": "flavor"}
+
+
+@pytest.mark.asyncio
+async def test_a_check_can_require_a_tag_of_a_given_type(session, current_user):
+    orchestrator = make_orchestrator(
+        session,
+        current_user,
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.flavor_tagged",
+                condition="node.tags.exists(t, t.tag_type == 'flavor')",
+                gate="warn",
+            ),
+        ],
+        tags=[TagSpec(name="sweet", tag_type="flavor")],
+    )
+    await orchestrator._run_governance_checks(
+        make_plan(
+            to_deploy=[transform("tagged", tags=["sweet"]), transform("bare")],
+        ),
+    )
+    by_name = {row.name: row.status for row in check_rows(orchestrator)}
+    assert by_name[f"{NAMESPACE}.tagged"] == DeploymentResult.Status.SUCCESS
+    assert by_name[f"{NAMESPACE}.bare"] == DeploymentResult.Status.WARNING
