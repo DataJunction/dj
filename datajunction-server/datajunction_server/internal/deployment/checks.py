@@ -155,17 +155,17 @@ def _placeholder(subschema: Any) -> Any:
     }.get(kind, "placeholder")
 
 
-def project_link(dumped: Mapping[str, Any]) -> LinkProjection:
+def project_link(link: DimensionLinkSpec) -> LinkProjection:
     """One dimension link that unions together fields across join links and
     reference links."""
+    dumped = link.model_dump()
     projected = {
         name: _cel_safe(dumped.get(name), empty)
         for name, empty in _LINK_DEFAULTS.items()
     }
-    # The two kinds name their target differently; both read through `dimension`.
-    projected["dimension"] = (
-        dumped.get("dimension") or dumped.get("dimension_node") or ""
-    )
+    # A reference link's `dimension` is an attribute, `<node>.<column>`, so the
+    # target node is read through `dimension_node` on both kinds.
+    projected["dimension_node"] = link.rendered_dimension_node
     return projected
 
 
@@ -198,7 +198,7 @@ def project_node(
     )
     projected["tags"] = project_tags(dumped.get("tags") or [], tag_types)
     projected["dimension_links"] = [
-        project_link(link) for link in dumped.get("dimension_links") or []
+        project_link(link) for link in getattr(spec, "dimension_links", None) or []
     ]
     return projected
 
