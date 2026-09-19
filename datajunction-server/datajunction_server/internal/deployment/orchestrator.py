@@ -5,6 +5,7 @@ from collections import Counter, defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from collections.abc import Sequence
 from typing import cast
 
 from sqlalchemy import func, or_, select, text
@@ -55,7 +56,6 @@ from datajunction_server.internal.checks.validator import CheckGate, load_checks
 from datajunction_server.internal.custom_metadata import upsert_schema_specs
 from datajunction_server.internal.deployment.checks import (
     RulesetOutcome,
-    RulesetVerdict,
     build_bindings,
     build_fixtures,
     resolve_declared_schemas,
@@ -114,6 +114,7 @@ from datajunction_server.models.access import ResourceAction
 from datajunction_server.models.base import labelize
 from datajunction_server.models.deployment import (
     ChangeTier,
+    CheckVerdict,
     ColumnSpec,
     CubeSpec,
     DeploymentResult,
@@ -125,6 +126,9 @@ from datajunction_server.models.deployment import (
     MaterializationAction,
     MaterializationSpec,
     MetricSpec,
+    NodeCheckResults,
+    NodeCheckVerdict,
+    NodeRulesetVerdict,
     NodeSpec,
     SourceSpec,
     TagSpec,
@@ -171,11 +175,6 @@ from datajunction_server.utils import (
 logger = logging.getLogger(__name__)
 
 # A ruleset verdict reports only; what blocks is the member checks' gates.
-_RULESET_STATUSES = {
-    RulesetVerdict.PASSED: DeploymentResult.Status.SUCCESS,
-    RulesetVerdict.FAILED: DeploymentResult.Status.FAILED,
-    RulesetVerdict.NOT_APPLICABLE: DeploymentResult.Status.SKIPPED,
-}
 
 
 def _version_key(version: str) -> tuple[int, int]:
@@ -303,6 +302,12 @@ class DeploymentTimer:
         logger.info("\n".join(lines))
 
 
+def _check_verdict(result: CheckResult) -> CheckVerdict:
+    if result.skipped:
+        return CheckVerdict.SKIPPED
+    return CheckVerdict.PASSED if result.passed else CheckVerdict.FAILED
+
+
 @dataclass
 class DeploymentExecuteResult:
     """Return value of DeploymentOrchestrator.execute()."""
@@ -310,6 +315,8 @@ class DeploymentExecuteResult:
     results: list  # list[DeploymentResult]
     downstream_impacts: list  # list[ImpactedNode]
     warnings: list = field(default_factory=list)  # list[DJError]
+    # One entry per node the governance checks ran on.
+    check_results: list = field(default_factory=list)  # list[NodeCheckResults]
 
 
 @dataclass
@@ -403,6 +410,7 @@ class DeploymentOrchestrator:
         self.errors: list[DJError] = []
         self.warnings: list[DJError] = []
         self.deployed_results: list[DeploymentResult] = []
+        self.check_results: list[NodeCheckResults] = []
         self._timer = DeploymentTimer()
         self._cube_materialization_swaps: list[CubeMaterializationSwap] = []
         self._materialization_teardowns: list[NodeMaterializationTeardown] = []
@@ -611,6 +619,7 @@ class DeploymentOrchestrator:
         return DeploymentExecuteResult(
             results=self.deployed_results,
             downstream_impacts=downstream,
+            check_results=self.check_results,
         )
 
     async def _authorize_deployment_plan(self, plan: DeploymentPlan) -> None:
@@ -690,7 +699,6 @@ class DeploymentOrchestrator:
                 errors=self.errors,
                 warnings=self.warnings,
             )
-        descriptions = {check.name: check.description for check in loaded.checks}
         in_flight = {spec.rendered_name: spec for spec in plan.to_deploy}
         # Only block_on_regression reads it, and projecting is not free.
         wants_previous = any(
@@ -723,7 +731,7 @@ class DeploymentOrchestrator:
             for result in results:
                 if result.skipped:
                     continue
-                message = self._check_message(result, descriptions[result.check])
+                message = self._check_message(name, result)
                 if result.blocked:
                     blocked.append(message)
                     self.errors.append(
@@ -739,27 +747,33 @@ class DeploymentOrchestrator:
                             message=message,
                         ),
                     )
-                self.deployed_results.append(
-                    DeploymentResult(
-                        name=name,
-                        deploy_type=DeploymentResult.Type.CHECK,
-                        status=self._check_status(result),
-                        operation=DeploymentResult.Operation.NOOP,
-                        message=message,
-                    ),
-                )
 
-            # Reporting only.
-            for outcome in roll_up(manifest.rulesets, results):
-                self.deployed_results.append(
-                    DeploymentResult(
-                        name=name,
-                        deploy_type=DeploymentResult.Type.RULESET,
-                        status=_RULESET_STATUSES[outcome.verdict],
-                        operation=DeploymentResult.Operation.NOOP,
-                        message=self._ruleset_message(outcome),
-                    ),
-                )
+            outcomes = roll_up(manifest.rulesets, results)
+            node_results = NodeCheckResults(
+                node=name,
+                checks=[
+                    NodeCheckVerdict(
+                        check=result.check,
+                        verdict=_check_verdict(result),
+                        gate=str(result.gate),
+                    )
+                    for result in results
+                ],
+                rulesets=[
+                    NodeRulesetVerdict(ruleset=outcome.ruleset, verdict=outcome.verdict)
+                    for outcome in outcomes
+                ],
+            )
+            self.check_results.append(node_results)
+            self.deployed_results.append(
+                DeploymentResult(
+                    name=name,
+                    deploy_type=DeploymentResult.Type.CHECK,
+                    status=self._node_check_status(results, outcomes),
+                    operation=DeploymentResult.Operation.NOOP,
+                    message=self._node_check_message(results),
+                ),
+            )
 
         if blocked:
             raise DJInvalidDeploymentConfig(
@@ -801,33 +815,35 @@ class DeploymentOrchestrator:
         ]
 
     @staticmethod
-    def _check_status(result: CheckResult) -> DeploymentResult.Status:
-        if result.passed:
-            return DeploymentResult.Status.SUCCESS
+    def _node_check_status(
+        results: Sequence[CheckResult],
+        outcomes: Sequence[RulesetOutcome],
+    ) -> DeploymentResult.Status:
+        """The worst verdict across a node's checks."""
+        ran = [result for result in results if not result.skipped]
+        if any(result.blocked for result in ran):
+            return DeploymentResult.Status.FAILED
+        if any(not result.passed for result in ran):
+            return DeploymentResult.Status.WARNING
+        if not ran:
+            return DeploymentResult.Status.SKIPPED
+        return DeploymentResult.Status.SUCCESS
+
+    @staticmethod
+    def _node_check_message(results: Sequence[CheckResult]) -> str:
+        ran = [result for result in results if not result.skipped]
+        if not ran:
+            return f"No check applied here; {len(results)} skipped."
+        failed = [result.check for result in ran if not result.passed]
+        if not failed:
+            return f"{len(ran)} check(s) passed."
         return (
-            DeploymentResult.Status.FAILED
-            if result.blocked
-            else DeploymentResult.Status.WARNING
+            f"{len(failed)} of {len(ran)} check(s) failed: {', '.join(sorted(failed))}."
         )
 
     @staticmethod
-    def _check_message(result: CheckResult, description: str) -> str:
-        verdict = "passed" if result.passed else "failed"
-        detail = f" {description}" if description else ""
-        return f"Check '{result.check}' ({result.gate}) {verdict}.{detail}"
-
-    @staticmethod
-    def _ruleset_message(outcome: RulesetOutcome) -> str:
-        if outcome.verdict == RulesetVerdict.NOT_APPLICABLE:
-            return (
-                f"Ruleset '{outcome.ruleset}' not applicable: "
-                "no member check applied here."
-            )
-        if outcome.failed:
-            detail = f"failing checks: {', '.join(sorted(outcome.failed))}"
-        else:
-            detail = f"{len(outcome.ran)} member check(s) passed"
-        return f"Ruleset '{outcome.ruleset}' {outcome.verdict}: {detail}."
+    def _check_message(node: str, result: CheckResult) -> str:
+        return f"Check '{result.check}' failed on {node}."
 
     async def _update_deployment_status(self):
         """

@@ -36,6 +36,7 @@ from datajunction_server.models.deployment import (
     DimensionReferenceLinkSpec,
     DimensionSpec,
     NodeSpec,
+    RulesetVerdict,
     TagSpec,
     TransformSpec,
 )
@@ -308,16 +309,6 @@ def build_fixtures(declared: DeclaredSchemas) -> list[Bindings]:
             tag_types=tag_types,
         ),
     ]
-
-
-class RulesetVerdict(StrEnum):
-    """One ruleset's roll-up over one entity."""
-
-    PASSED = "passed"
-    FAILED = "failed"
-    # Every member was skipped, so the bundle asserted nothing. Not the same
-    # as vacuously passing.
-    NOT_APPLICABLE = "not_applicable"
 
 
 @dataclass

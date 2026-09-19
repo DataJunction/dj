@@ -23,6 +23,7 @@ from datajunction_server.internal.deployment.orchestrator import (
 )
 from datajunction_server.internal.deployment.utils import DeploymentContext
 from datajunction_server.models.deployment import (
+    CheckVerdict,
     DeploymentCheckSpec,
     DeploymentResult,
     DeploymentRulesetSpec,
@@ -32,6 +33,7 @@ from datajunction_server.models.deployment import (
     DimensionSpec,
     MetricSpec,
     NodeSpec,
+    RulesetVerdict,
     TagSpec,
     TransformSpec,
 )
@@ -100,11 +102,24 @@ def check_rows(orchestrator) -> list[DeploymentResult]:
     ]
 
 
-def ruleset_rows(orchestrator) -> list[DeploymentResult]:
+def verdicts(orchestrator) -> dict[str, CheckVerdict]:
+    """Check name -> verdict, for the only node checked."""
+    (results,) = orchestrator.check_results
+    return {verdict.check: verdict.verdict for verdict in results.checks}
+
+
+def ruleset_verdicts(orchestrator) -> dict[str, RulesetVerdict]:
+    """Ruleset name -> verdict, for the only node checked."""
+    (results,) = orchestrator.check_results
+    return {verdict.ruleset: verdict.verdict for verdict in results.rulesets}
+
+
+def all_ruleset_verdicts(orchestrator) -> list[tuple[str, str, RulesetVerdict]]:
+    """(node, ruleset, verdict) across every node checked."""
     return [
-        result
-        for result in orchestrator.deployed_results
-        if result.deploy_type == DeploymentResult.Type.RULESET
+        (results.node, verdict.ruleset, verdict.verdict)
+        for results in orchestrator.check_results
+        for verdict in results.rulesets
     ]
 
 
@@ -138,7 +153,7 @@ async def test_passing_check_reports_a_success_row(session, current_user):
     (row,) = check_rows(orchestrator)
     assert row.name == f"{NAMESPACE}.one"
     assert row.status == DeploymentResult.Status.SUCCESS
-    assert "demo.owner_present" in row.message
+    assert verdicts(orchestrator) == {"demo.owner_present": CheckVerdict.PASSED}
     assert orchestrator.errors == []
     assert orchestrator.warnings == []
 
@@ -241,8 +256,11 @@ async def test_block_on_regression_allows_a_check_that_already_failed(
 
 
 @pytest.mark.asyncio
-async def test_skipped_check_reports_nothing(session, current_user):
-    """`when` excluded the node, so the check asserted nothing about it."""
+async def test_a_skipped_check_is_recorded_as_skipped(session, current_user):
+    """
+    `when` excluded the node, so the check asserted nothing about it -- which is
+    not the same as having no verdict at all.
+    """
     orchestrator = make_orchestrator(
         session,
         current_user,
@@ -258,7 +276,9 @@ async def test_skipped_check_reports_nothing(session, current_user):
     await orchestrator._run_governance_checks(
         make_plan(to_deploy=[transform("one")]),
     )
-    assert check_rows(orchestrator) == []
+    assert verdicts(orchestrator) == {"demo.primary_key_set": CheckVerdict.SKIPPED}
+    (row,) = check_rows(orchestrator)
+    assert row.status == DeploymentResult.Status.SKIPPED
     assert orchestrator.errors == []
 
 
@@ -334,10 +354,9 @@ async def test_a_ruleset_passes_when_every_member_check_passed(session, current_
         make_plan(to_deploy=[transform("one", owners=["someone"])]),
     )
     assert check_rows(orchestrator)[0].status == DeploymentResult.Status.SUCCESS
-    (verdict,) = ruleset_rows(orchestrator)
-    assert verdict.name == f"{NAMESPACE}.one"
-    assert verdict.status == DeploymentResult.Status.SUCCESS
-    assert verdict.message == "Ruleset 'baseline' passed: 1 member check(s) passed."
+    (results,) = orchestrator.check_results
+    assert results.node == f"{NAMESPACE}.one"
+    assert ruleset_verdicts(orchestrator) == {"baseline": RulesetVerdict.PASSED}
 
 
 @pytest.mark.asyncio
@@ -368,10 +387,11 @@ async def test_a_ruleset_fails_when_a_member_check_failed(session, current_user)
     await orchestrator._run_governance_checks(
         make_plan(to_deploy=[transform("one", owners=["someone"])]),
     )
-    (verdict,) = ruleset_rows(orchestrator)
-    assert verdict.status == DeploymentResult.Status.FAILED
-    assert "demo.description_present" in verdict.message
-    assert "demo.owner_present" not in verdict.message
+    assert ruleset_verdicts(orchestrator) == {"baseline": RulesetVerdict.FAILED}
+    assert verdicts(orchestrator) == {
+        "demo.owner_present": CheckVerdict.PASSED,
+        "demo.description_present": CheckVerdict.FAILED,
+    }
 
 
 @pytest.mark.asyncio
@@ -403,9 +423,8 @@ async def test_a_skipped_member_does_not_fail_its_ruleset(session, current_user)
     await orchestrator._run_governance_checks(
         make_plan(to_deploy=[transform("one", owners=["someone"])]),
     )
-    (verdict,) = ruleset_rows(orchestrator)
-    assert verdict.status == DeploymentResult.Status.SUCCESS
-    assert verdict.message == "Ruleset 'baseline' passed: 1 member check(s) passed."
+    assert ruleset_verdicts(orchestrator) == {"baseline": RulesetVerdict.PASSED}
+    assert verdicts(orchestrator)["demo.primary_key_set"] == CheckVerdict.SKIPPED
 
 
 @pytest.mark.asyncio
@@ -432,12 +451,10 @@ async def test_a_ruleset_is_not_applicable_when_every_member_was_skipped(
     await orchestrator._run_governance_checks(
         make_plan(to_deploy=[transform("one")]),
     )
-    assert check_rows(orchestrator) == []
-    (verdict,) = ruleset_rows(orchestrator)
-    assert verdict.status == DeploymentResult.Status.SKIPPED
-    assert verdict.message == (
-        "Ruleset 'baseline' not applicable: no member check applied here."
-    )
+    assert check_rows(orchestrator)[0].status == DeploymentResult.Status.SKIPPED
+    assert ruleset_verdicts(orchestrator) == {
+        "baseline": RulesetVerdict.NOT_APPLICABLE,
+    }
 
 
 @pytest.mark.asyncio
@@ -470,12 +487,9 @@ async def test_a_nested_ruleset_rolls_up_what_it_includes(session, current_user)
     await orchestrator._run_governance_checks(
         make_plan(to_deploy=[transform("one", owners=["someone"])]),
     )
-    verdicts = {
-        row.message.split("'")[1]: row.status for row in ruleset_rows(orchestrator)
-    }
-    assert verdicts == {
-        "baseline": DeploymentResult.Status.SUCCESS,
-        "certified": DeploymentResult.Status.FAILED,
+    assert ruleset_verdicts(orchestrator) == {
+        "baseline": RulesetVerdict.PASSED,
+        "certified": RulesetVerdict.FAILED,
     }
 
 
@@ -500,9 +514,9 @@ async def test_every_node_gets_a_verdict_for_every_ruleset(session, current_user
             to_deploy=[transform("one", owners=["someone"]), transform("two")],
         ),
     )
-    assert [(row.name, row.status) for row in ruleset_rows(orchestrator)] == [
-        (f"{NAMESPACE}.one", DeploymentResult.Status.SUCCESS),
-        (f"{NAMESPACE}.two", DeploymentResult.Status.FAILED),
+    assert all_ruleset_verdicts(orchestrator) == [
+        (f"{NAMESPACE}.one", "baseline", RulesetVerdict.PASSED),
+        (f"{NAMESPACE}.two", "baseline", RulesetVerdict.FAILED),
     ]
 
 
@@ -524,7 +538,7 @@ async def test_a_ruleset_verdict_never_blocks_the_deploy(session, current_user):
         ],
     )
     await orchestrator._run_governance_checks(make_plan(to_deploy=[transform("one")]))
-    assert ruleset_rows(orchestrator)[0].status == DeploymentResult.Status.FAILED
+    assert ruleset_verdicts(orchestrator) == {"baseline": RulesetVerdict.FAILED}
     assert orchestrator.errors == []
 
 
@@ -882,3 +896,90 @@ async def test_a_check_can_require_a_tag_of_a_given_type(session, current_user):
     by_name = {row.name: row.status for row in check_rows(orchestrator)}
     assert by_name[f"{NAMESPACE}.tagged"] == DeploymentResult.Status.SUCCESS
     assert by_name[f"{NAMESPACE}.bare"] == DeploymentResult.Status.WARNING
+
+
+@pytest.mark.asyncio
+async def test_one_row_per_node_however_many_checks_ran(session, current_user):
+    """
+    A node gets a single summary row, so a large deploy does not multiply its
+    results by the number of checks.
+    """
+    orchestrator = make_orchestrator(
+        session,
+        current_user,
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.owner_present",
+                condition="size(node.owners) >= 1",
+                gate="warn",
+            ),
+            DeploymentCheckSpec(
+                name="demo.described",
+                condition="node.description != ''",
+                gate="warn",
+            ),
+            DeploymentCheckSpec(
+                name="demo.metrics_only",
+                when="node.node_type == 'metric'",
+                condition="size(node.primary_key) >= 1",
+                gate="warn",
+            ),
+        ],
+        rulesets=[
+            DeploymentRulesetSpec(
+                name="baseline",
+                checks=["demo.owner_present", "demo.described"],
+            ),
+        ],
+    )
+    await orchestrator._run_governance_checks(
+        make_plan(
+            to_deploy=[
+                transform("one", owners=["someone"], description="Described."),
+                transform("two"),
+            ],
+        ),
+    )
+    assert [(row.name, row.status) for row in check_rows(orchestrator)] == [
+        (f"{NAMESPACE}.one", DeploymentResult.Status.SUCCESS),
+        (f"{NAMESPACE}.two", DeploymentResult.Status.WARNING),
+    ]
+    good, bad = orchestrator.check_results
+    # The guarded check applied to neither node, and says so on both.
+    assert {v.check: v.verdict for v in good.checks} == {
+        "demo.owner_present": CheckVerdict.PASSED,
+        "demo.described": CheckVerdict.PASSED,
+        "demo.metrics_only": CheckVerdict.SKIPPED,
+    }
+    assert {v.check: v.verdict for v in bad.checks} == {
+        "demo.owner_present": CheckVerdict.FAILED,
+        "demo.described": CheckVerdict.FAILED,
+        "demo.metrics_only": CheckVerdict.SKIPPED,
+    }
+    assert bad.checks[0].gate == "warn"
+    assert [v.verdict for v in bad.rulesets] == [RulesetVerdict.FAILED]
+
+
+@pytest.mark.asyncio
+async def test_the_summary_row_names_the_failing_checks(session, current_user):
+    orchestrator = make_orchestrator(
+        session,
+        current_user,
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.owner_present",
+                condition="size(node.owners) >= 1",
+                gate="warn",
+            ),
+            DeploymentCheckSpec(
+                name="demo.described",
+                condition="node.description != ''",
+                gate="warn",
+            ),
+        ],
+    )
+    await orchestrator._run_governance_checks(
+        make_plan(to_deploy=[transform("one", owners=["someone"])]),
+    )
+    (row,) = check_rows(orchestrator)
+    assert row.message == "1 of 2 check(s) failed: demo.described."
