@@ -26,7 +26,7 @@ def build_fixtures(declared_properties: DeclaredProperties) -> list[dict[str, An
         {
             "node": {
                 "name": "fixture.empty",
-                "type": "dimension",
+                "node_type": "dimension",
                 "namespace": "fixture",
                 "custom_metadata": custom_metadata(None, declared_properties),
                 "description": "",
@@ -39,15 +39,14 @@ def build_fixtures(declared_properties: DeclaredProperties) -> list[dict[str, An
             },
             "dependencies": [],
             "previous": {
-                "exists": False,
                 "custom_metadata": custom_metadata(None, declared_properties),
             },
-            "change": {"is_new": True, "is_removal": False},
+            "change": {"kind": "create"},
         },
         {
             "node": {
                 "name": "fixture.populated",
-                "type": "transform",
+                "node_type": "transform",
                 "namespace": "fixture",
                 "custom_metadata": custom_metadata(populated, declared_properties),
                 "description": "A fully populated fixture.",
@@ -80,7 +79,7 @@ def build_fixtures(declared_properties: DeclaredProperties) -> list[dict[str, An
             "dependencies": [
                 {
                     "name": "fixture.parent",
-                    "type": "source",
+                    "node_type": "source",
                     "custom_metadata": custom_metadata(
                         populated,
                         declared_properties,
@@ -88,9 +87,8 @@ def build_fixtures(declared_properties: DeclaredProperties) -> list[dict[str, An
                 },
             ],
             "previous": {
-                "exists": True,
                 "custom_metadata": custom_metadata(populated, declared_properties),
             },
-            "change": {"is_new": False, "is_removal": True},
+            "change": {"kind": "remove"},
         },
     ]

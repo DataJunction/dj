@@ -31,7 +31,7 @@ CHECKS = [
     CheckSpec(
         name="demo.primary_key_set",
         description="Dimensions declare a primary key.",
-        when="node.type == 'dimension'",
+        when="node.node_type == 'dimension'",
         condition="size(node.primary_key) >= 1",
         gate=CheckGate.BLOCK,
     ),
@@ -59,7 +59,7 @@ CHECKS = [
     CheckSpec(
         name="demo.shape_before_removal",
         description="A shape is recorded before an entity is removed.",
-        when="change.is_removal",
+        when="change.kind == 'remove'",
         condition="previous.custom_metadata.sample.shape != null",
         gate=CheckGate.BLOCK,
     ),
@@ -212,5 +212,4 @@ def test_fixtures_are_built_from_the_declared_properties():
         "other": {"weight": None},
     }
     assert populated["node"]["custom_metadata"]["other"]["weight"] == "fixture-weight"
-    assert populated["previous"]["exists"] is True
-    assert populated["change"] == {"is_new": False, "is_removal": True}
+    assert populated["change"] == {"kind": "remove"}

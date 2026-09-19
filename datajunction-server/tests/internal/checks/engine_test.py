@@ -22,7 +22,7 @@ CHECKS = [
         "demo.dimension_shape_set",
         "node.custom_metadata.sample.shape != null",
         "block_on_regression",
-        when="node.type == 'dimension'",
+        when="node.node_type == 'dimension'",
     ),
 ]
 

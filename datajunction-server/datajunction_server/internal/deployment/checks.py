@@ -64,6 +64,14 @@ def _node_spec_defaults() -> dict[str, Any]:
 
 _NODE_DEFAULTS = _node_spec_defaults()
 
+# What the deploy is doing to a node. An unchanged or removed node is identical
+# to its deployed state, so `previous` is the same projection.
+CHANGE_CREATE = "create"
+CHANGE_UPDATE = "update"
+CHANGE_UNCHANGED = "unchanged"
+CHANGE_REMOVE = "remove"
+_UNCHANGED_KINDS = frozenset({CHANGE_UNCHANGED, CHANGE_REMOVE})
+
 
 def _cel_safe(value: Any, empty: Any = "") -> Any:
     """
@@ -140,7 +148,6 @@ def project_node(spec: NodeSpec | None, declared: DeclaredProperties) -> dict[st
         for name, empty in _NODE_DEFAULTS.items()
     }
     projected["name"] = spec.rendered_name if spec is not None else ""
-    projected["type"] = str(spec.node_type) if spec is not None else ""
     projected["custom_metadata"] = custom_metadata(
         dumped.get("custom_metadata"),
         declared,
@@ -148,28 +155,18 @@ def project_node(spec: NodeSpec | None, declared: DeclaredProperties) -> dict[st
     return projected
 
 
-def project_previous(
-    spec: NodeSpec | None,
-    declared: DeclaredProperties,
-) -> dict[str, Any]:
-    """The deployed state, projected like `node` so a check reads either."""
-    return dict(project_node(spec, declared), exists=spec is not None)
-
-
 def project_dependency(
     name: str,
     spec: NodeSpec | None,
     declared: DeclaredProperties,
 ) -> dict[str, Any]:
-    # An upstream outside the deployment namespace has no spec to project.
-    return {
-        "name": name,
-        "type": str(spec.node_type) if spec is not None else "",
-        "custom_metadata": custom_metadata(
-            spec.custom_metadata if spec is not None else None,
-            declared,
-        ),
-    }
+    """
+    An upstream, projected like `node` so the same rule reads either.
+
+    An upstream outside the deployment namespace has no spec, so only its name
+    is known.
+    """
+    return dict(project_node(spec, declared), name=name)
 
 
 def build_activation(
@@ -177,17 +174,22 @@ def build_activation(
     *,
     previous: NodeSpec | None,
     dependencies: Sequence[tuple[str, NodeSpec | None]],
-    change: Mapping[str, bool],
+    kind: str,
     declared: DeclaredProperties,
 ) -> Activation:
+    node = project_node(spec, declared)
+    # An unchanged or removed node is its own previous state, so project once.
+    projected_previous = (
+        node if kind in _UNCHANGED_KINDS else project_node(previous, declared)
+    )
     return {
-        "node": project_node(spec, declared),
+        "node": node,
         "dependencies": [
             project_dependency(name, dependency, declared)
             for name, dependency in dependencies
         ],
-        "previous": project_previous(previous, declared),
-        "change": dict(change),
+        "previous": projected_previous,
+        "change": {"kind": kind},
     }
 
 
@@ -235,14 +237,14 @@ def build_fixtures(declared: DeclaredSchemas) -> list[Activation]:
             bare,
             previous=None,
             dependencies=[],
-            change={"is_new": True, "is_removal": False},
+            kind=CHANGE_CREATE,
             declared=declared.properties,
         ),
         build_activation(
             populated,
             previous=populated,
             dependencies=[("fixture.parent", bare)],
-            change={"is_new": False, "is_removal": True},
+            kind=CHANGE_REMOVE,
             declared=declared.properties,
         ),
     ]
