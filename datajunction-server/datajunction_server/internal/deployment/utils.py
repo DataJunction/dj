@@ -139,14 +139,15 @@ def _find_upstreams_for_node(node: NodeSpec) -> tuple[str, list[str], ast.Query 
         and node.rendered_query
     ):
         # For metrics, parse the aliased version so the AST can be reused
-        # by validation (which expects the metric-aliased form).
-        query_str = node.rendered_query
+        # by validation (which expects the metric-aliased form). Build the
+        # AST directly instead of re-parsing format_metric_alias's string.
         if isinstance(node, MetricSpec):
-            query_str = NodeRevision.format_metric_alias(
-                query_str,
+            query_ast = NodeRevision.metric_alias_ast(
+                node.rendered_query,
                 node.rendered_name,
             )
-        query_ast = parse(query_str)
+        else:
+            query_ast = parse(node.rendered_query)
         candidates = extract_upstream_candidates(
             query_ast,
             is_metric=isinstance(node, MetricSpec),

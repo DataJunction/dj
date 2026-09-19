@@ -1,5 +1,5 @@
 from typing import get_args
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -7,8 +7,11 @@ from datajunction_server.internal.deployment.fingerprints import (
     SEMANTIC_PARENT_RESOLVERS,
     SemanticFingerprintGraph,
     _candidate_parts,
+    _load_external_specs,
     _parent_candidates,
     _resolved_proposed_specs,
+    _seed_parent_cache_entry,
+    _seed_parent_cache_from_pre_parsed,
     build_deployment_fingerprints,
 )
 from datajunction_server.models.deployment import (
@@ -172,8 +175,11 @@ def test_graph_fingerprint_uses_its_parent_snapshot():
     current = SemanticFingerprintGraph(spec_map(orders_v1, revenue))
     proposed = SemanticFingerprintGraph(spec_map(orders_v2, revenue))
 
+    # Scoped single-name lookups aren't cached across calls (only a full,
+    # unscoped `.fingerprints()` result is), so this checks for the same
+    # value, not the same object.
     current_fingerprint = current.fingerprint(revenue.rendered_name)
-    assert current.fingerprint(revenue.rendered_name) is current_fingerprint
+    assert current.fingerprint(revenue.rendered_name) == current_fingerprint
     assert current_fingerprint != proposed.fingerprint(
         revenue.rendered_name,
     )
@@ -373,6 +379,81 @@ def test_cycle_hashing_is_stable_and_propagates_member_changes():
     assert all(original[name] != broken[name] for name in specs)
 
 
+def test_scoped_fingerprints_match_full_graph_computation():
+    """Scoped `.fingerprints(names)` matches an unscoped computation."""
+    orders = source_spec("orders", table="orders")
+    revenue = transform_spec("revenue", "SELECT * FROM ${prefix}orders")
+    unrelated = source_spec("unrelated", table="unrelated")
+
+    first = linked_dimension("first", "second")
+    second = linked_dimension("second", "third")
+    third = linked_dimension("third", "first")
+    downstream = transform_spec(
+        "downstream",
+        "SELECT * FROM ${prefix}first",
+        namespace="cycle",
+    )
+
+    specs = spec_map(orders, revenue, unrelated, first, second, third, downstream)
+    graph = SemanticFingerprintGraph(specs)
+    full = graph.fingerprints()
+
+    for names in (
+        {revenue.rendered_name},
+        {downstream.rendered_name},
+        {first.rendered_name, second.rendered_name, third.rendered_name},
+    ):
+        scoped = SemanticFingerprintGraph(specs).fingerprints(names)
+        assert scoped == {name: full[name] for name in names}
+
+
+def test_shared_fingerprints_cache_reused_across_snapshots():
+    """Sharing an id()-matched ancestor's fingerprint matches unshared."""
+    source = source_spec("source", table="table")
+    unchanged = transform_spec("unchanged", "SELECT * FROM ${prefix}source")
+    changed_v1 = transform_spec("changed", "SELECT * FROM ${prefix}unchanged")
+    changed_v2 = changed_v1.model_copy(update={"query": "SELECT 1"})
+
+    current_specs = spec_map(source, unchanged, changed_v1)
+    proposed_specs = {**current_specs, changed_v2.rendered_name: changed_v2}
+
+    shared: dict[int, object] = {}
+    current_graph = SemanticFingerprintGraph(current_specs, shared_fingerprints=shared)
+    proposed_graph = SemanticFingerprintGraph(
+        proposed_specs,
+        shared_fingerprints=shared,
+    )
+    current = current_graph.fingerprints()
+    proposed = proposed_graph.fingerprints()
+
+    unshared_current = SemanticFingerprintGraph(current_specs).fingerprints()
+    unshared_proposed = SemanticFingerprintGraph(proposed_specs).fingerprints()
+
+    assert current == unshared_current
+    assert proposed == unshared_proposed
+    assert proposed[unchanged.rendered_name] == current[unchanged.rendered_name]
+    assert proposed[changed_v2.rendered_name] != current[changed_v1.rendered_name]
+    assert id(source) in shared
+    assert id(unchanged) in shared
+
+
+def test_shared_fingerprints_cache_safe_across_a_shared_cycle():
+    """A fully-shared cycle still matches an unshared computation."""
+    first = linked_dimension("first", "second")
+    second = linked_dimension("second", "first")
+    specs = spec_map(first, second)
+
+    shared: dict[int, object] = {}
+    graph_a = SemanticFingerprintGraph(specs, shared_fingerprints=shared)
+    graph_b = SemanticFingerprintGraph(specs, shared_fingerprints=shared)
+    result_a = graph_a.fingerprints()
+    result_b = graph_b.fingerprints()
+
+    unshared = SemanticFingerprintGraph(specs).fingerprints()
+    assert result_a == unshared
+    assert result_b == unshared
+
+
 def test_self_link_and_external_parent_cycles_have_stable_hashes():
     self_link = linked_dimension("self", "self")
     assert (
@@ -466,6 +547,52 @@ def test_proposed_sources_reuse_resolved_columns_and_remove_deletes():
     assert deleted.rendered_name not in resolved
 
 
+def test_resolved_proposed_specs_reuses_existing_object_for_unchanged_names():
+    """Unchanged names reuse the existing object; changed ones don't."""
+    unchanged = transform_spec("unchanged", "SELECT * FROM ${prefix}orders")
+    other = transform_spec("other", "SELECT 1")
+    resubmitted_unchanged = unchanged.model_copy(deep=True)
+    resubmitted_other = other.model_copy(update={"query": "SELECT 2"})
+
+    resolved = _resolved_proposed_specs(
+        {unchanged.rendered_name: unchanged, other.rendered_name: other},
+        [resubmitted_unchanged, resubmitted_other],
+        set(),
+        {unchanged.rendered_name},
+    )
+
+    assert resolved[unchanged.rendered_name] is unchanged
+    assert resolved[other.rendered_name] is resubmitted_other
+
+
+@pytest.mark.asyncio
+async def test_build_deployment_fingerprints_only_proposed_names_reuses_unchanged():
+    """`only_proposed_names` scopes results without changing them."""
+    source = source_spec("source", table="table")
+    unrelated = source_spec("unrelated", table="unrelated")
+    downstream = transform_spec("downstream", "SELECT * FROM ${prefix}source")
+
+    _, full = await build_deployment_fingerprints(
+        MagicMock(),
+        {},
+        [source, unrelated, downstream],
+        [],
+    )
+    _, scoped = await build_deployment_fingerprints(
+        MagicMock(),
+        {
+            source.rendered_name: source,
+            unrelated.rendered_name: unrelated,
+            downstream.rendered_name: downstream,
+        },
+        [source, unrelated, downstream],
+        [],
+        only_proposed_names={downstream.rendered_name},
+    )
+
+    assert scoped == {downstream.rendered_name: full[downstream.rendered_name]}
+
+
 @pytest.mark.asyncio
 async def test_build_deployment_fingerprints_without_external_parents():
     source = source_spec("source", table="table")
@@ -488,6 +615,34 @@ async def test_build_deployment_fingerprints_without_external_parents():
     assert proposed[transform.rendered_name] == graph.fingerprint(
         transform.rendered_name,
     )
+
+
+async def test_build_deployment_fingerprints_only_proposed_names():
+    """`only_proposed_names` must return exactly the same values as computing
+    every submitted node's proposed fingerprint, just for a smaller set --
+    it's a performance scope-down for a full-repo push, not a behavior
+    change."""
+    source = source_spec("source", table="table")
+    unrelated = source_spec("unrelated", table="unrelated")
+    downstream = transform_spec("downstream", "SELECT * FROM ${prefix}source")
+
+    _, full = await build_deployment_fingerprints(
+        MagicMock(),
+        {},
+        [source, unrelated, downstream],
+        [],
+    )
+    _, scoped = await build_deployment_fingerprints(
+        MagicMock(),
+        {},
+        [source, unrelated, downstream],
+        [],
+        only_proposed_names={downstream.rendered_name},
+    )
+
+    assert scoped == {downstream.rendered_name: full[downstream.rendered_name]}
+    assert unrelated.rendered_name not in scoped
+    assert source.rendered_name not in scoped
 
 
 @pytest.mark.asyncio
@@ -557,3 +712,95 @@ async def test_build_deployment_fingerprints_loads_external_ancestors(session):
     )
     assert current["default.hard_hat"] != UNKNOWN_SEMANTIC_FINGERPRINT
     assert proposed["default.hard_hat"] != UNKNOWN_SEMANTIC_FINGERPRINT
+
+
+def test_seed_parent_cache_entry_is_idempotent():
+    """A second call for a spec already in the cache is a no-op."""
+    transform = transform_spec("cache_once", "SELECT * FROM ${prefix}source")
+    cache = {}
+    query_ast = transform.query_ast
+    _seed_parent_cache_entry(transform, cache, query_ast)
+    seeded = cache[id(transform)]
+
+    _seed_parent_cache_entry(transform, cache, query_ast)
+    assert cache[id(transform)] is seeded
+
+
+def test_seed_parent_cache_from_pre_parsed_skips_non_reusable_and_stale_entries():
+    """Metrics are excluded (fingerprinting needs their alias-wrapped AST),
+    and an entry whose parsed text no longer matches the spec's own query
+    text is skipped so a fresh parse is forced instead."""
+    metric = MetricSpec(
+        namespace="ns",
+        name="skip_metric",
+        query="SELECT COUNT(*) FROM ${prefix}source",
+    )
+    transform = transform_spec("stale_text", "SELECT * FROM ${prefix}source")
+    specs = spec_map(metric, transform)
+    cache: dict = {}
+    pre_parsed = {
+        metric.rendered_name: (metric.rendered_query, MagicMock()),
+        transform.rendered_name: ("SELECT this text does not match", MagicMock()),
+    }
+
+    _seed_parent_cache_from_pre_parsed(specs, cache, pre_parsed)
+
+    assert cache == {}
+
+
+@pytest.mark.asyncio
+async def test_load_external_specs_logs_unparseable_external_dependency(caplog):
+    """An external spec that fails to parse is still returned (so the
+    deployment can report it as unavailable rather than erroring), and the
+    failure is logged unless the name is in `ignored_parse_errors`."""
+    broken = transform_spec("broken_external", "SELECT (", namespace="ext")
+    fake_node = MagicMock()
+    fake_node.to_spec = AsyncMock(return_value=broken)
+
+    with patch(
+        "datajunction_server.internal.deployment.fingerprints.Node.get_by_names",
+        AsyncMock(return_value=[fake_node]),
+    ):
+        external = await _load_external_specs(
+            MagicMock(),
+            [broken.rendered_name],
+            set(),
+            ignored_parse_errors=set(),
+            parent_cache={},
+        )
+    assert external == {broken.rendered_name: broken}
+    assert "Semantic parent extraction failed" in caplog.text
+
+    caplog.clear()
+    with patch(
+        "datajunction_server.internal.deployment.fingerprints.Node.get_by_names",
+        AsyncMock(return_value=[fake_node]),
+    ):
+        await _load_external_specs(
+            MagicMock(),
+            [broken.rendered_name],
+            set(),
+            ignored_parse_errors={broken.rendered_name},
+            parent_cache={},
+        )
+    assert "Semantic parent extraction failed" not in caplog.text
+
+
+def test_semantic_fingerprint_graph_caches_whole_graph_result():
+    """A second `.fingerprints()` call (no names) reuses the cached result
+    instead of recomputing (`_evaluate`'s `target_names is None` branch)."""
+    source = source_spec("cached_source", table="table")
+    transform = transform_spec(
+        "cached_transform",
+        "SELECT * FROM ${prefix}cached_source",
+    )
+    graph = SemanticFingerprintGraph(spec_map(source, transform))
+
+    first = graph.fingerprints()
+    second = graph.fingerprints()
+    assert second == first
+    assert graph._fingerprints is not None
+
+    # A subsequent scoped call also reuses the already-cached result.
+    scoped = graph.fingerprints({transform.rendered_name})
+    assert scoped[transform.rendered_name] == first[transform.rendered_name]
