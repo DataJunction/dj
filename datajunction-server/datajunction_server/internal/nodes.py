@@ -65,6 +65,7 @@ from datajunction_server.internal.access.authorization import (
 )
 from datajunction_server.internal.access.authorization.context import AuthContext
 from datajunction_server.internal.caching.interface import Cache
+from datajunction_server.internal.custom_metadata import validate_custom_metadata
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.materializations import (
     apply_cube_materialization_swap,
@@ -95,6 +96,12 @@ from datajunction_server.models.cube_materialization import (
     UpsertCubeMaterialization,
     principal_refs,
 )
+from datajunction_server.models.decompose import (
+    AggregationRule as DecomposeAggregationRule,
+)
+from datajunction_server.models.decompose import (
+    MetricComponent,
+)
 from datajunction_server.models.deployment import (
     ChangeTier,
     CubeSpec,
@@ -102,10 +109,6 @@ from datajunction_server.models.deployment import (
     bump_version,
     fold_change_tiers,
     version_change_tier,
-)
-from datajunction_server.models.decompose import (
-    AggregationRule as DecomposeAggregationRule,
-    MetricComponent,
 )
 from datajunction_server.models.dimensionlink import (
     JoinLinkInput,
@@ -145,7 +148,6 @@ from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import parse, parse_rule
 from datajunction_server.typing import UTCDatetime
-from datajunction_server.internal.custom_metadata import validate_custom_metadata
 from datajunction_server.utils import (
     SEPARATOR,
     Version,
@@ -904,6 +906,7 @@ async def _derive_frozen_measures_impl(
                 upstream_revision_id=upstream_revision_id,
                 expression=measure.expression,
                 aggregation=measure.aggregation,
+                params=measure.params,
                 rule=measure.rule,
                 used_by_node_revisions=[],
             )
@@ -1031,6 +1034,7 @@ async def derive_frozen_measures_bulk(
                     upstream_revision_id=upstream_revision_id,
                     expression=measure.expression,
                     aggregation=measure.aggregation,
+                    params=measure.params,
                     rule=_frozen_measure_rule(measure.rule),
                     used_by_node_revisions=[],
                 )
@@ -1063,6 +1067,7 @@ def _raise_if_frozen_measure_conflicts(
     if (
         frozen_measure.expression == measure.expression
         and frozen_measure.aggregation == measure.aggregation
+        and (frozen_measure.params or None) == (measure.params or None)
         and _aggregation_rule_identity(frozen_measure.rule)
         == _aggregation_rule_identity(measure.rule)
     ):
@@ -1070,7 +1075,7 @@ def _raise_if_frozen_measure_conflicts(
 
     raise DJInvalidInputException(
         f"Frozen measure `{measure.name}` already exists with a different "
-        "expression, aggregation, or aggregation rule.",
+        "expression, aggregation, aggregation rule, or tuning parameters.",
     )
 
 
@@ -1914,6 +1919,7 @@ async def cube_metric_component_identities(
             FrozenMeasure.name,
             FrozenMeasure.expression,
             FrozenMeasure.aggregation,
+            FrozenMeasure.params,
         )
         .select_from(NodeRevisionFrozenMeasure)
         .join(
@@ -1929,8 +1935,12 @@ async def cube_metric_component_identities(
     rows = (await session.execute(statement)).all()
     return {
         f"{metric_name}:{component_name}:"
-        + measure_identity_token(compute_expression_hash(expression), aggregation)
-        for metric_name, component_name, expression, aggregation in rows
+        + measure_identity_token(
+            compute_expression_hash(expression),
+            aggregation,
+            params,
+        )
+        for metric_name, component_name, expression, aggregation, params in rows
     }
 
 

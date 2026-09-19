@@ -19,6 +19,7 @@ from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.reaggregate import (
     DimensionReaggregateRule,
+    ReaggregateSpec,
     ReaggregationFunction,
 )
 from datajunction_server.sql import functions as dj_functions
@@ -2676,3 +2677,74 @@ async def test_sum_abs_decomposes(session: AsyncSession, create_metric):
     assert comp.rule.type == Aggregability.FULL
     assert "ABS" in comp.expression
     assert_sql_equal(str(derived_sql), f"SELECT SUM({comp.name}) FROM parent_node")
+
+
+class TestReaggregateParams:
+    """
+    Tests that sketch tuning parameters flow through to components.
+    """
+
+    @staticmethod
+    def _spec(params):
+        """A spec carrying params."""
+        return ReaggregateSpec.model_construct(
+            fn=ReaggregationFunction.SUM,
+            weight=None,
+            rules=[],
+            params=params,
+        )
+
+    def test_params_reach_components(self):
+        extractor = MetricComponentExtractor(1)
+        components, _ = extractor._extract_base(
+            parse("SELECT SUM(latency_ms) FROM t"),
+            self._spec({"compression": 200}),
+        )
+        assert [component.params for component in components] == [
+            {"compression": 200},
+        ]
+
+    def test_params_reach_every_component_of_a_multi_component_metric(self):
+        """AVG decomposes to a sum and a count; both are the same sketch family."""
+        extractor = MetricComponentExtractor(1)
+        components, _ = extractor._extract_base(
+            parse("SELECT AVG(latency_ms) FROM t"),
+            self._spec({"compression": 200}),
+        )
+        assert len(components) == 2
+        assert all(c.params == {"compression": 200} for c in components)
+
+    def test_params_are_copied_not_shared(self):
+        """
+        Each component receives an independent copy of its params dict.
+        """
+        extractor = MetricComponentExtractor(1)
+        params = {"compression": 200}
+        components, _ = extractor._extract_base(
+            parse("SELECT AVG(latency_ms) FROM t"),
+            self._spec(params),
+        )
+        params["compression"] = 999
+        assert all(c.params == {"compression": 200} for c in components)
+        assert components[0].params is not components[1].params
+
+    def test_no_params_leaves_components_untouched(self):
+        """Omitting params applies no configuration to components."""
+        extractor = MetricComponentExtractor(1)
+        components, _ = extractor._extract_base(
+            parse("SELECT SUM(latency_ms) FROM t"),
+            self._spec(None),
+        )
+        assert [component.params for component in components] == [None]
+
+    def test_params_without_an_aggregating_component_is_rejected(self):
+        """
+        Declaring params on a non-aggregating metric is rejected.
+        """
+        extractor = MetricComponentExtractor(1)
+        with pytest.raises(DJInvalidInputException) as excinfo:
+            extractor._extract_base(
+                parse("SELECT COUNT(DISTINCT order_id) FROM t"),
+                self._spec({"compression": 200}),
+            )
+        assert "requires an aggregating component" in str(excinfo.value)

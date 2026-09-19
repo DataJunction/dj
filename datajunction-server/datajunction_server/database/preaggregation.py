@@ -6,6 +6,7 @@ import hashlib
 import json
 from datetime import UTC, datetime
 from functools import partial
+from typing import Any
 
 import sqlalchemy as sa
 from sqlalchemy import (
@@ -80,16 +81,64 @@ def compute_grain_group_hash(
     return hashlib.md5(content.encode()).hexdigest()
 
 
-def measure_identity_token(expr_hash: str, aggregation: str | None) -> str:
+def canonical_params(params: dict[str, Any] | None) -> str:
+    """
+    Stable string form of a component's tuning parameters, for identity.
+
+    Keys are sorted and numeric values normalized, so ``{"compression": 200}``
+    and ``{"compression": 200.0}`` cannot yield two identities for one sketch.
+    """
+    if not params:
+        return ""
+
+    def norm(value: Any) -> Any:
+        # 200 and 200.0 are the same compression; don't let the literal's
+        # spelling fork the identity. (bools are not floats, so they pass
+        # through untouched.)
+        if isinstance(value, float) and value.is_integer():
+            return int(value)
+        return value
+
+    # `default=str` so an exotic value can't raise from inside pre-agg matching.
+    # Params arrive as parsed YAML/JSON, so this should be unreachable; an opaque
+    # TypeError deep in the matcher is a bad way to find out otherwise.
+    return json.dumps(
+        {key: norm(params[key]) for key in sorted(params)},
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+
+
+def measure_identity_token(
+    expr_hash: str,
+    aggregation: str | None,
+    params: dict[str, Any] | None = None,
+) -> str:
     """
     Canonical token identifying one measure: expression hash plus Phase-1
-    aggregation.
+    aggregation, plus tuning parameters when the aggregation takes them.
 
     The hash alone is not an identity -- ``SUM(x)`` and ``MAX(x)`` hash alike --
     and a partial is reusable only by a metric that accumulates the same way.
     Everything comparing or hashing measures goes through this.
+
+    Parameters extend that reasoning to sketches: a t-digest accumulated at
+    ``compression=100`` is not interchangeable with one at ``compression=1000``,
+    though both are ``nflx_tdigest_agg`` over the same expression. The segment is
+    appended **only** when params are present, so tokens for the overwhelming
+    majority of components -- plain ``SUM``, ``COUNT``, ``MAX`` -- are byte-identical
+    to what this returned before params existed. Stored ``preagg_hash`` values are
+    built from these tokens, so that stability is a compatibility requirement, not
+    a nicety.
+
+    Note the quantile *fractions* a metric asks for are deliberately not here. One
+    sketch column serves p50, p95 and p99; folding fractions in would fragment it
+    into three identical columns.
     """
-    return f"{expr_hash}:{(aggregation or '').strip().upper()}"
+    base = f"{expr_hash}:{(aggregation or '').strip().upper()}"
+    suffix = canonical_params(params)
+    return f"{base}:{suffix}" if suffix else base
 
 
 def get_measure_identities(measures: list[PreAggMeasure]) -> set[str]:
@@ -103,7 +152,7 @@ def get_measure_identities(measures: list[PreAggMeasure]) -> set[str]:
         Set of identity tokens
     """
     return {
-        measure_identity_token(m.expr_hash, m.aggregation)
+        measure_identity_token(m.expr_hash, m.aggregation, m.params)
         for m in measures
         if m.expr_hash
     }

@@ -244,6 +244,79 @@ def test_frozen_measure_conflict_rejects_different_measure_identity():
         _raise_if_frozen_measure_conflicts(frozen_measure, measure)
 
 
+def test_frozen_measure_conflict_rejects_different_tuning_params():
+    """
+    A name collision fails when only the sketch tuning parameters differ.
+
+    Component names are hashed from the expression and its source, not from
+    params, so a p95 at compression=200 and one at compression=1000 over the
+    same column collide on name. Without this the second metric would silently
+    bind the frozen measure -- and the materialized sketch -- built at the
+    first one's accuracy.
+    """
+    frozen_measure = FrozenMeasure(
+        name="latency_tdigest",
+        upstream_revision_id=1,
+        expression="latency_ms",
+        aggregation="TDIGEST_AGG",
+        params={"compression": 200},
+        rule=AggregationRule(type=Aggregability.FULL),
+    )
+    measure = MetricComponent(
+        name="latency_tdigest",
+        expression="latency_ms",
+        aggregation="TDIGEST_AGG",
+        params={"compression": 1000},
+        rule=AggregationRule(type=Aggregability.FULL),
+    )
+
+    with pytest.raises(DJInvalidInputException, match="tuning parameters"):
+        _raise_if_frozen_measure_conflicts(frozen_measure, measure)
+
+
+def test_frozen_measure_reuse_allows_matching_params():
+    """
+    Identical params are reusable, and absent-vs-empty is not a difference.
+
+    Almost every measure has no params at all; a stored ``None`` meeting a
+    freshly-extracted ``{}`` must not read as a conflict and start rejecting
+    ordinary metrics.
+    """
+    frozen_measure = FrozenMeasure(
+        name="latency_tdigest",
+        upstream_revision_id=1,
+        expression="latency_ms",
+        aggregation="TDIGEST_AGG",
+        params={"compression": 200},
+        rule=AggregationRule(type=Aggregability.FULL),
+    )
+    measure = MetricComponent(
+        name="latency_tdigest",
+        expression="latency_ms",
+        aggregation="TDIGEST_AGG",
+        params={"compression": 200},
+        rule=AggregationRule(type=Aggregability.FULL),
+    )
+    _raise_if_frozen_measure_conflicts(frozen_measure, measure)
+
+    unparameterized = FrozenMeasure(
+        name="amount_sum",
+        upstream_revision_id=1,
+        expression="amount",
+        aggregation="SUM",
+        params=None,
+        rule=AggregationRule(type=Aggregability.FULL),
+    )
+    empty_params = MetricComponent(
+        name="amount_sum",
+        expression="amount",
+        aggregation="SUM",
+        params={},
+        rule=AggregationRule(type=Aggregability.FULL),
+    )
+    _raise_if_frozen_measure_conflicts(unparameterized, empty_params)
+
+
 @pytest.mark.asyncio
 async def test_derived_metric_expands_parent_cache(
     session: AsyncSession,

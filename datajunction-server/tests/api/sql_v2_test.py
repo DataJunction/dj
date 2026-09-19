@@ -1201,6 +1201,7 @@ async def create_metric_distinct_single_column(client: AsyncClient):
             "aggregation": None,
             "expression": "hard_hat_id",
             "grain_alias": "hard_hat_id",
+            "params": None,
             "merge": None,
             "name": "hard_hat_id",
             "rule": {
@@ -1232,6 +1233,7 @@ async def create_metric_distinct_expression(client: AsyncClient):
             "aggregation": None,
             "expression": "IF(hard_hat_id = 1, 1, 0)",
             "grain_alias": "hard_hat_id_distinct_0291ee39",
+            "params": None,
             "merge": None,
             "name": "hard_hat_id_distinct_0291ee39",
             "rule": {
@@ -1631,6 +1633,7 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
                 "aggregation": "SUM",
                 "expression": "default.local_hard_hats_2.hard_hat_id",
                 "grain_alias": None,
+                "params": None,
                 "merge": "SUM",
                 "name": "default_DOT_local_hard_hats_2_DOT_hard_hat_id_sum_bf8a8419",
                 "rule": {
@@ -1696,6 +1699,7 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
                 "aggregation": None,
                 "expression": "default.municipality_dim.contact_name",
                 "grain_alias": "contact_name",
+                "params": None,
                 "merge": None,
                 "name": "contact_name",
                 "rule": {
@@ -1802,6 +1806,7 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
                 "expression": "IF(default.hard_hat.state = 'NY', default.hard_hat.first_name, "
                 "NULL)",
                 "grain_alias": "default_DOT_hard_hat_DOT_state_default_DOT_hard_hat_DOT_first_name_distinct_1a99d6a7",
+                "params": None,
                 "merge": None,
                 "name": "default_DOT_hard_hat_DOT_state_default_DOT_hard_hat_DOT_first_name_distinct_1a99d6a7",
                 "rule": {

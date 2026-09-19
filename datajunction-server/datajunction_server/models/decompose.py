@@ -9,6 +9,8 @@ Key concepts:
 - DecomposedMetric: A metric broken into components + combiner expression
 """
 
+from typing import Any
+
 from pydantic import BaseModel
 
 from datajunction_server.enum import StrEnum
@@ -98,6 +100,12 @@ class MetricComponent(BaseModel):
     # ("order_id"); for complex expressions it is component.name so the identifier stays
     # valid and consistent with what decompose.py computed.
     grain_alias: str | None = None
+    # Tuning parameters for `aggregation`/`merge`, for sketch-backed components
+    # whose function name alone doesn't pin down the accumulate (a t-digest still
+    # needs a compression, a KLL a `k`). Part of measure identity -- see
+    # `measure_identity_token` -- because a sketch built at one accuracy must not
+    # satisfy a query asking for another.
+    params: dict[str, Any] | None = None
 
     @property
     def normalized_aggregation(self) -> str:

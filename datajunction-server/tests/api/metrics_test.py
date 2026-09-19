@@ -465,6 +465,7 @@ async def test_read_metrics(module__client_with_roads: AsyncClient) -> None:
             "aggregation": "SUM",
             "expression": "if(discount > 0.0, 1, 0)",
             "grain_alias": None,
+            "params": None,
             "name": "discount_sum_30b84e6c",
             "merge": "SUM",
             "rule": {
@@ -477,6 +478,7 @@ async def test_read_metrics(module__client_with_roads: AsyncClient) -> None:
             "aggregation": "COUNT",
             "expression": "*",
             "grain_alias": None,
+            "params": None,
             "merge": "SUM",
             "name": "count_c8e42e74",
             "rule": {
@@ -526,6 +528,7 @@ async def test_metric_reaggregate_roundtrip_and_validation(
     assert response.json()["reaggregate"] == {
         "fn": None,
         "weight": None,
+        "params": None,
         "rules": [
             {
                 "dimension": "repair_order_id",
@@ -539,6 +542,7 @@ async def test_metric_reaggregate_roundtrip_and_validation(
     assert response.json()["reaggregate"] == {
         "fn": None,
         "weight": None,
+        "params": None,
         "rules": [
             {
                 "dimension": "repair_order_id",
@@ -552,6 +556,7 @@ async def test_metric_reaggregate_roundtrip_and_validation(
     assert response.json()["reaggregate"] == {
         "fn": None,
         "weight": None,
+        "params": None,
         "rules": [
             {
                 "dimension": "repair_order_id",
