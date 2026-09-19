@@ -1,0 +1,551 @@
+"""Governance checks wired into a deployment: projection, loading, evaluation."""
+
+from unittest.mock import MagicMock
+
+import pytest
+
+from datajunction_server.errors import DJInvalidDeploymentConfig
+from datajunction_server.internal.checks.context import custom_metadata
+from datajunction_server.internal.checks.manifest import resolve_rulesets
+from datajunction_server.internal.custom_metadata import upsert_schema_specs
+from datajunction_server.internal.deployment.checks import (
+    DeclaredSchemas,
+    build_fixtures,
+    project_node,
+    resolve_declared_schemas,
+    unsupported_ruleset_guards,
+)
+from datajunction_server.internal.deployment.orchestrator import (
+    DeploymentOrchestrator,
+    DeploymentPlan,
+)
+from datajunction_server.internal.deployment.utils import DeploymentContext
+from datajunction_server.models.deployment import (
+    DeploymentCheckSpec,
+    DeploymentResult,
+    DeploymentRulesetSpec,
+    DeploymentSpec,
+    DimensionSpec,
+    MetricSpec,
+    TransformSpec,
+)
+from datajunction_server.models.node_type import NodeType
+
+NAMESPACE = "checks_demo"
+
+
+def transform(name: str, **kwargs) -> TransformSpec:
+    return TransformSpec(
+        name=name,
+        namespace=NAMESPACE,
+        query="SELECT 1 AS one",
+        **kwargs,
+    )
+
+
+def make_orchestrator(session, current_user, checks, rulesets=None, nodes=None):
+    spec = DeploymentSpec(
+        namespace=NAMESPACE,
+        nodes=nodes or [],
+        checks=checks,
+        rulesets=rulesets,
+    )
+    context = MagicMock(spec=DeploymentContext)
+    context.current_user = current_user
+    return DeploymentOrchestrator(
+        deployment_spec=spec,
+        deployment_id="checks-test",
+        session=session,
+        context=context,
+    )
+
+
+def make_plan(
+    to_deploy=(),
+    to_skip=(),
+    to_delete=(),
+    existing_specs=None,
+    node_graph=None,
+) -> DeploymentPlan:
+    specs = list(to_deploy) + list(to_skip) + list(to_delete)
+    return DeploymentPlan(
+        to_deploy=list(to_deploy),
+        to_skip=list(to_skip),
+        to_delete=list(to_delete),
+        existing_specs=dict(existing_specs or {}),
+        node_graph=node_graph or {spec.rendered_name: [] for spec in specs},
+        external_deps=set(),
+    )
+
+
+def check_rows(orchestrator) -> list[DeploymentResult]:
+    return [
+        result
+        for result in orchestrator.deployed_results
+        if result.deploy_type == DeploymentResult.Type.GENERAL
+    ]
+
+
+@pytest.mark.asyncio
+async def test_no_checks_declared_changes_nothing(session, current_user):
+    """A manifest with no `checks` block reports exactly what it did before."""
+    orchestrator = make_orchestrator(session, current_user, checks=None)
+    await orchestrator._run_governance_checks(make_plan(to_deploy=[transform("one")]))
+    assert orchestrator.deployed_results == []
+    assert orchestrator.errors == []
+    assert orchestrator.warnings == []
+
+
+@pytest.mark.asyncio
+async def test_passing_check_reports_a_success_row(session, current_user):
+    orchestrator = make_orchestrator(
+        session,
+        current_user,
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.owner_present",
+                condition="size(node.owners) >= 1",
+                gate="warn",
+                description="Every node has an owner.",
+            ),
+        ],
+    )
+    await orchestrator._run_governance_checks(
+        make_plan(to_deploy=[transform("one", owners=["someone"])]),
+    )
+    (row,) = check_rows(orchestrator)
+    assert row.name == f"{NAMESPACE}.one"
+    assert row.status == DeploymentResult.Status.SUCCESS
+    assert "demo.owner_present" in row.message
+    assert orchestrator.errors == []
+    assert orchestrator.warnings == []
+
+
+@pytest.mark.asyncio
+async def test_failing_warn_check_warns_without_blocking(session, current_user):
+    orchestrator = make_orchestrator(
+        session,
+        current_user,
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.owner_present",
+                condition="size(node.owners) >= 1",
+                gate="warn",
+            ),
+        ],
+    )
+    await orchestrator._run_governance_checks(
+        make_plan(to_deploy=[transform("one")]),
+    )
+    (row,) = check_rows(orchestrator)
+    assert row.status == DeploymentResult.Status.WARNING
+    assert orchestrator.errors == []
+    assert "demo.owner_present" in orchestrator.warnings[0].message
+
+
+@pytest.mark.asyncio
+async def test_failing_block_check_fails_the_deploy(session, current_user):
+    orchestrator = make_orchestrator(
+        session,
+        current_user,
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.description_present",
+                condition="node.description != ''",
+                gate="block",
+            ),
+        ],
+    )
+    with pytest.raises(DJInvalidDeploymentConfig) as excinfo:
+        await orchestrator._run_governance_checks(
+            make_plan(to_deploy=[transform("one")]),
+        )
+    assert "blocked by 1 failing check" in str(excinfo.value)
+    (row,) = check_rows(orchestrator)
+    assert row.status == DeploymentResult.Status.FAILED
+    assert "demo.description_present" in orchestrator.errors[0].message
+
+
+@pytest.mark.asyncio
+async def test_block_on_regression_blocks_a_check_that_used_to_pass(
+    session,
+    current_user,
+):
+    """The node had an owner and no longer does, so the gate closes."""
+    orchestrator = make_orchestrator(
+        session,
+        current_user,
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.owner_present",
+                condition="size(node.owners) >= 1",
+                gate="block_on_regression",
+            ),
+        ],
+    )
+    plan = make_plan(
+        to_deploy=[transform("one")],
+        existing_specs={f"{NAMESPACE}.one": transform("one", owners=["someone"])},
+    )
+    with pytest.raises(DJInvalidDeploymentConfig):
+        await orchestrator._run_governance_checks(plan)
+    assert check_rows(orchestrator)[0].status == DeploymentResult.Status.FAILED
+
+
+@pytest.mark.asyncio
+async def test_block_on_regression_allows_a_check_that_already_failed(
+    session,
+    current_user,
+):
+    """The deployed node had no owner either: not a regression, so only a warning."""
+    orchestrator = make_orchestrator(
+        session,
+        current_user,
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.owner_present",
+                condition="size(node.owners) >= 1",
+                gate="block_on_regression",
+            ),
+        ],
+    )
+    plan = make_plan(
+        to_deploy=[transform("one")],
+        existing_specs={f"{NAMESPACE}.one": transform("one")},
+    )
+    await orchestrator._run_governance_checks(plan)
+    assert check_rows(orchestrator)[0].status == DeploymentResult.Status.WARNING
+    assert orchestrator.errors == []
+
+
+@pytest.mark.asyncio
+async def test_skipped_check_reports_nothing(session, current_user):
+    """`when` excluded the node, so the check asserted nothing about it."""
+    orchestrator = make_orchestrator(
+        session,
+        current_user,
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.primary_key_set",
+                when="node.type == 'metric'",
+                condition="size(node.primary_key) >= 1",
+                gate="block",
+            ),
+        ],
+    )
+    await orchestrator._run_governance_checks(
+        make_plan(to_deploy=[transform("one")]),
+    )
+    assert check_rows(orchestrator) == []
+    assert orchestrator.errors == []
+
+
+@pytest.mark.asyncio
+async def test_malformed_check_fails_the_deploy(session, current_user):
+    orchestrator = make_orchestrator(
+        session,
+        current_user,
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.unknown_binding",
+                condition="size(entity.owners) >= 1",
+                gate="warn",
+            ),
+        ],
+    )
+    with pytest.raises(DJInvalidDeploymentConfig) as excinfo:
+        await orchestrator._run_governance_checks(
+            make_plan(to_deploy=[transform("one")]),
+        )
+    assert "Invalid governance checks" in str(excinfo.value)
+    message = orchestrator.errors[0].message
+    assert "demo.unknown_binding" in message
+    assert "`condition`" in message
+    assert check_rows(orchestrator) == []
+
+
+@pytest.mark.asyncio
+async def test_ruleset_when_guard_is_refused(session, current_user):
+    """Scoping a ruleset is not implemented, and under-enforcing it silently is worse."""
+    orchestrator = make_orchestrator(
+        session,
+        current_user,
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.owner_present",
+                condition="size(node.owners) >= 1",
+                gate="warn",
+            ),
+        ],
+        rulesets=[
+            DeploymentRulesetSpec(
+                name="strict",
+                when="node.type == 'metric'",
+                checks=["demo.owner_present"],
+            ),
+        ],
+    )
+    with pytest.raises(DJInvalidDeploymentConfig):
+        await orchestrator._run_governance_checks(
+            make_plan(to_deploy=[transform("one")]),
+        )
+    assert "not yet supported" in orchestrator.errors[0].message
+
+
+@pytest.mark.asyncio
+async def test_a_ruleset_without_a_guard_is_accepted(session, current_user):
+    orchestrator = make_orchestrator(
+        session,
+        current_user,
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.owner_present",
+                condition="size(node.owners) >= 1",
+                gate="warn",
+            ),
+        ],
+        rulesets=[
+            DeploymentRulesetSpec(name="baseline", checks=["demo.owner_present"]),
+        ],
+    )
+    await orchestrator._run_governance_checks(
+        make_plan(to_deploy=[transform("one", owners=["someone"])]),
+    )
+    assert check_rows(orchestrator)[0].status == DeploymentResult.Status.SUCCESS
+
+
+@pytest.mark.asyncio
+async def test_a_removed_node_is_checked_from_its_deployed_spec(session, current_user):
+    """Deletions have no manifest spec, so the existing one is what gets checked."""
+    existing = transform("one", owners=["someone"])
+    orchestrator = make_orchestrator(
+        session,
+        current_user,
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.removal_reviewed",
+                when="change.is_removal",
+                condition="size(node.owners) >= 1",
+                gate="warn",
+            ),
+        ],
+    )
+    await orchestrator._run_governance_checks(
+        make_plan(
+            to_delete=[existing],
+            existing_specs={f"{NAMESPACE}.one": existing},
+        ),
+    )
+    (row,) = check_rows(orchestrator)
+    assert row.status == DeploymentResult.Status.SUCCESS
+
+
+@pytest.mark.asyncio
+async def test_unchanged_nodes_are_checked_too(session, current_user):
+    """A newly declared check governs the graph, not only the nodes that changed."""
+    unchanged = transform("one")
+    orchestrator = make_orchestrator(
+        session,
+        current_user,
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.owner_present",
+                condition="size(node.owners) >= 1",
+                gate="warn",
+            ),
+        ],
+    )
+    await orchestrator._run_governance_checks(
+        make_plan(
+            to_skip=[unchanged],
+            existing_specs={f"{NAMESPACE}.one": unchanged},
+        ),
+    )
+    assert check_rows(orchestrator)[0].status == DeploymentResult.Status.WARNING
+
+
+@pytest.mark.asyncio
+async def test_dependencies_prefer_the_spec_being_deployed(session, current_user):
+    """An upstream deployed in this batch is read as it will be, not as it is."""
+    upstream_now = transform("parent", custom_metadata={"sample": {"color": "green"}})
+    upstream_before = transform("parent", custom_metadata={"sample": {"color": "red"}})
+    child = transform("child")
+    orchestrator = make_orchestrator(
+        session,
+        current_user,
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.parent_color",
+                when="size(dependencies) >= 1",
+                condition=(
+                    "dependencies.all(parent, "
+                    "parent.custom_metadata.sample.color == 'green')"
+                ),
+                gate="block",
+            ),
+        ],
+    )
+    await upsert_schema_specs(
+        session,
+        namespace=NAMESPACE,
+        specs=[_sample_schema(["color"])],
+        current_user_id=current_user.id,
+    )
+    plan = make_plan(
+        to_deploy=[upstream_now, child],
+        existing_specs={f"{NAMESPACE}.parent": upstream_before},
+        node_graph={
+            f"{NAMESPACE}.parent": [],
+            f"{NAMESPACE}.child": [f"{NAMESPACE}.parent"],
+        },
+    )
+    await orchestrator._run_governance_checks(plan)
+    statuses = {row.name: row.status for row in check_rows(orchestrator)}
+    assert statuses[f"{NAMESPACE}.child"] == DeploymentResult.Status.SUCCESS
+
+
+def _sample_schema(properties, node_type=None):
+    from datajunction_server.models.deployment import CustomMetadataSchemaSpec
+
+    return CustomMetadataSchemaSpec(
+        key="sample",
+        node_type=node_type,
+        json_schema={
+            "type": "object",
+            "properties": {name: {"type": "string"} for name in properties},
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_declared_properties_union_across_node_types(session, current_user):
+    """
+    A key's schema can differ by node type; the checks compile once, so the
+    property names are unioned and the ones that do not apply read as null.
+    """
+    await upsert_schema_specs(
+        session,
+        namespace=NAMESPACE,
+        specs=[
+            _sample_schema(["color"], node_type=NodeType.DIMENSION),
+            _sample_schema(["shape"], node_type=NodeType.METRIC),
+        ],
+        current_user_id=current_user.id,
+    )
+    declared = await resolve_declared_schemas(
+        session,
+        NAMESPACE,
+        [NodeType.DIMENSION, NodeType.METRIC],
+    )
+    assert declared.properties == {"sample": ("color", "shape")}
+
+    orchestrator = make_orchestrator(
+        session,
+        current_user,
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.shape_unset",
+                condition="node.custom_metadata.sample.shape == null",
+                gate="warn",
+            ),
+        ],
+    )
+    dimension = DimensionSpec(
+        name="a_dimension",
+        namespace=NAMESPACE,
+        query="SELECT 1 AS one",
+        primary_key=["one"],
+    )
+    metric = MetricSpec(
+        name="a_metric",
+        namespace=NAMESPACE,
+        query="SELECT COUNT(1) FROM one",
+        custom_metadata={"sample": {"shape": "round"}},
+    )
+    await orchestrator._run_governance_checks(
+        make_plan(to_deploy=[dimension, metric]),
+    )
+    statuses = {row.name: row.status for row in check_rows(orchestrator)}
+    assert statuses[f"{NAMESPACE}.a_dimension"] == DeploymentResult.Status.SUCCESS
+    assert statuses[f"{NAMESPACE}.a_metric"] == DeploymentResult.Status.WARNING
+
+
+@pytest.mark.asyncio
+async def test_numeric_properties_survive_the_fixtures(session, current_user):
+    """A fixture value is typed from its schema, so a numeric check still loads."""
+    from datajunction_server.models.deployment import CustomMetadataSchemaSpec
+
+    await upsert_schema_specs(
+        session,
+        namespace=NAMESPACE,
+        specs=[
+            CustomMetadataSchemaSpec(
+                key="sample",
+                json_schema={
+                    "type": "object",
+                    "properties": {"size": {"type": "integer"}},
+                },
+            ),
+        ],
+        current_user_id=current_user.id,
+    )
+    orchestrator = make_orchestrator(
+        session,
+        current_user,
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.size_set",
+                condition=(
+                    "node.custom_metadata.sample.size != null && "
+                    "node.custom_metadata.sample.size >= 1"
+                ),
+                gate="warn",
+            ),
+        ],
+    )
+    await orchestrator._run_governance_checks(
+        make_plan(
+            to_deploy=[transform("one", custom_metadata={"sample": {"size": 3}})],
+        ),
+    )
+    assert check_rows(orchestrator)[0].status == DeploymentResult.Status.SUCCESS
+
+
+def test_an_absent_node_projects_the_same_keys_as_a_real_one():
+    """`previous` is projected like `node`, so a check reads either one."""
+    declared = {"sample": ("color",)}
+    assert (
+        project_node(None, declared).keys()
+        == project_node(
+            transform("one"),
+            declared,
+        ).keys()
+    )
+    assert project_node(None, declared)["custom_metadata"] == custom_metadata(
+        None,
+        declared,
+    )
+
+
+def test_fixtures_cover_both_an_empty_and_a_populated_entity():
+    declared = DeclaredSchemas(
+        properties={"sample": ("color",)},
+        placeholders={"sample": {"color": "placeholder"}},
+    )
+    bare, populated = build_fixtures(declared)
+    assert bare["node"]["custom_metadata"]["sample"]["color"] is None
+    assert populated["node"]["custom_metadata"]["sample"]["color"] == "placeholder"
+    assert bare["previous"]["exists"] is False
+    assert populated["previous"]["exists"] is True
+
+
+def test_only_guarded_rulesets_are_refused():
+    rulesets = resolve_rulesets(
+        [
+            DeploymentRulesetSpec(name="baseline", checks=["demo.owner_present"]),
+            DeploymentRulesetSpec(name="strict", when="node.type == 'metric'"),
+        ],
+    )
+    (refused,) = unsupported_ruleset_guards(rulesets)
+    assert refused.check == "ruleset strict"
+    assert refused.clause == "when"

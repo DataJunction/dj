@@ -48,7 +48,17 @@ from datajunction_server.internal.access.authorization import (
     AccessDenialMode,
 )
 from datajunction_server.internal.access.authorization.context import AuthContext
+from datajunction_server.internal.checks.engine import CheckResult
+from datajunction_server.internal.checks.engine import evaluate as evaluate_checks
+from datajunction_server.internal.checks.manifest import to_manifest_checks
+from datajunction_server.internal.checks.validator import CheckGate, load_checks
 from datajunction_server.internal.custom_metadata import upsert_schema_specs
+from datajunction_server.internal.deployment.checks import (
+    build_activation,
+    build_fixtures,
+    resolve_declared_schemas,
+    unsupported_ruleset_guards,
+)
 from datajunction_server.internal.deployment.dimension_reachability import (
     DimensionReachability,
 )
@@ -548,6 +558,9 @@ class DeploymentOrchestrator:
         # SAVEPOINT, so setup-phase writes roll back too.
         await self._authorize_deployment_plan(deployment_plan)
 
+        with self._timer.phase("governance checks"):
+            await self._run_governance_checks(deployment_plan)
+
         if deployment_plan.is_empty() and not self.deployment_spec.hierarchies:
             # Pre-aggregations still need reconciling on an otherwise-empty
             # deploy: to register specs, or to delete external pre-aggs that were
@@ -623,6 +636,159 @@ class DeploymentOrchestrator:
             access_checker.add_namespace(namespace, ResourceAction.DELETE)
 
         await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+    async def _run_governance_checks(self, plan: DeploymentPlan) -> None:
+        """
+        Compile the manifest's checks once, then evaluate them against every node
+        the deploy declares or removes. Runs before any of the plan is applied, so
+        a blocking failure refuses the deploy rather than undoing it.
+        """
+        if not self.deployment_spec.checks:
+            return
+
+        manifest = to_manifest_checks(
+            self.deployment_spec.checks,
+            self.deployment_spec.rulesets,
+        )
+        entities = self._checked_entities(plan)
+        declared = await resolve_declared_schemas(
+            self.session,
+            self.deployment_spec.namespace,
+            {spec.node_type for spec, _ in entities},
+        )
+        loaded = load_checks(manifest.checks, build_fixtures(declared))
+        malformed = loaded.malformed + unsupported_ruleset_guards(manifest.rulesets)
+        if malformed:
+            for problem in malformed:
+                self.errors.append(
+                    DJError(
+                        code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                        message=(
+                            f"Check '{problem.check}': its `{problem.clause}` "
+                            f"clause {problem.problem}."
+                        ),
+                    ),
+                )
+            raise DJInvalidDeploymentConfig(
+                message="Invalid governance checks",
+                errors=self.errors,
+                warnings=self.warnings,
+            )
+        descriptions = {check.name: check.description for check in loaded.checks}
+        in_flight = {spec.rendered_name: spec for spec in plan.to_deploy}
+        # The previous state only matters to block_on_regression, and projecting
+        # it is not free, so build it only where some check asks for it.
+        wants_previous = any(
+            check.gate == CheckGate.BLOCK_ON_REGRESSION for check in loaded.checks
+        )
+        blocked: list[str] = []
+
+        for spec, change in entities:
+            name = spec.rendered_name
+            previous = plan.existing_specs.get(name)
+            activation = build_activation(
+                spec,
+                previous=previous,
+                dependencies=self._checked_dependencies(plan, name, in_flight),
+                change=change,
+                declared=declared.properties,
+            )
+            previous_activation = None
+            if wants_previous and previous is not None:
+                previous_activation = build_activation(
+                    previous,
+                    previous=previous,
+                    dependencies=self._checked_dependencies(plan, name, {}),
+                    change={"is_new": False, "is_removal": False},
+                    declared=declared.properties,
+                )
+            for result in evaluate_checks(
+                loaded.checks,
+                activation,
+                previous_activation,
+            ):
+                if result.skipped:
+                    continue
+                message = self._check_message(result, descriptions[result.check])
+                if result.blocked:
+                    blocked.append(message)
+                    self.errors.append(
+                        DJError(
+                            code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                            message=message,
+                        ),
+                    )
+                elif not result.passed:
+                    self.warnings.append(
+                        DJError(
+                            code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                            message=message,
+                        ),
+                    )
+                self.deployed_results.append(
+                    DeploymentResult(
+                        name=name,
+                        deploy_type=DeploymentResult.Type.GENERAL,
+                        status=self._check_status(result),
+                        operation=DeploymentResult.Operation.NOOP,
+                        message=message,
+                    ),
+                )
+
+        if blocked:
+            raise DJInvalidDeploymentConfig(
+                message=f"Deployment blocked by {len(blocked)} failing check(s)",
+                errors=self.errors,
+                warnings=self.warnings,
+            )
+
+    @staticmethod
+    def _checked_entities(
+        plan: DeploymentPlan,
+    ) -> list[tuple[NodeSpec, dict[str, bool]]]:
+        """Every node the deploy touches, with the change each one represents."""
+        return [
+            *(
+                (
+                    spec,
+                    {
+                        "is_new": spec.rendered_name not in plan.existing_specs,
+                        "is_removal": False,
+                    },
+                )
+                for spec in plan.to_deploy
+            ),
+            *((spec, {"is_new": False, "is_removal": False}) for spec in plan.to_skip),
+            *((spec, {"is_new": False, "is_removal": True}) for spec in plan.to_delete),
+        ]
+
+    @staticmethod
+    def _checked_dependencies(
+        plan: DeploymentPlan,
+        node_name: str,
+        in_flight: dict[str, NodeSpec],
+    ) -> list[tuple[str, NodeSpec | None]]:
+        """Upstreams as (name, spec), preferring the spec this deploy will write."""
+        return [
+            (upstream, in_flight.get(upstream) or plan.existing_specs.get(upstream))
+            for upstream in plan.node_graph.get(node_name, [])
+        ]
+
+    @staticmethod
+    def _check_status(result: CheckResult) -> DeploymentResult.Status:
+        if result.passed:
+            return DeploymentResult.Status.SUCCESS
+        return (
+            DeploymentResult.Status.FAILED
+            if result.blocked
+            else DeploymentResult.Status.WARNING
+        )
+
+    @staticmethod
+    def _check_message(result: CheckResult, description: str) -> str:
+        verdict = "passed" if result.passed else "failed"
+        detail = f" {description}" if description else ""
+        return f"Check '{result.check}' ({result.gate}) {verdict}.{detail}"
 
     async def _update_deployment_status(self):
         """
