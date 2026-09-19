@@ -95,7 +95,6 @@ class DeclaredSchemas:
     """The custom_metadata vocabulary a deploy's checks are compiled against."""
 
     properties: dict[str, tuple[str, ...]] = field(default_factory=dict)
-    # Typed from the schema, so a numeric comparison survives the fixture.
     placeholders: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
@@ -127,10 +126,6 @@ async def resolve_tag_types(
 ) -> dict[str, str]:
     """
     Map each tag name the deploy's nodes use to its type.
-
-    A tag this deploy defines takes its type from the manifest, any other tag
-    from the stored tag. Checks run before tags are written, so the manifest is
-    the newer of the two wherever both exist.
     """
     declared = {spec.name: str(spec.tag_type or "") for spec in tag_specs}
     names = set(used) | set(declared)
@@ -187,11 +182,7 @@ def project_node(
     tag_types: TagTypes,
 ) -> NodeProjection:
     """
-    Project one node spec into the `node` binding. None means no such node.
-
-    Every field of every node spec is carried, defaulted when this subclass has
-    none, so a check never reads a key that is missing -- CEL treats that as an
-    error rather than an empty value.
+    Project one node spec into the `node` binding.
     """
     dumped = spec.model_dump() if spec is not None else {}
     projected = {
@@ -255,12 +246,6 @@ def build_bindings(
 def build_fixtures(declared: DeclaredSchemas) -> list[Bindings]:
     """
     Two synthetic nodes for `load_checks` to evaluate every clause against.
-
-    Compiling is not enough to catch a misspelled custom_metadata property:
-    custom_metadata is map<string, dyn>, so any path type-checks. Running each
-    clause turns that into a config-load failure instead of a silent error on
-    every real node. One node is bare and one fully populated, so a clause that
-    only breaks on one of them is caught too.
     """
     populated_metadata = {
         key: dict(placeholders)
