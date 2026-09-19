@@ -163,10 +163,6 @@ def test_params_accepted_for_parameterized_function(monkeypatch):
 def test_only_sketch_families_are_parameterized():
     """
     Only a sketch family takes tuning parameters.
-
-    The rollup functions are fully specified by their name -- there is nothing
-    to tune about a SUM. A sketch is not: a t-digest still needs a compression,
-    which is why `params` is accepted for it and rejected everywhere else.
     """
     parameterized = {
         fn for fn in ReaggregationFunction if is_parameterized_reaggregate_function(fn)

@@ -28,6 +28,7 @@ from datajunction_server.database.node import Node
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.decompose import Aggregability, MetricComponent
 from datajunction_server.models.dialect import Dialect
+from datajunction_server.models.materialization import MaterializationTarget
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.decompose import MetricComponentExtractor
 from datajunction_server.sql.parsing import ast
@@ -215,7 +216,10 @@ async def decompose_metric(
     )
 
 
-def build_component_expression(component: MetricComponent) -> ast.Expression:
+def build_component_expression(
+    component: MetricComponent,
+    materialization_target: MaterializationTarget | None = None,
+) -> ast.Expression:
     """
     Build the accumulate expression AST for a metric component.
 
@@ -225,10 +229,17 @@ def build_component_expression(component: MetricComponent) -> ast.Expression:
     Note: Templates may be pre-expanded (e.g., "SUM(POWER(match_score, 2))")
     by the decomposition phase, so we detect this by checking for parentheses
     without template placeholders.
+
+    When ``materialization_target`` is one the component declares a ``serialize``
+    conversion for, the accumulated expression is wrapped in it. That happens
+    only while writing a measures table: a query-time build passes no target, so
+    the unwrapped expression stands.
     """
     if not component.aggregation:  # pragma: no cover
         # No aggregation - just return the expression as a column
         return ast.Column(name=ast.Name(component.expression))
+
+    accumulated: ast.Expression
 
     # Check if it's an unexpanded template with {}
     if "{" in component.aggregation:  # pragma: no cover
@@ -239,25 +250,67 @@ def build_component_expression(component: MetricComponent) -> ast.Expression:
         if isinstance(expr_ast, ast.Alias):
             expr_ast = expr_ast.child
         expr_ast.clear_parent()
-        return cast(ast.Expression, expr_ast)
+        accumulated = cast(ast.Expression, expr_ast)
 
     # Check if it's a pre-expanded template (contains parentheses, like "SUM(POWER(x, 2))")
     # vs a simple function name (like "SUM")
-    if "(" in component.aggregation:
+    elif "(" in component.aggregation:
         # Pre-expanded template - parse it directly as a complete expression
         expr_ast = parse(f"SELECT {component.aggregation}").select.projection[0]
         if isinstance(expr_ast, ast.Alias):
             expr_ast = expr_ast.child  # pragma: no cover
         expr_ast.clear_parent()
-        return cast(ast.Expression, expr_ast)
+        accumulated = cast(ast.Expression, expr_ast)
     else:
         # Simple function name like "SUM" - build SUM(expression)
         arg_expr = parse(f"SELECT {component.expression}").select.projection[0]
-        func = ast.Function(
+        accumulated = ast.Function(
             name=ast.Name(component.aggregation),
             args=[cast(ast.Expression, arg_expr)],
         )
-        return func
+
+    # All accumulate shapes must receive the target conversion.
+    return _apply_serialize(accumulated, component, materialization_target)
+
+
+def _apply_serialize(
+    expr: ast.Expression,
+    component: MetricComponent,
+    materialization_target: MaterializationTarget | None,
+) -> ast.Expression:
+    """
+    Wrap an accumulated expression in the component's serialize conversion.
+
+    Returns the expression untouched unless the component declares a conversion
+    and names this target -- so every existing component, and every query-time
+    build, is unaffected.
+    """
+    if not component.serializes_for(materialization_target):
+        return expr
+    wrapped = parse(
+        f"SELECT {component.serialize.replace('{}', str(expr))}",
+    ).select.projection[0]
+    wrapped.clear_parent()
+    return cast(ast.Expression, wrapped)
+
+
+def build_merge_call(
+    merge: str,
+    merge_args: list[str],
+    arg: ast.Expression,
+) -> ast.Function:
+    """
+    Build a component's Phase 2 merge call, including any fixed tuning arguments.
+
+    Components without `merge_args` -- every non-sketch aggregation -- produce
+    the same single-argument call as before.
+    """
+    extra: list[ast.Expression] = []
+    for literal in merge_args:
+        parsed = parse(f"SELECT {literal}").select.projection[0]
+        parsed.clear_parent()
+        extra.append(cast(ast.Expression, parsed))
+    return ast.Function(name=ast.Name(merge), args=[arg, *extra])
 
 
 def get_base_metrics_for_derived(ctx: BuildContext, metric_node: Node) -> list[Node]:
@@ -275,12 +328,9 @@ def get_base_metrics_for_derived(ctx: BuildContext, metric_node: Node) -> list[N
             return
         visited.add(node.name)
 
-        # Recurse through metric parents. A node with any metric parent is itself
-        # derived; a node with no metric parent is a base metric -- regardless of
-        # whether its data source is a fact/transform or a dimension node (a base
-        # metric can be defined directly on a dimension node). Classifying by
-        # "has a metric parent" avoids mistaking a dimension-sourced base metric
-        # for a bare required-dimension reference, which would drop its grain group.
+        # Recurse through metric parents. A node with any metric parent is derived;
+        # a node with no metric parent is a base metric. Checking for metric parents 
+        # avoids dropping base metrics that are defined directly on dimension nodes.
         has_metric_parent = False
         for parent_name in ctx.parent_map.get(node.name, []):
             parent = ctx.nodes.get(parent_name)
@@ -589,8 +639,7 @@ def merge_grain_groups(grain_groups: list[GrainGroup]) -> list[GrainGroup]:
     """
     # Group by parent node name first, then by the internal grain needed for
     # semi-additive collapse. LIMITED/NONE groups must not be merged into a
-    # semi-additive FULL group, because their extra grain columns would make the
-    # protected-dimension bucket contain multiple rows and corrupt MAX_BY/MIN_BY.
+    # semi-additive FULL group, as extra grain columns would corrupt MAX_BY/MIN_BY.
     by_parent: dict[str, list[GrainGroup]] = defaultdict(list)
     for gg in grain_groups:
         by_parent[gg.parent_node.name].append(gg)
@@ -604,8 +653,7 @@ def merge_grain_groups(grain_groups: list[GrainGroup]) -> list[GrainGroup]:
         elif any(group.reaggregate_component_dimensions for group in parent_groups):
             # Keep semi-additive groups isolated. Merging a protected-dimension
             # group with another grain can add rows inside the protected bucket,
-            # which makes MAX_BY/MIN_BY pick one lower-grain row instead of the
-            # already-aggregated value at that protected grain.
+            # corrupting the already-aggregated value for MAX_BY/MIN_BY.
             merged_groups.extend(parent_groups)
         else:
             # Multiple groups for same parent - merge them
@@ -655,10 +703,8 @@ def _merge_parent_grain_groups(groups: list[GrainGroup]) -> GrainGroup:
             gg.reaggregate_component_dimensions,
         )
 
-    # Carry over non-decomposable metrics from every contributing group.
-    # Without this, merging a NONE group into a FULL/LIMITED neighbor
-    # silently drops the non-decomposable metric expressions and the
-    # response loses those metrics entirely.
+    # Carry over non-decomposable metrics from every contributing group to prevent them
+    # from being silently dropped when merging a NONE group into a FULL/LIMITED neighbor.
     all_non_decomposable: list[DecomposedMetricInfo] = []
     for gg in groups:
         all_non_decomposable.extend(gg.non_decomposable_metrics)

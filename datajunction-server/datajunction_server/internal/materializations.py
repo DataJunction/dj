@@ -475,36 +475,6 @@ async def reconcile_declared_materializations(
 
     Returns what each declared block resolved to, and the materializations the
     blocks together superseded.
-
-    A cube may declare more than one block -- typically an `incremental_time` build
-    for freshness beside a periodic `full` rebuild that corrects late-arriving data
-    -- and each is reconciled the same way. They cannot collide: the row name is
-    derived from job, strategy and partition, the job is fixed for a cube and the
-    strategies are unique by validation, so every declared block owns a row of its
-    own.
-
-    Mirrors what `POST /nodes/{name}/materialization/` does -- build the config, then
-    update the row of the same name in place rather than inserting a second one,
-    since `(name, node_revision_id)` is unique -- with one deliberate difference. The
-    endpoint decides "unchanged" on `config` alone, but `schedule` and `strategy` are
-    columns rather than config keys, so by that test a schedule-only edit compares
-    equal and is silently dropped. Rescheduling is the whole point of a declared
-    block, so all three are compared here.
-
-    The declared blocks describe *the* materializations for their cube, so every
-    other active row on the revision is deactivated. The rule is "any active row
-    whose name no block built" rather than "any row of the same job type", because a
-    cube's materializations are all writing one Druid datasource and a full rebuild
-    replaces that datasource wholesale -- so a legacy `druid_measures_cube` row is
-    just as much a competing writer as a second `druid_cube` row, and matching on job
-    type would leave it running. The name is what carries the difference: it is
-    derived from job, strategy and partition, so declaring a strategy the cube was
-    not already materialized with builds a differently named row, and without this
-    the cube ends up with two live workflows deleting each other's data.
-
-    A cube planner row is the one thing left alone. It writes a datasource of its own
-    and DJ cannot rebuild it from a declared block, so superseding it would stop a
-    workflow nothing here can replace.
     """
     # Snapshotted before the builds, each of which sets the new materialization's
     # backref and so appends it to this very collection -- searching afterwards would
@@ -584,27 +554,7 @@ async def swap_cube_materializations(
 ) -> CubeMaterializationSwap | None:
     """
     Rebuild a cube's materializations against a new revision and retire the old ones.
-
-    Materializations belong to a single `NodeRevision` and availability is scoped to
-    the revision encoded in the materialized table name, so without this a new cube
-    revision -- including a metadata-only one -- has neither: the cube silently falls
-    back to live queries while the superseded revision's workflow keeps posting
-    availability for a table built from the old definition. Every new revision
-    therefore swaps, no matter how insignificant the change was.
-
-    Rebuilt rather than copied: a stored config embeds the cube version plus combiner
-    SQL and a Druid spec derived from the old definition, so the new revision goes
-    back through `create_new_materialization`. The old materialization is the default
-    source of the user's intent because it is often the only record of it -- a cube
-    materialized through the UI has no YAML to read it from. A cube that does declare
-    `materialization:` passes it as `declared`, which wins, so a push that edits both
-    a metric and the schedule rebuilds with the new schedule rather than the old.
-
-    `previous_table_usable` is the caller's answer to whether the superseded
-    revision's materialized table is still valid (`is_non_trivial_cube_change`
-    inverted), recorded on the history event so an operator can tell whether the
-    rebuild can adopt the existing data or needs a fresh build and backfill.
-
+    
     Touches only DJ-side state, and returns the query service work still owed --
     `None` when the cube had nothing materialized and there is no work at all. The
     caller commits and then hands the result to `apply_cube_materialization_swap`, so
@@ -650,18 +600,8 @@ async def swap_cube_materializations(
         try:
             upsert = _upsert_from_materialization(materialization)
             if declared and isinstance(upsert, UpsertCubeMaterialization):
-                # The declared block wins over the recovered intent: a cube that
-                # declares `materialization:` has its config in the repo, so a
-                # rebuild triggered by the same deploy must build what the YAML now
-                # says. Only cube materializations can be declared; anything else
-                # keeps what was recovered.
-                #
-                # Which block, when the cube declares several: the one naming the
-                # strategy this row was built with, since that is what identifies a
-                # declared entry. A row whose strategy nothing declares falls to the
-                # first block, which is what a cube declaring exactly one has always
-                # done -- and is the only sensible answer, since a rebuild has to
-                # produce something for a row that is being retired either way.
+                # The declared block wins over the recovered intent.
+                # If there are several, match by strategy, otherwise use the first.
                 block = next(
                     (
                         candidate

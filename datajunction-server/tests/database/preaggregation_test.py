@@ -719,14 +719,10 @@ class TestPreAggregationDBMethods:
 
 
 class TestMeasureIdentityParams:
-    """
-    Tuning parameters participate in measure identity.
-    """
+    """Tuning parameters participate in measure identity."""
 
     def test_existing_tokens_are_unchanged(self):
-        """
-        A component without params produces the token byte-for-byte.
-        """
+        """A component without params produces the identical token."""
         assert measure_identity_token("abc123", "SUM") == "abc123:SUM"
         assert measure_identity_token("abc123", "SUM", None) == "abc123:SUM"
         assert measure_identity_token("abc123", "SUM", {}) == "abc123:SUM"
@@ -742,9 +738,7 @@ class TestMeasureIdentityParams:
         assert low != measure_identity_token("abc123", "TDIGEST_AGG")
 
     def test_params_are_order_and_spelling_insensitive(self):
-        """
-        One sketch declaration yields one identity. Key order and type variations (e.g. 200 vs 200.0) do not change the identity token.
-        """
+        """Order and type variations (e.g. 200 vs 200.0) do not change the identity token."""
         assert measure_identity_token(
             "abc123",
             "TDIGEST_AGG",

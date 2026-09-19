@@ -2486,14 +2486,7 @@ async def _propagate_update_downstream(
                 cache.delete(upstream_cache_key)
 
         if downstream.type == NodeType.CUBE:
-            # Any tier rebuilds, and the churn is deliberate. Narrowing this by
-            # comparing the upstream's resolved columns was rejected: a query edit
-            # can move a filter, a join or a CASE threshold while leaving every
-            # column and type identical, and each changes every row the cube serves.
-            # Nothing short of reading the SQL tells those apart, so a changed query
-            # makes anything built from it suspect. Only NONE is skipped, the one
-            # case where DJ knows nothing material happened.
-            #
+            # Any tier rebuilds except NONE.
             # A rebuild can fail, and one cube's failure must not cost the remaining
             # downstreams theirs.
             if change_tier is not ChangeTier.NONE:
@@ -4388,17 +4381,6 @@ async def revalidate_node(
     ]
     # A tier rather than a version, so propagation can hand the same value to
     # `bump_version` for downstream cubes.
-    #
-    # Any column change is major. An addition looks harmless -- nothing could
-    # already reference a column that did not exist -- but the query produced it,
-    # and a query edit can move a filter or a join while leaving the rest of the
-    # projection identical. Demoting additions to MINOR buys nothing anyway: the
-    # cube rebuild below skips only NONE, so a minor bump rebuilds all the same.
-    #
-    # `order_fixed` earns no tier. DJ filling in a missing projection index is its
-    # own bookkeeping, not a change to the node, so a revision would describe
-    # nothing and any tier above NONE would rebuild every cube below. It is applied
-    # to the current revision in place instead, below.
     change_tier = fold_change_tiers(
         [
             ChangeTier.MAJOR
