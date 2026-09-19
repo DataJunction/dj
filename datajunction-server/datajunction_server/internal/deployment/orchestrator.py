@@ -1122,18 +1122,29 @@ class DeploymentOrchestrator:
                     )
 
         # Upsert tags
-        tags_modified = False
+        created: list[str] = []
+        updated: list[str] = []
         for tag_name, tag_spec in deployment_tag_specs.items():
             if tag_name in existing_tags:
                 tag = existing_tags[tag_name]
                 if tag_needs_update(tag, tag_spec):
+                    logger.info(
+                        "Updating tag `%s` of type `%s`",
+                        tag_name,
+                        tag_spec.tag_type,
+                    )
                     tag.tag_type = tag_spec.tag_type
                     tag.description = tag_spec.description
                     tag.display_name = tag_spec.display_name or labelize(tag_name)
                     tag.tag_metadata = tag_spec.tag_metadata or {}
                     self.session.add(tag)
-                    tags_modified = True
+                    updated.append(tag_name)
             else:
+                logger.info(
+                    "Creating tag `%s` of type `%s`",
+                    tag_name,
+                    tag_spec.tag_type,
+                )
                 tag = Tag(
                     name=tag_name,
                     tag_type=tag_spec.tag_type,
@@ -1143,10 +1154,17 @@ class DeploymentOrchestrator:
                     created_by_id=self.context.current_user.id,
                 )
                 self.session.add(tag)
-                tags_modified = True
+                created.append(tag_name)
             existing_tags[tag_name] = tag
 
-        if tags_modified:
+        if created or updated:
+            logger.info(
+                "Tags in %s: created %d, updated %d, unchanged %d",
+                self.deployment_spec.namespace,
+                len(created),
+                len(updated),
+                len(deployment_tag_specs) - len(created) - len(updated),
+            )
             await self.session.flush()  # Get IDs but don't commit
         return existing_tags
 
@@ -1154,13 +1172,8 @@ class DeploymentOrchestrator:
         """
         Delete tags of a claimed type that this manifest no longer declares.
 
-        Only the namespace recorded on the claim reconciles. A branch's claim
-        resolves to its parent, so a stale branch checkout deletes nothing.
-
-        Runs after nodes are deployed and deleted, so a push that drops a tag and
-        detaches it in one commit sees it unattached. A tag an active node still
-        holds is kept and reported: those nodes are usually in namespaces the
-        deploying repo cannot edit, so failing would be unfixable from here.
+        Runs after nodes are deployed and deleted, so a tag dropped and detached
+        in one push is already unattached by the time it is checked.
         """
         if not self.deployment_spec.managed_tag_types:
             return []
@@ -1178,6 +1191,11 @@ class DeploymentOrchestrator:
         )
         if not tag_types:
             return []
+        logger.info(
+            "Reconciling tags of claimed type(s) %s for %s",
+            ", ".join(tag_types),
+            namespace,
+        )
 
         declared = {spec.name for spec in self.deployment_spec.tags}
         declared |= {tag for spec in self.deployment_spec.nodes for tag in spec.tags}
@@ -1202,6 +1220,11 @@ class DeploymentOrchestrator:
                 f"{', '.join(tag_types)} were left intact because the deployment "
                 f"declares no tags. Re-run with allow_empty to delete them."
             )
+            logger.warning(
+                "Kept %d tag(s) of claimed type(s): no tags declared and "
+                "allow_empty not set",
+                len(obsolete),
+            )
             self.warnings.append(
                 DJError(
                     code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
@@ -1223,6 +1246,11 @@ class DeploymentOrchestrator:
         for tag in obsolete:
             blocking = holders.get(tag.id, [])
             if blocking:
+                logger.info(
+                    "Keeping tag `%s`: still on %d active node(s)",
+                    tag.name,
+                    len(blocking),
+                )
                 results.append(
                     DeploymentResult(
                         name=tag.name,
@@ -1239,6 +1267,11 @@ class DeploymentOrchestrator:
                     ),
                 )
                 continue
+            logger.info(
+                "Deleting tag `%s` of claimed type `%s`",
+                tag.name,
+                tag.tag_type,
+            )
             self.session.add(
                 History(
                     entity_type=EntityType.TAG,
@@ -1268,6 +1301,14 @@ class DeploymentOrchestrator:
                 ),
             )
         await self.session.flush()
+        deleted = sum(
+            result.operation == DeploymentResult.Operation.DELETE for result in results
+        )
+        logger.info(
+            "Reconciled claimed tags: deleted %d, kept %d still in use",
+            deleted,
+            len(results) - deleted,
+        )
         return results
 
     async def _active_nodes_by_tag(self, tag_ids: list[int]) -> dict[int, list[str]]:

@@ -1,5 +1,6 @@
 """Tests for tag type claims — namespace ownership of a tag vocabulary."""
 
+import logging
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
@@ -28,6 +29,8 @@ from datajunction_server.models.deployment import (
     TagTypeClaimSpec,
 )
 from datajunction_server.models.node_type import NodeType
+
+ORCHESTRATOR_LOGGER = "datajunction_server.internal.deployment.orchestrator"
 
 
 async def claim_for(session, tag_type: str) -> TagTypeClaim | None:
@@ -358,6 +361,32 @@ async def test_reconcile_deletes_a_tag_the_manifest_dropped(session, current_use
     assert [
         (result.status, result.operation) for result in results_for(results, "retired")
     ] == [(DeploymentResult.Status.SUCCESS, DeploymentResult.Operation.DELETE)]
+
+
+@pytest.mark.asyncio
+async def test_reconcile_logs_what_it_touched(session, current_user, caplog):
+    """The deploy log names each tag created, deleted, or kept."""
+    await add_tag(session, current_user, "retired", "domain")
+    kept = await add_tag(session, current_user, "in_use", "domain")
+    await attach_tag(session, current_user, kept, "analytics.revenue")
+    spec = DeploymentSpec(
+        namespace="taxonomy",
+        nodes=[],
+        tags=[TagSpec(name="payments", tag_type="domain")],
+        managed_tag_types=[TagTypeClaimSpec(tag_type="domain")],
+    )
+    orchestrator = orchestrator_for(spec, session, current_user)
+    with caplog.at_level(logging.INFO, logger=ORCHESTRATOR_LOGGER):
+        await orchestrator._setup_deployment_resources()
+        await orchestrator._reconcile_claimed_tags()
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert "Creating tag `payments` of type `domain`" in messages
+    assert "Tags in taxonomy: created 1, updated 0, unchanged 0" in messages
+    assert "Reconciling tags of claimed type(s) domain for taxonomy" in messages
+    assert "Deleting tag `retired` of claimed type `domain`" in messages
+    assert "Keeping tag `in_use`: still on 1 active node(s)" in messages
+    assert "Reconciled claimed tags: deleted 1, kept 1 still in use" in messages
 
 
 @pytest.mark.asyncio
