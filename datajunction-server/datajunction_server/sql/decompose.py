@@ -17,6 +17,7 @@ from datajunction_server.models.decompose import (
     MetricComponent,
 )
 from datajunction_server.models.dialect import Dialect
+from datajunction_server.models.materialization import MaterializationTarget
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.reaggregate import (
     ReaggregateSpec,
@@ -104,7 +105,29 @@ class ComponentDef:
     suffix: str
     accumulate: str
     merge: str
+    # Fixed arguments appended after the column in the merge call, as SQL literals.
+    # `nflx_tdigest_agg(col, 200.0)` is merge="nflx_tdigest_agg" with
+    # merge_args=("200.0",). Kept separate from `merge` rather than templated into
+    # it because the Druid aggregator mapping and the semi-additive rewrite both
+    # match on the bare function name. Omitting a required tuning argument is not
+    # an error the engine reports: `nflx_tdigest_agg` has a one-argument overload
+    # that silently falls back to a near-useless compression and collapses the
+    # digest to a single centroid at the mean.
+    merge_args: tuple[str, ...] = ()
     arg_index: int | None = 0  # Which arg to use, or None for multi-arg templates
+    # Conversion applied to the accumulated value when writing a measures table
+    # for a target that cannot read the in-engine representation. A template, as
+    # `accumulate` is: "nflx_tdigest_sketch({})". Applied only at materialization
+    # time and only for the targets in `serialize_targets`, so query-time SQL and
+    # every other destination keep the unwrapped value.
+    serialize: str | None = None
+    # Targets that need `serialize`. Empty means it never applies.
+    serialize_targets: tuple[MaterializationTarget, ...] = ()
+    # Column type the conversion produces, e.g. "binary". Declared rather than
+    # inferred: a sketch accumulate takes more arguments than type inference
+    # feeds it, so inference falls back to the metric type and would silently
+    # record the wrong type for the column.
+    serialize_type: str | None = None
 
 
 class AggDecomposition(ABC):
@@ -140,7 +163,14 @@ class AggDecomposition(ABC):
         func: ast.Function,
         dialect: Dialect = Dialect.SPARK,
     ) -> ast.Expression:
-        """Build the combiner expression from merged metric components."""
+        """
+        Build the combiner expression from merged metric components.
+
+        Returns Spark-canonical SQL; translation to other dialects happens in
+        the transpilation layer, so re-spelling function names, array literals
+        or index bases here applies them twice. Branch on `dialect` only for an
+        engine needing a structurally different expression.
+        """
 
 
 # =============================================================================
@@ -1572,11 +1602,15 @@ class MetricComponentExtractor:
             expression=expression,
             aggregation=None if is_distinct else accumulate_expr,
             merge=None if is_distinct else comp_def.merge,
+            merge_args=[] if is_distinct else list(comp_def.merge_args),
             rule=AggregationRule(
                 type=Aggregability.LIMITED if is_distinct else Aggregability.FULL,
                 level=[str(a) for a in func.args] if is_distinct else None,
             ),
             grain_alias=grain_alias,
+            serialize=comp_def.serialize,
+            serialize_targets=list(comp_def.serialize_targets),
+            serialize_type=comp_def.serialize_type,
         )
 
     def _expand_template(self, template: str, args: list) -> str:

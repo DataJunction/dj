@@ -32,6 +32,22 @@ from datajunction_server.typing import UTCDatetime
 if TYPE_CHECKING:
     from datajunction_server.database.node import NodeRevision
 
+
+class MaterializationTarget(StrEnum):
+    """
+    Where a measures table is being written.
+
+    Distinct from ``Dialect``: measures SQL executes in Spark for a Druid cube
+    and an Iceberg pre-agg alike, so the dialect cannot tell the two apart. Only
+    the target can, and some components must be written differently depending on
+    it -- a sketch whose in-engine representation is not the one the destination
+    reads needs converting on the way out.
+    """
+
+    DRUID = "druid"
+    ICEBERG = "iceberg"
+
+
 DRUID_AGG_MAPPING = {
     ("bigint", "sum"): "longSum",
     ("int", "sum"): "longSum",
