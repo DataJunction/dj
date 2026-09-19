@@ -14,9 +14,9 @@ VARIABLES: dict[str, Any] = {
     "node": _STR_MAP,
     "dependencies": cel.Type.List(_STR_MAP),
     "previous": _STR_MAP,
-    # Typed BOOL so a guard like `change.is_removal` is known to be a boolean
-    # at compile time.
-    "change": cel.Type.Map(cel.Type.STRING, cel.Type.BOOL),
+    # Typed STRING so a guard like `change.kind == 'remove'` is known to
+    # compare strings at compile time.
+    "change": cel.Type.Map(cel.Type.STRING, cel.Type.STRING),
 }
 
 # Read from the registered custom_metadata schemas.

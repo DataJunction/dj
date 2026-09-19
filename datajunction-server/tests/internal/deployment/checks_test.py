@@ -236,7 +236,7 @@ async def test_skipped_check_reports_nothing(session, current_user):
         checks=[
             DeploymentCheckSpec(
                 name="demo.primary_key_set",
-                when="node.type == 'metric'",
+                when="node.node_type == 'metric'",
                 condition="size(node.primary_key) >= 1",
                 gate="block",
             ),
@@ -289,7 +289,7 @@ async def test_ruleset_when_guard_is_refused(session, current_user):
         rulesets=[
             DeploymentRulesetSpec(
                 name="strict",
-                when="node.type == 'metric'",
+                when="node.node_type == 'metric'",
                 checks=["demo.owner_present"],
             ),
         ],
@@ -375,7 +375,7 @@ async def test_a_skipped_member_does_not_fail_its_ruleset(session, current_user)
             ),
             DeploymentCheckSpec(
                 name="demo.primary_key_set",
-                when="node.type == 'metric'",
+                when="node.node_type == 'metric'",
                 condition="size(node.primary_key) >= 1",
                 gate="warn",
             ),
@@ -407,7 +407,7 @@ async def test_a_ruleset_is_not_applicable_when_every_member_was_skipped(
         checks=[
             DeploymentCheckSpec(
                 name="demo.primary_key_set",
-                when="node.type == 'metric'",
+                when="node.node_type == 'metric'",
                 condition="size(node.primary_key) >= 1",
                 gate="warn",
             ),
@@ -525,7 +525,7 @@ async def test_a_removed_node_is_checked_from_its_deployed_spec(session, current
         checks=[
             DeploymentCheckSpec(
                 name="demo.removal_reviewed",
-                when="change.is_removal",
+                when="change.kind == 'remove'",
                 condition="size(node.owners) >= 1",
                 gate="warn",
             ),
@@ -736,15 +736,15 @@ def test_fixtures_cover_both_an_empty_and_a_populated_entity():
     bare, populated = build_fixtures(declared)
     assert bare["node"]["custom_metadata"]["sample"]["color"] is None
     assert populated["node"]["custom_metadata"]["sample"]["color"] == "placeholder"
-    assert bare["previous"]["exists"] is False
-    assert populated["previous"]["exists"] is True
+    assert bare["change"] == {"kind": "create"}
+    assert populated["change"] == {"kind": "remove"}
 
 
 def test_only_guarded_rulesets_are_refused():
     rulesets = resolve_rulesets(
         [
             DeploymentRulesetSpec(name="baseline", checks=["demo.owner_present"]),
-            DeploymentRulesetSpec(name="strict", when="node.type == 'metric'"),
+            DeploymentRulesetSpec(name="strict", when="node.node_type == 'metric'"),
         ],
     )
     (refused,) = unsupported_ruleset_guards(rulesets)
