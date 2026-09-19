@@ -46,7 +46,7 @@ def _classify(data) -> str | None:
 
 def _candidate_examples() -> list[tuple[str, dict, str]]:
     out: list[tuple[str, dict, str]] = []
-    for path in sorted(SKILLS_DIR.glob("*.md")):
+    for path in sorted(SKILLS_DIR.glob("*/SKILL.md")):
         for i, match in enumerate(_FENCED_YAML.finditer(path.read_text())):
             try:
                 data = yaml.safe_load(match.group(1))
@@ -54,7 +54,7 @@ def _candidate_examples() -> list[tuple[str, dict, str]]:
                 continue
             kind = _classify(data)
             if kind:
-                out.append((f"{path.stem}[{i}]", data, kind))
+                out.append((f"{path.parent.name}[{i}]", data, kind))
     return out
 
 

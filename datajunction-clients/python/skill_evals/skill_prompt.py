@@ -29,7 +29,7 @@ CONTROL_SYSTEM = (
 def build_prompt(context):
     variables = context["vars"]
     names = [n.strip() for n in variables["skill"].split(",") if n.strip()]
-    skill_docs = [(SKILLS_DIR / f"{name}.md").read_text() for name in names]
+    skill_docs = [(SKILLS_DIR / name / "SKILL.md").read_text() for name in names]
     return [
         {"role": "system", "content": "\n\n---\n\n".join(skill_docs)},
         {"role": "user", "content": variables["request"]},
