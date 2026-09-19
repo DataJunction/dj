@@ -44,6 +44,7 @@ from datajunction_server.models.deployment import (
     PreAggSpec,
     SourceSpec,
     TagSpec,
+    TagTypeClaimSpec,
     TransformSpec,
 )
 from datajunction_server.models.dimensionlink import JoinCardinality, JoinType
@@ -4774,6 +4775,66 @@ class TestDeployments:
         }
         node = await Node.get_by_name(session, f"{namespace}.default.us_state")
         assert [tag.name for tag in node.tags] == ["tag1"]
+
+    @pytest.mark.asyncio
+    async def test_deploy_reconciles_claimed_tags(
+        self,
+        client,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        A tag of a type the namespace claims is deleted once the manifest stops
+        declaring it, on both the no-node-changes path and a full deploy.
+        """
+        namespace = "tag_reconcile_deploy"
+        default_us_state.tags = ["in_use"]
+
+        def spec(tag_names, description="US states"):
+            default_us_states.description = description
+            return DeploymentSpec(
+                namespace=namespace,
+                nodes=[default_us_states, default_us_state],
+                tags=[TagSpec(name=name, tag_type="domain") for name in tag_names],
+                managed_tag_types=[TagTypeClaimSpec(tag_type="domain")],
+            )
+
+        data = await deploy_and_wait(client, spec(["in_use", "unused", "later"]))
+        assert data["status"] == "success"
+        response = await client.get("/tags/unused/")
+        assert response.json()["owned_by_namespace"] == namespace
+
+        # Dropping a tag changes no node, so this lands on the no-changes path.
+        data = await deploy_and_wait(client, spec(["in_use", "later"]))
+        assert [
+            result for result in data["results"] if result["deploy_type"] == "tag"
+        ] == [
+            {
+                "deploy_type": "tag",
+                "name": "unused",
+                "operation": "delete",
+                "status": "success",
+                "message": (
+                    "Tag of claimed type 'domain' deleted: no longer declared by "
+                    f"namespace '{namespace}'."
+                ),
+                "changed_fields": [],
+            },
+        ]
+        response = await client.get("/tags/unused/")
+        assert response.status_code == 404
+
+        # And again on a deploy that does change a node.
+        data = await deploy_and_wait(client, spec(["in_use"], description="changed"))
+        assert [
+            result["name"]
+            for result in data["results"]
+            if result["deploy_type"] == "tag"
+        ] == ["later"]
+        response = await client.get("/tags/later/")
+        assert response.status_code == 404
+        response = await client.get("/tags/in_use/")
+        assert response.status_code == 200
 
     @pytest.mark.asyncio
     async def test_deploy_tag_metadata(
