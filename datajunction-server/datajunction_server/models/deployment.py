@@ -1914,6 +1914,8 @@ class DeploymentResult(BaseModel):
         PREAGG = "preaggregation"
         MATERIALIZATION = "materialization"
         GENERAL = "general"
+        CHECK = "check"
+        RULESET = "ruleset"
 
     name: str
     deploy_type: Type

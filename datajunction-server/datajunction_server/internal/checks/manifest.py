@@ -10,7 +10,7 @@ a ruleset is a named bundle of them.
 
       - name: demo.primary_key_set
         description: Dimensions declare a primary key.
-        when: "node.type == 'dimension'"     # only applies to dimensions
+        when: "node.node_type == 'dimension'"     # only applies to dimensions
         condition: "size(node.primary_key) >= 1"
         gate: block
 

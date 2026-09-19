@@ -48,7 +48,21 @@ from datajunction_server.internal.access.authorization import (
     AccessDenialMode,
 )
 from datajunction_server.internal.access.authorization.context import AuthContext
+from datajunction_server.internal.checks.engine import CheckResult
+from datajunction_server.internal.checks.engine import evaluate as evaluate_checks
+from datajunction_server.internal.checks.manifest import to_manifest_checks
+from datajunction_server.internal.checks.validator import CheckGate, load_checks
 from datajunction_server.internal.custom_metadata import upsert_schema_specs
+from datajunction_server.internal.deployment.checks import (
+    RulesetOutcome,
+    RulesetVerdict,
+    build_bindings,
+    build_fixtures,
+    resolve_declared_schemas,
+    resolve_tag_types,
+    roll_up,
+    unsupported_ruleset_guards,
+)
 from datajunction_server.internal.deployment.dimension_reachability import (
     DimensionReachability,
 )
@@ -155,6 +169,13 @@ from datajunction_server.utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+# A ruleset verdict reports only; what blocks is the member checks' gates.
+_RULESET_STATUSES = {
+    RulesetVerdict.PASSED: DeploymentResult.Status.SUCCESS,
+    RulesetVerdict.FAILED: DeploymentResult.Status.FAILED,
+    RulesetVerdict.NOT_APPLICABLE: DeploymentResult.Status.SKIPPED,
+}
 
 
 def _version_key(version: str) -> tuple[int, int]:
@@ -548,6 +569,9 @@ class DeploymentOrchestrator:
         # SAVEPOINT, so setup-phase writes roll back too.
         await self._authorize_deployment_plan(deployment_plan)
 
+        with self._timer.phase("governance checks"):
+            await self._run_governance_checks(deployment_plan)
+
         if deployment_plan.is_empty() and not self.deployment_spec.hierarchies:
             # Pre-aggregations still need reconciling on an otherwise-empty
             # deploy: to register specs, or to delete external pre-aggs that were
@@ -620,6 +644,187 @@ class DeploymentOrchestrator:
             access_checker.add_namespace(namespace, ResourceAction.DELETE)
 
         await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+    async def _run_governance_checks(self, plan: DeploymentPlan) -> None:
+        """
+        Compile the manifest's checks once, then evaluate them against every node
+        the deploy declares or removes. Runs before the plan is applied, so a
+        blocking failure refuses the deploy rather than undoing it.
+        """
+        if not self.deployment_spec.checks:
+            return
+
+        manifest = to_manifest_checks(
+            self.deployment_spec.checks,
+            self.deployment_spec.rulesets,
+        )
+        entities = self._checked_entities(plan)
+        declared = await resolve_declared_schemas(
+            self.session,
+            self.deployment_spec.namespace,
+            {spec.node_type for spec, _ in entities},
+        )
+        tag_types = await resolve_tag_types(
+            self.session,
+            self.deployment_spec.tags,
+            {tag for spec, _ in entities for tag in spec.tags},
+        )
+        loaded = load_checks(manifest.checks, build_fixtures(declared))
+        malformed = loaded.malformed + unsupported_ruleset_guards(manifest.rulesets)
+        if malformed:
+            for problem in malformed:
+                self.errors.append(
+                    DJError(
+                        code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                        message=(
+                            f"Check '{problem.check}': its `{problem.clause}` "
+                            f"clause {problem.problem}."
+                        ),
+                    ),
+                )
+            raise DJInvalidDeploymentConfig(
+                message="Invalid governance checks",
+                errors=self.errors,
+                warnings=self.warnings,
+            )
+        descriptions = {check.name: check.description for check in loaded.checks}
+        in_flight = {spec.rendered_name: spec for spec in plan.to_deploy}
+        # Only block_on_regression reads it, and projecting is not free.
+        wants_previous = any(
+            check.gate == CheckGate.BLOCK_ON_REGRESSION for check in loaded.checks
+        )
+        blocked: list[str] = []
+
+        for spec, operation in entities:
+            name = spec.rendered_name
+            previous = plan.existing_specs.get(name)
+            bindings = build_bindings(
+                spec,
+                previous=previous,
+                dependencies=self._checked_dependencies(plan, name, in_flight),
+                operation=operation,
+                declared=declared.properties,
+                tag_types=tag_types,
+            )
+            previous_bindings = None
+            if wants_previous and previous is not None:
+                previous_bindings = build_bindings(
+                    previous,
+                    previous=previous,
+                    dependencies=self._checked_dependencies(plan, name, {}),
+                    operation=DeploymentResult.Operation.NOOP,
+                    declared=declared.properties,
+                    tag_types=tag_types,
+                )
+            results = evaluate_checks(loaded.checks, bindings, previous_bindings)
+            for result in results:
+                if result.skipped:
+                    continue
+                message = self._check_message(result, descriptions[result.check])
+                if result.blocked:
+                    blocked.append(message)
+                    self.errors.append(
+                        DJError(
+                            code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                            message=message,
+                        ),
+                    )
+                elif not result.passed:
+                    self.warnings.append(
+                        DJError(
+                            code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                            message=message,
+                        ),
+                    )
+                self.deployed_results.append(
+                    DeploymentResult(
+                        name=name,
+                        deploy_type=DeploymentResult.Type.CHECK,
+                        status=self._check_status(result),
+                        operation=DeploymentResult.Operation.NOOP,
+                        message=message,
+                    ),
+                )
+
+            # Reporting only.
+            for outcome in roll_up(manifest.rulesets, results):
+                self.deployed_results.append(
+                    DeploymentResult(
+                        name=name,
+                        deploy_type=DeploymentResult.Type.RULESET,
+                        status=_RULESET_STATUSES[outcome.verdict],
+                        operation=DeploymentResult.Operation.NOOP,
+                        message=self._ruleset_message(outcome),
+                    ),
+                )
+
+        if blocked:
+            raise DJInvalidDeploymentConfig(
+                message=f"Deployment blocked by {len(blocked)} failing check(s)",
+                errors=self.errors,
+                warnings=self.warnings,
+            )
+
+    @staticmethod
+    def _checked_entities(
+        plan: DeploymentPlan,
+    ) -> list[tuple[NodeSpec, DeploymentResult.Operation]]:
+        """Every node the deploy touches, with what it is doing to each."""
+        operation = DeploymentResult.Operation
+        return [
+            *(
+                (
+                    spec,
+                    operation.UPDATE
+                    if spec.rendered_name in plan.existing_specs
+                    else operation.CREATE,
+                )
+                for spec in plan.to_deploy
+            ),
+            *((spec, operation.NOOP) for spec in plan.to_skip),
+            *((spec, operation.DELETE) for spec in plan.to_delete),
+        ]
+
+    @staticmethod
+    def _checked_dependencies(
+        plan: DeploymentPlan,
+        node_name: str,
+        in_flight: dict[str, NodeSpec],
+    ) -> list[tuple[str, NodeSpec | None]]:
+        """Upstreams as (name, spec), preferring the spec this deploy will write."""
+        return [
+            (upstream, in_flight.get(upstream) or plan.existing_specs.get(upstream))
+            for upstream in plan.node_graph.get(node_name, [])
+        ]
+
+    @staticmethod
+    def _check_status(result: CheckResult) -> DeploymentResult.Status:
+        if result.passed:
+            return DeploymentResult.Status.SUCCESS
+        return (
+            DeploymentResult.Status.FAILED
+            if result.blocked
+            else DeploymentResult.Status.WARNING
+        )
+
+    @staticmethod
+    def _check_message(result: CheckResult, description: str) -> str:
+        verdict = "passed" if result.passed else "failed"
+        detail = f" {description}" if description else ""
+        return f"Check '{result.check}' ({result.gate}) {verdict}.{detail}"
+
+    @staticmethod
+    def _ruleset_message(outcome: RulesetOutcome) -> str:
+        if outcome.verdict == RulesetVerdict.NOT_APPLICABLE:
+            return (
+                f"Ruleset '{outcome.ruleset}' not applicable: "
+                "no member check applied here."
+            )
+        if outcome.failed:
+            detail = f"failing checks: {', '.join(sorted(outcome.failed))}"
+        else:
+            detail = f"{len(outcome.ran)} member check(s) passed"
+        return f"Ruleset '{outcome.ruleset}' {outcome.verdict}: {detail}."
 
     async def _update_deployment_status(self):
         """

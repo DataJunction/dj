@@ -6,15 +6,11 @@ metadata values are dynamically typed.
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from typing import Any
-
 from cel_expr_python import cel
 
 from datajunction_server.enum import StrEnum
 from datajunction_server.internal.checks import allowlist
-from datajunction_server.internal.checks.context import build_env
-
-Activation = dict[str, Any]
+from datajunction_server.internal.checks.context import Bindings, build_env
 
 _BOOLEAN_RETURN_TYPES = ("BOOL", "DYN")
 _CLAUSES = ("when", "condition")
@@ -76,7 +72,7 @@ class LoadedChecks:
 
 def load_checks(
     checks: Iterable[CheckSpec],
-    fixtures: Sequence[Activation],
+    fixtures: Sequence[Bindings],
     env: cel.Env | None = None,
 ) -> LoadedChecks:
     """Compile and vet every check. Malformed checks are split out and not run."""
@@ -128,7 +124,7 @@ def _compile_clause(
     name: str,
     clause: str,
     source: str,
-    fixtures: Sequence[Activation],
+    fixtures: Sequence[Bindings],
 ) -> tuple[MalformedCheck | None, cel.Expression | None]:
     try:
         expression = env.compile(source)

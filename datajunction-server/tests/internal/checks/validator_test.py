@@ -21,24 +21,37 @@ CHECKS = [
     ),
     CheckSpec(
         name="demo.owner_present",
-        description="At least one owner, with a resolvable email.",
-        condition=(
-            "size(node.owners) >= 1"
-            " && node.owners.all(o, o.email != null && o.email != '')"
-        ),
+        description="At least one owner, each a non-empty username.",
+        condition="size(node.owners) >= 1 && node.owners.all(o, o != '')",
         gate=CheckGate.WARN,
     ),
     CheckSpec(
         name="demo.primary_key_set",
         description="Dimensions declare a primary key.",
-        when="node.type == 'dimension'",
+        when="node.node_type == 'dimension'",
         condition="size(node.primary_key) >= 1",
         gate=CheckGate.BLOCK,
     ),
     CheckSpec(
-        name="demo.flavour_tagged",
-        description="A flavour tag is set.",
-        condition="node.tags.exists(t, t.tag_type == 'flavour')",
+        name="demo.flavor_tagged",
+        description="A tag of type flavor is set.",
+        condition="node.tags.exists(t, t.tag_type == 'flavor')",
+        gate=CheckGate.WARN,
+    ),
+    CheckSpec(
+        name="demo.left_joins_or_default",
+        description="Every join link is a left join or carries a default.",
+        condition=(
+            "node.dimension_links.all(l,"
+            " l.join_type != 'inner' || l.default_value != '')"
+        ),
+        gate=CheckGate.WARN,
+    ),
+    CheckSpec(
+        name="demo.retiring_names_a_successor",
+        description="An entity being retired names what replaces it.",
+        when="node.custom_metadata.sample.color in ['amber', 'red']",
+        condition="node.custom_metadata.sample.shape != null",
         gate=CheckGate.WARN,
     ),
     CheckSpec(
@@ -57,9 +70,25 @@ CHECKS = [
         gate=CheckGate.BLOCK_ON_REGRESSION,
     ),
     CheckSpec(
+        name="demo.no_retired_dependencies",
+        description="Not depending on anything retired.",
+        condition=(
+            "dependencies.all(d,"
+            " !(d.custom_metadata.sample.shape in ['retired', 'archived']))"
+        ),
+        gate=CheckGate.BLOCK,
+    ),
+    CheckSpec(
+        name="demo.wound_down_before_removal",
+        description="An entity is wound down before it is removed.",
+        when="change.kind == 'delete'",
+        condition="previous.custom_metadata.sample.color in ['amber', 'red']",
+        gate=CheckGate.BLOCK,
+    ),
+    CheckSpec(
         name="demo.shape_before_removal",
         description="A shape is recorded before an entity is removed.",
-        when="change.is_removal",
+        when="change.kind == 'delete'",
         condition="previous.custom_metadata.sample.shape != null",
         gate=CheckGate.BLOCK,
     ),
@@ -212,5 +241,4 @@ def test_fixtures_are_built_from_the_declared_properties():
         "other": {"weight": None},
     }
     assert populated["node"]["custom_metadata"]["other"]["weight"] == "fixture-weight"
-    assert populated["previous"]["exists"] is True
-    assert populated["change"] == {"is_new": False, "is_removal": True}
+    assert populated["change"] == {"kind": "delete"}
