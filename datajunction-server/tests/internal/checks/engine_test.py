@@ -43,6 +43,15 @@ def _by_name(results):
     return {result.check: result for result in results}
 
 
+def _without(activation, prop):
+    """The same activation with one declared property unset."""
+    node = dict(activation["node"])
+    metadata = dict(node["custom_metadata"])
+    metadata["sample"] = {**metadata["sample"], prop: None}
+    node["custom_metadata"] = metadata
+    return {**activation, "node": node}
+
+
 def test_warn_records_a_failure_without_blocking(checks, fixtures):
     results = _by_name(evaluate(checks, fixtures[0]))
     assert results["demo.color_set"].passed is False
@@ -67,9 +76,9 @@ def test_a_passing_check_never_blocks(checks, fixtures):
 
 
 def test_a_guard_skips_an_inapplicable_entity(checks, fixtures):
-    # The populated fixture is a transform, so the dimension-only check is
-    # skipped and asserts nothing either way.
-    skipped = _by_name(evaluate(checks, fixtures[1]))["demo.dimension_shape_set"]
+    # The bare fixture is a transform, so the dimension-only check is skipped
+    # and asserts nothing either way.
+    skipped = _by_name(evaluate(checks, fixtures[0]))["demo.dimension_shape_set"]
     assert skipped.skipped is True
     assert skipped.passed is None
     assert skipped.blocked is False
@@ -100,11 +109,12 @@ def test_block_on_regression_tolerates_a_pre_existing_failure(checks, fixtures):
 
 
 def test_block_on_regression_skips_a_guard_that_did_not_apply_before(checks, fixtures):
-    empty, populated = fixtures
-    # The entity was a transform before and is a dimension now, so the guarded
-    # check has no prior verdict to regress from.
+    bare, populated = fixtures
+    # A transform before and a dimension now, so the guarded check has no prior
+    # verdict to regress from.
+    now = _without(populated, "shape")
     result = _by_name(
-        evaluate(checks, empty, previous_activation=populated),
+        evaluate(checks, now, previous_activation=bare),
     )["demo.dimension_shape_set"]
     assert result.passed is False
     assert result.blocked is False
