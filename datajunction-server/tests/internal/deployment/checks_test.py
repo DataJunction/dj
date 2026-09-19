@@ -825,12 +825,17 @@ def test_both_kinds_of_dimension_link_project_the_same_keys():
     assert projected[1]["join_type"] == "left"
 
 
-def test_a_link_names_its_target_through_dimension():
-    # The two kinds spell the target differently, so a rule reads one key.
-    reference = DimensionReferenceLinkSpec(node_column="c", dimension="a.b")
+def test_a_link_names_its_target_node_the_same_way():
+    """
+    A reference link's `dimension` is `<node>.<column>` while a join link's
+    `dimension_node` is the node, so only `dimension_node` compares across the
+    two kinds.
+    """
+    reference = DimensionReferenceLinkSpec(node_column="c", dimension="a.b.column")
     join = DimensionJoinLinkSpec(dimension_node="a.b", node_column="c")
-    assert project_link(reference.model_dump())["dimension"] == "a.b"
-    assert project_link(join.model_dump())["dimension"] == "a.b"
+    assert project_link(reference)["dimension_node"] == "a.b"
+    assert project_link(join)["dimension_node"] == "a.b"
+    assert project_link(reference)["dimension"] == "a.b.column"
 
 
 def test_tags_project_with_their_type():
