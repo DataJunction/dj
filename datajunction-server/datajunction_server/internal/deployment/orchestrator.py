@@ -1154,14 +1154,13 @@ class DeploymentOrchestrator:
         """
         Delete tags of a claimed type that this manifest no longer declares.
 
-        Only the namespace holding the claim reconciles, so a branch deploy --
-        whose claim resolves to the parent namespace, not itself -- never deletes
-        the parent's tags. Runs after nodes are deployed and deleted, so a push
-        that drops a tag and detaches it in the same commit sees it unattached.
+        Only the namespace recorded on the claim reconciles. A branch's claim
+        resolves to its parent, so a stale branch checkout deletes nothing.
 
-        A tag still on an active node is kept and reported rather than failing the
-        deploy: a claimed vocabulary exists to be used by other namespaces, whose
-        nodes the deploying repo cannot edit.
+        Runs after nodes are deployed and deleted, so a push that drops a tag and
+        detaches it in one commit sees it unattached. A tag an active node still
+        holds is kept and reported: those nodes are usually in namespaces the
+        deploying repo cannot edit, so failing would be unfixable from here.
         """
         if not self.deployment_spec.managed_tag_types:
             return []
@@ -1194,9 +1193,9 @@ class DeploymentOrchestrator:
         if not obsolete:
             return []
 
-        # Same footgun as external pre-aggs: a manifest that claims a type but
-        # declares no tags of it is usually a partial push, not a request to drop
-        # the whole vocabulary. Wiping one takes the explicit opt-in.
+        # Same guard as external pre-aggs: a manifest that claims a type and
+        # declares no tags is far more often a partial push than a request to
+        # drop the vocabulary.
         if not declared and not self.deployment_spec.allow_empty:
             message = (
                 f"{len(obsolete)} tag(s) of claimed type(s) "
