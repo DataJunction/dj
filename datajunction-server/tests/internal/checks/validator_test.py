@@ -59,7 +59,7 @@ CHECKS = [
     CheckSpec(
         name="demo.shape_before_removal",
         description="A shape is recorded before an entity is removed.",
-        when="change.kind == 'remove'",
+        when="change.kind == 'delete'",
         condition="previous.custom_metadata.sample.shape != null",
         gate=CheckGate.BLOCK,
     ),
@@ -212,4 +212,4 @@ def test_fixtures_are_built_from_the_declared_properties():
         "other": {"weight": None},
     }
     assert populated["node"]["custom_metadata"]["other"]["weight"] == "fixture-weight"
-    assert populated["change"] == {"kind": "remove"}
+    assert populated["change"] == {"kind": "delete"}

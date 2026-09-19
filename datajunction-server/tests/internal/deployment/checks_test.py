@@ -525,7 +525,7 @@ async def test_a_removed_node_is_checked_from_its_deployed_spec(session, current
         checks=[
             DeploymentCheckSpec(
                 name="demo.removal_reviewed",
-                when="change.kind == 'remove'",
+                when="change.kind == 'delete'",
                 condition="size(node.owners) >= 1",
                 gate="warn",
             ),
@@ -737,7 +737,7 @@ def test_fixtures_cover_both_an_empty_and_a_populated_entity():
     assert bare["node"]["custom_metadata"]["sample"]["color"] is None
     assert populated["node"]["custom_metadata"]["sample"]["color"] == "placeholder"
     assert bare["change"] == {"kind": "create"}
-    assert populated["change"] == {"kind": "remove"}
+    assert populated["change"] == {"kind": "delete"}
 
 
 def test_only_guarded_rulesets_are_refused():
@@ -774,7 +774,8 @@ def test_a_subclass_without_a_field_still_projects_it_empty():
     `.all()` on the empty string would fail where it should trivially pass.
     """
     metric = project_node(
-        MetricSpec(name="m", node_type="metric", query="SELECT 1"), {}
+        MetricSpec(name="m", node_type="metric", query="SELECT 1"),
+        {},
     )
     dimension = project_node(
         DimensionSpec(name="d", node_type="dimension", query="SELECT 1"),

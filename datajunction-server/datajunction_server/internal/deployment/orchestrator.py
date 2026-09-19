@@ -54,10 +54,6 @@ from datajunction_server.internal.checks.manifest import to_manifest_checks
 from datajunction_server.internal.checks.validator import CheckGate, load_checks
 from datajunction_server.internal.custom_metadata import upsert_schema_specs
 from datajunction_server.internal.deployment.checks import (
-    CHANGE_CREATE,
-    CHANGE_REMOVE,
-    CHANGE_UNCHANGED,
-    CHANGE_UPDATE,
     RulesetOutcome,
     RulesetVerdict,
     build_activation,
@@ -696,14 +692,14 @@ class DeploymentOrchestrator:
         )
         blocked: list[str] = []
 
-        for spec, kind in entities:
+        for spec, operation in entities:
             name = spec.rendered_name
             previous = plan.existing_specs.get(name)
             activation = build_activation(
                 spec,
                 previous=previous,
                 dependencies=self._checked_dependencies(plan, name, in_flight),
-                kind=kind,
+                operation=operation,
                 declared=declared.properties,
             )
             previous_activation = None
@@ -712,7 +708,7 @@ class DeploymentOrchestrator:
                     previous,
                     previous=previous,
                     dependencies=self._checked_dependencies(plan, name, {}),
-                    kind=CHANGE_UNCHANGED,
+                    operation=DeploymentResult.Operation.NOOP,
                     declared=declared.properties,
                 )
             results = evaluate_checks(loaded.checks, activation, previous_activation)
@@ -765,20 +761,23 @@ class DeploymentOrchestrator:
             )
 
     @staticmethod
-    def _checked_entities(plan: DeploymentPlan) -> list[tuple[NodeSpec, str]]:
+    def _checked_entities(
+        plan: DeploymentPlan,
+    ) -> list[tuple[NodeSpec, DeploymentResult.Operation]]:
         """Every node the deploy touches, with what it is doing to each."""
+        operation = DeploymentResult.Operation
         return [
             *(
                 (
                     spec,
-                    CHANGE_UPDATE
+                    operation.UPDATE
                     if spec.rendered_name in plan.existing_specs
-                    else CHANGE_CREATE,
+                    else operation.CREATE,
                 )
                 for spec in plan.to_deploy
             ),
-            *((spec, CHANGE_UNCHANGED) for spec in plan.to_skip),
-            *((spec, CHANGE_REMOVE) for spec in plan.to_delete),
+            *((spec, operation.NOOP) for spec in plan.to_skip),
+            *((spec, operation.DELETE) for spec in plan.to_delete),
         ]
 
     @staticmethod

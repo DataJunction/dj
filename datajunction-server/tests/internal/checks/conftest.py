@@ -89,6 +89,6 @@ def build_fixtures(declared_properties: DeclaredProperties) -> list[dict[str, An
             "previous": {
                 "custom_metadata": custom_metadata(populated, declared_properties),
             },
-            "change": {"kind": "remove"},
+            "change": {"kind": "delete"},
         },
     ]

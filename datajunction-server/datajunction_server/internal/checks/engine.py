@@ -4,11 +4,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
-from datajunction_server.internal.checks.validator import (
-    Activation,
-    CheckGate,
-    CompiledCheck,
-)
+from datajunction_server.internal.checks.context import Activation
+from datajunction_server.internal.checks.validator import CheckGate, CompiledCheck
 
 
 @dataclass

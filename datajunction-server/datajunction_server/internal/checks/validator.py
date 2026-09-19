@@ -6,15 +6,11 @@ metadata values are dynamically typed.
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from typing import Any
-
 from cel_expr_python import cel
 
 from datajunction_server.enum import StrEnum
 from datajunction_server.internal.checks import allowlist
-from datajunction_server.internal.checks.context import build_env
-
-Activation = dict[str, Any]
+from datajunction_server.internal.checks.context import Activation, build_env
 
 _BOOLEAN_RETURN_TYPES = ("BOOL", "DYN")
 _CLAUSES = ("when", "condition")
