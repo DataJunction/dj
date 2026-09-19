@@ -4,7 +4,6 @@ Tests for scan estimation functionality.
 
 from unittest.mock import MagicMock
 
-
 from datajunction_server.construction.build_v3.types import BuildContext
 from datajunction_server.internal.scan_estimation import calculate_scan_estimate
 from datajunction_server.models.sql import ScanEstimate

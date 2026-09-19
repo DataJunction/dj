@@ -5,7 +5,7 @@ Fixtures for testing.
 # pylint: disable=redefined-outer-name, invalid-name
 import logging
 import os
-from typing import Iterator
+from collections.abc import Iterator
 
 import psycopg
 import pytest
@@ -25,7 +25,7 @@ os.environ["CONFIGURATION_FILE"] = os.path.join(
 os.environ.setdefault("DEFAULT_ENGINE", "duckdb_inmemory")
 os.environ.setdefault("DEFAULT_ENGINE_VERSION", "0.7.1")
 
-from djqs.api.main import app  # noqa: E402
+from djqs.api.main import app
 
 _logger = logging.getLogger(__name__)
 

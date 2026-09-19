@@ -45,7 +45,7 @@ class RemoveIdentifierBackticks(antlr4.ParseTreeListener):
     @staticmethod
     def enterNonReserved(ctx):
         def add_backtick(token):
-            return "`{0}`".format(token)
+            return f"`{token}`"
 
         return add_backtick
 
@@ -95,7 +95,7 @@ class ExplicitBailErrorStrategy(BailErrorStrategy):
 
     def recover(self, recognizer, e: RecognitionException):
         try:
-            super(ExplicitBailErrorStrategy, self).recover(recognizer, e)
+            super().recover(recognizer, e)
         except ParseCancellationException:
             raise SqlParsingError from e
 
@@ -229,14 +229,14 @@ def parse_rule(sql: str, rule: str) -> Union[ast.Node, "ColumnType"]:
 
 
 @lru_cache(maxsize=128)
-def _cached_parse(sql: Optional[str]) -> ast.Query:
+def _cached_parse(sql: str | None) -> ast.Query:
     """
     Parse a string sql query into a DJ query AST and cache it.
     """
     return parse(sql)
 
 
-def parse(sql: Optional[str]) -> ast.Query:
+def parse(sql: str | None) -> ast.Query:
     """
     Parse a string sql query into a DJ ast Query
     """
@@ -277,7 +277,7 @@ def parse(sql: Optional[str]) -> ast.Query:
         )
 
 
-def cached_parse(sql: Optional[str]) -> ast.Query:
+def cached_parse(sql: str | None) -> ast.Query:
     """
     Parse a string sql query into a DJ ast Query
     """
@@ -686,7 +686,7 @@ def _(ctx: sbp.SelectClauseContext):
 
 
 @visit.register
-def _(ctx: sbp.HintContext) -> List[ast.Hint]:
+def _(ctx: sbp.HintContext) -> list[ast.Hint]:
     return [visit(statement) for statement in ctx.hintStatements]
 
 
@@ -1062,7 +1062,7 @@ def _(ctx: sbp.StringLiteralContext):
 
 
 @visit.register
-def _(ctx: sbp.CtesContext) -> List[ast.Select]:
+def _(ctx: sbp.CtesContext) -> list[ast.Select]:
     names = {}
     ctes = []
     for namedQuery in ctx.namedQuery():
@@ -1163,7 +1163,7 @@ def _(ctx: sbp.SearchedCaseContext) -> ast.Case:
 
 
 @visit.register
-def _(ctx: sbp.WhenClauseContext) -> Tuple[ast.Expression, ast.Expression]:
+def _(ctx: sbp.WhenClauseContext) -> tuple[ast.Expression, ast.Expression]:
     condition, result = visit(ctx.condition), visit(ctx.result)
     return condition, result
 
@@ -1243,7 +1243,7 @@ def _(ctx: sbp.UnitToUnitIntervalContext) -> ast.Interval:
 
 
 @visit.register
-def _(ctx: sbp.MultiUnitsIntervalContext) -> List[ast.IntervalUnit]:
+def _(ctx: sbp.MultiUnitsIntervalContext) -> list[ast.IntervalUnit]:
     units = []
     for pair_i in range(0, len(ctx.children), 2):
         value, unit = ctx.children[pair_i : pair_i + 2]
@@ -1343,7 +1343,7 @@ def _(ctx: sbp.ComplexDataTypeContext) -> ct.ColumnType:
 
 
 @visit.register
-def _(ctx: sbp.ComplexColTypeListContext) -> List[ct.NestedField]:
+def _(ctx: sbp.ComplexColTypeListContext) -> list[ct.NestedField]:
     return visit(ctx.complexColType())
 
 

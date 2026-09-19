@@ -4,7 +4,7 @@ import abc
 
 # pylint: disable=redefined-outer-name, import-outside-toplevel, too-many-lines, protected-access
 from dataclasses import asdict, dataclass
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
 import requests
 
@@ -94,23 +94,23 @@ class Node(ClientEntity):  # pylint: disable=too-many-instance-attributes
 
     name: str
     type: str
-    description: Optional[str] = None
-    mode: Optional[models.NodeMode] = None
-    status: Optional[str] = None
-    display_name: Optional[str] = None
-    availability: Optional[models.AvailabilityState] = None
-    tags: Optional[List[Tag]] = None
-    primary_key: Optional[List[str]] = None
-    materializations: Optional[List[Dict[str, Any]]] = None
-    version: Optional[str] = None
-    deactivated_at: Optional[int] = None
-    current_version: Optional[str] = None
-    columns: Optional[List[models.Column]] = None
-    query: Optional[str] = None
+    description: str | None = None
+    mode: models.NodeMode | None = None
+    status: str | None = None
+    display_name: str | None = None
+    availability: models.AvailabilityState | None = None
+    tags: list[Tag] | None = None
+    primary_key: list[str] | None = None
+    materializations: list[dict[str, Any]] | None = None
+    version: str | None = None
+    deactivated_at: int | None = None
+    current_version: str | None = None
+    columns: list[models.Column] | None = None
+    query: str | None = None
     dimension_links: list[DimensionLink] | None = None
-    custom_metadata: Optional[Dict[str, Any]] = None
+    custom_metadata: dict[str, Any] | None = None
 
-    def to_dict(self, exclude: Optional[List[str]] = None) -> Dict[str, Any]:
+    def to_dict(self, exclude: list[str] | None = None) -> dict[str, Any]:
         """
         Convert the source node to a dictionary. We need to make this method because
         the default asdict() method from dataclasses does not handle nested dataclasses.
@@ -153,7 +153,7 @@ class Node(ClientEntity):  # pylint: disable=too-many-instance-attributes
     #
     # Node level actions
     #
-    def list_revisions(self) -> List[dict]:
+    def list_revisions(self) -> list[dict]:
         """
         List all revisions of this node
         """
@@ -189,7 +189,7 @@ class Node(ClientEntity):  # pylint: disable=too-many-instance-attributes
                 f"Error updating tags for node {self.name}: {response.text}",
             )
 
-    def save(self, mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED) -> dict:
+    def save(self, mode: models.NodeMode | None = models.NodeMode.PUBLISHED) -> dict:
         """
         Saves the node to DJ, whether it existed before or not.
         """
@@ -247,7 +247,7 @@ class Node(ClientEntity):  # pylint: disable=too-many-instance-attributes
         self,
         column: str,
         dimension: str,
-        dimension_column: Optional[str] = None,
+        dimension_column: str | None = None,
     ):
         """
         Links the dimension to this node via the node's `column` and the dimension's
@@ -268,7 +268,7 @@ class Node(ClientEntity):  # pylint: disable=too-many-instance-attributes
         node_column: str,
         dimension_node: str,
         dimension_column: str,
-        role: Optional[str] = None,
+        role: str | None = None,
     ):
         """
         Adds a reference dimension link from the node's `column` to the dimension node's
@@ -287,12 +287,12 @@ class Node(ClientEntity):  # pylint: disable=too-many-instance-attributes
     def link_complex_dimension(  # pylint: disable=too-many-arguments
         self,
         dimension_node: str,
-        join_type: Optional[str] = None,
+        join_type: str | None = None,
         *,
         join_on: str,
-        join_cardinality: Optional[str] = None,
-        role: Optional[str] = None,
-        spark_hints: Optional[str] = None,
+        join_cardinality: str | None = None,
+        role: str | None = None,
+        spark_hints: str | None = None,
     ):
         """
         Links the dimension to this node via the specified join SQL.
@@ -313,7 +313,7 @@ class Node(ClientEntity):  # pylint: disable=too-many-instance-attributes
         self,
         column: str,
         dimension: str,
-        dimension_column: Optional[str],
+        dimension_column: str | None,
     ):
         """
         Removes the dimension link on the node's `column` to the dimension.
@@ -330,7 +330,7 @@ class Node(ClientEntity):  # pylint: disable=too-many-instance-attributes
     def remove_complex_dimension_link(
         self,
         dimension_node: str,
-        role: Optional[str] = None,
+        role: str | None = None,
     ):
         """
         Removes a complex dimension link from this node
@@ -389,7 +389,7 @@ class Node(ClientEntity):  # pylint: disable=too-many-instance-attributes
     def set_column_attributes(
         self,
         column_name: str,
-        attributes: List[models.ColumnAttribute],
+        attributes: list[models.ColumnAttribute],
     ):
         """
         Sets attributes for columns on the node
@@ -432,11 +432,11 @@ class Source(Node):
     """
 
     type: str = "source"
-    catalog: Optional[str] = None
-    schema_: Optional[str] = None
-    table: Optional[str] = None
+    catalog: str | None = None
+    schema_: str | None = None
+    table: str | None = None
 
-    def to_dict(self, exclude: Optional[List[str]] = None) -> Dict[str, Any]:
+    def to_dict(self, exclude: list[str] | None = None) -> dict[str, Any]:
         """
         Convert the source node to a dictionary
         """
@@ -486,7 +486,7 @@ class NodeWithQuery(Node):
 
     query: str = ""
 
-    def to_dict(self, exclude: Optional[List[str]] = None) -> Dict[str, Any]:
+    def to_dict(self, exclude: list[str] | None = None) -> dict[str, Any]:
         dict_ = super().to_dict(exclude=exclude)
         dict_["query"] = self.query
         return dict_
@@ -524,13 +524,13 @@ class NodeWithQuery(Node):
         )
         return True
 
-    def get_upstreams(self) -> List[str]:
+    def get_upstreams(self) -> list[str]:
         """
         Lists the upstream nodes of this node
         """
         return [node["name"] for node in self.dj_client._get_node_upstreams(self.name)]
 
-    def get_downstreams(self) -> List[str]:
+    def get_downstreams(self) -> list[str]:
         """
         Lists the downstream nodes of this node
         """
@@ -538,7 +538,7 @@ class NodeWithQuery(Node):
             node["name"] for node in self.dj_client._get_node_downstreams(self.name)
         ]
 
-    def get_dimensions(self) -> List[str]:
+    def get_dimensions(self) -> list[str]:
         """
         Lists dimensions available for the node
         """
@@ -561,10 +561,10 @@ class Metric(NodeWithQuery):
     """
 
     type: str = "metric"
-    required_dimensions: Optional[List[str]] = None
-    metric_metadata: Optional[models.MetricMetadata] = None
+    required_dimensions: list[str] | None = None
+    metric_metadata: models.MetricMetadata | None = None
 
-    def to_dict(self, exclude: Optional[List[str]] = None) -> Dict[str, Any]:
+    def to_dict(self, exclude: list[str] | None = None) -> dict[str, Any]:
         """
         Convert the source node to a dictionary
         """
@@ -623,11 +623,11 @@ class Cube(Node):  # pylint: disable=abstract-method
     """
 
     type: str = "cube"
-    metrics: Optional[List[str]] = None
-    dimensions: Optional[List[str]] = None
-    filters: Optional[List[str]] = None
+    metrics: list[str] | None = None
+    dimensions: list[str] | None = None
+    filters: list[str] | None = None
 
-    def to_dict(self, exclude: Optional[List[str]] = None) -> Dict[str, Any]:
+    def to_dict(self, exclude: list[str] | None = None) -> dict[str, Any]:
         """
         Convert the source node to a dictionary
         """

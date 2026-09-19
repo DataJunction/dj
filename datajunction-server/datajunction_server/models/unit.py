@@ -10,7 +10,7 @@ Stored as JSONB on `column.unit`. Validated at the Pydantic layer.
 
 import re
 from enum import Enum
-from typing import TYPE_CHECKING, Annotated, Any, Union
+from typing import TYPE_CHECKING, Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Discriminator, Tag, model_validator
 from sqlalchemy import TypeDecorator
@@ -209,10 +209,7 @@ def _unit_discriminator(value: Any) -> str:
 
 
 Unit = Annotated[
-    Union[
-        Annotated[AtomicUnit, Tag("atomic")],
-        Annotated[CompoundUnit, Tag("compound")],
-    ],
+    Annotated[AtomicUnit, Tag("atomic")] | Annotated[CompoundUnit, Tag("compound")],
     Discriminator(_unit_discriminator),
 ]
 

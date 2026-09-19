@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Iterator, NamedTuple
+from collections.abc import Iterator
+from typing import TYPE_CHECKING, NamedTuple
 
 from datajunction_server.construction.build_v3.filters import (
-    extract_subscript_role,
+    dimension_ref_of_expression,
     parse_filter,
 )
 from datajunction_server.database.node import Node
@@ -103,6 +104,26 @@ def get_column_type(node: Node, column_name: str) -> str:
     return "string"  # pragma: no cover
 
 
+def column_table_name(col: ast.Column) -> str | None:
+    """Return the table-qualifier short name for a column, or None.
+
+    Handles both qualification styles:
+    - ``_table`` (set by :func:`make_column_ref`) — projection / GROUP BY.
+    - ``name.namespace`` (set by ``_add_table_prefixes_to_filter``) —
+      filter atoms.
+    """
+    tbl = col._table
+    if tbl is not None:
+        tname = getattr(tbl, "name", None)
+        if tname is None:  # pragma: no cover
+            return None
+        return tname.name if hasattr(tname, "name") else str(tname)
+    if col.name and col.name.namespace:
+        ns = col.name.namespace
+        return ns.name if hasattr(ns, "name") else str(ns)
+    return None  # pragma: no cover
+
+
 def extract_columns_from_expression(expr: ast.Expression) -> set[str]:
     """
     Extract all column names referenced in an expression.
@@ -141,54 +162,6 @@ def iter_namespaced_columns(expr: ast.Expression) -> Iterator[NamespacedColumn]:
                 col.name.namespace.identifier(quotes=False),
                 col.name.name,
             )
-
-
-def extract_columns_referenced_from_node(
-    query_ast: ast.Query,
-    node_name: str,
-) -> set[str]:
-    """
-    Extract column names that a query uses from a specific node.
-
-    Handles both aliased references (e.g. ``CROSS JOIN node AS alias`` where
-    columns appear as ``alias.col``) and unaliased references (where columns
-    appear as ``node_short_name.col`` or ``full.node.name.col``).
-
-    Args:
-        query_ast: The parsed query to scan.
-        node_name: Full node name (e.g. ``common.dimensions.xp.max_observation_end``).
-
-    Returns:
-        Set of short column names used from that node.
-    """
-    # Build the set of table-reference prefixes that map to this node.
-    # A table may be aliased (AS tbl_alias) or bare — we collect all identifiers
-    # by which columns may be qualified.
-    prefixes: set[str] = set()
-    for table in query_ast.find_all(ast.Table):
-        if str(table.name) == node_name:
-            if table.alias:
-                prefixes.add(str(table.alias))
-            else:
-                # No alias: SQL can qualify columns by the full name or the
-                # last segment only (most common in practice).
-                prefixes.add(node_name)
-                prefixes.add(node_name.split(SEPARATOR)[-1])
-
-    if not prefixes:
-        return set()
-
-    result: set[str] = set()
-    for col in query_ast.find_all(ast.Column):
-        # col.identifier() returns the full namespace-prefixed name
-        # (e.g. "alias.column_name") without requiring col.table to be set,
-        # since that is only populated after compilation.
-        col_id = col.identifier()
-        for prefix in prefixes:
-            if col_id.startswith(prefix + SEPARATOR):
-                result.add(get_short_name(col_id))
-                break
-    return result
 
 
 def collect_required_dimensions(
@@ -244,7 +217,7 @@ def collect_required_dimensions(
 
 def _try_add_dim_to_ctx(
     full_name: str,
-    ctx: "BuildContext",
+    ctx: BuildContext,
     existing_dims: set[str],
     log_source: str,
 ) -> None:
@@ -274,8 +247,8 @@ def _try_add_dim_to_ctx(
 
 
 def add_dimensions_from_metric_expressions(
-    ctx: "BuildContext",
-    decomposed_metrics: dict[str, "DecomposedMetricInfo"],
+    ctx: BuildContext,
+    decomposed_metrics: dict[str, DecomposedMetricInfo],
 ) -> None:
     """
     Scan combiner ASTs for dimension references and add them to ctx.dimensions.
@@ -324,7 +297,103 @@ def add_dimensions_from_metric_expressions(
                         )
 
 
-def add_dimensions_from_filters(ctx: "BuildContext") -> None:
+def extract_filter_dimension_refs(
+    filters: list[str] | None,
+    include_bare: bool = False,
+) -> list[str]:
+    """
+    Extract the column references from a set of filter predicates.
+
+    Returns role-qualified refs in the ``node.column`` / ``node.column[role]``
+    form — the SAME normalization used to auto-add filter-only dimensions to the
+    build context. Subscript role markers are always excluded.
+
+    ``include_bare`` controls handling of non-namespaced (bare) column refs:
+      - False (default): bare refs are dropped — used by cube matching, where a
+        bare ref can't identify a cube dimension.
+      - True: bare refs are included — used by ``add_dimensions_from_filters``,
+        which must still SEE them to reject the unqualified ``node.column``
+        contract (v3 requires fully-qualified filter refs).
+
+    This is a pure, DB-free helper shared by ``add_dimensions_from_filters`` and
+    cube matching, so the two paths can't drift on how filters map to dimensions.
+
+    Raises ``DJInvalidInputException`` (via ``parse_filter``) only for a filter
+    that cannot be parsed at all; callers decide how to treat that.
+    """
+    # Import here to avoid circular imports (cte.py imports utils.py)
+    from datajunction_server.construction.build_v3.cte import get_column_full_name
+
+    refs: list[str] = []
+
+    def _add(ref: str) -> None:
+        if not ref or ref in refs:
+            return
+        if include_bare or SEPARATOR in ref:
+            refs.append(ref)
+
+    for filter_str in filters or []:
+        filter_ast = parse_filter(filter_str)
+
+        # Track base column refs handled via role-qualified subscript notation
+        # (e.g., "v3.location.country" from "v3.location.country[customer->home]")
+        # so we don't also add the role-less version in the Column pass below.
+        subscript_handled_refs: set[str] = set()
+
+        # Role markers inside subscripts are parsed as Column nodes (e.g. the
+        # `to` in `v3.location.country[to]`) but are not real filter column
+        # references — identify them so the second pass doesn't treat them
+        # as bare column refs.
+        role_marker_ids: set[int] = set()
+
+        # First pass: handle Subscript nodes for role-qualified dimension refs.
+        # SQL like "v3.location.country[customer->home]" is parsed as
+        # Subscript(Column(v3.location.country), Lambda(customer->home)).
+        for subscript in filter_ast.find_all(ast.Subscript):
+            if not isinstance(subscript.expr, ast.Column):
+                continue  # pragma: no cover
+
+            base_col_ref = get_column_full_name(subscript.expr)
+            if not base_col_ref or SEPARATOR not in base_col_ref:
+                continue  # pragma: no cover
+
+            # The base ref is still needed below to mark this subscript handled.
+            full_name = dimension_ref_of_expression(subscript) or base_col_ref
+
+            # Mark this base ref as handled so the Column pass skips it
+            subscript_handled_refs.add(base_col_ref)
+
+            # Mark any Column nodes used as the role marker so we don't treat
+            # them as bare refs.
+            if isinstance(subscript.index, ast.Column):
+                role_marker_ids.add(id(subscript.index))
+            for inner_col in (
+                subscript.index.find_all(ast.Column)
+                if hasattr(subscript.index, "find_all")
+                else []
+            ):
+                role_marker_ids.add(id(inner_col))
+
+            _add(full_name)
+
+        # Second pass: handle regular Column references. This also catches
+        # columns wrapped in functions (e.g. DATE(v3.date.date_id)) or inside
+        # IN / BETWEEN predicates, since find_all(ast.Column) walks the whole tree.
+        for col in filter_ast.find_all(ast.Column):
+            # Role markers inside subscripts (e.g. `to` in `dim.col[to]`) are
+            # parsed as Columns but don't refer to real data columns.
+            if id(col) in role_marker_ids:
+                continue
+            full_name = get_column_full_name(col)
+            # Skip if already handled as a role-qualified subscript ref
+            if full_name in subscript_handled_refs:
+                continue
+            _add(full_name)
+
+    return refs
+
+
+def add_dimensions_from_filters(ctx: BuildContext) -> None:
     """
     Scan filter expressions for dimension references and add them to ctx.dimensions.
 
@@ -339,8 +408,6 @@ def add_dimensions_from_filters(ctx: "BuildContext") -> None:
     Args:
         ctx: BuildContext with filters and dimensions lists to update
     """
-    # Import here to avoid circular imports (cte.py imports utils.py)
-    from datajunction_server.construction.build_v3.cte import get_column_full_name
     from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
 
     if not ctx.filters:
@@ -348,127 +415,41 @@ def add_dimensions_from_filters(ctx: "BuildContext") -> None:
 
     existing_dims = set(ctx.dimensions)
 
-    for filter_str in ctx.filters:
-        try:
-            filter_ast = parse_filter(filter_str)
-        except Exception:  # pragma: no cover
-            logger.warning("[BuildV3] Failed to parse filter: %s", filter_str)
+    # include_bare=True so unqualified refs still reach parse_dimension_ref below,
+    # which rejects them (v3 requires the fully-qualified node.column form).
+    for full_name in extract_filter_dimension_refs(ctx.filters, include_bare=True):
+        if full_name in existing_dims:
             continue
 
-        # Track base column refs handled via role-qualified subscript notation
-        # (e.g., "v3.location.country" from "v3.location.country[customer->home]")
-        # so we don't also add the role-less version in the Column pass below.
-        subscript_handled_refs: set[str] = set()
+        # Skip if this is a metric reference, not a dimension. Metrics in WHERE
+        # clauses are treated as HAVING conditions, not dimension joins.
+        if full_name in ctx.metrics:
+            continue
 
-        # Role markers inside subscripts are parsed as Column nodes (e.g. the
-        # `to` in `v3.location.country[to]`) but are not real filter column
-        # references — identify them so the second pass doesn't treat them
-        # as bare column refs and reject them.
-        role_marker_ids: set[int] = set()
-
-        # First pass: handle Subscript nodes for role-qualified dimension refs.
-        # SQL like "v3.location.country[customer->home]" is parsed as
-        # Subscript(Column(v3.location.country), Lambda(customer->home)).
-        for subscript in filter_ast.find_all(ast.Subscript):
-            if not isinstance(subscript.expr, ast.Column):
-                continue  # pragma: no cover
-
-            base_col_ref = get_column_full_name(subscript.expr)
-            if not base_col_ref or SEPARATOR not in base_col_ref:
-                continue  # pragma: no cover
-
-            role = extract_subscript_role(subscript)
-            if role:
-                full_name = f"{base_col_ref}[{role}]"
-            else:  # pragma: no cover
-                full_name = base_col_ref
-
-            # Mark this base ref as handled so the Column pass skips it
-            subscript_handled_refs.add(base_col_ref)
-
-            # Mark any Column nodes used as the role marker so we don't raise
-            # on them as bare refs.
-            if isinstance(subscript.index, ast.Column):
-                role_marker_ids.add(id(subscript.index))
-            for inner_col in (
-                subscript.index.find_all(ast.Column)
-                if hasattr(subscript.index, "find_all")
-                else []
+        # Check if any existing dimension already covers this (node, column[, role]).
+        # Role-qualified refs match role-sensitively; role-less refs ignore role.
+        # parse_dimension_ref raises DJInvalidInputException for a bare (unqualified)
+        # ref, enforcing the node.column contract.
+        dim_ref = parse_dimension_ref(full_name)
+        is_covered = False
+        for existing_dim in ctx.dimensions:
+            existing_ref = parse_dimension_ref(existing_dim)
+            if (
+                existing_ref.node_name == dim_ref.node_name
+                and existing_ref.column_name == dim_ref.column_name
+                and (dim_ref.role is None or existing_ref.role == dim_ref.role)
             ):
-                role_marker_ids.add(id(inner_col))
+                is_covered = True  # pragma: no cover
+                break  # pragma: no cover
 
-            if full_name in existing_dims:
-                continue
-
-            if full_name in ctx.metrics:  # pragma: no cover
-                continue
-
-            dim_ref = parse_dimension_ref(full_name)
-            is_covered = False
-            for existing_dim in ctx.dimensions:
-                existing_ref = parse_dimension_ref(existing_dim)
-                if (
-                    existing_ref.node_name == dim_ref.node_name
-                    and existing_ref.column_name == dim_ref.column_name
-                    and existing_ref.role == dim_ref.role
-                ):
-                    is_covered = True  # pragma: no cover
-                    break  # pragma: no cover
-
-            if not is_covered:  # pragma: no branch
-                logger.info(
-                    "[BuildV3] Auto-adding filter-only dimension %s",
-                    full_name,
-                )
-                ctx.dimensions.append(full_name)
-                ctx.filter_dimensions.add(full_name)
-                existing_dims.add(full_name)
-
-        # Second pass: handle regular Column references.
-        # Skip columns that were already added via the subscript pass above.
-        for col in filter_ast.find_all(ast.Column):
-            # Role markers inside subscripts (e.g. `to` in `dim.col[to]`) are
-            # parsed as Columns but don't refer to real data columns.
-            if id(col) in role_marker_ids:
-                continue
-            full_name = get_column_full_name(col)
-            if not full_name:
-                continue  # pragma: no cover
-
-            # Skip if already handled as a role-qualified subscript ref
-            if full_name in subscript_handled_refs:
-                continue
-
-            if full_name in existing_dims:
-                # Already in dimensions, no need to add
-                continue
-
-            # Skip if this is a metric reference, not a dimension
-            # Metrics in WHERE clauses should be treated as HAVING conditions,
-            # not dimension joins
-            if full_name in ctx.metrics:
-                continue
-
-            # Check if any existing dimension already covers this (node, column)
-            dim_ref = parse_dimension_ref(full_name)
-            is_covered = False
-            for existing_dim in ctx.dimensions:
-                existing_ref = parse_dimension_ref(existing_dim)
-                if (
-                    existing_ref.node_name == dim_ref.node_name
-                    and existing_ref.column_name == dim_ref.column_name
-                ):
-                    is_covered = True  # pragma: no cover
-                    break  # pragma: no cover
-
-            if not is_covered:  # pragma: no branch
-                logger.info(
-                    "[BuildV3] Auto-adding filter-only dimension %s",
-                    full_name,
-                )
-                ctx.dimensions.append(full_name)
-                ctx.filter_dimensions.add(full_name)
-                existing_dims.add(full_name)
+        if not is_covered:  # pragma: no branch
+            logger.info(
+                "[BuildV3] Auto-adding filter-only dimension %s",
+                full_name,
+            )
+            ctx.dimensions.append(full_name)
+            ctx.filter_dimensions.add(full_name)
+            existing_dims.add(full_name)
 
 
 def build_join_from_clause(
@@ -540,5 +521,5 @@ def _build_join_criteria(
         return conditions[0]
 
     combined = ast.BinaryOp.And(*conditions)
-    assert combined is not None  # noqa: S101  # conditions is non-empty here
+    assert combined is not None  # conditions is non-empty here
     return combined

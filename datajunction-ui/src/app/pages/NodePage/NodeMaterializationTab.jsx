@@ -9,6 +9,10 @@ import Tab from '../../components/Tab';
 import NodeRevisionMaterializationTab from './NodeRevisionMaterializationTab';
 import AvailabilityStateBlock from './AvailabilityStateBlock';
 import cronstrue from 'cronstrue';
+import {
+  decodeColumnIdentifier,
+  getColumnIdentifier,
+} from '../../utils/column';
 
 /**
  * Cube materialization tab - shows cube-specific materializations.
@@ -39,8 +43,10 @@ export default function NodeMaterializationTab({
 
   const materializationsByRevision = useMemo(() => {
     return filteredMaterializations.reduce((acc, mat) => {
-      // Extract version from materialization config
-      const matVersion = mat.config?.cube?.version || node?.version;
+      // `config.cube.version` is absent for most job types (e.g. Druid cube
+      // jobs), so it silently grouped every materialization under the current
+      // node version regardless of which revision it actually belongs to.
+      const matVersion = mat.node_version || node?.version;
 
       if (!acc[matVersion]) {
         acc[matVersion] = [];
@@ -109,7 +115,7 @@ export default function NodeMaterializationTab({
     ? Object.fromEntries(
         node?.columns
           .filter(col => col.partition !== null)
-          .map(col => [col.name, col.display_name]),
+          .map(col => [getColumnIdentifier(node, col), col.display_name]),
       )
     : {};
   const cron = materialization => {
@@ -133,7 +139,7 @@ export default function NodeMaterializationTab({
     // Determine which versions have only inactive materializations
     const versionHasOnlyInactive = {};
     rawMaterializations.forEach(mat => {
-      const matVersion = mat.config?.cube?.version || node.version;
+      const matVersion = mat.node_version || node.version;
       if (!versionHasOnlyInactive[matVersion]) {
         versionHasOnlyInactive[matVersion] = {
           hasActive: false,
@@ -201,7 +207,7 @@ export default function NodeMaterializationTab({
 
     // Check if latest version has any materializations (including inactive ones)
     const hasLatestVersionMaterialization = rawMaterializations.some(mat => {
-      const matVersion = mat.config?.cube?.version || node?.version;
+      const matVersion = mat.node_version || node?.version;
       return matVersion === node?.version;
     });
 
@@ -440,9 +446,8 @@ export default function NodeMaterializationTab({
                                     <div>
                                       {
                                         partitionColumnsMap[
-                                          partition.column_name.replaceAll(
-                                            '_DOT_',
-                                            '.',
+                                          decodeColumnIdentifier(
+                                            partition.column_name,
                                           )
                                         ]
                                       }{' '}
@@ -474,7 +479,7 @@ export default function NodeMaterializationTab({
                     .filter(col => col.partition !== null)
                     .map(column => {
                       return (
-                        <li key={column.name}>
+                        <li key={getColumnIdentifier(node, column)}>
                           <div className="partitionLink">
                             {column.display_name}
                             <span className="badge partition_value">

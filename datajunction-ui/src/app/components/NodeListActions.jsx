@@ -5,6 +5,7 @@ import EditIcon from '../icons/EditIcon';
 import { Form, Formik } from 'formik';
 import { useContext } from 'react';
 import { displayMessageAfterSubmit } from '../../utils/form';
+import Tooltip from './Tooltip';
 
 export default function NodeListActions({ nodeName, iconSize = 20 }) {
   const [deleted, setDeleted] = React.useState(false);
@@ -42,9 +43,11 @@ export default function NodeListActions({ nodeName, iconSize = 20 }) {
     <div
       style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
     >
-      <a href={`/nodes/${nodeName}/edit`}>
-        <EditIcon size={iconSize} />
-      </a>
+      <Tooltip content="Edit node">
+        <a href={`/nodes/${nodeName}/edit`} aria-label={`Edit ${nodeName}`}>
+          <EditIcon size={iconSize} />
+        </a>
+      </Tooltip>
       <Formik initialValues={initialValues} onSubmit={deleteNode}>
         {function Render({ status, setFieldValue }) {
           return (
@@ -55,17 +58,20 @@ export default function NodeListActions({ nodeName, iconSize = 20 }) {
               {displayMessageAfterSubmit(status)}
               {
                 <>
-                  <button
-                    type="submit"
-                    style={{
-                      marginLeft: 0,
-                      all: 'unset',
-                      color: '#005c72',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <DeleteIcon size={iconSize} />
-                  </button>
+                  <Tooltip content="Delete node">
+                    <button
+                      type="submit"
+                      aria-label={`Delete ${nodeName}`}
+                      style={{
+                        marginLeft: 0,
+                        all: 'unset',
+                        color: '#005c72',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <DeleteIcon size={iconSize} />
+                    </button>
+                  </Tooltip>
                 </>
               }
             </Form>

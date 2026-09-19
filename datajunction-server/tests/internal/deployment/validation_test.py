@@ -2,11 +2,17 @@
 Tests for validate_query_node exception handling with real objects
 """
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
-from unittest.mock import MagicMock, patch
 
+from datajunction_server.database.catalog import Catalog
+from datajunction_server.database.column import Column
+from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.user import OAuthProvider, User
+from datajunction_server.errors import ErrorCode
 from datajunction_server.internal.deployment.validation import (
     NodeSpecBulkValidator,
     NodeValidationResult,
@@ -18,22 +24,19 @@ from datajunction_server.models.deployment import (
     ColumnSpec,
     DimensionJoinLinkSpec,
     DimensionReferenceLinkSpec,
+    DimensionSpec,
     MetricSpec,
     SourceSpec,
     TransformSpec,
 )
+from datajunction_server.models.dimensionlink import JoinType
 from datajunction_server.models.node import (
     DimensionAttributeOutput,
-    NodeType,
     NodeStatus,
+    NodeType,
 )
-from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.database.user import User, OAuthProvider
-from datajunction_server.database.catalog import Catalog
-from datajunction_server.database.column import Column
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.types import IntegerType, MapType, StringType
-from datajunction_server.errors import ErrorCode
 
 
 @pytest_asyncio.fixture
@@ -249,6 +252,37 @@ class TestValidateQuery:
                     error.code != ErrorCode.INVALID_SQL_QUERY
                     or "No columns could be inferred" in error.message
                 )
+
+    @pytest.mark.asyncio
+    async def test_validate_query_node_flags_unmatched_declared_column(
+        self,
+        validation_context: ValidationContext,
+    ):
+        """A declared column that doesn't match any query output column is invalid.
+
+        Otherwise its metadata (display_name/description) is silently dropped
+        and the node churns a version bump on every redeploy.
+        """
+        spec = TransformSpec(
+            name="transform",
+            query="SELECT id, name FROM test.parent",
+            description="A test transform",
+            mode="published",
+            columns=[
+                ColumnSpec(name="id"),
+                ColumnSpec(name="full_name", display_name="Full Name"),
+            ],
+        )
+        validator = NodeSpecBulkValidator(validation_context)
+        result = validator.validate_query_node(spec)
+
+        assert result.status == NodeStatus.INVALID
+        error_codes = [e.code for e in result.errors]
+        assert ErrorCode.INVALID_COLUMN in error_codes
+        message = next(
+            e.message for e in result.errors if e.code == ErrorCode.INVALID_COLUMN
+        )
+        assert "full_name" in message
 
     @pytest.mark.asyncio
     async def test_validate_query_node_flags_hardcoded_namespace(
@@ -534,6 +568,107 @@ class TestBulkValidateSkipValidation:
         assert result.status == NodeStatus.VALID
         assert result.inferred_columns == spec.columns
         assert result.errors == []
+
+
+class TestPrimaryKeyCheck:
+    """Tests for the primary key checks in _check_primary_key."""
+
+    @pytest.fixture
+    def validation_context(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ) -> ValidationContext:
+        """A context whose only dependency is the shared test.parent source node."""
+        return ValidationContext(
+            session=session,
+            node_graph={
+                "test.customers": ["test.parent"],
+                "test.orders": ["test.parent"],
+            },
+            dependency_nodes={parent_node.name: parent_node},
+        )
+
+    @pytest.mark.asyncio
+    async def test_dimension_without_primary_key_is_invalid(
+        self,
+        validation_context: ValidationContext,
+    ):
+        """A dimension that declares no primary key at all fails validation."""
+        spec = DimensionSpec(
+            name="test.customers",
+            query="SELECT id, name FROM test.parent",
+            description="Customers",
+            mode="published",
+        )
+        validator = NodeSpecBulkValidator(validation_context)
+        result = validator.validate_query_node(spec)
+
+        assert result.status == NodeStatus.INVALID
+        assert [e.code for e in result.errors] == [ErrorCode.INVALID_SQL_QUERY]
+        assert "has no primary key" in result.errors[0].message
+        assert "Add a primary_key" in result.errors[0].message
+
+    @pytest.mark.asyncio
+    async def test_dimension_with_primary_key_is_valid(
+        self,
+        validation_context: ValidationContext,
+    ):
+        """A dimension whose primary key names a real column validates cleanly."""
+        spec = DimensionSpec(
+            name="test.customers",
+            query="SELECT id, name FROM test.parent",
+            description="Customers",
+            mode="published",
+            primary_key=["id"],
+        )
+        validator = NodeSpecBulkValidator(validation_context)
+        result = validator.validate_query_node(spec)
+
+        assert result.errors == []
+        assert result.status == NodeStatus.VALID
+
+    @pytest.mark.asyncio
+    async def test_dimension_primary_key_column_not_inferred_is_invalid(
+        self,
+        validation_context: ValidationContext,
+    ):
+        """A primary key naming a column the query does not select still fails."""
+        spec = DimensionSpec(
+            name="test.customers",
+            query="SELECT id, name FROM test.parent",
+            description="Customers",
+            mode="published",
+            primary_key=["customer_id"],
+        )
+        validator = NodeSpecBulkValidator(validation_context)
+        result = validator.validate_query_node(spec)
+
+        assert result.status == NodeStatus.INVALID
+        assert [e.code for e in result.errors] == [ErrorCode.INVALID_SQL_QUERY]
+        assert "['customer_id']" in result.errors[0].message
+        assert (
+            "were not found in the list of available columns"
+            in result.errors[0].message
+        )
+
+    @pytest.mark.asyncio
+    async def test_transform_without_primary_key_is_valid(
+        self,
+        validation_context: ValidationContext,
+    ):
+        """Only dimensions are required to have one; transforms are unaffected."""
+        spec = TransformSpec(
+            name="test.orders",
+            query="SELECT id, value FROM test.parent",
+            description="Orders",
+            mode="published",
+        )
+        validator = NodeSpecBulkValidator(validation_context)
+        result = validator.validate_query_node(spec)
+
+        assert result.errors == []
+        assert result.status == NodeStatus.VALID
 
 
 class TestRequiredDimensions:
@@ -940,6 +1075,92 @@ class TestCrossFactDimensions:
         validator = NodeSpecBulkValidator(context)
         assert validator._check_cross_fact_dimensions(spec) is None
 
+    def test_pending_links_suppress_false_negative(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """Shared dimension reachable only via links created in the SAME deploy.
+
+        Dimension links are deployed after nodes (orchestrator: _deploy_nodes runs
+        before _deploy_links), so at validation time get_dimensions can only see
+        each base metric's parent-local columns — no shared dimension yet. The
+        check must not emit a false negative when the pending links in this deploy
+        would establish a common dimension node.
+        """
+        num = _make_metric_node("test.fd_num")  # parent transform test.fd_fact
+        den = _make_metric_node("test.fd_den")  # parent dimension test.fd_dim
+        context = ValidationContext(
+            session=session,
+            node_graph={
+                "test.fd_ratio": [num.name, den.name],
+                "test.fd_num": ["test.fd_fact"],
+                "test.fd_den": ["test.fd_dim"],
+            },
+            dependency_nodes={num.name: num, den.name: den},
+            # Dimension links declared in THIS deploy: both parents link the
+            # conformed date dim, so the base metrics can share it once the
+            # links land.
+            deployment_link_targets={
+                "test.fd_fact": {"test.dt_date_d_v2", "test.fd_dim"},
+                "test.fd_dim": {"test.dt_date_d_v2"},
+            },
+        )
+        spec = MetricSpec(
+            name="test.fd_ratio",
+            query="SELECT test_fd_num / test_fd_den FROM test.fd_num, test.fd_den",
+        )
+        validator = NodeSpecBulkValidator(context)
+        # Committed graph (links not created yet): each base metric only sees its
+        # own parent's local/PK columns — no shared dimension at column level.
+        validator._metric_dimensions = {
+            num.name: {"test.fd_fact.account_id", "test.fd_fact.dateint"},
+            den.name: {
+                "test.fd_dim.account_id",
+                "test.fd_dim.dateint",
+                "test.fd_dim.plan",
+            },
+        }
+
+        assert validator._check_cross_fact_dimensions(spec) is None
+
+    def test_pending_links_unrelated_still_invalid(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """Fail-open must not disable the check: base metrics that cannot share a
+        dimension even with the deploy's pending links still fail."""
+        ma = _make_metric_node("test.metric_a")  # parent test.fact_a
+        mb = _make_metric_node("test.metric_b")  # parent test.fact_b
+        context = ValidationContext(
+            session=session,
+            node_graph={
+                "test.derived": [ma.name, mb.name],
+                "test.metric_a": ["test.fact_a"],
+                "test.metric_b": ["test.fact_b"],
+            },
+            dependency_nodes={ma.name: ma, mb.name: mb},
+            # Pending links go to different dimension nodes — no common dimension.
+            deployment_link_targets={
+                "test.fact_a": {"test.dim_a"},
+                "test.fact_b": {"test.dim_b"},
+            },
+        )
+        spec = MetricSpec(
+            name="test.derived",
+            query="SELECT test_metric_a + test_metric_b FROM test.metric_a, test.metric_b",
+        )
+        validator = NodeSpecBulkValidator(context)
+        validator._metric_dimensions = {
+            ma.name: {"test.fact_a.x"},
+            mb.name: {"test.fact_b.y"},
+        }
+
+        err = validator._check_cross_fact_dimensions(spec)
+        assert err is not None
+        assert err.code == ErrorCode.INVALID_PARENT
+
     # ------------------------------------------------------------------ prefetch tests
 
     @pytest.mark.asyncio
@@ -1193,8 +1414,9 @@ class TestDimLinkValidation:
         assert result.status == NodeStatus.VALID
         assert result.errors == []
 
-    def test_join_link_with_no_join_on_is_skipped(self, session: AsyncSession):
-        """A DimensionJoinLinkSpec with no join_on is silently skipped."""
+    def test_join_link_with_no_join_on_is_invalid(self, session: AsyncSession):
+        """A join link must carry join_on: a spec says nothing about which column is
+        the foreign key, so an absent clause would build a cross join."""
         validator = _make_validator(session)
         spec = SourceSpec(
             name="facts",
@@ -1213,8 +1435,65 @@ class TestDimLinkValidation:
             dependencies=[],
         )
         validator._validate_dimension_link_specs([result])
+        assert result.status == NodeStatus.INVALID
+        assert "has no join_on clause" in result.errors[0].message
+
+    def test_cross_join_link_with_no_join_on_is_valid(self, session: AsyncSession):
+        """A CROSS join has no ON clause by definition, so join_on stays optional."""
+        validator = _make_validator(session)
+        spec = SourceSpec(
+            name="facts",
+            catalog="default",
+            schema_="s",
+            table="t",
+            columns=[ColumnSpec(name="id", type="int")],
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node="test.dim",
+                    join_type=JoinType.CROSS,
+                ),
+            ],
+        )
+        spec.namespace = "test"
+        result = NodeValidationResult(
+            spec=spec,
+            status=NodeStatus.VALID,
+            inferred_columns=[ColumnSpec(name="id", type="int")],
+            errors=[],
+            dependencies=[],
+        )
+        validator._validate_dimension_link_specs([result])
         assert result.status == NodeStatus.VALID
         assert result.errors == []
+
+    def test_join_link_with_node_column_is_invalid(self, session: AsyncSession):
+        """node_column belongs to reference links; on a join link nothing reads it."""
+        validator = _make_validator(session)
+        spec = SourceSpec(
+            name="facts",
+            catalog="default",
+            schema_="s",
+            table="t",
+            columns=[ColumnSpec(name="dim_id", type="int")],
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node="test.dim",
+                    node_column="dim_id",
+                    join_on="test.facts.dim_id = test.dim.id",
+                ),
+            ],
+        )
+        spec.namespace = "test"
+        result = NodeValidationResult(
+            spec=spec,
+            status=NodeStatus.VALID,
+            inferred_columns=[ColumnSpec(name="dim_id", type="int")],
+            errors=[],
+            dependencies=[],
+        )
+        validator._validate_dimension_link_specs([result])
+        assert result.status == NodeStatus.INVALID
+        assert "only applies to reference links" in result.errors[0].message
 
     def test_reference_link_is_skipped(self, session: AsyncSession):
         """A DimensionReferenceLinkSpec is silently skipped (no join_on to validate)."""

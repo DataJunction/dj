@@ -6,20 +6,19 @@ across both model and API tests for hierarchies.
 """
 
 import pytest_asyncio
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sqlalchemy import select
-
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
+from datajunction_server.database.catalog import Catalog
+from datajunction_server.database.column import Column
+from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.hierarchy import Hierarchy, HierarchyLevel
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
-from datajunction_server.database.catalog import Catalog
-from datajunction_server.database.dimensionlink import DimensionLink
-from datajunction_server.models.node_type import NodeType
-from datajunction_server.database.column import Column
-from datajunction_server.sql.parsing.types import IntegerType, StringType, DateType
 from datajunction_server.models.dimensionlink import JoinType
+from datajunction_server.models.node_type import NodeType
+from datajunction_server.sql.parsing.types import DateType, IntegerType, StringType
 
 
 @pytest_asyncio.fixture

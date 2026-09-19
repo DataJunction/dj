@@ -11,15 +11,12 @@ pipeline.
 
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
 
-from datajunction_server.utils import SEPARATOR
-
-from datajunction_server.sql.parsing.backends.antlr4 import parse
-from datajunction_server.sql.parsing.backends.exceptions import DJParseException
+from datajunction_server.errors import DJNotImplementedException
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import fast_parse_mode
-from datajunction_server.errors import DJNotImplementedException
+from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.sql.parsing.types import (
     BooleanType,
     ColumnType,
@@ -31,6 +28,7 @@ from datajunction_server.sql.parsing.types import (
     StructType,
     UnknownType,
 )
+from datajunction_server.utils import SEPARATOR
 
 logger = logging.getLogger(__name__)
 
@@ -659,7 +657,7 @@ def _resolve_projection_function_table(
 
 
 def _resolve_wildcard(
-    table_alias: Optional[str],
+    table_alias: str | None,
     tables: TableScope,
 ) -> OutputColumns:
     """Expand ``*`` or ``t.*`` into columns from the relevant table(s)."""
@@ -714,7 +712,7 @@ def _resolve_struct_field(
     struct_col_name: str,
     field_path: list[str],
     tables: TableScope,
-) -> Optional[ColumnType]:
+) -> ColumnType | None:
     """Try to resolve a struct field access like metadata.name or data.inner.value.
 
     Searches all tables for a column named struct_col_name. If found and
@@ -806,7 +804,7 @@ def _collect_join_conditions(node: ast.Node, conditions: list[ast.Node]):
 def _resolve_dj_node_column(
     col: ast.Column,
     parent_map: ParentColumnsMap,
-) -> Optional[ColumnType]:
+) -> ColumnType | None:
     """
     Try to resolve a column reference as a DJ node attribute using progressive
     prefix matching against parent_map.
@@ -969,7 +967,7 @@ def _resolve_column_type(
 def _resolve_higher_order_function(
     func: ast.Function,
     scope: "TypeScope",
-) -> Optional[ColumnType]:
+) -> ColumnType | None:
     """Infer the return type of higher-order functions (AGGREGATE, FILTER, TRANSFORM).
 
     These functions use lambda expressions whose parameters (c, acc, etc.) are

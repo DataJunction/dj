@@ -6,8 +6,8 @@ from typing import Annotated
 import strawberry
 from strawberry.types import Info
 
-from datajunction_server.api.graphql.scalars.metricmetadata import MetricComponent
 from datajunction_server.api.graphql.scalars.errors import DJError
+from datajunction_server.api.graphql.scalars.metricmetadata import MetricComponent
 from datajunction_server.api.graphql.scalars.node import Node
 from datajunction_server.api.graphql.utils import extract_fields
 from datajunction_server.database.queryrequest import QueryBuildType as QueryBuildType_

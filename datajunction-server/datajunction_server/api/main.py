@@ -3,22 +3,16 @@ Main DJ server app.
 """
 
 import logging
-
-from fastapi.concurrency import asynccontextmanager
-from datajunction_server.api import setup_logging  # noqa
-
 from http import HTTPStatus
-from typing import TYPE_CHECKING
 
 from fastapi import FastAPI, Request
+from fastapi.concurrency import asynccontextmanager
 from fastapi.responses import JSONResponse
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.inmemory import InMemoryBackend
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import ClientDisconnect
 from starlette.responses import Response
-
-from datajunction_server.instrumentation.middleware import DJInstrumentationMiddleware
 
 from datajunction_server import __version__
 from datajunction_server.api import (
@@ -28,6 +22,7 @@ from datajunction_server.api import (
     client,
     collection,
     cubes,
+    custom_metadata,
     data,
     deployments,
     dimensions,
@@ -46,22 +41,24 @@ from datajunction_server.api import (
     notifications,
     preaggregations,
     rbac,
+    semantic_layer,
+    setup_logging,  # noqa
     sql,
     system,
     tags,
     users,
 )
-
-from datajunction_server.api.access.authentication import basic, whoami, service_account
+from datajunction_server.api.access.authentication import basic, service_account, whoami
 from datajunction_server.api.attributes import default_attribute_types
-from datajunction_server.internal.seed import seed_default_catalogs
-from datajunction_server.api.graphql.main import graphql_app, schema as graphql_schema  # noqa: F401
+from datajunction_server.api.graphql.main import graphql_app
 from datajunction_server.constants import AUTH_COOKIE, LOGGED_IN_FLAG_COOKIE
 from datajunction_server.errors import DJException
+from datajunction_server.instrumentation.middleware import DJInstrumentationMiddleware
+from datajunction_server.internal.access.authorization.readiness import (
+    verify_rbac_admins,
+)
+from datajunction_server.internal.seed import seed_default_catalogs
 from datajunction_server.utils import get_session_manager, get_settings
-
-if TYPE_CHECKING:  # pragma: no cover
-    pass
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -83,6 +80,7 @@ async def lifespan(app: FastAPI):  # pragma: no cover
     async with session_factory() as session:
         await default_attribute_types(session)
         await seed_default_catalogs(session)
+        await verify_rbac_admins(session, settings)
 
     yield
 
@@ -113,6 +111,7 @@ def configure_app(app: FastAPI) -> None:
     )
     app.include_router(catalogs.router)
     app.include_router(collection.router)
+    app.include_router(custom_metadata.router)
     app.include_router(deployments.router)
     app.include_router(engines.router)
     app.include_router(metrics.router)
@@ -141,6 +140,7 @@ def configure_app(app: FastAPI) -> None:
     app.include_router(basic.router)
     app.include_router(notifications.router)
     app.include_router(preaggregations.router)
+    app.include_router(semantic_layer.router)
     app.include_router(service_account.secure_router)
     app.include_router(service_account.router)
     app.include_router(system.router)

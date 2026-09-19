@@ -1,7 +1,7 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
 exports[`<NamespaceHeader /> > should render and match the snapshot 1`] = `
-<React.Fragment>
+<DocumentFragment>
   <style>
     
           @keyframes spin {
@@ -11,38 +11,14 @@ exports[`<NamespaceHeader /> > should render and match the snapshot 1`] = `
         
   </style>
   <div
-    style={
-      {
-        "alignItems": "center",
-        "background": "#ffffff",
-        "borderBottom": "1px solid #e2e8f0",
-        "borderTop": "1px solid #e2e8f0",
-        "display": "flex",
-        "flexWrap": "wrap",
-        "gap": "8px",
-        "justifyContent": "space-between",
-        "marginBottom": "16px",
-        "padding": "12px 12px 12px 20px",
-      }
-    }
+    style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px 12px 12px 20px; margin-bottom: 16px; border-top: 1px solid rgb(226, 232, 240); border-bottom: 1px solid rgb(226, 232, 240); background: rgb(255, 255, 255);"
   >
     <div
-      style={
-        {
-          "alignItems": "center",
-          "display": "flex",
-          "gap": "8px",
-        }
-      }
+      style="display: flex; align-items: center; gap: 8px;"
     >
       <a
         href="/"
-        style={
-          {
-            "alignItems": "center",
-            "display": "flex",
-          }
-        }
+        style="display: flex; align-items: center;"
       >
         <svg
           fill="currentColor"
@@ -65,27 +41,15 @@ exports[`<NamespaceHeader /> > should render and match the snapshot 1`] = `
       >
         <path
           d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"
-          fillRule="evenodd"
+          fill-rule="evenodd"
         />
       </svg>
       <span
-        style={
-          {
-            "alignItems": "center",
-            "display": "flex",
-            "gap": "8px",
-          }
-        }
+        style="display: flex; align-items: center; gap: 8px;"
       >
         <a
           href="/namespaces/shared"
-          style={
-            {
-              "color": "#1e293b",
-              "fontWeight": "400",
-              "textDecoration": "none",
-            }
-          }
+          style="font-weight: 400; color: rgb(30, 41, 59); text-decoration: none;"
         >
           shared
         </a>
@@ -98,28 +62,16 @@ exports[`<NamespaceHeader /> > should render and match the snapshot 1`] = `
         >
           <path
             d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"
-            fillRule="evenodd"
+            fill-rule="evenodd"
           />
         </svg>
       </span>
       <span
-        style={
-          {
-            "alignItems": "center",
-            "display": "flex",
-            "gap": "8px",
-          }
-        }
+        style="display: flex; align-items: center; gap: 8px;"
       >
         <a
           href="/namespaces/shared.dimensions"
-          style={
-            {
-              "color": "#1e293b",
-              "fontWeight": "400",
-              "textDecoration": "none",
-            }
-          }
+          style="font-weight: 400; color: rgb(30, 41, 59); text-decoration: none;"
         >
           dimensions
         </a>
@@ -132,78 +84,61 @@ exports[`<NamespaceHeader /> > should render and match the snapshot 1`] = `
         >
           <path
             d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"
-            fillRule="evenodd"
+            fill-rule="evenodd"
           />
         </svg>
       </span>
       <span
-        style={
-          {
-            "alignItems": "center",
-            "display": "flex",
-            "gap": "8px",
-          }
-        }
+        style="display: flex; align-items: center; gap: 8px;"
       >
         <a
           href="/namespaces/shared.dimensions.accounts"
-          style={
-            {
-              "color": "#1e293b",
-              "fontWeight": "400",
-              "textDecoration": "none",
-            }
-          }
+          style="font-weight: 400; color: rgb(30, 41, 59); text-decoration: none;"
         >
           accounts
         </a>
       </span>
     </div>
     <div
-      style={
-        {
-          "alignItems": "center",
-          "display": "flex",
-          "flexWrap": "wrap",
-          "gap": "8px",
-          "justifyContent": "flex-end",
-          "marginLeft": "auto",
-        }
-      }
-    />
-    <GitSettingsModal
-      currentConfig={null}
-      isOpen={false}
-      namespace="shared.dimensions.accounts"
-      onClose={[Function]}
-      onRemove={[Function]}
-      onSave={[Function]}
-    />
-    <CreateBranchModal
-      isGitRoot={true}
-      isOpen={false}
-      namespace="shared.dimensions.accounts"
-      onClose={[Function]}
-      onCreate={[Function]}
-    />
-    <SyncToGitModal
-      isOpen={false}
-      namespace="shared.dimensions.accounts"
-      onClose={[Function]}
-      onSync={[Function]}
-    />
-    <CreatePRModal
-      isOpen={false}
-      namespace="shared.dimensions.accounts"
-      onClose={[Function]}
-      onCreate={[Function]}
-    />
-    <DeleteBranchModal
-      isOpen={false}
-      namespace="shared.dimensions.accounts"
-      onClose={[Function]}
-      onDelete={[Function]}
-    />
+      style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; margin-left: auto;"
+    >
+      <button
+        style="height: 28px; padding: 0px 10px; font-size: 12px; font-weight: 500; border-width: 1px; border-style: solid; border-color: rgb(226, 232, 240); border-radius: 4px; background-color: rgb(255, 255, 255); color: rgb(71, 85, 105); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; transition: all 0.15s ease;"
+      >
+        <svg
+          fill="none"
+          height="14"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+          width="14"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <line
+            x1="6"
+            x2="6"
+            y1="3"
+            y2="15"
+          />
+          <circle
+            cx="18"
+            cy="6"
+            r="3"
+          />
+          <circle
+            cx="6"
+            cy="18"
+            r="3"
+          />
+          <path
+            d="M18 9a9 9 0 0 1-9 9"
+          />
+        </svg>
+        Connect to Git
+      </button>
+    </div>
   </div>
-</React.Fragment>
+</DocumentFragment>
 `;

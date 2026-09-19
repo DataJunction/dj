@@ -133,6 +133,11 @@ describe('NamespacePage', () => {
                 createdBy: {
                   username: 'dj',
                 },
+                owners: [
+                  { username: 'customer_service' },
+                  { username: 'finance' },
+                  { username: 'analytics' },
+                ],
               },
             },
           ],
@@ -178,14 +183,17 @@ describe('NamespacePage', () => {
 
     // Check that it renders nodes
     expect(screen.getByText('Test Node')).toBeInTheDocument();
+    expect(screen.getAllByText('Published').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Valid').length).toBeGreaterThan(0);
+    expect(screen.getByText('CU')).toBeInTheDocument();
 
     // --- Sorting ---
 
     // Track current call count
     const initialCallCount = mockDjClient.listNodesForLanding.mock.calls.length;
 
-    // sort by 'name'
-    fireEvent.click(screen.getByText('name'));
+    // sort by name
+    fireEvent.click(screen.getByText('Name'));
     await waitFor(() => {
       expect(
         mockDjClient.listNodesForLanding.mock.calls.length,
@@ -195,7 +203,7 @@ describe('NamespacePage', () => {
     const afterFirstSort = mockDjClient.listNodesForLanding.mock.calls.length;
 
     // flip direction
-    fireEvent.click(screen.getByText('name'));
+    fireEvent.click(screen.getByText('Name'));
     await waitFor(() => {
       expect(
         mockDjClient.listNodesForLanding.mock.calls.length,
@@ -204,8 +212,8 @@ describe('NamespacePage', () => {
 
     const afterSecondSort = mockDjClient.listNodesForLanding.mock.calls.length;
 
-    // sort by 'displayName'
-    fireEvent.click(screen.getByText('display Name'));
+    // sort by display name
+    fireEvent.click(screen.getByText('Display name'));
     await waitFor(() => {
       expect(
         mockDjClient.listNodesForLanding.mock.calls.length,
@@ -229,6 +237,10 @@ describe('NamespacePage', () => {
     }
 
     // Tag filter
+    fireEvent.click(screen.getByText('Filters'));
+    await waitFor(() => {
+      expect(screen.getByText('Tags')).toBeInTheDocument();
+    });
     const selectTag = screen.getAllByTestId('select-tag')[0];
     const tagInput = selectTag.querySelector('input');
     if (tagInput) {
@@ -389,26 +401,30 @@ describe('NamespacePage', () => {
 
       await waitFor(() => {
         // Check for filter labels
-        expect(screen.getByText('Type')).toBeInTheDocument();
-        expect(screen.getByText('Tags')).toBeInTheDocument();
-        expect(screen.getByText('Edited By')).toBeInTheDocument();
-        expect(screen.getByText('Mode')).toBeInTheDocument();
+        expect(screen.getAllByText('Type').length).toBeGreaterThan(0);
         expect(screen.getByText('Owner')).toBeInTheDocument();
-        expect(screen.getByText('Status')).toBeInTheDocument();
-        expect(screen.getByText('Quality')).toBeInTheDocument();
+        expect(screen.getByText('Tags')).toBeInTheDocument();
+        expect(screen.getAllByText('Publish state').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Validation').length).toBeGreaterThan(0);
+        expect(screen.getByText('More filters')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText('Filters'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Edited By')).toBeInTheDocument();
+        expect(screen.getByText('Missing Description')).toBeInTheDocument();
       });
     });
 
-    it('opens Quality dropdown when clicked', async () => {
+    it('opens More filters dropdown when clicked', async () => {
       renderWithProviders(<NamespacePage />);
 
       await waitFor(() => {
-        expect(screen.getByText('Quality')).toBeInTheDocument();
+        expect(screen.getByText('More filters')).toBeInTheDocument();
       });
 
-      // Find and click the Quality button
-      const qualityButton = screen.getByText('Issues');
-      fireEvent.click(qualityButton);
+      fireEvent.click(screen.getByText('Filters'));
 
       await waitFor(() => {
         expect(screen.getByText('Missing Description')).toBeInTheDocument();
@@ -421,12 +437,10 @@ describe('NamespacePage', () => {
       renderWithProviders(<NamespacePage />);
 
       await waitFor(() => {
-        expect(screen.getByText('Quality')).toBeInTheDocument();
+        expect(screen.getByText('More filters')).toBeInTheDocument();
       });
 
-      // Open the Quality dropdown
-      const qualityButton = screen.getByText('Issues');
-      fireEvent.click(qualityButton);
+      fireEvent.click(screen.getByText('Filters'));
 
       await waitFor(() => {
         expect(screen.getByText('Missing Description')).toBeInTheDocument();
@@ -531,7 +545,7 @@ describe('NamespacePage', () => {
   describe('Git-root namespace (branch landing page)', () => {
     const gitRootConfig = {
       github_repo_path: 'org/repo',
-      git_branch: 'main',
+      git_branch: null,
       default_branch: 'main',
       parent_namespace: null,
       git_only: false,
@@ -622,7 +636,9 @@ describe('NamespacePage', () => {
         },
         { timeout: 3000 },
       );
-      // ...where the branch-creation entry point is still present.
+      // ...where the branch-creation entry point is still present. The default
+      // branch is read-only, so it renders the read-only menu's inline
+      // "New Branch" rather than the editable Git menu's "+ New Branch".
       expect(await screen.findByText('New Branch')).toBeInTheDocument();
     });
   });
@@ -632,10 +648,10 @@ describe('NamespacePage', () => {
       renderWithProviders(<NamespacePage />);
 
       await waitFor(() => {
-        expect(screen.getByText('Quality')).toBeInTheDocument();
+        expect(screen.getByText('More filters')).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByText('Issues'));
+      fireEvent.click(screen.getByText('Filters'));
       await waitFor(() => {
         expect(screen.getByText('Orphaned Dimensions')).toBeInTheDocument();
       });
@@ -655,10 +671,10 @@ describe('NamespacePage', () => {
       renderWithProviders(<NamespacePage />);
 
       await waitFor(() => {
-        expect(screen.getByText('Quality')).toBeInTheDocument();
+        expect(screen.getByText('More filters')).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByText('Issues'));
+      fireEvent.click(screen.getByText('Filters'));
       await waitFor(() => {
         expect(screen.getByText('Has Materialization')).toBeInTheDocument();
       });
@@ -759,5 +775,150 @@ describe('NamespacePage', () => {
       },
       { timeout: 1000 },
     );
+  });
+
+  describe('Read-only git states', () => {
+    it('shows the node table but no add/edit controls for a flat (read-only) namespace', async () => {
+      // A flat namespace: has a repo path AND its own git_branch, no parent_namespace.
+      // detectShape returns 'flat' → read-only; edit controls must be hidden.
+      const flatConfig = {
+        github_repo_path: 'corp/repo',
+        git_branch: 'main',
+        default_branch: null,
+        parent_namespace: null,
+        git_only: false,
+        git_root_namespace: 'magnesium.tech',
+      };
+      mockDjClient.getNamespaceGitConfig.mockResolvedValue(flatConfig);
+      mockDjClient.listNamespacesWithGit.mockResolvedValue([
+        { namespace: 'magnesium.tech', numNodes: 1, git: null },
+      ]);
+      mockDjClient.listNodesForLanding.mockResolvedValue({
+        data: {
+          findNodesPaginated: {
+            pageInfo: {
+              hasNextPage: false,
+              endCursor: null,
+              hasPrevPage: false,
+              startCursor: null,
+            },
+            edges: [
+              {
+                node: {
+                  name: 'magnesium.tech.some_metric',
+                  type: 'METRIC',
+                  currentVersion: 'v1.0',
+                  tags: [],
+                  editedBy: [],
+                  current: {
+                    displayName: 'Some Metric',
+                    status: 'VALID',
+                    mode: 'PUBLISHED',
+                    updatedAt: '2024-10-18T15:15:33.532949+00:00',
+                  },
+                  createdBy: { username: 'dj' },
+                },
+              },
+            ],
+          },
+        },
+      });
+
+      renderWithProviders(<NamespacePage />, {
+        route: '/namespaces/magnesium.tech',
+      });
+
+      // The node name should appear in the table.
+      expect(await screen.findByText('some_metric')).toBeInTheDocument();
+
+      // No add/edit controls for a read-only (flat) namespace.
+      expect(screen.queryByText(/\+ Add Node/i)).not.toBeInTheDocument();
+    });
+
+    it('never shows Add Node on a git-deployed branch namespace (no flash)', async () => {
+      // Regression guard: a branch namespace (gitShape === 'branch') that is
+      // git-deployed is read-only. NamespaceHeader fires onReadOnlyChange(true)
+      // via a useEffect — one render after showEditControls first becomes true.
+      // The guard must be `headerReadOnly === false` (not `!headerReadOnly`) so
+      // Add Node stays hidden during the intermediate render where headerReadOnly
+      // is still `undefined`.
+      const branchConfig = {
+        github_repo_path: 'org/repo',
+        git_branch: 'main',
+        git_path: 'nodes/',
+        git_only: false,
+        parent_namespace: 'ads',
+        branch_namespace: 'ads.main',
+        git_root_namespace: 'ads',
+      };
+      // The git root carries default_branch, so `ads.main` is recognized as the
+      // default branch — read-only. (A git-deployed *feature* branch would be
+      // editable; only the default branch / 1:1 / git root are locked.)
+      const adsRootConfig = {
+        github_repo_path: 'org/repo',
+        git_branch: null,
+        default_branch: 'main',
+        parent_namespace: null,
+        git_only: false,
+        git_root_namespace: 'ads',
+      };
+      mockDjClient.getNamespaceGitConfig.mockImplementation(ns =>
+        Promise.resolve(ns === 'ads' ? adsRootConfig : branchConfig),
+      );
+      mockDjClient.namespaceSources.mockResolvedValue({
+        total_deployments: 1,
+        primary_source: { type: 'git', repository: 'org/repo', branch: 'main' },
+      });
+      mockDjClient.listNamespacesWithGit.mockResolvedValue([
+        { namespace: 'ads', numNodes: 0, git: null },
+        { namespace: 'ads.main', numNodes: 3, git: null },
+      ]);
+      mockDjClient.listNodesForLanding.mockResolvedValue({
+        data: {
+          findNodesPaginated: {
+            pageInfo: {
+              hasNextPage: false,
+              endCursor: null,
+              hasPrevPage: false,
+              startCursor: null,
+            },
+            edges: [
+              {
+                node: {
+                  name: 'ads.main.revenue',
+                  type: 'METRIC',
+                  currentVersion: 'v1.0',
+                  tags: [],
+                  editedBy: [],
+                  current: {
+                    displayName: 'Revenue',
+                    status: 'VALID',
+                    mode: 'PUBLISHED',
+                    updatedAt: '2024-10-18T15:15:33.532949+00:00',
+                  },
+                  createdBy: { username: 'dj' },
+                },
+              },
+            ],
+          },
+        },
+      });
+
+      renderWithProviders(<NamespacePage />, {
+        route: '/namespaces/ads.main',
+      });
+
+      // Wait for the node table to settle (proves the component rendered fully,
+      // including all effects — onReadOnlyChange has fired by this point).
+      expect(await screen.findByText('revenue')).toBeInTheDocument();
+
+      // Add Node must never appear at any point. Because headerReadOnly starts
+      // as `undefined` (fixed) vs `false` (buggy), the old guard `!headerReadOnly`
+      // would render Add Node on the first pass when gitConfig resolves but before
+      // the namespaceSources effect fires onReadOnlyChange. The new guard
+      // `headerReadOnly === false` keeps it hidden until explicitly known editable.
+      // After all effects settle, Add Node must still be absent (git-deployed = read-only).
+      expect(screen.queryByText('+ Add Node')).not.toBeInTheDocument();
+    });
   });
 });

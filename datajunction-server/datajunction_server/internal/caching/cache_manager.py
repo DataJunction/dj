@@ -1,19 +1,20 @@
-from abc import ABC, abstractmethod
 import hashlib
 import json
 import logging
-from typing import Generic, Protocol, TypeVar
+from abc import ABC, abstractmethod
+from typing import ClassVar, Generic, Protocol, TypeVar
+
 from fastapi import BackgroundTasks, Request
 
 from datajunction_server.internal.caching.interface import Cache
 
 
 class DataClassLike(Protocol):
-    __dataclass_fields__: dict
+    __dataclass_fields__: ClassVar[dict]
 
 
 ResultType = TypeVar("ResultType")
-ParamsType = TypeVar("ParamsType", dict, DataClassLike)
+ParamsType = TypeVar("ParamsType", bound=dict | DataClassLike)
 
 
 class CacheManager(ABC, Generic[ParamsType, ResultType]):
@@ -67,7 +68,7 @@ class CacheManager(ABC, Generic[ParamsType, ResultType]):
         """
 
 
-class RefreshAheadCacheManager(CacheManager):
+class RefreshAheadCacheManager(CacheManager[ParamsType, ResultType]):
     """
     Cache manager implementing refresh-ahead caching.
 

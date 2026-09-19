@@ -3,17 +3,15 @@
 import itertools
 from types import SimpleNamespace
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.construction.build_v3.builder import build_measures_sql
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
     DecomposedMetricInfo,
     GrainGroupSQL,
 )
-from sqlalchemy import select
-
 from datajunction_server.database.node import Column, Node, NodeRevision
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.column import SemanticType
@@ -31,6 +29,7 @@ from datajunction_server.models.node_type import NodeNameVersion
 from datajunction_server.models.partition import Granularity
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.utils import SEPARATOR
 
 
@@ -50,7 +49,7 @@ def generate_partition_filter_sql(
     if temporal_partition.partition.granularity == Granularity.DAY and (
         lookback_window == "1 DAY" or not lookback_window
     ):
-        return f"{temporal_partition.name} = {partition_sql}"
+        return f"{temporal_partition.cube_element_name} = {partition_sql}"
     lookback_timestamp = (
         f"{logical_ts} - INTERVAL {lookback_window}"  # pragma: no cover
     )
@@ -59,7 +58,8 @@ def generate_partition_filter_sql(
         str(temporal_partition.type),
     )
     return (  # pragma: no cover
-        f"{temporal_partition.name} BETWEEN {partition_start} AND {partition_sql}"
+        f"{temporal_partition.cube_element_name} "
+        f"BETWEEN {partition_start} AND {partition_sql}"
     )
 
 
@@ -212,8 +212,8 @@ async def _v3_grain_group_to_measures_query(
     Async because we may need to refresh expired ORM attributes on the parent
     fact / source nodes that v3 left lazily-loaded.
     """
-    from datajunction_server.models.node_type import NodeType  # noqa: PLC0415
-    from datajunction_server.utils import refresh_if_needed  # noqa: PLC0415
+    from datajunction_server.models.node_type import NodeType
+    from datajunction_server.utils import refresh_if_needed
 
     parent_node = ctx.nodes.get(gg.parent_name)
     if not parent_node or not parent_node.current:  # pragma: no cover
@@ -339,7 +339,6 @@ async def _v3_grain_group_to_measures_query(
         columns=columns,
         metrics=metrics,
         sql=gg.sql,
-        spark_conf=None,
         upstream_tables=sorted(upstream_tables),
     )
 
@@ -401,8 +400,13 @@ async def build_cube_materialization(
                 for grain, query_nodes in query_grains.items()
             ),
         )
+    spark = upsert_input.spark
     measures_materializations = [
-        MeasuresMaterialization.from_measures_query(measures_query, temporal_partition)
+        MeasuresMaterialization.from_measures_query(
+            measures_query,
+            temporal_partition,
+            spark_conf=spark.measures_conf(measures_query.node.name) if spark else None,
+        )
         for measures_query in measures_queries
     ]
 
@@ -422,6 +426,8 @@ async def build_cube_materialization(
                 timestamp_format=measures_materialization.timestamp_format,
                 granularity=measures_materialization.granularity,
                 upstream_tables=[measures_materialization.output_table_name],
+                spark_conf=spark.combiner_conf() if spark else None,
+                druid_overrides=upsert_input.druid,
             ),
         ]
     if len(measures_materializations) > 1:
@@ -459,6 +465,8 @@ async def build_cube_materialization(
                 timestamp_column=measures_materialization.timestamp_column,
                 timestamp_format=measures_materialization.timestamp_format,
                 granularity=measures_materialization.granularity,
+                spark_conf=spark.combiner_conf() if spark else None,
+                druid_overrides=upsert_input.druid,
             ),
         ]
 
@@ -524,5 +532,10 @@ async def build_cube_materialization(
         measures_materializations=measures_materializations,
         combiners=combiners,
         lookback_window=upsert_input.lookback_window if incremental else None,
+        retention=upsert_input.retention,
+        coverage=upsert_input.coverage,
+        druid=upsert_input.druid,
+        spark=upsert_input.spark,
+        platform=upsert_input.platform,
     )
     return config

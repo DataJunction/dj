@@ -733,6 +733,38 @@ describe('DataJunctionAPI', () => {
     );
   });
 
+  it('uses a caller-provided nodeData max age', () => {
+    fetch.mockResponseOnce(JSON.stringify({}));
+
+    DataJunctionAPI.nodeData('transform1', null, 604800);
+
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/data/transform1?limit=1000&async_=true`,
+      {
+        credentials: 'include',
+        headers: {
+          'Cache-Control': 'max-age=604800',
+        },
+      },
+    );
+  });
+
+  it('uses caller-provided nodeData stale-while-revalidate', () => {
+    fetch.mockResponseOnce(JSON.stringify({}));
+
+    DataJunctionAPI.nodeData('transform1', null, 604800, true);
+
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/data/transform1?limit=1000&async_=true`,
+      {
+        credentials: 'include',
+        headers: {
+          'Cache-Control': 'max-age=604800, stale-while-revalidate',
+        },
+      },
+    );
+  });
+
   it('calls dag correctly and processes response', async () => {
     const mockResponse = [
       {
@@ -897,6 +929,14 @@ describe('DataJunctionAPI', () => {
     });
   });
 
+  // A gateway can answer with an HTML error page. Parsing that as JSON throws,
+  // so without the guard the call rejects and the caller sees a silent no-op.
+  it('tolerates a non-JSON error body', async () => {
+    fetch.mockResponseOnce('<html>502 Bad Gateway</html>', { status: 502 });
+    const result = await DataJunctionAPI.deactivate('default.transform1');
+    expect(result).toEqual({ status: 502, json: {} });
+  });
+
   it('calls attributes correctly', async () => {
     fetch.mockResponseOnce(JSON.stringify(mocks.attributes));
     await DataJunctionAPI.attributes();
@@ -908,9 +948,37 @@ describe('DataJunctionAPI', () => {
   it('calls dimensions correctly', async () => {
     fetch.mockResponseOnce(JSON.stringify(mocks.dimensions));
     await DataJunctionAPI.dimensions();
-    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/dimensions`, {
+    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/dimensions/`, {
       credentials: 'include',
     });
+  });
+
+  it('calls dimensions with a limit', async () => {
+    fetch.mockResponseOnce(JSON.stringify(mocks.dimensions));
+    await DataJunctionAPI.dimensions(100);
+    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/dimensions/?limit=100`, {
+      credentials: 'include',
+    });
+  });
+
+  it('calls searchDimensions correctly', async () => {
+    fetch.mockResponseOnce(
+      JSON.stringify({
+        data: {
+          findNodes: [
+            { name: 'default.hard_hat', current: { displayName: 'Hard Hat' } },
+            { name: 'default.us_state', current: null },
+          ],
+        },
+      }),
+    );
+    const results = await DataJunctionAPI.searchDimensions('hard', {
+      limit: 10,
+    });
+    expect(results).toEqual([
+      { name: 'default.hard_hat', displayName: 'Hard Hat' },
+      { name: 'default.us_state', displayName: 'default.us_state' },
+    ]);
   });
 
   it('calls setAttributes correctly', async () => {

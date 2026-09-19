@@ -1,6 +1,6 @@
 """Materialization database schema."""
 
-from typing import TYPE_CHECKING, List, Optional, Union
+from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
 from sqlalchemy import (
@@ -14,17 +14,26 @@ from sqlalchemy import (
     select,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Mapped, joinedload, mapped_column, relationship
+from sqlalchemy.orm import (
+    Mapped,
+    joinedload,
+    mapped_column,
+    relationship,
+    selectinload,
+)
 
 from datajunction_server.database.backfill import Backfill
 from datajunction_server.database.base import Base
 from datajunction_server.database.column import Column
+from datajunction_server.models.cube_materialization import (
+    DRUID_CUBE_V3_MATERIALIZATION_NAME,
+    DruidCubeV3Config,
+)
 from datajunction_server.models.materialization import (
     DruidMeasuresCubeConfig,
     GenericMaterializationConfig,
     MaterializationStrategy,
 )
-from datajunction_server.models.cube_materialization import DruidCubeV3Config
 from datajunction_server.typing import UTCDatetime
 
 if TYPE_CHECKING:
@@ -67,7 +76,7 @@ class Materialization(Base):
 
     name: Mapped[str]
 
-    strategy: Mapped[Optional[MaterializationStrategy]] = mapped_column(
+    strategy: Mapped[MaterializationStrategy | None] = mapped_column(
         Enum(MaterializationStrategy),
     )
 
@@ -76,7 +85,7 @@ class Materialization(Base):
 
     # Arbitrary config relevant to the materialization job
     config: Mapped[
-        Union[GenericMaterializationConfig, DruidMeasuresCubeConfig, DruidCubeV3Config]
+        GenericMaterializationConfig | DruidMeasuresCubeConfig | DruidCubeV3Config
     ] = mapped_column(
         JSON,
         default={},
@@ -88,30 +97,75 @@ class Materialization(Base):
         default="MaterializationJob",
     )
 
+    # Workflows the query service reported when it scheduled this
+    workflow_names: Mapped[list[str] | None] = mapped_column(
+        JSON,
+        nullable=True,
+        default=None,
+    )
+
     deactivated_at: Mapped[UTCDatetime] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
         default=None,
     )
 
-    backfills: Mapped[List[Backfill]] = relationship(
+    backfills: Mapped[list[Backfill]] = relationship(
         back_populates="materialization",
         primaryjoin="Materialization.id==Backfill.materialization_id",
         cascade="all, delete",
         lazy="selectin",
     )
 
+    @property
+    def backfill_workflow(self) -> str | None:
+        """
+        The recorded workflow a backfill run belongs to, if the query service made
+        one.
+
+        Picked by its `.backfill` suffix rather than by position: the scheduled
+        workflow is always reported, the backfill one only for an incremental
+        strategy, so a one-element list is the ordinary shape and indexing into it
+        would hand the scheduler its own scheduled workflow to backfill on.
+        """
+        return next(
+            (name for name in self.workflow_names or [] if name.endswith(".backfill")),
+            None,
+        )
+
+    @property
+    def is_cube_planner(self) -> bool:
+        """
+        Whether this row was written by the cube planner (v3) rather than by the
+        fused cube materialization path.
+
+        The two dialects are indistinguishable by job: `POST /cubes/{name}/materialize`
+        persists the same `DruidCubeMaterializationJob` the fused path derives. What
+        separates them is the row name the planner writes and the version
+        discriminator its config carries, either of which is enough to recognize.
+
+        The name is the authoritative signal, since the planner is the only writer of
+        it. The `version` check is a fallback for rows written before that name
+        settled, so a row matching either one is treated as the planner's.
+        """
+        config = self.config if isinstance(self.config, dict) else {}
+        return (
+            self.name == DRUID_CUBE_V3_MATERIALIZATION_NAME
+            or config.get("version") == "v3"
+        )
+
     @classmethod
     async def get_by_names(
         cls,
         session: AsyncSession,
         node_revision_id: int,
-        materialization_names: List[str],
-    ) -> List["Materialization"]:
+        materialization_names: list[str],
+    ) -> list["Materialization"]:
         """
         Get materializations by name and node revision id.
         """
-        from datajunction_server.database.node import NodeRevision
+        from datajunction_server.database.node import Node, NodeRevision
+        from datajunction_server.database.user import User
 
         statement = (
             select(cls)
@@ -124,6 +178,10 @@ class Materialization(Base):
             .options(
                 joinedload(cls.node_revision).options(
                     joinedload(NodeRevision.columns).joinedload(Column.partition),
+                    selectinload(NodeRevision.node)
+                    .selectinload(Node.owners)
+                    .load_only(User.username, User.kind)
+                    .raiseload("*"),
                 ),
             )
         )

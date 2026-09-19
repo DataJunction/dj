@@ -1,6 +1,6 @@
 """Namespace GraphQL scalar."""
 
-from typing import Annotated, Optional, Union
+from typing import Annotated
 
 import strawberry
 
@@ -13,8 +13,8 @@ class GitRootConfig:
     """
 
     repo: str
-    path: Optional[str]
-    default_branch: Optional[str]
+    path: str | None
+    default_branch: str | None
 
 
 @strawberry.type
@@ -31,7 +31,7 @@ class GitBranchConfig:
 
 
 NamespaceGit = Annotated[
-    Union[GitRootConfig, GitBranchConfig],
+    GitRootConfig | GitBranchConfig,
     strawberry.union("NamespaceGit"),
 ]
 
@@ -46,4 +46,4 @@ class Namespace:
 
     namespace: str
     num_nodes: int
-    git: Optional[NamespaceGit]
+    git: NamespaceGit | None

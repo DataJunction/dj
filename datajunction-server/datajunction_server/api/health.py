@@ -2,8 +2,6 @@
 Application healthchecks.
 """
 
-from typing import List
-
 from fastapi import APIRouter, Depends
 from pydantic.main import BaseModel
 from sqlalchemy import select
@@ -49,10 +47,10 @@ async def database_health(session: AsyncSession) -> HealthcheckStatus:
         return HealthcheckStatus.FAILED  # pragma: no cover
 
 
-@router.get("/health/", response_model=List[HealthCheck])
+@router.get("/health/", response_model=list[HealthCheck])
 async def health_check(
     session: AsyncSession = Depends(get_session),
-) -> List[HealthCheck]:
+) -> list[HealthCheck]:
     """
     Healthcheck for services.
     """

@@ -1,24 +1,62 @@
-import pytest
+import json
+import os
+import subprocess
+import sys
+from datetime import date
+from decimal import Decimal
 
-from datajunction_server.errors import DJInvalidDeploymentConfig
-from datajunction_server.models.node import NodeMode, NodeType
+import pytest
+from pydantic import ValidationError
+
+from datajunction_server.errors import (
+    DJInvalidDeploymentConfig,
+    DJInvalidInputException,
+)
 from datajunction_server.models.deployment import (
+    ChangeTier,
+    ColumnSpec,
+    CubeSpec,
+    CustomMetadataSchemaSpec,
+    DeploymentCheckSpec,
+    DeploymentRulesetSpec,
     DeploymentSpec,
     DimensionJoinLinkSpec,
-    DimensionSpec,
-    NamespaceGitConfig,
-    SourceSpec,
-    MetricSpec,
     DimensionReferenceLinkSpec,
-    TransformSpec,
-    ColumnSpec,
-    PartitionSpec,
+    DimensionSpec,
     Granularity,
+    MaterializationAction,
+    MaterializationSpec,
+    MetricSpec,
+    NamespaceGitConfig,
+    NodeSpec,
+    PartitionSpec,
     PartitionType,
+    PreAggSpec,
+    SourceSpec,
+    TagSpec,
+    TransformSpec,
+    bump_version,
     eq_columns,
     eq_or_fallback,
+    fold_change_tiers,
 )
-from datajunction_server.models.node import MetricUnit
+from datajunction_server.models.materialization import (
+    CoverageSpec,
+    MaterializationStrategy,
+)
+from datajunction_server.models.node import MetricUnit, NodeMode, NodeType
+from datajunction_server.models.semantic_fingerprint import SemanticFingerprint
+from datajunction_server.semantic_fingerprints.engine import (
+    compose_node_fingerprint,
+    local_node_fingerprint,
+)
+from datajunction_server.semantic_fingerprints.normalization import (
+    canonical_json,
+    normalize_field,
+    normalize_sequence,
+    normalize_value,
+)
+from datajunction_server.semantic_fingerprints.v1 import semantic_fields
 
 
 def test_source_spec():
@@ -243,9 +281,14 @@ def test_deployment_spec():
         ],
         "tags": [],
         "hierarchies": [],
+        "preaggregations": [],
+        "custom_metadata_schemas": None,
+        "checks": None,
+        "rulesets": None,
         "source": None,
         "auto_register_sources": True,
         "force": False,
+        "allow_empty": False,
         "default_catalog": None,
     }
 
@@ -433,6 +476,77 @@ def test_dimension_join_link_spec_with_default_value():
     assert hash(link_spec) != hash(different_default)
 
 
+def test_dimension_join_link_spec_with_join_cardinality():
+    """Test DimensionJoinLinkSpec join_cardinality default, equality, and hashing."""
+    from datajunction_server.models.dimensionlink import JoinCardinality
+
+    # Default cardinality is many_to_one (a fact row joins at most one dim row).
+    default_link = DimensionJoinLinkSpec(
+        dimension_node="some.dimension.users",
+        join_type="left",
+        join_on="events.user_id = some.dimension.users.id",
+    )
+    assert default_link.join_cardinality == JoinCardinality.MANY_TO_ONE
+
+    fanout_link = DimensionJoinLinkSpec(
+        dimension_node="some.dimension.users",
+        join_type="left",
+        join_on="events.user_id = some.dimension.users.id",
+        join_cardinality=JoinCardinality.ONE_TO_MANY,
+    )
+    assert fanout_link.join_cardinality == JoinCardinality.ONE_TO_MANY
+
+    # Equality and hashing must take join_cardinality into account.
+    same_default = DimensionJoinLinkSpec(
+        dimension_node="some.dimension.users",
+        join_type="left",
+        join_on="events.user_id = some.dimension.users.id",
+    )
+    assert default_link == same_default
+    assert hash(default_link) == hash(same_default)
+    assert default_link != fanout_link
+    assert hash(default_link) != hash(fanout_link)
+
+
+def test_diff_does_not_flag_description_mentioning_prefix():
+    """
+    `NodeSpec.diff()` renders `${prefix}` on both sides before comparing.
+
+    An exported spec's `description`/`custom_metadata` keep any `${prefix}`
+    substring verbatim -- those fields are stored exactly as authored, never
+    rendered. Rendering only the incoming spec (not the exported one) would
+    replace `${prefix}` on one side but not the other, so a description that
+    happens to mention a sibling node via `${prefix}` would never compare
+    equal to itself.
+    """
+    namespace = "test"
+    description = "See also ${prefix}other_node for context."
+    custom_metadata = {"see_also": "${prefix}other_node"}
+
+    exported = DimensionSpec(
+        name=f"{namespace}.some_node",
+        namespace=namespace,
+        query="SELECT 1 AS id",
+        primary_key=["id"],
+        description=description,
+        custom_metadata=custom_metadata,
+    )
+    declared = DimensionSpec(
+        name="some_node",
+        namespace=namespace,
+        query="SELECT 1 AS id",
+        primary_key=["id"],
+        description=description,
+        custom_metadata=custom_metadata,
+        owners=["someone_else"],
+    )
+
+    changed = exported.diff(declared)
+    assert "description" not in changed
+    assert "custom_metadata" not in changed
+    assert changed == ["owners"]
+
+
 def test_source_spec_with_dimension_link_default_value():
     """Test SourceSpec with dimension_links including default_value."""
     source_spec = SourceSpec(
@@ -589,10 +703,1708 @@ def test_deployment_results_property_getter():
                 "status": "success",
                 "operation": "create",
                 "message": "Created",
+                "change_tier": "major",
+                "semantic_fingerprint": {
+                    "digest": "a" * 64,
+                },
+            },
+            {
+                "name": "legacy_node",
+                "deploy_type": "node",
+                "status": "invalid",
+                "operation": "update",
+                "semantic_fingerprint": "unknown",
+            },
+            {
+                "name": "test_node -> test_dimension",
+                "deploy_type": "link",
+                "status": "success",
+                "operation": "create",
             },
         ],
     )
     results = deployment.deployment_results
-    assert len(results) == 1
+    assert len(results) == 3
     assert results[0].name == "test_node"
     assert results[0].status == DeploymentResult.Status.SUCCESS
+    assert results[0].change_tier == "major"
+    assert results[0].semantic_fingerprint == SemanticFingerprint(digest="a" * 64)
+    assert results[1].semantic_fingerprint == "unknown"
+    assert results[2].change_tier is None
+    assert results[2].semantic_fingerprint is None
+
+
+def test_deployment_spec_preserves_explicit_preagg_namespace():
+    """
+    set_namespaces propagates the deployment namespace onto pre-agg specs that
+    don't have one, but leaves an already-namespaced pre-agg spec untouched.
+    """
+    spec = DeploymentSpec(
+        namespace="ns",
+        preaggregations=[
+            PreAggSpec(
+                name="already_scoped",
+                namespace="explicit",
+                catalog="c",
+                schema="s",
+                table="t",
+            ),
+            PreAggSpec(
+                name="unscoped",
+                catalog="c",
+                schema="s",
+                table="t",
+            ),
+        ],
+    )
+    assert spec.preaggregations[0].namespace == "explicit"
+    assert spec.preaggregations[1].namespace == "ns"
+
+
+def _preagg_spec_dict() -> dict:
+    """Each metric and dimension declared with the column that holds it."""
+    return {
+        "name": "p",
+        "namespace": "ns",
+        "metrics": {"${prefix}count": "cnt"},
+        "dimensions": {
+            "${prefix}d.attr": "phys_attr",
+            # The physical column matches the DJ column name, and says so anyway.
+            "${prefix}d.same": "same",
+        },
+        "catalog": "c",
+        "schema": "s",
+        "table": "t",
+        "valid_through_ts": 1700000000,
+    }
+
+
+def test_preagg_spec_renders_column_bindings():
+    """
+    The maps are split back into the references-plus-bindings shape the
+    registration internals take, with every reference prefix-rendered against
+    the namespace and the physical columns left as-is.
+    """
+    spec = PreAggSpec.model_validate(_preagg_spec_dict())
+    assert spec.rendered_metrics == ["ns.count"]
+    assert spec.rendered_dimensions == ["ns.d.attr", "ns.d.same"]
+    assert spec.rendered_measure_columns == {"ns.count": "cnt"}
+    assert spec.rendered_dimension_columns == {
+        "ns.d.attr": "phys_attr",
+        "ns.d.same": "same",
+    }
+
+
+def test_preagg_spec_round_trips_through_model_dump():
+    """
+    A dumped spec is what crosses the wire from the client, so re-validating a
+    dump has to land on an equal spec.
+    """
+    spec = PreAggSpec.model_validate(_preagg_spec_dict())
+    # `namespace` is excluded from the dump (the deployment re-injects it), so
+    # the comparison is on the dumped fields.
+    assert (
+        PreAggSpec.model_validate(spec.model_dump()).model_dump() == spec.model_dump()
+    )
+    assert spec.model_dump() == {
+        "name": "p",
+        "metrics": {"${prefix}count": "cnt"},
+        "dimensions": {"${prefix}d.attr": "phys_attr", "${prefix}d.same": "same"},
+        "catalog": "c",
+        "schema_": "s",
+        "table": "t",
+        "valid_through_ts": 1700000000,
+    }
+
+
+def test_preagg_spec_rejects_measure_columns_block():
+    """
+    The four-field form is gone: `measure_columns` would otherwise be ignored as
+    an unknown key, silently dropping every binding it declared.
+    """
+    spec = _preagg_spec_dict()
+    spec["metrics"] = ["${prefix}count"]
+    spec["measure_columns"] = {"${prefix}count": "cnt"}
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        PreAggSpec.model_validate(spec)
+    assert exc_info.value.message == (
+        "Pre-aggregation 'p' declares `measure_columns`, which is no longer a "
+        "pre-aggregation field. Declare the physical column alongside what it "
+        "holds instead, as `metrics: {<reference>: <column>}`, and drop the "
+        "`measure_columns` block."
+    )
+
+
+def test_preagg_spec_rejects_dimension_columns_block():
+    """Same for `dimension_columns`, the other half of the retired form."""
+    spec = _preagg_spec_dict()
+    spec["dimensions"] = ["${prefix}d.attr"]
+    spec["dimension_columns"] = {"${prefix}d.attr": "phys_attr"}
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        PreAggSpec.model_validate(spec)
+    assert exc_info.value.message == (
+        "Pre-aggregation 'p' declares `dimension_columns`, which is no longer a "
+        "pre-aggregation field. Declare the physical column alongside what it "
+        "holds instead, as `dimensions: {<reference>: <column>}`, and drop the "
+        "`dimension_columns` block."
+    )
+
+
+def test_preagg_spec_rejects_list_of_references():
+    """
+    A bare list of references carries no bindings at all, so it is refused with
+    the shape to write instead rather than a pydantic type error.
+    """
+    spec = _preagg_spec_dict()
+    spec["metrics"] = ["${prefix}count"]
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        PreAggSpec.model_validate(spec)
+    assert exc_info.value.message == (
+        "Pre-aggregation 'p' declares `metrics` as a list. `metrics` is a map "
+        "from each reference to the physical column of the external table that "
+        "holds it, e.g. `metrics: {<reference>: <column>}`."
+    )
+
+
+def test_preagg_spec_rejects_metric_without_column():
+    """A measure's DJ-side name is hashed, so there is nothing to default to."""
+    spec = _preagg_spec_dict()
+    spec["metrics"] = {"${prefix}count": None, "${prefix}total": "total_sum"}
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        PreAggSpec.model_validate(spec)
+    assert exc_info.value.message == (
+        "Pre-aggregation 'p' leaves the physical column empty under `metrics` "
+        "for ['${prefix}count']. A measure's DJ-side name is auto-generated "
+        "with an expression-hash suffix, so there is no name to fall back on."
+    )
+
+
+def test_preagg_spec_rejects_dimension_without_column():
+    """
+    A dimension is held to the same rule, even though its DJ column name would
+    be a plausible default: a trailing colon is too easy to write by accident,
+    and the written-out name documents the table.
+    """
+    spec = _preagg_spec_dict()
+    spec["dimensions"] = {"${prefix}d.attr": "phys_attr", "${prefix}d.same": None}
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        PreAggSpec.model_validate(spec)
+    assert exc_info.value.message == (
+        "Pre-aggregation 'p' leaves the physical column empty under "
+        "`dimensions` for ['${prefix}d.same']. Write the column out even when "
+        "it matches the DJ column name, so the file says what the table "
+        "actually holds."
+    )
+
+
+def test_preagg_spec_rejects_non_mapping_input():
+    """
+    Input that isn't a mapping at all falls through the binding checks and gets
+    pydantic's own error, rather than blowing up inside the validator.
+    """
+    with pytest.raises(ValidationError) as exc_info:
+        PreAggSpec.model_validate(["not", "a", "spec"])
+    assert exc_info.value.errors()[0]["type"] == "model_type"
+
+
+def test_tag_spec_metadata_aliases():
+    """
+    A tag's metadata bag may be authored as `tag_metadata`, `metadata` or
+    `custom_metadata`; all three land on `tag_metadata`. `display_name` is
+    optional (the deployment labelizes the name when it is absent).
+    """
+    metadata = {"order": 1, "display": {"color": "blue"}}
+    for key in ("tag_metadata", "metadata", "custom_metadata"):
+        tag_spec = TagSpec.model_validate(
+            {
+                "name": "inventory",
+                "description": "Inventory tag",
+                "tag_type": "group",
+                key: metadata,
+            },
+        )
+        assert tag_spec.model_dump() == {
+            "name": "inventory",
+            "display_name": None,
+            "description": "Inventory tag",
+            "tag_type": "group",
+            "tag_metadata": metadata,
+        }
+
+    # Legacy tag entries with neither display_name nor metadata still validate
+    assert TagSpec.model_validate(
+        {"name": "deprecated", "description": "d", "tag_type": "Maintenance"},
+    ).model_dump() == {
+        "name": "deprecated",
+        "display_name": None,
+        "description": "d",
+        "tag_type": "Maintenance",
+        "tag_metadata": None,
+    }
+
+
+def all_node_spec_classes() -> list[type[NodeSpec]]:
+    """Every NodeSpec class, including the abstract intermediate ones."""
+
+    def descendants(klass):
+        for subclass in klass.__subclasses__():
+            yield subclass
+            yield from descendants(subclass)
+
+    return [NodeSpec, *descendants(NodeSpec)]
+
+
+def test_every_spec_field_has_an_explicit_change_tier():
+    """
+    Every field on every NodeSpec class must be explicitly classified into a
+    ChangeTier. This is what turns "someone added a field and forgot to say how
+    significant a change to it is" into a red test instead of a silent fallback.
+    """
+    unclassified = {
+        spec_class.__name__: spec_class.unclassified_fields()
+        for spec_class in all_node_spec_classes()
+        if spec_class.unclassified_fields()
+    }
+    assert unclassified == {}
+    unclassified_order = {
+        spec_class.__name__: spec_class.unclassified_list_order_fields()
+        for spec_class in all_node_spec_classes()
+        if spec_class.unclassified_list_order_fields()
+    }
+    assert unclassified_order == {}
+
+
+def test_change_tier_lookup_walks_the_mro():
+    """
+    Each spec class declares only the fields it introduces; lookup finds inherited
+    classifications, and anything unclassified falls back to MAJOR (fail safe).
+    """
+    assert CubeSpec.field_change_tier("metrics") == ChangeTier.MAJOR
+    assert CubeSpec.field_change_tier("description") == ChangeTier.MINOR
+    assert CubeSpec.field_change_tier("name") == ChangeTier.NONE
+    assert CubeSpec.field_change_tier("a_field_nobody_classified") == ChangeTier.MAJOR
+
+    assert CubeSpec.field_order_change_tier("metrics") == ChangeTier.MINOR
+    assert CubeSpec.field_order_change_tier("dimensions") == ChangeTier.MINOR
+    assert CubeSpec.field_order_change_tier("filters") == ChangeTier.NONE
+    assert CubeSpec.field_order_change_tier("description") == ChangeTier.NONE
+
+    assert TransformSpec.field_change_tier("query") == ChangeTier.MAJOR
+    assert TransformSpec.field_change_tier("primary_key") == ChangeTier.MAJOR
+    assert TransformSpec.field_change_tier("tags") == ChangeTier.MINOR
+    assert TransformSpec.order_sensitive_fields() == []
+    assert CubeSpec.order_sensitive_fields() == ["metrics", "dimensions"]
+
+
+def test_fold_change_tiers():
+    """The most significant change wins; no changes at all is NONE."""
+    assert fold_change_tiers([]) == ChangeTier.NONE
+    assert fold_change_tiers([ChangeTier.NONE]) == ChangeTier.NONE
+    assert fold_change_tiers([ChangeTier.NONE, ChangeTier.MINOR]) == ChangeTier.MINOR
+    assert (
+        fold_change_tiers([ChangeTier.MINOR, ChangeTier.MAJOR, ChangeTier.NONE])
+        == ChangeTier.MAJOR
+    )
+    # The tiers are ordered, and spaced so a future tier fits between them.
+    assert ChangeTier.NONE < ChangeTier.MINOR < ChangeTier.MAJOR
+    assert ChangeTier.MINOR - ChangeTier.NONE > 1
+
+
+def test_change_tier_classification():
+    """The table of decisions, exercised through the shared classifier."""
+    assert CubeSpec.change_tier([], []) == ChangeTier.NONE
+    # metric / dimension / filter set changes are major
+    assert CubeSpec.change_tier(["metrics"]) == ChangeTier.MAJOR
+    assert CubeSpec.change_tier(["dimensions"]) == ChangeTier.MAJOR
+    assert CubeSpec.change_tier(["filters"]) == ChangeTier.MAJOR
+    # reordering metrics or dimensions is minor, reordering filters is nothing
+    assert CubeSpec.change_tier([], ["metrics"]) == ChangeTier.MINOR
+    assert CubeSpec.change_tier([], ["dimensions"]) == ChangeTier.MINOR
+    assert CubeSpec.change_tier([], ["filters"]) == ChangeTier.NONE
+    # metadata is minor
+    for field in ("description", "display_name", "mode", "custom_metadata"):
+        assert CubeSpec.change_tier([field]) == ChangeTier.MINOR
+    # a major change alongside a minor one is still major
+    assert CubeSpec.change_tier(["description", "filters"]) == ChangeTier.MAJOR
+    # query, columns, primary key and dimension links are major
+    assert TransformSpec.change_tier(["query"]) == ChangeTier.MAJOR
+    assert TransformSpec.change_tier(["columns"]) == ChangeTier.MAJOR
+    assert TransformSpec.change_tier(["primary_key"]) == ChangeTier.MAJOR
+    assert TransformSpec.change_tier(["dimension_links"]) == ChangeTier.MAJOR
+
+
+def test_bump_version():
+    """NONE keeps the version: an unchanged node must not be given a new one."""
+    assert bump_version("v1.3", ChangeTier.NONE) == "v1.3"
+    assert bump_version("v1.3", ChangeTier.MINOR) == "v1.4"
+    assert bump_version("v1.3", ChangeTier.MAJOR) == "v2.0"
+
+
+def a_cube(**kwargs) -> CubeSpec:
+    """A minimal cube spec, overridable field by field."""
+    defaults: dict = {
+        "name": "test_cube",
+        "metrics": ["ns.a", "ns.b"],
+        "dimensions": ["ns.d.one", "ns.d.two"],
+    }
+    return CubeSpec(**{**defaults, **kwargs})
+
+
+def test_cube_spec_eq_is_order_sensitive_for_metrics_and_dimensions():
+    """
+    Metric and dimension ordering sets the cube's column order, so a reorder is a
+    real difference the deployment path has to be able to see.
+    """
+    assert a_cube() == a_cube()
+    assert a_cube() != a_cube(metrics=["ns.b", "ns.a"])
+    assert a_cube() != a_cube(dimensions=["ns.d.two", "ns.d.one"])
+    assert a_cube() != a_cube(metrics=["ns.a"])
+
+
+def test_cube_spec_eq_treats_filters_as_a_set():
+    """Filters are ANDed, so reordering them is cosmetic and not a change."""
+    one = a_cube(filters=["x = 1", "y = 2"])
+    assert one == a_cube(filters=["y = 2", "x = 1"])
+    assert one != a_cube(filters=["x = 1"])
+    assert one != a_cube(filters=["x = 1", "y = 3"])
+
+
+def test_cube_spec_order_diff():
+    """
+    order_diff names the order-sensitive fields whose contents held still while
+    their ordering moved -- the changes diff()'s set comparison cannot see.
+    """
+    one = a_cube(filters=["x = 1", "y = 2"])
+    assert one.order_diff(a_cube(filters=["x = 1", "y = 2"])) == []
+    assert one.order_diff(
+        a_cube(metrics=["ns.b", "ns.a"], filters=["x = 1", "y = 2"]),
+    ) == ["metrics"]
+    assert one.order_diff(
+        a_cube(dimensions=["ns.d.two", "ns.d.one"], filters=["x = 1", "y = 2"]),
+    ) == ["dimensions"]
+    assert one.order_diff(a_cube(filters=["y = 2", "x = 1"])) == []
+    # A set change is not a reorder — diff() reports that one instead.
+    assert one.order_diff(a_cube(metrics=["ns.a"], filters=["x = 1", "y = 2"])) == []
+    assert one.diff(a_cube(metrics=["ns.a"], filters=["x = 1", "y = 2"])) == ["metrics"]
+
+
+def test_diff_compares_dicts_by_value():
+    """
+    A dict field whose keys are unchanged but whose values moved is a change.
+    Iterating a dict yields only its keys, so the set comparison lists use missed
+    this and `custom_metadata` edits were reported as no change at all.
+    """
+    one = a_cube(custom_metadata={"tier": "1"})
+    assert one.diff(a_cube(custom_metadata={"tier": "2"})) == ["custom_metadata"]
+    assert one.diff(a_cube(custom_metadata={"tier": "1"})) == []
+    assert a_cube().diff(a_cube(custom_metadata={})) == []
+
+
+def _partitioned_cube(**materialization) -> CubeSpec:
+    """A cube with a temporal partition, optionally carrying a materialization block."""
+    return CubeSpec(
+        namespace="test",
+        name="my_cube",
+        metrics=["${prefix}num_orders"],
+        dimensions=["${prefix}date_dim.dateint"],
+        columns=[
+            ColumnSpec(
+                name="${prefix}date_dim.dateint",
+                partition=PartitionSpec(
+                    type=PartitionType.TEMPORAL,
+                    granularity=Granularity.DAY,
+                    format="yyyyMMdd",
+                ),
+            ),
+        ],
+        materialization=MaterializationSpec(**materialization)
+        if materialization
+        else None,
+    )
+
+
+def test_materialization_spec_defaults():
+    """An author supplying only a schedule gets incremental daily-lookback defaults."""
+    spec = MaterializationSpec(schedule="0 6 * * *")
+    assert spec.model_dump() == {
+        "schedule": "0 6 * * *",
+        "strategy": MaterializationStrategy.INCREMENTAL_TIME,
+        "lookback_window": "1 DAY",
+        "retention": "400 DAYS",
+        "coverage": None,
+        "druid": None,
+        "spark": None,
+        "platform": None,
+    }
+
+
+def test_materialization_spec_retention_override():
+    """An author can widen or narrow how long Druid keeps the ingested data."""
+    spec = MaterializationSpec(schedule="0 6 * * *", retention="30 DAYS")
+    assert spec.model_dump() == {
+        "schedule": "0 6 * * *",
+        "strategy": MaterializationStrategy.INCREMENTAL_TIME,
+        "lookback_window": "1 DAY",
+        "retention": "30 DAYS",
+        "coverage": None,
+        "druid": None,
+        "spark": None,
+        "platform": None,
+    }
+
+
+def test_materialization_spec_full_strategy_drops_lookback():
+    """
+    ``lookback_window`` is meaningless for FULL, so it is normalized away -- otherwise
+    two equivalent specs could compare unequal and churn a live workflow on deploy.
+    ``retention`` is not: a full rebuild loads the widest span of history there is.
+    """
+    declared = MaterializationSpec(
+        schedule="0 6 * * *",
+        strategy=MaterializationStrategy.FULL,
+        lookback_window="7 DAY",
+    )
+    assert declared.model_dump() == {
+        "schedule": "0 6 * * *",
+        "strategy": MaterializationStrategy.FULL,
+        "lookback_window": None,
+        "retention": "400 DAYS",
+        "coverage": None,
+        "druid": None,
+        "spark": None,
+        "platform": None,
+    }
+    assert declared == MaterializationSpec(
+        schedule="0 6 * * *",
+        strategy=MaterializationStrategy.FULL,
+    )
+
+
+def test_materialization_spec_coverage_fixed_span():
+    """
+    A fixed span is declared as an inclusive ``from``/``to`` pair, and dumps back out
+    under the authored ``from`` key rather than the ``from_`` field name.
+    """
+    spec = MaterializationSpec(
+        schedule="0 6 * * *",
+        coverage={"from": "2024-01-01", "to": "2024-06-30"},
+    )
+    assert spec.coverage == CoverageSpec(from_=date(2024, 1, 1), to=date(2024, 6, 30))
+    assert spec.model_dump() == {
+        "schedule": "0 6 * * *",
+        "strategy": MaterializationStrategy.INCREMENTAL_TIME,
+        "lookback_window": "1 DAY",
+        "retention": "400 DAYS",
+        "coverage": {"from": "2024-01-01", "to": "2024-06-30", "window": None},
+        "druid": None,
+        "spark": None,
+        "platform": None,
+    }
+
+
+def test_materialization_spec_coverage_open_ended_span():
+    """``to`` is optional: a span with only a ``from`` is ongoing."""
+    spec = MaterializationSpec(
+        schedule="0 6 * * *",
+        coverage={"from": "2024-01-01"},
+    )
+    assert spec.model_dump(mode="json", exclude_none=True) == {
+        "schedule": "0 6 * * *",
+        "strategy": "incremental_time",
+        "lookback_window": "1 DAY",
+        "retention": "400 DAYS",
+        "coverage": {"from": "2024-01-01"},
+    }
+
+
+def test_materialization_spec_coverage_rolling_window():
+    """The other form is a trailing duration, in the style of ``lookback_window``."""
+    spec = MaterializationSpec(
+        schedule="0 6 * * *",
+        coverage={"window": "800 DAYS"},
+    )
+    assert spec.coverage == CoverageSpec(window="800 DAYS")
+    assert spec.model_dump(mode="json", exclude_none=True) == {
+        "schedule": "0 6 * * *",
+        "strategy": "incremental_time",
+        "lookback_window": "1 DAY",
+        "retention": "400 DAYS",
+        "coverage": {"window": "800 DAYS"},
+    }
+
+
+def test_materialization_spec_without_coverage():
+    """Coverage is optional, and absent means the author has declared no span."""
+    assert MaterializationSpec(schedule="0 6 * * *").coverage is None
+
+
+def test_materialization_spec_empty_coverage_is_absent():
+    """
+    A ``coverage:`` block declaring neither form declares nothing, so it normalizes to
+    absent -- otherwise it would compare unequal to the same spec without the block and
+    churn a live workflow on every deploy.
+    """
+    spec = MaterializationSpec(schedule="0 6 * * *", coverage={})
+    assert spec.coverage is None
+    assert spec == MaterializationSpec(schedule="0 6 * * *")
+
+
+def test_materialization_spec_coverage_equality_ignores_spelling():
+    """
+    Two specs meaning the same span compare equal however they were spelled: dates are
+    parsed rather than kept as text, and the window's whitespace is collapsed.
+    """
+    assert MaterializationSpec(
+        schedule="0 6 * * *",
+        coverage={"from": "2024-01-01"},
+    ) == MaterializationSpec(
+        schedule="0 6 * * *",
+        coverage=CoverageSpec(from_=date(2024, 1, 1)),
+    )
+    assert MaterializationSpec(
+        schedule="0 6 * * *",
+        coverage={"window": "  800   DAYS "},
+    ) == MaterializationSpec(schedule="0 6 * * *", coverage={"window": "800 DAYS"})
+
+
+def test_materialization_spec_coverage_rejects_both_forms():
+    """A fixed span and a rolling window say different things about the same cube."""
+    with pytest.raises(DJInvalidInputException) as exc_info:
+        MaterializationSpec(
+            schedule="0 6 * * *",
+            coverage={"from": "2024-01-01", "window": "800 DAYS"},
+        )
+    assert exc_info.value.message == ("Declare a fixed span or a window, not both.")
+
+
+def test_materialization_spec_coverage_rejects_to_without_from():
+    """An end date on its own does not describe a span."""
+    with pytest.raises(DJInvalidInputException) as exc_info:
+        MaterializationSpec(schedule="0 6 * * *", coverage={"to": "2024-06-30"})
+    assert exc_info.value.message == ("Coverage needs a `from` to go with `to`.")
+
+
+def test_materialization_spec_coverage_rejects_backwards_span():
+    """A span that ends before it starts covers nothing."""
+    with pytest.raises(DJInvalidInputException) as exc_info:
+        MaterializationSpec(
+            schedule="0 6 * * *",
+            coverage={"from": "2024-06-30", "to": "2024-01-01"},
+        )
+    assert exc_info.value.message == (
+        "Coverage ends before it starts: 2024-01-01 precedes 2024-06-30."
+    )
+
+
+def test_coverage_spec_survives_a_json_round_trip():
+    """
+    What ``model_dump`` produces is exactly what validates back, which is what lets a
+    declared span pass through the JSON materialization config unchanged.
+    """
+    for coverage in (
+        CoverageSpec(from_=date(2024, 1, 1), to=date(2024, 6, 30)),
+        CoverageSpec(from_=date(2024, 1, 1)),
+        CoverageSpec(window="800 DAYS"),
+    ):
+        stored = json.loads(json.dumps(coverage.model_dump()))
+        assert CoverageSpec.model_validate(stored) == coverage
+
+
+@pytest.mark.parametrize(
+    ("coverage", "span"),
+    [
+        # A fixed span with both ends is already the answer.
+        (
+            CoverageSpec(from_=date(2024, 1, 1), to=date(2024, 6, 30)),
+            (date(2024, 1, 1), date(2024, 6, 30)),
+        ),
+        # An ongoing span runs to yesterday, the last full day.
+        (
+            CoverageSpec(from_=date(2024, 1, 1)),
+            (date(2024, 1, 1), date(2026, 8, 22)),
+        ),
+        # A rolling window counts back from yesterday, both ends included.
+        (
+            CoverageSpec(window="800 DAYS"),
+            (date(2024, 6, 14), date(2026, 8, 22)),
+        ),
+        (
+            CoverageSpec(window="2 weeks"),
+            (date(2026, 8, 9), date(2026, 8, 22)),
+        ),
+        # A window in a unit DJ cannot count in days.
+        (CoverageSpec(window="6 MONTHS"), None),
+        # A window that reads as no duration at all.
+        (CoverageSpec(window="a while"), None),
+    ],
+)
+def test_coverage_spec_span(coverage, span):
+    """The days a declared span asks a backfill to run, as of a given day."""
+    assert coverage.span(date(2026, 8, 23)) == span
+
+
+def test_cube_spec_incremental_requires_temporal_partition():
+    """An incremental cube with no temporal partition has nothing to increment over."""
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        CubeSpec(
+            namespace="test",
+            name="my_cube",
+            metrics=["${prefix}num_orders"],
+            dimensions=["${prefix}date_dim.dateint"],
+            materialization=MaterializationSpec(schedule="0 6 * * *"),
+        )
+    assert exc_info.value.message == (
+        "Cube `my_cube` declares an `incremental_time` materialization but no "
+        "temporal partition. Add `partition: {type: temporal, ...}` to the cube "
+        "column that partitions it, or use `strategy: full`."
+    )
+
+
+def test_cube_spec_full_strategy_needs_no_partition():
+    """FULL rebuilds everything, so it carries no partition requirement."""
+    spec = CubeSpec(
+        namespace="test",
+        name="my_cube",
+        metrics=["${prefix}num_orders"],
+        dimensions=["${prefix}date_dim.dateint"],
+        materialization=MaterializationSpec(
+            schedule="0 6 * * *",
+            strategy=MaterializationStrategy.FULL,
+        ),
+    )
+    assert spec.materialization == MaterializationSpec(
+        schedule="0 6 * * *",
+        strategy=MaterializationStrategy.FULL,
+        lookback_window=None,
+    )
+
+
+def test_cube_spec_partition_satisfies_incremental():
+    """The partition is read off the cube's columns, not restated on the block."""
+    spec = _partitioned_cube(schedule="0 6 * * *", lookback_window="3 DAY")
+    assert spec.materialization == MaterializationSpec(
+        schedule="0 6 * * *",
+        strategy=MaterializationStrategy.INCREMENTAL_TIME,
+        lookback_window="3 DAY",
+    )
+
+
+def test_cube_spec_eq_ignores_materialization():
+    """
+    Equality decides whether the cube's *definition* changed, which gates a new node
+    revision. Rescheduling a build is not a definition change.
+    """
+    six_am = _partitioned_cube(schedule="0 6 * * *")
+    midnight = _partitioned_cube(schedule="0 0 * * *")
+    unscheduled = _partitioned_cube()
+
+    assert six_am == midnight
+    assert six_am == unscheduled
+
+    # ...while the definition itself still drives inequality.
+    renamed = _partitioned_cube(schedule="0 6 * * *")
+    renamed.metrics = ["${prefix}num_returns"]
+    assert six_am != renamed
+
+
+def test_materialization_change_tier_is_none():
+    """
+    `materialization` is explicitly classified, so the "every field is classified"
+    test stays green rather than falling back to MAJOR -- and it is classified NONE
+    because configuring a materialization has never cut a node revision.
+
+    A materialization-only edit is equal under `__eq__` and so never reaches the
+    classifier; this pins the tier that would apply if it ever did.
+    """
+    assert CubeSpec.has_explicit_change_tier("materialization") is True
+    assert CubeSpec.field_change_tier("materialization") == ChangeTier.NONE
+    assert CubeSpec.change_tier(["materialization"]) == ChangeTier.NONE
+
+    six_am = _partitioned_cube(schedule="0 6 * * *").rendered_spec()
+    assert six_am.diff(_partitioned_cube(schedule="0 0 * * *")) == ["materialization"]
+    assert CubeSpec.change_tier(six_am.diff(_partitioned_cube())) == ChangeTier.NONE
+
+
+def test_cube_spec_without_materialization_omits_it_from_export():
+    """Unmaterialized cubes must not gain a `materialization: null` key on export."""
+    spec = _partitioned_cube()
+    assert spec.materialization is None
+    assert "materialization" not in spec.model_dump(mode="json", exclude_none=True)
+
+
+def test_cube_spec_teardown_survives_serialization():
+    """
+    The two ways a cube can decline to be materialized have to stay distinguishable
+    after a round trip. `model_dump` emits every optional field explicitly, so a
+    teardown carried by a key's presence alone would be indistinguishable from every
+    cube that never mentioned `materialization:` -- and the round-tripped spec would
+    read as a request to tear down the whole namespace.
+    """
+    torn_down = CubeSpec.model_validate(
+        {**_partitioned_cube().model_dump(), "materialization": "none"},
+    )
+    assert torn_down.materialization == MaterializationAction.NONE
+    assert (
+        CubeSpec.model_validate(torn_down.model_dump()).materialization
+        == MaterializationAction.NONE
+    )
+
+    unmanaged = CubeSpec.model_validate(_partitioned_cube().model_dump())
+    assert unmanaged.materialization is None
+    assert CubeSpec.model_validate(unmanaged.model_dump()).materialization is None
+
+    # `rendered_spec` round-trips through JSON too, and preserved neither before.
+    assert torn_down.rendered_spec().materialization == MaterializationAction.NONE
+    assert unmanaged.rendered_spec().materialization is None
+
+
+def test_cube_spec_teardown_sentinel_is_case_insensitive():
+    """`None` is what a Python author writes and `NONE` what a YAML one does."""
+    for spelling in ("none", "None", "NONE"):
+        spec = CubeSpec.model_validate(
+            {**_partitioned_cube().model_dump(), "materialization": spelling},
+        )
+        assert spec.materialization == MaterializationAction.NONE
+
+
+def test_cube_spec_teardown_needs_no_temporal_partition():
+    """
+    The partition requirement is a property of an incremental block, so a cube being
+    torn down is exempt -- it may well be losing the partition in the same push.
+    """
+    spec = CubeSpec(
+        namespace="test",
+        name="my_cube",
+        metrics=["${prefix}num_orders"],
+        dimensions=["${prefix}date_dim.dateint"],
+        materialization=MaterializationAction.NONE,
+    )
+    assert spec.materialization == MaterializationAction.NONE
+
+
+def _cube_declaring(materialization) -> CubeSpec:
+    """The same partitioned cube, declaring whatever is handed to it."""
+    return CubeSpec(
+        namespace="test",
+        name="my_cube",
+        metrics=["${prefix}num_orders"],
+        dimensions=["${prefix}date_dim.dateint"],
+        columns=[
+            ColumnSpec(
+                name="${prefix}date_dim.dateint",
+                partition=PartitionSpec(
+                    type=PartitionType.TEMPORAL,
+                    granularity=Granularity.DAY,
+                    format="yyyyMMdd",
+                ),
+            ),
+        ],
+        materialization=materialization,
+    )
+
+
+def test_cube_spec_accepts_several_materializations():
+    """
+    A cube legitimately needs two: an incremental build for freshness and a periodic
+    full rebuild that corrects late-arriving data and dimension backfills.
+    """
+    spec = _cube_declaring(
+        [
+            MaterializationSpec(schedule="59 23 * * *", lookback_window="1 DAY"),
+            MaterializationSpec(
+                schedule="0 6 * * *",
+                strategy=MaterializationStrategy.FULL,
+            ),
+        ],
+    )
+    assert spec.declared_materializations == [
+        MaterializationSpec(schedule="59 23 * * *", lookback_window="1 DAY"),
+        MaterializationSpec(
+            schedule="0 6 * * *",
+            strategy=MaterializationStrategy.FULL,
+            lookback_window=None,
+        ),
+    ]
+
+
+def test_cube_spec_scalar_materialization_reads_as_one_block():
+    """
+    The scalar form is not a legacy shape to be migrated: it stays exactly what it
+    was, and only the reading of it is common with the list form.
+    """
+    spec = _partitioned_cube(schedule="0 6 * * *")
+    assert spec.materialization == MaterializationSpec(schedule="0 6 * * *")
+    assert spec.declared_materializations == [
+        MaterializationSpec(schedule="0 6 * * *"),
+    ]
+
+
+def test_cube_spec_declares_nothing_without_a_block():
+    """Neither an absent block nor the teardown sentinel declares anything to build."""
+    assert _partitioned_cube().declared_materializations == []
+    assert _cube_declaring(MaterializationAction.NONE).declared_materializations == []
+
+
+def test_cube_spec_rejects_repeated_materialization_strategy():
+    """
+    Strategy is what matches a declared entry to the materialization it owns, so two
+    entries sharing one leave no way to say which is which.
+    """
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        _cube_declaring(
+            [
+                MaterializationSpec(schedule="59 23 * * *"),
+                MaterializationSpec(schedule="0 6 * * *"),
+            ],
+        )
+    assert exc_info.value.message == (
+        "Cube `my_cube` declares more than one `incremental_time` materialization. "
+        "Strategies identify a cube's materializations, so each one may appear at "
+        "most once."
+    )
+
+
+def test_cube_spec_rejects_empty_materialization_list():
+    """An empty list cannot be told from the teardown sentinel, so it is refused."""
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        _cube_declaring([])
+    assert exc_info.value.message == (
+        "Cube `my_cube` declares an empty `materialization:` list. Use "
+        "`materialization: none` to remove the cube's materialization, or omit the "
+        "key to leave it alone."
+    )
+
+
+def test_cube_spec_incremental_entry_in_a_list_still_needs_a_partition():
+    """The partition requirement is per entry, not per cube."""
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        CubeSpec(
+            namespace="test",
+            name="my_cube",
+            metrics=["${prefix}num_orders"],
+            dimensions=["${prefix}date_dim.dateint"],
+            materialization=[
+                MaterializationSpec(
+                    schedule="0 6 * * *",
+                    strategy=MaterializationStrategy.FULL,
+                ),
+                MaterializationSpec(schedule="59 23 * * *"),
+            ],
+        )
+    assert exc_info.value.message == (
+        "Cube `my_cube` declares an `incremental_time` materialization but no "
+        "temporal partition. Add `partition: {type: temporal, ...}` to the cube "
+        "column that partitions it, or use `strategy: full`."
+    )
+
+
+def test_cube_spec_materialization_shapes_survive_serialization():
+    """
+    Every shape a cube can declare has to mean the same thing after a round trip, or
+    a spec pulled from the server and pushed back would change what the cube does.
+    """
+    blocks = [
+        MaterializationSpec(schedule="59 23 * * *", lookback_window="1 DAY"),
+        MaterializationSpec(
+            schedule="0 6 * * *",
+            strategy=MaterializationStrategy.FULL,
+            lookback_window=None,
+        ),
+    ]
+    for declared in (
+        blocks,
+        blocks[0],
+        MaterializationAction.NONE,
+        None,
+    ):
+        spec = _cube_declaring(declared)
+        assert CubeSpec.model_validate(spec.model_dump()).materialization == declared
+        assert spec.rendered_spec().materialization == declared
+
+
+def test_cube_spec_eq_ignores_a_list_of_materializations():
+    """
+    Whichever shape the block is written in, it is not part of the cube's definition
+    and must not mint a revision. The diff still names it, at tier NONE.
+    """
+    one = _cube_declaring(
+        [
+            MaterializationSpec(schedule="59 23 * * *"),
+            MaterializationSpec(
+                schedule="0 6 * * *",
+                strategy=MaterializationStrategy.FULL,
+            ),
+        ],
+    )
+    two = _cube_declaring(MaterializationSpec(schedule="59 23 * * *"))
+    assert one == two
+    assert one.rendered_spec().diff(two) == ["materialization"]
+    assert CubeSpec.change_tier(one.rendered_spec().diff(two)) == ChangeTier.NONE
+
+
+def test_cube_spec_materialization_diff_ignores_declaration_order():
+    """
+    A cube pulled from the server lists its materializations in name order, and an
+    author is free to write them the other way round. Reading that as a change would
+    report an edit on every deploy of an untouched cube.
+    """
+    blocks = [
+        MaterializationSpec(schedule="59 23 * * *", coverage={"window": "800 DAYS"}),
+        MaterializationSpec(
+            schedule="0 6 * * *",
+            strategy=MaterializationStrategy.FULL,
+        ),
+    ]
+    assert (
+        _cube_declaring(blocks)
+        .rendered_spec()
+        .diff(
+            _cube_declaring(list(reversed(blocks))),
+        )
+        == []
+    )
+
+
+def test_a_schema_namespace_defaults_to_the_deployment():
+    """Omitting it keeps the existing behaviour: the deploying namespace."""
+    spec = DeploymentSpec(
+        namespace="shared",
+        nodes=[],
+        custom_metadata_schemas=[
+            CustomMetadataSchemaSpec(key="system", json_schema={"type": "object"}),
+        ],
+    )
+    assert spec.custom_metadata_schemas[0].namespace == "shared"
+
+
+def test_a_schema_may_be_scoped_to_a_sub_namespace():
+    """Narrower than the deployment is how a vocabulary rolls out in stages."""
+    spec = DeploymentSpec(
+        namespace="shared",
+        nodes=[],
+        custom_metadata_schemas=[
+            CustomMetadataSchemaSpec(
+                key="system",
+                namespace="shared.conformed",
+                json_schema={"type": "object"},
+            ),
+        ],
+    )
+    assert spec.custom_metadata_schemas[0].namespace == "shared.conformed"
+
+
+@pytest.mark.parametrize(
+    "outside",
+    ["arc", "shared_other", "other.shared", "sharedx"],
+)
+def test_a_schema_namespace_outside_the_deployment_is_rejected(outside):
+    """
+    A manifest may scope a schema narrower than itself, never wider or sideways --
+    otherwise one repo governs another repo's nodes. `shared_other` and `sharedx`
+    are the prefix trap: they start with the namespace but are not beneath it.
+    """
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        DeploymentSpec(
+            namespace="shared",
+            nodes=[],
+            custom_metadata_schemas=[
+                CustomMetadataSchemaSpec(
+                    key="system",
+                    namespace=outside,
+                    json_schema={"type": "object"},
+                ),
+            ],
+        )
+    assert "not 'shared' or beneath it" in str(exc_info.value)
+
+
+# An invented vocabulary, matching the check-engine tests: `demo.*` names over a
+# `sample` metadata key with color/size/shape properties.
+def _check(name: str, gate: str = "warn") -> DeploymentCheckSpec:
+    return DeploymentCheckSpec(
+        name=name,
+        description=f"Something about {name}.",
+        condition="size(node.owners) >= 1",
+        gate=gate,
+    )
+
+
+def _deployment(**kwargs) -> DeploymentSpec:
+    return DeploymentSpec(namespace="shared", nodes=[], **kwargs)
+
+
+def test_a_manifest_without_checks_declares_none():
+    """Omitting both blocks changes nothing."""
+    spec = _deployment()
+    assert spec.checks is None
+    assert spec.rulesets is None
+
+
+def test_checks_and_rulesets_load():
+    spec = _deployment(
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.owner_present",
+                description="Every entity has an owner.",
+                when="node.type == 'dimension'",
+                condition="size(node.owners) >= 1",
+                gate="warn",
+            ),
+            _check("demo.color_set"),
+        ],
+        rulesets=[
+            DeploymentRulesetSpec(
+                name="baseline",
+                display_name="Baseline",
+                checks=["demo.owner_present", "demo.color_set"],
+            ),
+        ],
+    )
+    assert spec.checks[0].when == "node.type == 'dimension'"
+    assert spec.checks[1].when is None
+    assert spec.rulesets[0].display_name == "Baseline"
+    assert spec.rulesets[0].includes == []
+
+
+def test_an_unrecognized_gate_is_not_rejected_here():
+    """
+    The gate stays a string, so a typo is reported as a malformed check at config
+    load rather than raising while the manifest is parsed.
+    """
+    spec = _deployment(checks=[_check("demo.color_set", gate="blcok")])
+    assert spec.checks[0].gate == "blcok"
+
+
+def test_duplicate_check_names_are_rejected():
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        _deployment(checks=[_check("demo.color_set"), _check("demo.color_set")])
+    assert "Duplicate check name 'demo.color_set'" in str(exc_info.value)
+
+
+def test_duplicate_ruleset_names_are_rejected():
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        _deployment(
+            rulesets=[
+                DeploymentRulesetSpec(name="baseline"),
+                DeploymentRulesetSpec(name="baseline"),
+            ],
+        )
+    assert "Duplicate ruleset name 'baseline'" in str(exc_info.value)
+
+
+def test_a_ruleset_naming_an_undeclared_check_is_rejected():
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        _deployment(
+            checks=[_check("demo.color_set")],
+            rulesets=[
+                DeploymentRulesetSpec(name="baseline", checks=["demo.size_set"]),
+            ],
+        )
+    assert "names check 'demo.size_set', which is not declared" in str(exc_info.value)
+
+
+def test_a_ruleset_including_an_undeclared_ruleset_is_rejected():
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        _deployment(
+            rulesets=[DeploymentRulesetSpec(name="strict", includes=["baseline"])],
+        )
+    assert "includes ruleset 'baseline', which is not declared" in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "includes, cycle",
+    [
+        ({"baseline": ["baseline"]}, "baseline -> baseline"),
+        (
+            {"baseline": ["strict"], "strict": ["baseline"]},
+            "baseline -> strict -> baseline",
+        ),
+        (
+            {"baseline": ["strict"], "strict": ["extra"], "extra": ["baseline"]},
+            "baseline -> strict -> extra -> baseline",
+        ),
+    ],
+    ids=["self", "direct", "transitive"],
+)
+def test_a_cycle_in_includes_is_rejected(includes, cycle):
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        _deployment(
+            rulesets=[
+                DeploymentRulesetSpec(name=name, includes=included)
+                for name, included in includes.items()
+            ],
+        )
+    assert f"Ruleset includes form a cycle: {cycle}." in str(exc_info.value)
+
+
+def semantic_specs() -> dict[str, NodeSpec]:
+    """Representative inputs for each concrete node type."""
+    return {
+        "source": SourceSpec(
+            namespace="analytics",
+            name="orders",
+            catalog="warehouse",
+            schema="sales",
+            table="orders",
+            columns=[ColumnSpec(name="order_id", type="bigint")],
+            primary_key=["order_id"],
+        ),
+        "transform": TransformSpec(
+            namespace="analytics",
+            name="clean_orders",
+            query=(
+                "SELECT order_id AS id, amount FROM ${prefix}orders WHERE amount > 0"
+            ),
+        ),
+        "dimension": DimensionSpec(
+            namespace="analytics",
+            name="order",
+            query="SELECT order_id, status FROM ${prefix}orders",
+        ),
+        "metric": MetricSpec(
+            namespace="analytics",
+            name="total_amount",
+            query="SELECT SUM(amount) AS value FROM ${prefix}orders",
+            required_dimensions=["${prefix}order.status"],
+        ),
+        "cube": CubeSpec(
+            namespace="analytics",
+            name="order_cube",
+            metrics=["${prefix}total_amount", "${prefix}order_count"],
+            dimensions=["${prefix}order.status", "${prefix}order.order_id"],
+            filters=["${prefix}order.status != 'cancelled'", "amount > 0"],
+            columns=[
+                ColumnSpec(
+                    name="${prefix}order.status",
+                    partition=PartitionSpec(type=PartitionType.CATEGORICAL),
+                ),
+            ],
+        ),
+    }
+
+
+def fingerprint(spec: NodeSpec) -> SemanticFingerprint:
+    return local_node_fingerprint(spec)
+
+
+GOLDEN_FINGERPRINTS = {
+    "source": "71dcbc388988c2bdd850670427710384687b58565ee38ca392dc220adfed868d",
+    "transform": "978e692880c7bcfb1bd78ece85895a1ec1558e85377b064a8dac3f3719cff2a5",
+    "dimension": "f7b3c87a61fdadf9997432fd9334befdf43f2488874ef555e3f7d4c4ba86e3e1",
+    "metric": "a3fde7af5dbd00d194805af33fc213bca52244c7cdedf1f7363ec52d2f6d4116",
+    "cube": "9b0a56d974d1e3769bc2db94e2cfbae7a6a4839f664eebd2a4387ef112ceea81",
+}
+
+
+@pytest.mark.parametrize("node_type", GOLDEN_FINGERPRINTS)
+def test_semantic_fingerprint_golden_digests(node_type):
+    spec = semantic_specs()[node_type]
+    result = fingerprint(spec)
+    assert result == SemanticFingerprint(digest=GOLDEN_FINGERPRINTS[node_type])
+    assert result == fingerprint(spec)
+    assert result.version == 1
+
+
+def test_semantic_fingerprint_is_independent_of_python_hash_seed():
+    script = """
+from datajunction_server.api.main import app
+from datajunction_server.models.deployment import ColumnSpec, SourceSpec
+from datajunction_server.semantic_fingerprints.engine import local_node_fingerprint
+spec = SourceSpec(name="s", catalog="c", schema_="s", table="t",
+    columns=[ColumnSpec(name="id", attributes=["z", "primary_key", "a"])])
+print(local_node_fingerprint(spec).digest)
+"""
+
+    def digest_for(seed):
+        return subprocess.check_output(
+            [sys.executable, "-c", script],
+            env={**os.environ, "PYTHONHASHSEED": seed},
+            text=True,
+        ).splitlines()[-1]
+
+    assert digest_for("1") == digest_for("42")
+
+
+def test_semantic_fingerprint_normalizes_empty_and_resolved_source_columns():
+    common = {"name": "source", "catalog": "c", "schema_": "s", "table": "t"}
+    unspecified = SourceSpec(**common, columns=None)
+    empty = SourceSpec(**common, columns=[])
+    columns = [ColumnSpec(name="id", type="bigint")]
+    resolved = SourceSpec(**common, columns=columns)
+    duplicated = SourceSpec(**common, columns=[*columns, columns[0].model_copy()])
+
+    assert fingerprint(unspecified) == fingerprint(empty)
+    assert local_node_fingerprint(
+        unspecified,
+        resolved_columns=columns,
+    ) == fingerprint(resolved)
+    assert fingerprint(resolved) == fingerprint(duplicated)
+    assert fingerprint(
+        CubeSpec(name="cube", metrics=[], dimensions=[], filters=None),
+    ) == fingerprint(CubeSpec(name="cube", metrics=[], dimensions=[], filters=[]))
+
+
+def test_semantic_fingerprint_normalized_values_are_stable():
+    first = {"outer": {"a": 1, "b": 2}, "value": 3}
+    second = {"value": 3, "outer": {"b": 2, "a": 1}}
+    assert canonical_json(normalize_value(first)) == canonical_json(
+        normalize_value(second),
+    )
+    with pytest.raises(TypeError, match="string keys"):
+        normalize_value({1: "value"})
+    assert normalize_sequence(
+        [1, 2],
+        preserve_order=True,
+    ) != normalize_sequence(
+        [2, 1],
+        preserve_order=True,
+    )
+    with pytest.raises(TypeError, match="Unsupported"):
+        normalize_value({"bad": object()})
+    with pytest.raises(ValueError, match="must be finite"):
+        normalize_value({"bad": float("nan")})
+    with pytest.raises(ValueError, match="must be finite"):
+        normalize_value(Decimal("NaN"))
+    assert normalize_value(True) is True
+    assert normalize_value(1.5) == 1.5
+    assert normalize_value(Decimal("1.0")) == 1
+    assert normalize_value(Decimal("1.50")) == {"decimal": "1.5"}
+
+
+def test_semantic_fingerprint_normalizes_equivalent_numbers():
+    assert normalize_value({"value": 1}) == normalize_value({"value": 1.0})
+    assert normalize_value({"value": -0.0}) == normalize_value({"value": 0})
+
+    sql_integer = TransformSpec(name="sql_number", query="SELECT 1")
+    sql_integral_float = TransformSpec(name="sql_number", query="SELECT 1.0")
+    assert sql_integer.semantic_diff(sql_integral_float) == ([], [])
+    assert fingerprint(sql_integer) == fingerprint(sql_integral_float)
+
+
+@pytest.mark.parametrize(
+    "spec_type",
+    [SourceSpec, TransformSpec, DimensionSpec, MetricSpec, CubeSpec],
+)
+def test_semantic_fingerprint_v1_projection_is_explicit(spec_type):
+    current_major_fields = {
+        field
+        for field, field_info in spec_type.model_fields.items()
+        if field not in {"name", "namespace", "node_type"}
+        and field_info.exclude is not True
+        and spec_type.field_change_tier(field) == ChangeTier.MAJOR
+    }
+    assert set(semantic_fields(spec_type)) == current_major_fields
+
+
+def test_semantic_fingerprint_v1_rejects_unregistered_spec_type():
+    with pytest.raises(TypeError, match="No semantic fingerprint fields for NodeSpec"):
+        semantic_fields(NodeSpec)
+
+
+def test_semantic_fingerprint_renders_prefixes_and_normalizes_sql():
+    from datajunction_server.models.dialect import Dialect
+    from datajunction_server.sql.parsing.ast import render_for_dialect
+
+    parameterized = TransformSpec(
+        namespace="analytics",
+        name="orders",
+        query="SELECT\n id AS order_id\nFROM ${prefix}raw_orders",
+    )
+    rendered = TransformSpec(
+        namespace="analytics",
+        name="orders",
+        query="SELECT id AS order_id FROM analytics.raw_orders",
+    )
+    assert parameterized.query_ast.compare(rendered.query_ast)
+    assert fingerprint(parameterized) == fingerprint(rendered)
+    dialect_query = TransformSpec(
+        name="dialect",
+        query="SELECT COLLECT_LIST(value) AS values FROM source",
+    )
+    dialect_fingerprint = fingerprint(dialect_query)
+    with render_for_dialect(Dialect.TRINO):
+        assert fingerprint(parameterized) == fingerprint(rendered)
+        assert fingerprint(dialect_query) == dialect_fingerprint
+        assert fingerprint(
+            TransformSpec(
+                name="typed",
+                query="SELECT CAST(value AS DECIMAL(10, 2)) FROM source",
+            ),
+        ).digest
+    assert fingerprint(TransformSpec(name="blank", query="")).digest
+    explicit = TransformSpec(name="orders", query="SELECT id AS order_id FROM raw")
+    implicit = TransformSpec(name="orders", query="SELECT id order_id FROM raw")
+    assert not explicit.query_ast.compare(implicit.query_ast)
+    assert fingerprint(explicit) != fingerprint(implicit)
+
+
+def test_semantic_diff_and_fingerprint_share_change_rules():
+    original = TransformSpec(name="node", query="SELECT id AS value FROM source")
+    formatted = TransformSpec(
+        name="node",
+        query=" SELECT  id AS value\nFROM source ",
+    )
+    changed, reordered = original.semantic_diff(formatted)
+    assert (changed, reordered) == ([], [])
+    assert TransformSpec.change_tier(changed, reordered) == ChangeTier.NONE
+    assert fingerprint(original) == fingerprint(formatted)
+
+    source = SourceSpec(
+        name="source",
+        catalog="c",
+        schema_="s",
+        table="t",
+        columns=[ColumnSpec(name="id", type="bigint")],
+    )
+    source_changed = source.model_copy(deep=True)
+    source_changed.columns[0].type = "string"
+    changed, reordered = source.semantic_diff(source_changed)
+    assert (changed, reordered) == (["columns"], [])
+    assert SourceSpec.change_tier(changed, reordered) == ChangeTier.MAJOR
+    assert fingerprint(source) != fingerprint(source_changed)
+    assert source.semantic_diff(original) == (["node_type"], [])
+
+    cube = CubeSpec(name="cube", metrics=["a", "b"], dimensions=[])
+    reordered_cube = cube.model_copy(update={"metrics": ["b", "a", "a"]})
+    changed, reordered = cube.semantic_diff(reordered_cube)
+    assert (changed, reordered) == ([], ["metrics"])
+    assert CubeSpec.change_tier(changed, reordered) == ChangeTier.MINOR
+    assert fingerprint(cube) == fingerprint(reordered_cube)
+
+    legacy_metric = MetricSpec(
+        name="metric",
+        query="SELECT 1",
+        unit="dollar",
+    )
+    structured_metric = MetricSpec(
+        name="metric",
+        query="SELECT 1",
+        direction="neutral",
+        unit={"kind": "currency", "code": "USD"},
+    )
+    assert legacy_metric.semantic_diff(structured_metric) == ([], [])
+    changed, reordered = MetricSpec(
+        name="metric",
+        query="SELECT 1",
+    ).semantic_diff(legacy_metric)
+    assert (changed, reordered) == (["unit_enum"], [])
+    assert MetricSpec.change_tier(changed, reordered) == ChangeTier.MINOR
+
+
+def test_semantic_diff_canonicalizes_required_dimension_identity():
+    bare = MetricSpec(
+        namespace="analytics",
+        name="order_count",
+        query="SELECT COUNT(*) FROM analytics.orders",
+        required_dimensions=["order_id"],
+    )
+    qualified = bare.model_copy(
+        update={"required_dimensions": ["analytics.orders.order_id"]},
+    )
+
+    assert bare.canonical_required_dimensions == qualified.canonical_required_dimensions
+    assert bare.diff(bare) == []
+    assert bare.diff(qualified) == []
+    assert bare.semantic_diff(qualified) == ([], [])
+    assert fingerprint(bare) == fingerprint(qualified)
+
+
+def test_semantic_diff_canonicalizes_required_dimension_with_multiple_parents():
+    bare = MetricSpec(
+        namespace="analytics",
+        name="order_count",
+        query=(
+            "SELECT COUNT(*) FROM analytics.orders "
+            "JOIN analytics.customers "
+            "ON analytics.orders.customer_id = analytics.customers.customer_id"
+        ),
+        required_dimensions=["order_id"],
+    )
+    qualified = bare.model_copy(
+        update={"required_dimensions": ["analytics.orders.order_id"]},
+    )
+
+    assert bare.canonical_required_dimensions == qualified.canonical_required_dimensions
+    assert bare.semantic_diff(qualified) == ([], [])
+    assert fingerprint(bare) == fingerprint(qualified)
+
+
+def test_semantic_diff_compares_unparseable_queries_as_raw_sql():
+    original = TransformSpec(name="node", query="SELECT (")
+    same = TransformSpec(name="node", query="SELECT (")
+    changed = TransformSpec(name="node", query="SELECT )")
+
+    assert original.semantic_diff(same) == ([], [])
+    assert original.semantic_diff(changed) == (["query"], [])
+
+    metric = MetricSpec(
+        name="metric",
+        query="SELECT (",
+        required_dimensions=["id"],
+    )
+    same_metric = metric.model_copy(deep=True)
+    changed_metric = metric.model_copy(update={"required_dimensions": ["other_id"]})
+    assert metric.semantic_diff(same_metric) == ([], [])
+    assert metric.semantic_diff(changed_metric) == (["required_dimensions"], [])
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("owners", ["other"]),
+        ("display_name", "Orders"),
+        ("description", "Updated description"),
+        ("tags", ["certified"]),
+        ("mode", NodeMode.DRAFT),
+        ("custom_metadata", {"team": "analytics"}),
+    ],
+)
+def test_minor_base_node_fields_preserve_semantic_fingerprint(field, value):
+    original = semantic_specs()["source"]
+    changed = original.model_copy(update={field: value})
+    assert type(original).field_change_tier(field) == ChangeTier.MINOR
+    assert fingerprint(original) == fingerprint(changed)
+
+
+def test_metric_presentation_fields_preserve_semantic_fingerprint():
+    baseline = MetricSpec(name="metric", query="SELECT 1")
+    presentations = [
+        MetricSpec(
+            name="metric",
+            query="SELECT 1",
+            direction="higher_is_better",
+            unit="dollar",
+            significant_digits=3,
+            min_decimal_exponent=-2,
+            max_decimal_exponent=4,
+        ),
+        MetricSpec(
+            name="metric",
+            query="SELECT 1",
+            unit={"kind": "currency", "code": "USD"},
+        ),
+    ]
+    fields = (
+        set(MetricSpec.model_fields)
+        - set(NodeSpec.model_fields)
+        - {
+            "query",
+            "columns",
+            "required_dimensions",
+        }
+    )
+    assert all(
+        MetricSpec.field_change_tier(field) == ChangeTier.MINOR for field in fields
+    )
+    assert all(fingerprint(spec) == fingerprint(baseline) for spec in presentations)
+
+
+@pytest.mark.parametrize(
+    ("node_type", "field", "value"),
+    [
+        ("source", "catalog", "other"),
+        ("source", "schema_", "other"),
+        ("source", "table", "other"),
+        ("source", "primary_key", ["amount"]),
+        ("transform", "query", "SELECT amount FROM analytics.orders"),
+        ("dimension", "query", "SELECT order_id FROM analytics.orders"),
+        ("metric", "query", "SELECT COUNT(*) AS value FROM analytics.orders"),
+        ("metric", "required_dimensions", ["analytics.order.order_id"]),
+        ("cube", "metrics", ["analytics.order_count"]),
+        ("cube", "dimensions", ["analytics.order.order_id"]),
+        ("cube", "filters", ["amount >= 0"]),
+    ],
+)
+def test_major_node_fields_change_semantic_fingerprint(node_type, field, value):
+    original = semantic_specs()[node_type]
+    changed = original.model_copy(update={field: value})
+    assert type(original).field_change_tier(field) == ChangeTier.MAJOR
+    assert fingerprint(original) != fingerprint(changed)
+
+
+def test_semantic_fingerprint_column_rules_match_equality():
+    source = SourceSpec(
+        name="source",
+        catalog="c",
+        schema_="s",
+        table="t",
+        columns=[
+            ColumnSpec(name="id", type="bigint", attributes=["primary_key", "id"]),
+            ColumnSpec(name="value", type="string"),
+        ],
+    )
+    source_reordered = source.model_copy(deep=True)
+    source_reordered.columns = list(reversed(source_reordered.columns or []))
+    source_reordered.columns[1].attributes = ["id", "primary_key"]
+    source_type_changed = source.model_copy(deep=True)
+    source_type_changed.columns[0].type = "integer"
+    assert eq_columns(source.columns, source_reordered.columns)
+    assert fingerprint(source) == fingerprint(source_reordered)
+    assert not eq_columns(source.columns, source_type_changed.columns)
+    assert fingerprint(source) != fingerprint(source_type_changed)
+
+    for spec_class in (TransformSpec, DimensionSpec):
+        original = spec_class(
+            name="derived",
+            query="SELECT id FROM source",
+            columns=[ColumnSpec(name="id", type="bigint")],
+        )
+        inferred_type_changed = original.model_copy(deep=True)
+        inferred_type_changed.columns[0].type = "string"
+        metadata_changed = original.model_copy(deep=True)
+        metadata_changed.columns[0].attributes = ["identifier"]
+        assert eq_columns(original.columns, inferred_type_changed.columns, False)
+        assert fingerprint(original) == fingerprint(inferred_type_changed)
+        assert not eq_columns(original.columns, metadata_changed.columns, False)
+        assert fingerprint(original) != fingerprint(metadata_changed)
+
+
+def test_semantic_fingerprint_dimension_link_rules_match_equality():
+    from datajunction_server.models.dimensionlink import SparkJoinStrategy
+
+    links = [
+        DimensionReferenceLinkSpec(
+            node_column="customer_id",
+            dimension="${prefix}customer.id",
+            role="customer",
+        ),
+        DimensionJoinLinkSpec(
+            dimension_node="${prefix}date",
+            join_on="${prefix}orders.date_id = ${prefix}date.id",
+            role="date",
+        ),
+    ]
+    original = TransformSpec(
+        namespace="analytics",
+        name="orders",
+        query="SELECT 1",
+        dimension_links=links,
+    )
+    reordered = original.model_copy(update={"dimension_links": list(reversed(links))})
+    changed = original.model_copy(deep=True)
+    changed.dimension_links[0].role = "buyer"
+    hint_changed = original.model_copy(
+        update={
+            "dimension_links": [
+                links[0],
+                links[1].model_copy(
+                    update={"spark_hints": SparkJoinStrategy.BROADCAST},
+                ),
+            ],
+        },
+    )
+    assert original == reordered
+    assert fingerprint(original) == fingerprint(reordered)
+    assert original == hint_changed
+    assert fingerprint(original) == fingerprint(hint_changed)
+    assert original != changed
+    assert fingerprint(original) != fingerprint(changed)
+
+
+def test_semantic_fingerprint_normalizes_primary_keys_and_cube_ordering():
+    source = semantic_specs()["source"]
+    assert fingerprint(source) == fingerprint(
+        source.model_copy(
+            update={"primary_key": ["order_id", "order_id"]},
+        ),
+    )
+
+    cube = semantic_specs()["cube"]
+    reordered = cube.model_copy(deep=True)
+    reordered.metrics.reverse()
+    reordered.dimensions.reverse()
+    reordered.filters = list(reversed(reordered.filters or []))
+    assert fingerprint(cube) == fingerprint(reordered)
+    metric = MetricSpec(
+        name="metric",
+        query="SELECT 1",
+        required_dimensions=["one", "two"],
+    )
+    reordered_metric = metric.model_copy(
+        update={"required_dimensions": ["two", "one", "one"]},
+    )
+    assert metric == reordered_metric
+    assert metric.semantic_diff(reordered_metric) == ([], [])
+    assert fingerprint(metric) == fingerprint(reordered_metric)
+    assert MetricSpec.field_change_tier("columns") == ChangeTier.NONE
+    assert fingerprint(cube) == fingerprint(
+        cube.model_copy(
+            update={"metrics": [*cube.metrics, "${prefix}order_count"]},
+        ),
+    )
+    assert fingerprint(cube) != fingerprint(
+        cube.model_copy(
+            update={"metrics": [*cube.metrics, "${prefix}average_amount"]},
+        ),
+    )
+    assert fingerprint(cube) != fingerprint(
+        cube.model_copy(
+            update={"filters": ["amount > 1"]},
+        ),
+    )
+    partition_changed = cube.model_copy(deep=True)
+    partition_changed.columns[0].partition.type = PartitionType.TEMPORAL
+    assert fingerprint(cube) != fingerprint(partition_changed)
+
+
+def test_required_dimensions_normalization_falls_back_for_invalid_query():
+    metric = MetricSpec(
+        namespace="analytics",
+        name="orders",
+        query="SELECT (",
+        required_dimensions=["${prefix}orders.order_id"],
+    )
+
+    assert normalize_field(metric, "required_dimensions") == [
+        "analytics.orders.order_id",
+    ]
+
+
+@pytest.mark.parametrize(
+    "digest",
+    ["a" * 63, "a" * 65, "A" * 64, "g" * 64],
+)
+def test_semantic_fingerprint_digest_validation(digest):
+    with pytest.raises(ValidationError):
+        SemanticFingerprint(digest=digest)
+
+
+def test_semantic_fingerprint_rejects_unknown_version():
+    with pytest.raises(ValidationError):
+        SemanticFingerprint(version=2, digest="a" * 64)
+    with pytest.raises(ValueError, match="Unsupported semantic fingerprint version: 2"):
+        local_node_fingerprint(semantic_specs()["source"], version=2)
+
+
+def test_semantic_fingerprint_combines_sorted_parent_hashes():
+    node = TransformSpec(name="node", query="SELECT id FROM parent")
+    first = SourceSpec(name="first", catalog="c", schema_="s", table="first")
+    second = SourceSpec(name="second", catalog="c", schema_="s", table="second")
+    first_hash = fingerprint(first)
+    second_hash = fingerprint(second)
+
+    expected = compose_node_fingerprint(
+        node,
+        parent_fingerprints=[first_hash, second_hash],
+    )
+    assert expected == compose_node_fingerprint(
+        node,
+        parent_fingerprints=[second_hash, first_hash, first_hash],
+    )
+    assert expected != compose_node_fingerprint(
+        node,
+        parent_fingerprints=[
+            first_hash,
+            fingerprint(
+                SourceSpec(
+                    name="second",
+                    catalog="c",
+                    schema_="s",
+                    table="changed",
+                ),
+            ),
+        ],
+    )
+    mismatched = SemanticFingerprint.model_construct(version=2, digest="b" * 64)
+    with pytest.raises(ValueError, match="Parent fingerprint version"):
+        compose_node_fingerprint(node, parent_fingerprints=[mismatched])

@@ -15,7 +15,9 @@ from datajunction_server.database.node import Node
 from datajunction_server.sql.dag import get_dimensions_dag
 
 # Re-use the shared BFS graph fixture from the join path tests
-from tests.construction.build_v3.join_path_bfs_test import client_with_bfs_graph  # noqa: F401
+from tests.construction.build_v3.join_path_bfs_test import (
+    client_with_bfs_graph,  # noqa: F401
+)
 
 
 @pytest.mark.asyncio
@@ -25,7 +27,7 @@ class TestGetDimensionsDagBFS:
     async def test_chain_graph_returns_all_dimensions(
         self,
         module__session,
-        client_with_bfs_graph,  # noqa: F811
+        client_with_bfs_graph,
     ):
         """
         get_dimensions_dag on bfs.chain_fact should return dimension attributes
@@ -49,7 +51,7 @@ class TestGetDimensionsDagBFS:
     async def test_chain_graph_path_depth(
         self,
         module__session,
-        client_with_bfs_graph,  # noqa: F811
+        client_with_bfs_graph,
     ):
         """
         The path for chain_5 should reflect the 5-hop traversal.
@@ -78,7 +80,7 @@ class TestGetDimensionsDagBFS:
     async def test_star_graph_returns_all_dimensions(
         self,
         module__session,
-        client_with_bfs_graph,  # noqa: F811
+        client_with_bfs_graph,
     ):
         """
         get_dimensions_dag on bfs.star_fact should return attributes from all
@@ -102,7 +104,7 @@ class TestGetDimensionsDagBFS:
     async def test_cycle_graph_no_infinite_loop(
         self,
         module__session,
-        client_with_bfs_graph,  # noqa: F811
+        client_with_bfs_graph,
     ):
         """
         get_dimensions_dag on bfs.cycle_fact should terminate (no infinite loop)
@@ -129,7 +131,7 @@ class TestGetDimensionsDagBFS:
     async def test_role_graph_role_suffix(
         self,
         module__session,
-        client_with_bfs_graph,  # noqa: F811
+        client_with_bfs_graph,
     ):
         """
         Role paths should be reflected in DimensionAttributeOutput.name as [role_path] suffix.
@@ -161,7 +163,7 @@ class TestGetDimensionsDagBFS:
     async def test_with_attributes_false_returns_nodes(
         self,
         module__session,
-        client_with_bfs_graph,  # noqa: F811
+        client_with_bfs_graph,
     ):
         """
         with_attributes=False should return Node objects instead of DimensionAttributeOutput.
@@ -189,7 +191,7 @@ class TestGetDimensionsDagBFS:
     async def test_star_graph_timing(
         self,
         module__session,
-        client_with_bfs_graph,  # noqa: F811
+        client_with_bfs_graph,
     ):
         """
         Star graph (20 dims) should complete in a reasonable time.
@@ -211,7 +213,7 @@ class TestGetDimensionsDagBFS:
     async def test_chain_graph_timing(
         self,
         module__session,
-        client_with_bfs_graph,  # noqa: F811
+        client_with_bfs_graph,
     ):
         """
         5-hop chain graph should complete in a reasonable time.

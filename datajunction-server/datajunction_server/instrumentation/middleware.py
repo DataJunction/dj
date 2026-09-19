@@ -77,7 +77,7 @@ class DJInstrumentationMiddleware:
 def _emit_pool_gauges(provider) -> None:
     """Emit DB connection pool saturation metrics. Silently skips on error."""
     # Inline import to avoid a circular dependency: utils → database → models → utils.
-    from datajunction_server.utils import get_session_manager  # noqa: PLC0415
+    from datajunction_server.utils import get_session_manager
 
     try:
         pool = get_session_manager().writer_engine.pool

@@ -1,20 +1,21 @@
+from datetime import UTC, datetime
+from functools import partial
 from uuid import UUID, uuid4
-from sqlalchemy import String, Enum, JSON, DateTime, Index
-from datetime import datetime
+
+from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Index, String
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy_utils import UUIDType
+
+from datajunction_server.database.base import Base
+from datajunction_server.database.user import User
+from datajunction_server.errors import DJError, ErrorCode
 from datajunction_server.models.deployment import (
     DeploymentResult,
     DeploymentSpec,
     DeploymentStatus,
 )
 from datajunction_server.models.impact import DownstreamImpact
-from sqlalchemy import JSON, DateTime, ForeignKey, String
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy_utils import UUIDType
 from datajunction_server.typing import UTCDatetime
-from datajunction_server.database.user import User
-from datetime import datetime, timezone
-from functools import partial
-from datajunction_server.database.base import Base
 
 
 class Deployment(Base):
@@ -41,6 +42,7 @@ class Deployment(Base):
     )
     spec: Mapped[dict] = mapped_column(JSON, default={})
     results: Mapped[dict] = mapped_column(JSON, default={})
+    warnings: Mapped[list | None] = mapped_column(JSON, default=list)
     downstream_impacts: Mapped[list | None] = mapped_column(JSON, default=list)
 
     created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
@@ -48,12 +50,12 @@ class Deployment(Base):
 
     created_at: Mapped[UTCDatetime] = mapped_column(
         DateTime(timezone=True),
-        default=partial(datetime.now, timezone.utc),
+        default=partial(datetime.now, UTC),
     )
     updated_at: Mapped[UTCDatetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
     )
 
     @property
@@ -71,6 +73,19 @@ class Deployment(Base):
     @deployment_results.setter
     def deployment_results(self, value: list[DeploymentResult]):
         self.results = [result.model_dump() for result in value]  # pragma: no cover
+
+    @property
+    def deployment_warnings(self) -> list[DJError]:
+        # ``code`` is stored as the symbolic ErrorCode name (see
+        # DJError.serialize_code), so resolve it back to the enum member.
+        return [
+            DJError(**{**warning, "code": ErrorCode[warning["code"]]})
+            for warning in (self.warnings or [])
+        ]
+
+    @deployment_warnings.setter
+    def deployment_warnings(self, value: list[DJError]):
+        self.warnings = [warning.model_dump() for warning in value]
 
     @property
     def deployment_downstream_impacts(self) -> list[DownstreamImpact]:

@@ -5,39 +5,38 @@ SQL Generation (V3): Measures and Metrics SQL Builders.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
     from datajunction_server.database.node import NodeRevision
 
+from datajunction_server.construction.build_v3.cte import (
+    detect_window_metrics_requiring_grain_groups,
+)
 from datajunction_server.construction.build_v3.cube_matcher import (
     build_sql_from_cube_impl,
     find_matching_cube,
 )
-from datajunction_server.construction.build_v3.cte import (
-    detect_window_metrics_requiring_grain_groups,
-)
 from datajunction_server.construction.build_v3.decomposition import (
     decompose_and_group_metrics,
 )
+from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
+from datajunction_server.construction.build_v3.filters import (
+    get_filter_column_references,
+)
 from datajunction_server.construction.build_v3.loaders import (
-    load_nodes,
     load_available_preaggs,
+    load_nodes,
 )
 from datajunction_server.construction.build_v3.measures import (
     build_window_metric_grain_groups,
     process_metric_group,
 )
 from datajunction_server.construction.build_v3.metrics import (
-    generate_metrics_sql,
     classify_filters,
-)
-from datajunction_server.construction.build_v3.window_lookback import (
-    apply_live_window_lookback,
-    apply_output_restriction,
-    densify_window_base_metrics,
+    generate_metrics_sql,
 )
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
@@ -45,13 +44,18 @@ from datajunction_server.construction.build_v3.types import (
     GeneratedSQL,
     GrainGroupSQL,
 )
-from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
 from datajunction_server.construction.build_v3.utils import (
     add_dimensions_from_filters,
     add_dimensions_from_metric_expressions,
 )
+from datajunction_server.construction.build_v3.window_lookback import (
+    apply_live_window_lookback,
+    apply_output_restriction,
+    densify_window_base_metrics,
+)
 from datajunction_server.database.partition import Partition
 from datajunction_server.errors import DJError, DJInvalidInputException, ErrorCode
+from datajunction_server.instrumentation import events
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.partition import PartitionType
 from datajunction_server.sql.parsing import ast
@@ -107,7 +111,7 @@ async def extract_temporal_partition_columns(
     session: AsyncSession,
     metrics: list[str],
     dimensions: list[str],
-    matched_cube: Optional["NodeRevision"] = None,
+    matched_cube: NodeRevision | None = None,
 ) -> dict[str, Partition] | None:
     """
     Extract temporal partition columns from a matching cube.
@@ -142,7 +146,7 @@ async def extract_temporal_partition_columns(
     temporal_partition_columns = {}
     for column in matching_cube.columns:
         if column.partition and column.partition.type_ == PartitionType.TEMPORAL:
-            temporal_partition_columns[column.name] = column.partition
+            temporal_partition_columns[column.cube_element_name] = column.partition
 
     return temporal_partition_columns if temporal_partition_columns else None
 
@@ -245,7 +249,7 @@ async def setup_build_context(
     use_materialized: bool = True,
     include_temporal_filters: bool = False,
     lookback_window: str | None = None,
-    matched_cube: Optional["NodeRevision"] = None,
+    matched_cube: NodeRevision | None = None,
 ) -> BuildContext:
     """
     Create and initialize a BuildContext with all setup done.
@@ -266,7 +270,6 @@ async def setup_build_context(
         use_materialized: Whether to use materialized tables
         include_temporal_filters: Whether to include temporal partition filters from cube
         lookback_window: Lookback window for temporal filters
-
     Returns:
         Fully initialized BuildContext
     """
@@ -307,9 +310,8 @@ async def setup_build_context(
     # Load all required nodes (metrics + explicit dimensions + filter dimensions)
     await load_nodes(ctx)
 
-    # Validate we have at least one metric
     if not ctx.metrics:
-        raise DJInvalidInputException("At least one metric is required")
+        return ctx
 
     # Decompose metrics and group by parent node
     ctx.metric_groups, ctx.decomposed_metrics = await decompose_and_group_metrics(ctx)
@@ -350,7 +352,7 @@ async def build_measures_sql(
     include_temporal_filters: bool = False,
     lookback_window: str | None = None,
     query_parameters: dict[str, Any] | None = None,
-    matched_cube: Optional["NodeRevision"] = None,
+    matched_cube: NodeRevision | None = None,
 ) -> GeneratedMeasuresSQL:
     """
     Build measures SQL for a set of metrics, dimensions, and filters.
@@ -380,6 +382,9 @@ async def build_measures_sql(
         GeneratedMeasuresSQL with one GrainGroupSQL per aggregation level,
         plus context and decomposed metrics for efficient reuse by build_metrics_sql
     """
+    if not metrics:
+        raise DJInvalidInputException("At least one metric is required")
+
     # Setup context (loads nodes, decomposes metrics, adds dimensions from expressions)
     ctx = await setup_build_context(
         session=session,
@@ -479,6 +484,15 @@ async def build_grain_groups(
     )
 
 
+def _telemetry_filter_columns(filters: list[str] | None) -> list[str]:
+    """Unique column names referenced across all filter predicates, for
+    telemetry — never the filter literal values."""
+    columns: set[str] = set()
+    for predicate in filters or []:
+        columns.update(get_filter_column_references(predicate))
+    return sorted(columns)
+
+
 async def build_metrics_sql(
     session: AsyncSession,
     metrics: list[str],
@@ -488,12 +502,14 @@ async def build_metrics_sql(
     limit: int | None = None,
     dialect: Dialect | None = None,
     use_materialized: bool = True,
-    matched_cube: Optional[NodeRevision] = None,
+    matched_cube: NodeRevision | None = None,
     query_parameters: dict[str, Any] | None = None,
     lookback_window: str | None = None,
 ) -> GeneratedSQL:
     """
     Build metrics SQL for a set of metrics and dimensions.
+
+    With no metrics, returns distinct attributes from one dimension-bearing node.
 
     Metrics SQL applies final metric expressions on top of measures, including
     handling derived metrics. It produces a single executable query with the
@@ -523,6 +539,7 @@ async def build_metrics_sql(
                     metrics,
                     dimensions,
                     require_availability=True,
+                    filters=filters,
                 )
             )
             if probe_cube:
@@ -532,6 +549,17 @@ async def build_metrics_sql(
                 dialect = Dialect.TRINO
         else:
             dialect = Dialect.TRINO
+
+    # Emit after dialect resolution (so engine is accurate) but before the heavy build.
+    events.emit(
+        "query_requested",
+        metrics=list(metrics),
+        dimensions=list(dimensions),
+        filter_columns=_telemetry_filter_columns(filters),
+        orderby=list(orderby or []),
+        limit=limit,
+        engine=dialect.name,
+    )
 
     # Setup context (loads nodes, decomposes metrics, adds dimensions from expressions)
     ctx = await setup_build_context(
@@ -543,6 +571,15 @@ async def build_metrics_sql(
         use_materialized=use_materialized,
         lookback_window=lookback_window,
     )
+
+    if not metrics:
+        # Imported lazily because node_query also uses the shared ordering helper
+        # from this module.
+        from datajunction_server.construction.build_v3.node_query import (
+            build_dimension_sql_v3,
+        )
+
+        return build_dimension_sql_v3(ctx, orderby, limit, query_parameters)
 
     # Frame-aware live window lookback: when a requested metric carries a row/
     # range window frame and a filter narrows the order dimension, expand the
@@ -561,6 +598,7 @@ async def build_metrics_sql(
                 metrics,
                 dimensions,
                 require_availability=True,
+                filters=filters,
             )
         )
     else:
@@ -595,6 +633,10 @@ async def build_metrics_sql(
     # Move the windowed SELECT into a __windowed CTE and apply the output
     # restriction in the outer query so seed rows don't leak into the result.
     apply_output_restriction(result.query, window_plan)
+
+    # Surface build warnings (e.g. fan-out risk) from the single ctx sink. Empty
+    # on the materialized-cube branch above (no source build ran).
+    result.warnings = ctx.warnings
 
     substitute_query_params(result.query, query_parameters or {})
 

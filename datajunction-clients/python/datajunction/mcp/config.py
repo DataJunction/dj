@@ -19,7 +19,6 @@ Resolution order for the upstream MCP URL:
 from __future__ import annotations
 
 import os
-from typing import Optional
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -55,7 +54,7 @@ class MCPSettings(BaseSettings):
 
     # Bearer token forwarded as Authorization on every upstream request.
     # Use ``DJ_API_TOKEN`` to align with the rest of the DJ tooling.
-    dj_api_token: Optional[str] = Field(default=None, alias="DJ_API_TOKEN")
+    dj_api_token: str | None = Field(default=None, alias="DJ_API_TOKEN")
 
     # Request timeout for upstream calls.
     request_timeout: float = 30.0

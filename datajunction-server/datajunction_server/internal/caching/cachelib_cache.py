@@ -2,7 +2,7 @@
 Cachelib-based cache implementation
 """
 
-from typing import Any, Optional
+from typing import Any
 
 from cachelib import SimpleCache
 from fastapi import Request
@@ -18,7 +18,7 @@ class CachelibCache(Cache):
         super().__init__()
         self.cache = SimpleCache()
 
-    def get(self, key: str) -> Optional[Any]:
+    def get(self, key: str) -> Any | None:
         """Get a cached value from the simple cache"""
         super().get(key)
         return self.cache.get(key)
@@ -37,7 +37,7 @@ class CachelibCache(Cache):
 cachelib_cache = CachelibCache()
 
 
-def get_cache(request: Request) -> Optional[CacheInterface]:
+def get_cache(request: Request) -> CacheInterface | None:
     """Dependency for retrieving a cachelib-based cache implementation"""
     cache_control = request.headers.get("Cache-Control", "")
     skip_cache = "no-cache" in cache_control

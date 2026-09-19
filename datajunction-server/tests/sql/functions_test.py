@@ -3,6 +3,7 @@ Tests for ``datajunction_server.sql.functions``.
 """
 
 import pytest
+import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import datajunction_server.sql.functions as F
@@ -35,6 +36,18 @@ from datajunction_server.sql.parsing.types import (
     StringType,
     WildcardType,
 )
+
+
+@pytest_asyncio.fixture(scope="module")
+async def session(module__session: AsyncSession) -> AsyncSession:
+    """
+    Override the function-scoped ``session`` fixture with a module-scoped one.
+
+    Nothing in this module writes to the database -- these tests only compile
+    expressions and assert inferred types -- so cloning a database per test is
+    wasted work.
+    """
+    return module__session
 
 
 @pytest.mark.asyncio
@@ -342,6 +355,12 @@ async def test_array_agg(session: AsyncSession):
     await query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(element_type=ct.StringType())  # type: ignore
+
+    # ARRAY_AGG is the ANSI spelling of COLLECT_LIST and aggregates like it.
+    # Anything keying off is_aggregation (metric validation, the fan-out guard)
+    # silently mishandles it otherwise.
+    assert query.select.projection[0].function().is_aggregation is True  # type: ignore
+    assert query.select.projection[0].is_aggregation() is True  # type: ignore
 
 
 @pytest.mark.asyncio

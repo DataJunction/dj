@@ -231,13 +231,13 @@ async def test_get_columns_for_table_not_found():
             "_get_client",
             return_value=mock_bq_client,
         ),
+        pytest.raises(DJDoesNotExistException),
     ):
-        with pytest.raises(DJDoesNotExistException):
-            await client.get_columns_for_table(
-                catalog="my-project",
-                schema="my_dataset",
-                table="nonexistent_table",
-            )
+        await client.get_columns_for_table(
+            catalog="my-project",
+            schema="my_dataset",
+            table="nonexistent_table",
+        )
 
 
 @pytest.mark.asyncio
@@ -264,13 +264,13 @@ async def test_get_columns_for_table_query_error():
             "_get_client",
             return_value=mock_bq_client,
         ),
+        pytest.raises(DJQueryServiceClientException) as exc_info,
     ):
-        with pytest.raises(DJQueryServiceClientException) as exc_info:
-            await client.get_columns_for_table(
-                catalog="my-project",
-                schema="my_dataset",
-                table="my_table",
-            )
+        await client.get_columns_for_table(
+            catalog="my-project",
+            schema="my_dataset",
+            table="my_table",
+        )
 
     assert "network error" in str(exc_info.value)
 
@@ -500,7 +500,7 @@ def test_map_bigquery_type_to_dj_string_and_bytes():
 
 def test_map_bigquery_type_to_dj_date_time():
     """_map_bigquery_type_to_dj maps date/time types correctly."""
-    from datajunction_server.sql.parsing.types import DateType, TimeType, TimestampType
+    from datajunction_server.sql.parsing.types import DateType, TimestampType, TimeType
 
     client = _make_client()
 

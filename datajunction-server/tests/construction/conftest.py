@@ -1,7 +1,5 @@
 """fixtures for testing construction"""
 
-from typing import Dict, List, Optional, Tuple
-
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,7 +20,7 @@ from datajunction_server.sql.parsing.types import (
     TimestampType,
 )
 
-BUILD_NODE_NAMES: List[str] = [
+BUILD_NODE_NAMES: list[str] = [
     "basic.source.users",
     "basic.source.comments",
     "basic.dimension.users",
@@ -36,13 +34,13 @@ BUILD_NODE_NAMES: List[str] = [
     "dbt.transform.customer_agg",
 ]
 
-BUILD_EXPECTATION_PARAMETERS: List[Tuple[str, Optional[int]]] = list(
+BUILD_EXPECTATION_PARAMETERS: list[tuple[str, int | None]] = list(
     zip(BUILD_NODE_NAMES * 3, [None] * len(BUILD_NODE_NAMES)),
 )
 
 
 @pytest.fixture
-def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
+def build_expectation() -> dict[str, dict[int | None, tuple[bool, str]]]:
     """map node names with database ids to what their build results should be"""
     return {
         """basic.source.users""": {

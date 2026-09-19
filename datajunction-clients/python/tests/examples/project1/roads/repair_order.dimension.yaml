@@ -10,12 +10,12 @@ primary_key:
   - repair_order_id
 dimension_links:
   - type: join
-    node_column: dispatcher_id
     dimension_node: ${prefix}roads.dispatcher
+    join_on: ${prefix}roads.repair_order.dispatcher_id = ${prefix}roads.dispatcher.dispatcher_id
   - type: join
-    node_column: hard_hat_id
     dimension_node: ${prefix}roads.hard_hat
+    join_on: ${prefix}roads.repair_order.hard_hat_id = ${prefix}roads.hard_hat.hard_hat_id
   - type: join
-    node_column: municipality_id
     dimension_node: ${prefix}roads.municipality_dim
+    join_on: ${prefix}roads.repair_order.municipality_id = ${prefix}roads.municipality_dim.municipality_id
 display_name: Repair Order Dim

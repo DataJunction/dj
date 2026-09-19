@@ -3,7 +3,8 @@ Data related APIs.
 """
 
 import logging
-from typing import List, Optional
+from dataclasses import dataclass
+from typing import Literal
 
 from fastapi import Depends, Query, Request
 from pydantic import BaseModel
@@ -38,31 +39,51 @@ class DJSQLColumn(BaseModel):
 
     name: str
     type: str
-    semantic_name: Optional[str] = None
-    semantic_type: Optional[str] = None  # "dimension", "metric", etc.
+    semantic_name: str | None = None
+    semantic_type: str | None = None  # "dimension", "metric", etc.
 
 
 class TranslatedDJSQL(BaseModel):
     """Response model for translated DJ SQL."""
 
     sql: str
-    columns: List[DJSQLColumn]
+    columns: list[DJSQLColumn]
     dialect: str
 
 
-def selects_from_metrics(select: ast.SelectExpression) -> bool:
-    """Check if a SELECT sources from the 'metrics' table."""
-    return (
-        select.from_ is not None
-        and len(select.from_.relations) == 1
-        and len(select.from_.relations[0].extensions) == 0
-        and str(select.from_.relations[0].primary).lower() == "metrics"
-    )
+@dataclass(frozen=True)
+class ParsedDJSQL:
+    """Validated DJ SQL components and selected pseudo-table."""
+
+    source: Literal["metrics", "dimensions"]
+    metrics: list[str]
+    dimensions: list[str]
+    filters: list[str]
+    orderby: list[str]
+    limit: int | None
+
+
+def get_pseudo_table(
+    select: ast.SelectExpression,
+) -> Literal["metrics", "dimensions"] | None:
+    """Return the single unjoined pseudo-table selected by the query."""
+    if (
+        select.from_ is None
+        or len(select.from_.relations) != 1
+        or select.from_.relations[0].extensions
+    ):
+        return None
+    table = str(select.from_.relations[0].primary).lower()
+    if table == "metrics":
+        return "metrics"
+    if table == "dimensions":
+        return "dimensions"
+    return None
 
 
 def parse_dj_sql(
     query: str,
-) -> tuple[List[str], List[str], List[str], List[str], Optional[int]]:
+) -> ParsedDJSQL:
     """
     Parse a DJ SQL query and extract metrics, dimensions, filters, orderby, limit.
 
@@ -76,17 +97,17 @@ def parse_dj_sql(
             LIMIT 10
 
     Returns:
-        Tuple of (metrics, dimensions, filters, orderby, limit)
+        Parsed pseudo-table and query components.
 
     Note: Validation of metric/dimension nodes is delegated to build_metrics_sql.
     """
     tree = parse(query)
     select = tree.select
 
-    if not selects_from_metrics(select):
+    source = get_pseudo_table(select)
+    if source is None:
         raise DJInvalidInputException(
-            "DJ SQL queries must SELECT FROM metrics. "
-            "Example: SELECT metric1, dim1 FROM metrics GROUP BY dim1",
+            "DJ SQL queries must SELECT FROM metrics or dimensions.",
         )
 
     # Validate no unsupported clauses
@@ -95,21 +116,41 @@ def parse_dj_sql(
             "HAVING, LATERAL VIEWS, and SET OPERATIONS are not allowed in DJ SQL queries.",
         )
 
-    # Extract dimensions from GROUP BY
-    dimensions = [str(exp) for exp in select.group_by]
+    group_by = [str(exp) for exp in select.group_by]
 
-    # Extract metrics: projection columns that are not in GROUP BY dimensions
-    # Validation that these are actual metric nodes is delegated to build_metrics_sql
-    metrics = []
+    projected = []
     for col in select.projection:
-        if not isinstance(col, ast.Column):
+        # Remove the alias first, if one was set
+        if isinstance(col, ast.Alias):
+            col = col.child
+
+        if isinstance(col, ast.Column):
+            col_ident = col.identifier(False)
+        # A role-qualified attribute like ``dim.attr[role]`` parses as a Subscript
+        # wrapping a Column, and stringifies exactly like its GROUP BY counterpart.
+        elif isinstance(col, ast.Subscript) and isinstance(col.expr, ast.Column):
+            col_ident = str(col)
+        else:
             raise DJInvalidInputException(
                 f"Only direct columns are allowed in DJ SQL queries, found: {col}",
             )
 
-        col_ident = col.identifier(False)
-        if col_ident not in dimensions:
-            metrics.append(col_ident)
+        projected.append(col_ident)
+
+    if source == "metrics":
+        dimensions = group_by
+        metrics = [column for column in projected if column not in dimensions]
+        if not metrics:
+            raise DJInvalidInputException(
+                "DJ SQL queries selecting FROM metrics require at least one metric",
+            )
+    else:
+        dimensions = projected
+        metrics = []
+        if group_by and set(group_by) != set(dimensions):
+            raise DJInvalidInputException(
+                "GROUP BY for dimension queries must match the projected dimensions",
+            )
 
     # Extract filters from WHERE
     filters = [str(select.where)] if select.where else []
@@ -131,13 +172,13 @@ def parse_dj_sql(
                 f"LIMIT must be an integer, got: {select.limit}",
             ) from exc
 
-    return metrics, dimensions, filters, orderby, limit
+    return ParsedDJSQL(source, metrics, dimensions, filters, orderby, limit)
 
 
 @router.get("/djsql/", response_model=TranslatedDJSQL)
 async def get_sql_for_djsql(
     query: str = Query(..., description="DJ SQL query"),
-    dialect: Optional[str] = Query(
+    dialect: str | None = Query(
         None,
         description="SQL dialect (spark, trino, druid)",
     ),
@@ -157,13 +198,16 @@ async def get_sql_for_djsql(
     LIMIT 10
     ```
 
+    Dimension domains use ``SELECT <dim> FROM dimensions``; ``DISTINCT`` is
+    implicit and ``GROUP BY`` may be omitted.
+
     Returns the generated SQL that can be executed against your data warehouse.
     """
     # Parse the DJ SQL query (validation delegated to build_metrics_sql)
-    metrics, dimensions, filters, orderby, limit = parse_dj_sql(query)
+    parsed = parse_dj_sql(query)
 
     # Map dialect string to enum (None means use builder default)
-    dialect_enum: Optional[Dialect] = None
+    dialect_enum: Dialect | None = None
     if dialect:
         dialect_map = {
             "spark": Dialect.SPARK,
@@ -175,11 +219,11 @@ async def get_sql_for_djsql(
     # Build SQL using v3 builder
     result = await build_metrics_sql(
         session=session,
-        metrics=metrics,
-        dimensions=dimensions,
-        filters=filters,
-        orderby=orderby if orderby else None,
-        limit=limit,
+        metrics=parsed.metrics,
+        dimensions=parsed.dimensions,
+        filters=parsed.filters,
+        orderby=parsed.orderby or None,
+        limit=parsed.limit,
         dialect=dialect_enum,
     )
     _logger.info(
@@ -206,8 +250,8 @@ async def _build_djsql_query(
     session: AsyncSession,
     query: str,
     use_materialized: bool,
-    engine_name: Optional[str],
-    engine_version: Optional[str],
+    engine_name: str | None,
+    engine_version: str | None,
 ):
     """
     Shared SQL-build path for ``/djsql/data`` and ``/djsql/stream/``. Routes
@@ -215,22 +259,23 @@ async def _build_djsql_query(
     ``/djsql/data``, ``/djsql/stream/``, ``/data/``) emit identical SQL for
     the same metrics + dimensions.
     """
-    metrics, dimensions, filters, orderby, limit = parse_dj_sql(query)
+    parsed = parse_dj_sql(query)
     execution_ctx = await resolve_dialect_and_engine_for_metrics(
         session=session,
-        metrics=metrics,
-        dimensions=dimensions,
+        metrics=parsed.metrics,
+        dimensions=parsed.dimensions,
         use_materialized=use_materialized,
         engine_name=engine_name,
         engine_version=engine_version,
+        filters=parsed.filters or None,
     )
     generated_sql = await build_metrics_sql(
         session=session,
-        metrics=metrics,
-        dimensions=dimensions,
-        filters=filters if filters else None,
-        orderby=orderby if orderby else None,
-        limit=limit,
+        metrics=parsed.metrics,
+        dimensions=parsed.dimensions,
+        filters=parsed.filters or None,
+        orderby=parsed.orderby or None,
+        limit=parsed.limit,
         dialect=execution_ctx.dialect,
         use_materialized=use_materialized,
     )
@@ -249,8 +294,8 @@ async def get_data_for_djsql(
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    engine_name: Optional[str] = None,
-    engine_version: Optional[str] = None,
+    engine_name: str | None = None,
+    engine_version: str | None = None,
 ) -> QueryWithResults:
     """
     Return data for a DJ SQL query.
@@ -304,8 +349,8 @@ async def get_data_stream_for_djsql(
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-    engine_name: Optional[str] = None,
-    engine_version: Optional[str] = None,
+    engine_name: str | None = None,
+    engine_version: str | None = None,
 ) -> QueryWithResults:  # pragma: no cover
     """
     Return data for a DJ SQL query using server side events.

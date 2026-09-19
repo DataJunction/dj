@@ -1,7 +1,5 @@
 """Metric metadata database schema."""
 
-from typing import Optional
-
 import sqlalchemy as sa
 from sqlalchemy import Enum
 from sqlalchemy.orm import Mapped, mapped_column
@@ -26,12 +24,12 @@ class MetricMetadata(Base):
         primary_key=True,
     )
 
-    direction: Mapped[Optional[MetricDirection]] = mapped_column(
+    direction: Mapped[MetricDirection | None] = mapped_column(
         Enum(MetricDirection),
         default=MetricDirection.NEUTRAL,
         nullable=True,
     )
-    unit: Mapped[Optional[MetricUnit]] = mapped_column(
+    unit: Mapped[MetricUnit | None] = mapped_column(
         Enum(MetricUnit),
         default=MetricUnit.UNKNOWN,
         nullable=True,

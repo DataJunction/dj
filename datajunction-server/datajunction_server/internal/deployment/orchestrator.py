@@ -4,16 +4,19 @@ import time
 from collections import Counter
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import cast
 
-from sqlalchemy import func, or_, select, text, inspect as sa_inspect
+from sqlalchemy import func, or_, select, text
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload, defer, load_only, noload
+from sqlalchemy.orm import defer, joinedload, load_only, noload, selectinload
 
 from datajunction_server.api.helpers import (
-    get_node_namespace,
     COLUMN_NAME_REGEX,
-    map_dimensions_to_roles,
+    _resolve_required_dimensions,
+    dedupe_cube_elements,
+    get_node_namespace,
 )
 from datajunction_server.construction.build_v2 import FullColumnName
 from datajunction_server.database import Node, NodeRevision
@@ -21,45 +24,76 @@ from datajunction_server.database.attributetype import AttributeType
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column, ColumnAttribute
 from datajunction_server.database.dimensionlink import DimensionLink, JoinType
+from datajunction_server.database.hierarchy import Hierarchy, HierarchyLevel
 from datajunction_server.database.history import History
+from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import MissingParent, NodeRelationship
 from datajunction_server.database.partition import Partition
-from datajunction_server.database.hierarchy import Hierarchy, HierarchyLevel
-from datajunction_server.models.hierarchy import HierarchyLevelInput
 from datajunction_server.database.tag import Tag
-from datajunction_server.database.user import User, OAuthProvider
-from datajunction_server.instrumentation.provider import get_metrics_provider
+from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.errors import (
     DJError,
+    DJException,
     DJInvalidDeploymentConfig,
     DJInvalidInputException,
     DJWarning,
     ErrorCode,
 )
-from datajunction_server.internal.deployment.utils import (
-    classify_parents,
-    extract_node_graph,
-    topological_levels,
-    DeploymentContext,
+from datajunction_server.instrumentation.provider import get_metrics_provider
+from datajunction_server.internal.access.authorization import (
+    AccessChecker,
+    AccessDenialMode,
 )
-from datajunction_server.internal.impact import propagate_impact
+from datajunction_server.internal.access.authorization.context import AuthContext
+from datajunction_server.internal.custom_metadata import upsert_schema_specs
 from datajunction_server.internal.deployment.dimension_reachability import (
     DimensionReachability,
 )
+from datajunction_server.internal.deployment.fingerprints import (
+    FingerprintMap,
+    build_deployment_fingerprints,
+)
+from datajunction_server.internal.deployment.utils import (
+    DeploymentContext,
+    classify_parents,
+    creates_cycle,
+    extract_dimension_refs_from_filters,
+    extract_node_graph,
+    topological_levels,
+)
 from datajunction_server.internal.deployment.validation import (
-    NodeValidationResult,
     CubeValidationData,
+    NodeValidationResult,
     bulk_validate_node_data,
 )
 from datajunction_server.internal.history import EntityType
-from datajunction_server.sql.dag import get_metric_parents_map
+from datajunction_server.internal.impact import propagate_impact
+from datajunction_server.internal.materializations import (
+    CubeMaterializationSwap,
+    CubeMaterializationSwapOutcome,
+    NodeMaterializationTeardown,
+    ReconciledMaterialization,
+    apply_cube_materialization_swap,
+    backfill_recorded,
+    collect_materialization_teardowns,
+    coverage_backfill,
+    coverage_gap,
+    coverage_partition,
+    reconcile_declared_materializations,
+    stop_materialization_workflows,
+    swap_cube_materializations,
+)
+from datajunction_server.internal.namespaces import get_git_info_for_namespace
 from datajunction_server.internal.nodes import (
     derive_frozen_measures_bulk,
+    is_non_trivial_cube_change,
 )
+from datajunction_server.models.access import ResourceAction
 from datajunction_server.models.base import labelize
 from datajunction_server.models.deployment import (
+    ChangeTier,
     ColumnSpec,
     CubeSpec,
     DeploymentResult,
@@ -68,17 +102,27 @@ from datajunction_server.models.deployment import (
     DimensionJoinLinkSpec,
     DimensionReferenceLinkSpec,
     LinkableNodeSpec,
+    MaterializationAction,
+    MaterializationSpec,
     MetricSpec,
     NodeSpec,
     SourceSpec,
     TagSpec,
+    bump_version,
+    change_tier_name,
+    declared_materialization_blocks,
+    eq_or_fallback,
     render_prefixes,
 )
 from datajunction_server.models.dimensionlink import (
     JoinLinkInput,
     LinkType,
+    misplaced_node_column_message,
+    missing_join_on_message,
 )
+from datajunction_server.models.hierarchy import HierarchyLevelInput
 from datajunction_server.models.history import ActivityType
+from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.models.node import (
     DEFAULT_DRAFT_VERSION,
     DEFAULT_PUBLISHED_VERSION,
@@ -94,6 +138,9 @@ from datajunction_server.models.unit import (
     legacy_unit_to_structured,
     structured_to_legacy_unit,
 )
+from datajunction_server.sql.dag import get_metric_parents_map
+from datajunction_server.sql.parsing.backends.exceptions import DJParseException
+from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import (
     SEPARATOR,
     Version,
@@ -101,38 +148,13 @@ from datajunction_server.utils import (
     get_settings,
 )
 
-
 logger = logging.getLogger(__name__)
 
 
-def _extract_dimension_refs_from_filters(
-    filters: list[str],
-) -> list[tuple[str, str]]:
-    """Extract (node_name, column_name) pairs from filter expressions.
-
-    Parses all filters as a single WHERE clause (joined with AND) and
-    collects namespaced column references.  For example,
-    ``ns.hard_hat.state = 'CA'`` yields ``('ns.hard_hat', 'state')``.
-
-    Returns a list of (node_name, column_name) tuples.  Dimension node
-    names are identified by having at least one SEPARATOR in the namespace.
-    """
-    from datajunction_server.sql.parsing.backends.antlr4 import parse, ast
-
-    if not filters:
-        return []
-    combined = " AND ".join(f"({f})" for f in filters)
-    try:
-        tree = parse(f"SELECT 1 WHERE {combined}")
-    except Exception:
-        return []  # Unparseable — skip, will be caught at query time
-    refs: list[tuple[str, str]] = []
-    for col in tree.find_all(ast.Column):
-        if col.namespace and len(col.namespace) >= 1:
-            node_name = SEPARATOR.join(n.name for n in col.namespace)
-            if SEPARATOR in node_name:  # pragma: no branch
-                refs.append((node_name, col.name.name))
-    return refs
+def _version_key(version: str) -> tuple[int, int]:
+    """A version as a sortable pair, so v10.0 outranks v9.0."""
+    parsed = Version.parse(version)
+    return parsed.major, parsed.minor
 
 
 def _diff_column_metadata(
@@ -187,6 +209,20 @@ def _diff_column_metadata(
             notes.append(f"Column '{col_name}': {'; '.join(col_notes)}")
 
     return notes
+
+
+def _blocks_by_strategy(
+    blocks: list[MaterializationSpec],
+) -> dict[MaterializationStrategy, MaterializationSpec]:
+    """
+    Declared blocks keyed by the strategy that identifies them.
+
+    Comparing two declarations this way ignores the order they were written in,
+    which carries no meaning: what a cube pulled from the server lists in name
+    order, an author is free to write the other way round, and reading that as a
+    change would report an update on every deploy of an untouched cube.
+    """
+    return {block.strategy: block for block in blocks}
 
 
 class _DryRunRollback(Exception):
@@ -246,6 +282,7 @@ class DeploymentExecuteResult:
 
     results: list  # list[DeploymentResult]
     downstream_impacts: list  # list[ImpactedNode]
+    warnings: list = field(default_factory=list)  # list[DJError]
 
 
 @dataclass
@@ -289,11 +326,20 @@ class DeploymentPlan:
     node_graph: dict[str, list[str]]
     external_deps: set[str]
     to_delete_namespaces: list[str] = field(default_factory=list)
+    delete_references: dict[str, list[str]] = field(default_factory=dict)
 
     def is_empty(self) -> bool:
         return (
             not self.to_deploy and not self.to_delete and not self.to_delete_namespaces
         )
+
+    @property
+    def deletable_specs(self) -> list[NodeSpec]:
+        return [
+            spec
+            for spec in self.to_delete
+            if spec.rendered_name not in self.delete_references
+        ]
 
     @property
     def linked_dimension_nodes(self) -> set[str]:
@@ -331,6 +377,19 @@ class DeploymentOrchestrator:
         self.warnings: list[DJError] = []
         self.deployed_results: list[DeploymentResult] = []
         self._timer = DeploymentTimer()
+        self._cube_materialization_swaps: list[CubeMaterializationSwap] = []
+        self._materialization_teardowns: list[NodeMaterializationTeardown] = []
+        # Cubes rebuilt onto a new, empty datasource.
+        self._rebuilt_cubes: set[str] = set()
+        self._branch_deploy: bool | None = None
+        # Cube name -> the changed upstreams that pulled it into this deploy.
+        self._cubes_bumped_by_upstream: dict[str, list[str]] = {}
+        # Node name -> the tier its change earned, for those cubes to inherit.
+        self._change_tiers: dict[str, ChangeTier] = {}
+        # Unchanged nodes re-deployed only to retry a pre-existing failure.
+        self._revalidation_only: set[str] = set()
+        self._current_semantic_fingerprints: FingerprintMap = {}
+        self._proposed_semantic_fingerprints: FingerprintMap = {}
 
     @property
     def _history_user(self) -> str:
@@ -348,6 +407,38 @@ class DeploymentOrchestrator:
                 return author
         return self.context.current_user.username
 
+    def _warn_about_unmatched_cube_columns(self) -> None:
+        """
+        Warn about `columns:` entries naming no column of the cube. The comparison
+        ignores them; without this the partition the author declared would just
+        silently do nothing.
+        """
+        for spec in self.deployment_spec.nodes:
+            if not isinstance(spec, CubeSpec):
+                continue
+            for unmatched in spec.unmatched_column_names:
+                message = (
+                    f"Cube '{spec.rendered_name}' declares column '{unmatched}', "
+                    f"which is not one of its columns, so the settings on "
+                    f"it have no effect. A cube's columns are its metrics "
+                    f"and dimensions, named exactly as they appear there."
+                )
+                self.warnings.append(
+                    DJError(
+                        code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                        message=message,
+                    ),
+                )
+                self.deployed_results.append(
+                    DeploymentResult(
+                        name=spec.rendered_name,
+                        deploy_type=DeploymentResult.Type.NODE,
+                        status=DeploymentResult.Status.WARNING,
+                        operation=DeploymentResult.Operation.NOOP,
+                        message=message,
+                    ),
+                )
+
     async def execute(self) -> DeploymentExecuteResult:
         """
         Validate and deploy all resources and nodes into the specified namespace.
@@ -360,6 +451,10 @@ class DeploymentOrchestrator:
         Returned ``results`` and ``downstream_impacts`` are populated inside
         the SAVEPOINT; Python references stay live after rollback, so dry-run
         callers still get the full impact analysis.
+
+        Cube materialization swaps are the one piece of remote work deferred past
+        the commit, so a deploy that rolls back has asked the query service to
+        neither schedule nor stop anything.
         """
         start_total = time.perf_counter()
         self._timer = DeploymentTimer()
@@ -368,6 +463,8 @@ class DeploymentOrchestrator:
             len(self.deployment_spec.nodes),
             self.deployment_spec.namespace,
         )
+
+        self._warn_about_unmatched_cube_columns()
 
         result = DeploymentExecuteResult(results=[], downstream_impacts=[])
         try:
@@ -381,6 +478,13 @@ class DeploymentOrchestrator:
             # `else` only fires when no _DryRunRollback was raised, which
             # implies wet-run — commit the outer transaction.
             await self.session.commit()
+            await self._apply_cube_materialization_swaps()
+            result.results.extend(self._stop_deleted_node_materializations())
+
+        # Warnings are only surfaced by the failure path (they ride along on
+        # DJInvalidDeploymentConfig), so hand them back here too — otherwise a
+        # deploy that succeeds with warnings silently drops them.
+        result.warnings = list(self.warnings)
 
         elapsed_ms = (time.perf_counter() - start_total) * 1000
         _metrics_tags = {
@@ -432,17 +536,84 @@ class DeploymentOrchestrator:
                 )
             self.deployed_results.extend(pre_results)
 
+        self._guard_against_accidental_wipe(deployment_plan)
+
+        # Authorize before any of the plan is applied; a denial raises inside the
+        # SAVEPOINT, so setup-phase writes roll back too.
+        await self._authorize_deployment_plan(deployment_plan)
+
         if deployment_plan.is_empty() and not self.deployment_spec.hierarchies:
-            return DeploymentExecuteResult(
-                results=await self._handle_no_changes(),
-                downstream_impacts=[],
+            # Pre-aggregations still need reconciling on an otherwise-empty
+            # deploy: to register specs, or to delete external pre-aggs that were
+            # dropped from the spec.
+            from datajunction_server.database.preaggregation import PreAggregation
+
+            needs_preagg_reconcile = bool(
+                self.deployment_spec.preaggregations,
+            ) or bool(
+                await PreAggregation.get_external_by_namespace(
+                    self.session,
+                    self.deployment_spec.namespace,
+                ),
             )
+            # Cube materializations still need reconciling too. A push that edits
+            # only a `materialization:` block leaves every cube comparing equal, so
+            # the plan this short-circuit is testing is exactly the one such a push
+            # produces.
+            declares_cube = any(
+                isinstance(spec, CubeSpec) for spec in self.deployment_spec.nodes
+            )
+            if not needs_preagg_reconcile and not declares_cube:
+                with self._timer.phase("build semantic fingerprints"):
+                    await self._build_and_apply_semantic_fingerprints(
+                        deployment_plan,
+                        [],
+                    )
+                return DeploymentExecuteResult(
+                    results=await self._handle_no_changes(),
+                    downstream_impacts=[],
+                )
 
         downstream = await self._execute_deployment_plan(deployment_plan)
         return DeploymentExecuteResult(
             results=self.deployed_results,
             downstream_impacts=downstream,
         )
+
+    async def _authorize_deployment_plan(self, plan: DeploymentPlan) -> None:
+        """
+        Fail-closed authorization for the mutations this deploy will perform.
+
+        Deploys run in a detached background task and bulk-create/update/delete
+        nodes and namespaces, so re-authorize here against the deploying user,
+        matching how the HTTP endpoints govern each resource: WRITE on the
+        namespace a node is written into, DELETE on nodes and namespaces being
+        removed. Names are the rendered (fully-qualified) names, since that is
+        what the deploy actually mutates and what RBAC scopes match against.
+        """
+        auth_context = await AuthContext.from_user(
+            self.session,
+            self.context.current_user,
+        )
+        access_checker = AccessChecker(auth_context)
+
+        # WRITE: the deployment root plus the namespace each deployed node lands in.
+        namespaces_to_write = {self.deployment_spec.namespace}
+        for node_spec in plan.to_deploy:
+            namespaces_to_write.add(get_namespace_from_name(node_spec.rendered_name))
+        for namespace in sorted(namespaces_to_write):
+            access_checker.add_namespace(namespace, ResourceAction.WRITE)
+
+        # DELETE: nodes and namespaces removed by this deploy.
+        for node_spec in plan.to_delete:
+            access_checker.add_request_by_node_name(
+                node_spec.rendered_name,
+                ResourceAction.DELETE,
+            )
+        for namespace in plan.to_delete_namespaces:
+            access_checker.add_namespace(namespace, ResourceAction.DELETE)
+
+        await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     async def _update_deployment_status(self):
         """
@@ -467,6 +638,19 @@ class DeploymentOrchestrator:
         self.registry.add_owners(await self._setup_owners())
         self.registry.add_catalogs(await self._setup_catalogs())
         self.registry.add_attributes(await self._setup_attributes())
+        # `is not None`, not truthiness: an empty list is a manifest that manages
+        # schemas and declares none, which retires them. Omitting the section
+        # leaves them alone.
+        if self.deployment_spec.custom_metadata_schemas is not None:
+            await upsert_schema_specs(
+                self.session,
+                self.deployment_spec.namespace,
+                self.deployment_spec.custom_metadata_schemas,
+                current_user_id=self.context.current_user.id,
+                # Index DDL is the one part a rolled-back SAVEPOINT would do for
+                # nothing, and a dry run needs no index to report impact.
+                build_indexes=not self.dry_run,
+            )
         logger.info(
             "Set up deployment resources: %d namespaces, %d tags, %d owners, %d catalogs, %d attributes",
             len(self.registry.namespaces),
@@ -677,7 +861,7 @@ class DeploymentOrchestrator:
                     DJError(
                         code=ErrorCode.UNKNOWN_ERROR,
                         message=(
-                            f"Failed to auto-register source `{missing_node_name}`: {str(exc)}"
+                            f"Failed to auto-register source `{missing_node_name}`: {exc!s}"
                         ),
                     ),
                 )
@@ -700,6 +884,40 @@ class DeploymentOrchestrator:
         logger.info("No changes detected, skipping deployment")
         await self._update_deployment_status()
         return self.deployed_results
+
+    def _apply_semantic_fingerprints(self) -> None:
+        for result in self.deployed_results:
+            if result.deploy_type != DeploymentResult.Type.NODE:
+                continue
+            fingerprints = (
+                self._current_semantic_fingerprints
+                if result.operation == DeploymentResult.Operation.DELETE
+                else self._proposed_semantic_fingerprints
+            )
+            result.semantic_fingerprint = fingerprints.get(result.name)
+
+    async def _build_and_apply_semantic_fingerprints(
+        self,
+        plan: DeploymentPlan,
+        downstream: list,
+    ) -> None:
+        target_names = {impact.name for impact in downstream} | {
+            spec.rendered_name for spec in plan.to_delete
+        }
+        current, proposed = await build_deployment_fingerprints(
+            self.session,
+            plan.existing_specs,
+            self.deployment_spec.nodes,
+            plan.deletable_specs,
+            additional_target_names=target_names,
+        )
+        self._current_semantic_fingerprints = current
+        self._proposed_semantic_fingerprints = proposed
+        self._apply_semantic_fingerprints()
+        for impact in downstream:
+            proposed_fingerprint = proposed.get(impact.name)
+            if current.get(impact.name) != proposed_fingerprint:
+                impact.semantic_fingerprint = proposed_fingerprint
 
     async def _find_namespaces_to_create(self) -> set[str]:
         """
@@ -832,6 +1050,7 @@ class DeploymentOrchestrator:
                             Tag.tag_type,
                             Tag.description,
                             Tag.display_name,
+                            Tag.tag_metadata,
                             Tag.created_by_id,
                         ),
                         noload(Tag.created_by),
@@ -866,6 +1085,7 @@ class DeploymentOrchestrator:
                     tag.tag_type = tag_spec.tag_type
                     tag.description = tag_spec.description
                     tag.display_name = tag_spec.display_name or labelize(tag_name)
+                    tag.tag_metadata = tag_spec.tag_metadata or {}
                     self.session.add(tag)
                     tags_modified = True
             else:
@@ -874,6 +1094,7 @@ class DeploymentOrchestrator:
                     tag_type=tag_spec.tag_type,
                     description=tag_spec.description,
                     display_name=tag_spec.display_name or labelize(tag_name),
+                    tag_metadata=tag_spec.tag_metadata or {},
                     created_by_id=self.context.current_user.id,
                 )
                 self.session.add(tag)
@@ -1012,6 +1233,197 @@ class DeploymentOrchestrator:
 
         await self.session.flush()
         logger.info("Upserted %d hierarchies", len(valid_specs))
+
+    async def _reconcile_preaggregations(self) -> None:
+        """
+        Register externally-built pre-aggregations declared in the spec, and
+        remove EXTERNAL pre-aggs in this namespace that were dropped from it.
+
+        Runs after nodes/links/cubes so the referenced metrics and dimensions
+        exist. Skipped during dry runs (registration introspects the external
+        table and mutates state). Reuses the same core as POST /preaggs/register.
+        """
+        from datajunction_server.database.preaggregation import PreAggregation
+        from datajunction_server.internal.preaggregations import (
+            register_external_preaggregations,
+        )
+        from datajunction_server.models.preaggregation import ExternalPreAggTable
+
+        specs = self.deployment_spec.preaggregations
+        namespace = self.deployment_spec.namespace
+
+        existing = await PreAggregation.get_external_by_namespace(
+            self.session,
+            namespace,
+        )
+        if not specs and not existing:
+            return
+
+        # Never mass-deregister external pre-aggs from a deploy that declares
+        # none: they may be managed out of band (POST /preaggs/register), or the
+        # pre-agg files may simply be absent from this push. Removing them all
+        # requires an explicit ``allow_empty`` opt-in (mirrors the node wipe
+        # guard). This is the real footgun -- the fully-empty-spec case is
+        # already refused upstream because a pre-agg's parent node is deleted too.
+        if not specs and not self.deployment_spec.allow_empty:
+            message = (
+                f"{len(existing)} external pre-aggregation(s) in "
+                f"namespace '{namespace}' were left intact because the "
+                f"deployment declares none. Re-run with allow_empty to "
+                f"deregister them."
+            )
+            self.warnings.append(
+                DJError(
+                    code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                    message=message,
+                ),
+            )
+            # Also emit a per-item result: the deploy succeeds, and per-item
+            # results are what actually get rendered back to the user.
+            self.deployed_results.append(
+                DeploymentResult(
+                    name=namespace,
+                    deploy_type=DeploymentResult.Type.PREAGG,
+                    status=DeploymentResult.Status.WARNING,
+                    operation=DeploymentResult.Operation.NOOP,
+                    message=message,
+                ),
+            )
+            logger.info(
+                "Skipped deregistering %d external pre-agg(s) in %s "
+                "(no specs declared, allow_empty not set)",
+                len(existing),
+                namespace,
+            )
+            return
+
+        declared_names = {spec.rendered_name for spec in specs}
+        existing_ids = {preagg.id for preagg in existing}
+        existing_names = {preagg.name for preagg in existing}
+
+        # Dry run: report the planned register/delete without mutating anything
+        # (no registration, so no external-table introspection either). Delete
+        # planning is name-level here; the wet run below deletes by row identity.
+        if self.dry_run:
+            for spec in specs:
+                self.deployed_results.append(
+                    DeploymentResult(
+                        name=spec.rendered_name,
+                        deploy_type=DeploymentResult.Type.PREAGG,
+                        status=DeploymentResult.Status.SUCCESS,
+                        operation=(
+                            DeploymentResult.Operation.UPDATE
+                            if spec.rendered_name in existing_names
+                            else DeploymentResult.Operation.CREATE
+                        ),
+                        message="externally-built pre-aggregation",
+                    ),
+                )
+            for preagg in existing:
+                if preagg.name not in declared_names:
+                    self.deployed_results.append(
+                        DeploymentResult(
+                            name=preagg.name or f"preaggregation:{preagg.id}",
+                            deploy_type=DeploymentResult.Type.PREAGG,
+                            status=DeploymentResult.Status.SUCCESS,
+                            operation=DeploymentResult.Operation.DELETE,
+                            message="dropped from spec",
+                        ),
+                    )
+            return
+
+        query_service_client = self.context.query_service_client
+        request_headers = (
+            dict(self.context.request.headers) if self.context.request else {}
+        )
+
+        errors_before = len(self.errors)
+        upserted_ids: set[int] = set()
+        if specs and not query_service_client:
+            self.errors.append(
+                DJError(
+                    code=ErrorCode.QUERY_SERVICE_ERROR,
+                    message=(
+                        "Registering pre-aggregations requires a configured query "
+                        "service for column inference."
+                    ),
+                ),
+            )
+        else:
+            # Upsert each spec; track which pre-agg rows this deploy touched.
+            for spec in specs:
+                # A non-empty spec list implies a configured query service
+                # (guarded above). The assert narrows the Optional for mypy.
+                assert query_service_client is not None
+                try:
+                    created = await register_external_preaggregations(
+                        self.session,
+                        query_service_client,
+                        request_headers,
+                        name=spec.rendered_name,
+                        metrics=spec.rendered_metrics,
+                        dimensions=spec.rendered_dimensions,
+                        table=ExternalPreAggTable(
+                            catalog=spec.catalog,
+                            schema=spec.schema_,
+                            table=spec.table,
+                            valid_through_ts=spec.valid_through_ts,
+                        ),
+                        measure_columns=spec.rendered_measure_columns,
+                        dimension_columns=spec.rendered_dimension_columns,
+                    )
+                    upserted_ids.update(preagg.id for preagg in created)
+                    for preagg in created:
+                        self.deployed_results.append(
+                            DeploymentResult(
+                                name=spec.rendered_name,
+                                deploy_type=DeploymentResult.Type.PREAGG,
+                                status=DeploymentResult.Status.SUCCESS,
+                                operation=(
+                                    DeploymentResult.Operation.UPDATE
+                                    if preagg.id in existing_ids
+                                    else DeploymentResult.Operation.CREATE
+                                ),
+                                message="externally-built pre-aggregation",
+                            ),
+                        )
+                except DJException as exc:
+                    self.errors.append(
+                        DJError(
+                            code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                            message=(
+                                f"Pre-aggregation '{spec.rendered_name}': {exc.message}"
+                            ),
+                        ),
+                    )
+
+        # If any spec failed to register, abort before deleting anything: a
+        # transient failure must not deregister a still-declared pre-agg, and
+        # the error must surface (the outer SAVEPOINT rolls the deploy back).
+        if len(self.errors) > errors_before:
+            raise DJInvalidDeploymentConfig(
+                message="Failed to reconcile pre-aggregations",
+                errors=self.errors,
+                warnings=self.warnings,
+            )
+
+        # Delete-on-removal: any EXTERNAL pre-agg in this namespace not (re)created
+        # by this deploy has been dropped from the spec (or is a stale grain).
+        for preagg in existing:
+            if preagg.id not in upserted_ids:
+                self.deployed_results.append(
+                    DeploymentResult(
+                        name=preagg.name or f"preaggregation:{preagg.id}",
+                        deploy_type=DeploymentResult.Type.PREAGG,
+                        status=DeploymentResult.Status.SUCCESS,
+                        operation=DeploymentResult.Operation.DELETE,
+                        message="dropped from spec",
+                    ),
+                )
+                await self.session.delete(preagg)
+
+        await self.session.flush()
+        logger.info("Reconciled %d pre-aggregation spec(s)", len(specs))
 
     async def _setup_owners(self):
         """
@@ -1200,6 +1612,21 @@ class DeploymentOrchestrator:
             external_deps=external_dep_names,
         )
 
+    def _extract_plan_node_graph(
+        self,
+        nodes: list[NodeSpec],
+    ) -> dict[str, list[str]]:
+        if not self.dry_run:
+            return extract_node_graph(nodes)
+
+        node_graph = {}
+        for node in nodes:
+            try:
+                node_graph.update(extract_node_graph([node]))
+            except DJParseException:
+                node_graph[node.rendered_name] = []
+        return node_graph
+
     async def _create_deployment_plan(
         self,
     ) -> tuple[DeploymentPlan, list[DeploymentResult]]:
@@ -1252,6 +1679,7 @@ class DeploymentOrchestrator:
                     else DeploymentResult.Status.SKIPPED,
                     operation=DeploymentResult.Operation.NOOP,
                     message="Unchanged, still INVALID" if is_invalid else "Unchanged",
+                    change_tier=change_tier_name(ChangeTier.NONE),
                 ),
             )
 
@@ -1260,7 +1688,7 @@ class DeploymentOrchestrator:
         external_deps: set[str] = set()
         if to_deploy or to_delete:
             with self._timer.phase("  plan: extract node graph") as p:
-                node_graph = extract_node_graph(
+                node_graph = self._extract_plan_node_graph(
                     [node for node in to_deploy if not isinstance(node, CubeSpec)],
                 )
                 p.append(f"{len(node_graph)} nodes in graph")
@@ -1381,7 +1809,7 @@ class DeploymentOrchestrator:
                             existing_node.name,
                         )
 
-                node_graph = extract_node_graph(
+                node_graph = self._extract_plan_node_graph(
                     [node for node in to_deploy if not isinstance(node, CubeSpec)],
                 )
 
@@ -1466,6 +1894,16 @@ class DeploymentOrchestrator:
         with timer.phase("deploy hierarchies"):
             await self._setup_hierarchies()
 
+        # Register/reconcile externally-built pre-aggregations after nodes exist.
+        with timer.phase("reconcile preaggregations"):
+            await self._reconcile_preaggregations()
+
+        # Reconcile declared cube materializations. Runs unconditionally, for the
+        # same reason hierarchies do: a push that edits only a schedule deploys no
+        # nodes at all.
+        with timer.phase("reconcile cube materializations"):
+            await self._reconcile_cube_materializations(plan)
+
         # Run impact propagation before deletions so deleted nodes'
         # children are still reachable via NodeRelationship.
         changed_names = {
@@ -1480,23 +1918,29 @@ class DeploymentOrchestrator:
             if r.deploy_type == DeploymentResult.Type.LINK
             and r.status != DeploymentResult.Status.SKIPPED
         }
+        plan.delete_references = await self._validate_node_deletion(plan.to_delete)
         with timer.phase("propagate impact") as p:
             downstream = await propagate_impact(
                 session=self.session,
                 namespace=self.deployment_spec.namespace,
                 changed_node_names=changed_names,
                 deleted_node_names=frozenset(
-                    spec.rendered_name for spec in plan.to_delete
+                    spec.rendered_name for spec in plan.deletable_specs
                 ),
                 changed_link_node_names=changed_link_names,
             )
             p.append(f"{len(downstream)} downstream")
+        with timer.phase("build downstream semantic fingerprints"):
+            await self._build_and_apply_semantic_fingerprints(plan, downstream)
 
         # Hard-delete after impact propagation (cascade-deletes
         # NodeRelationship rows that were needed for the BFS above).
         if plan.to_delete:
             with timer.phase("delete nodes") as p:
-                delete_results = await self._delete_nodes(plan.to_delete)
+                delete_results = await self._delete_nodes(
+                    plan.to_delete,
+                    references=plan.delete_references,
+                )
                 p.append(f"{len(delete_results)} deleted")
             self.deployed_results.extend(delete_results)
             await self._update_deployment_status()
@@ -1577,8 +2021,44 @@ class DeploymentOrchestrator:
 
         deployed_results, deployed_nodes = [], {}
 
+        # Deploy-ordering graph: augment the dependency graph with each metric's
+        # required-dimension nodes, so a dimension referenced only via
+        # required_dimensions (not a query parent) still deploys before the metric
+        # that needs it. Kept separate from plan.node_graph so it never leaks into
+        # parent classification — these are ordering edges, not parents.
+        ordering_graph = {name: list(deps) for name, deps in plan.node_graph.items()}
+        for node_spec in plan.to_deploy:
+            if isinstance(node_spec, MetricSpec) and node_spec.required_dimensions:
+                for required_dim in node_spec.rendered_required_dimensions:
+                    if SEPARATOR not in required_dim:
+                        continue
+                    dim_node = required_dim.rsplit(SEPARATOR, 1)[0]
+                    if dim_node == node_spec.rendered_name:  # pragma: no cover
+                        continue
+                    deps = ordering_graph.setdefault(node_spec.rendered_name, [])
+                    if dim_node not in deps:
+                        deps.append(dim_node)
+
+        # Each linked dimension is an ordering edge too, so a link onto a column
+        # this same push adds to an existing dimension validates against the new
+        # column set. Links can be cyclic where query lineage cannot (self-joins
+        # with a role, mutually linked dimensions), so an edge that would close a
+        # cycle is dropped and those nodes order by lineage alone.
+        for node_spec in plan.to_deploy:
+            if isinstance(node_spec, LinkableNodeSpec):
+                for link in node_spec.dimension_links:
+                    dim_node = link.rendered_dimension_node
+                    deps = ordering_graph.setdefault(node_spec.rendered_name, [])
+                    if dim_node in deps or creates_cycle(
+                        ordering_graph,
+                        node_spec.rendered_name,
+                        dim_node,
+                    ):
+                        continue
+                    deps.append(dim_node)
+
         # Order nodes topologically based on dependencies
-        levels = topological_levels(plan.node_graph, ascending=False)
+        levels = topological_levels(ordering_graph, ascending=False)
         logger.info(
             "Deploying nodes in topological order with %d levels",
             len(levels),
@@ -1586,10 +2066,13 @@ class DeploymentOrchestrator:
 
         # Load all dependencies once upfront (not per-level).
         # The registry is checked first, so only external deps hit the DB.
+        # Uses ordering_graph, not plan.node_graph, so a required-dimension node
+        # is preloaded here too -- otherwise apply_metric_spec's lookup misses it
+        # and silently resolves required_dimensions to empty.
         t = time.perf_counter()
         is_copy = all(s._skip_validation for s in plan.to_deploy)
         dependency_nodes = await self.get_dependencies(
-            plan.node_graph,
+            ordering_graph,
             skip_type_reparsing=is_copy,
         )
         timer.record(
@@ -1768,6 +2251,20 @@ class DeploymentOrchestrator:
                 link_spec.rendered_dimension_node,
             )
 
+        if link_spec.type == LinkType.JOIN:
+            problems = self._join_link_problems(
+                cast(DimensionJoinLinkSpec, link_spec),
+                node_spec.rendered_name,
+            )
+            if problems:
+                return DeploymentResult(
+                    name=link_name,
+                    deploy_type=DeploymentResult.Type.LINK,
+                    status=DeploymentResult.Status.FAILED,
+                    operation=DeploymentResult.Operation.CREATE,
+                    message="\n".join(problems),
+                )
+
         if node.current and node.current.status == NodeStatus.INVALID:
             # Node is INVALID (no columns / bad SQL). Write the link aspirationally
             # so it's already present once the node is fixed.
@@ -1800,6 +2297,22 @@ class DeploymentOrchestrator:
             dimension_node=dimension_node,
         )
 
+    @staticmethod
+    def _join_link_problems(
+        link_spec: DimensionJoinLinkSpec,
+        node_name: str,
+    ) -> list[str]:
+        """List reasons a join link cannot be stored."""
+        dimension_node = link_spec.rendered_dimension_node
+        problems = []
+        if link_spec.node_column:
+            problems.append(
+                misplaced_node_column_message(node_name, dimension_node),
+            )
+        if not link_spec.rendered_join_on and link_spec.join_type != JoinType.CROSS:
+            problems.append(missing_join_on_message(node_name, dimension_node))
+        return problems
+
     def _create_missing_node_link_result(
         self,
         link_name: str,
@@ -1826,7 +2339,9 @@ class DeploymentOrchestrator:
             link_input = JoinLinkInput(
                 dimension_node=join_link.rendered_dimension_node,
                 join_type=join_link.join_type,
-                join_on=join_link.rendered_join_on,
+                join_cardinality=join_link.join_cardinality,
+                # A CROSS join has no ON clause, but join_sql is NOT NULL.
+                join_on=join_link.rendered_join_on or "",
                 role=join_link.role,
                 default_value=join_link.default_value,
                 spark_hints=join_link.spark_hints,
@@ -1870,6 +2385,9 @@ class DeploymentOrchestrator:
             if link_spec.type == LinkType.JOIN:
                 join_link = cast(DimensionJoinLinkSpec, link_spec)
                 link_details["join_type"] = join_link.join_type
+                # Cardinality drives fan-out warnings at query time, so a change to
+                # it has to be visible in history alongside the join it describes.
+                link_details["join_cardinality"] = join_link.join_cardinality
                 link_details["join_on"] = join_link.rendered_join_on
 
             self.session.add(
@@ -1921,6 +2439,14 @@ class DeploymentOrchestrator:
             else:
                 validation_results = await self._bulk_validate_cubes(cubes_to_deploy)
 
+        # The superseded revision of every cube this deploy updates, captured before
+        # `node.current` is repointed below.
+        old_revisions = {
+            spec.rendered_name: existing.current
+            for spec in cubes_to_deploy
+            if (existing := self.registry.nodes.get(spec.rendered_name)) is not None
+        }
+
         with timer.phase("    cubes: create ORM objects"):
             (
                 nodes,
@@ -1939,6 +2465,9 @@ class DeploymentOrchestrator:
             node_obj.current = revision
         self.registry.add_nodes({n.name: n for n in nodes})
 
+        with timer.phase("    cubes: swap materializations"):
+            await self._swap_cube_materializations(old_revisions, revisions)
+
         elapsed_ms = (time.perf_counter() - start) * 1000
         logger.info(
             "Deployed %d cubes in %.3fs",
@@ -1954,6 +2483,834 @@ class DeploymentOrchestrator:
             len(nodes),
         )
         return deployment_results
+
+    async def _swap_cube_materializations(
+        self,
+        old_revisions: dict[str, NodeRevision],
+        new_revisions: list[NodeRevision],
+    ) -> None:
+        """
+        Rebuild each updated cube's materializations against its new revision and
+        retire the old ones.
+
+        Shares `swap_cube_materializations` with `PATCH /nodes/{name}/` so a cube
+        edited through a deploy and the same edit applied through the API land on
+        identical materialization state. Only the DJ-side half runs here; the query
+        service calls are queued and made by `execute` once the deployment is
+        committed. Skipped entirely during dry runs, which must schedule nothing and
+        stop nothing.
+
+        A cube that declares `materialization:` supplies it as the rebuild's source of
+        intent, so one push that edits both the definition and the schedule rebuilds
+        once, with the new schedule.
+        """
+        if self.dry_run:
+            return
+        swappable = [
+            (old_revision, new_revision)
+            for new_revision in new_revisions
+            if (old_revision := old_revisions.get(new_revision.name)) is not None
+        ]
+        if not swappable:
+            return
+        access_checker = AccessChecker(
+            await AuthContext.from_user(self.session, self.context.current_user),
+        )
+        declared_specs = self._declared_materializations()
+        for old_revision, new_revision in swappable:
+            declared = declared_specs.get(new_revision.name, [])
+            swap = await swap_cube_materializations(
+                self.session,
+                old_revision,
+                new_revision,
+                access_checker=access_checker,
+                current_user=self.context.current_user,
+                # An upstream change can leave the cube's shape identical while
+                # every row it serves differs, so the old table is not adoptable.
+                previous_table_usable=(
+                    new_revision.name not in self._cubes_bumped_by_upstream
+                    and not await is_non_trivial_cube_change(
+                        self.session,
+                        old_revision,
+                        new_revision,
+                    )
+                ),
+                declared=declared,
+            )
+            if swap:
+                if swap.rebuilt_names:
+                    self._rebuilt_cubes.add(new_revision.name)
+                swap.is_branch_deploy = await self._is_branch_deploy()
+                self._cube_materialization_swaps.append(swap)
+
+    def _declared_materializations(self) -> dict[str, list[MaterializationSpec]]:
+        """
+        The materialization blocks each declared cube carries, keyed by rendered name.
+
+        A cube may declare one block or several -- see `CubeSpec.materialization` --
+        and both arrive here as a list, so nothing downstream has to care which shape
+        the manifest was written in.
+
+        A cube that declares no block is absent from the mapping, which is distinct
+        from one that declares `materialization: none` -- see
+        `_cubes_declaring_no_materialization`. Absence means "not managed here, leave
+        whatever exists alone"; the sentinel means "this cube should not be
+        materialized".
+        """
+        return {
+            spec.rendered_name: [
+                block.rendered(spec.namespace)
+                for block in spec.declared_materializations
+            ]
+            for spec in self.deployment_spec.nodes
+            if isinstance(spec, CubeSpec) and spec.declared_materializations
+        }
+
+    def _cubes_declaring_no_materialization(self) -> set[str]:
+        """
+        Rendered names of cubes that declared `materialization: none`.
+
+        Teardown is keyed on that sentinel rather than on the `materialization` key
+        being present and null, so that it survives serialization: `model_dump` emits
+        every optional field explicitly, and a spec round-tripped through it would
+        otherwise read as every cube in the namespace asking to be torn down.
+        """
+        return {
+            spec.rendered_name
+            for spec in self.deployment_spec.nodes
+            if isinstance(spec, CubeSpec)
+            and spec.materialization is MaterializationAction.NONE
+        }
+
+    async def _reconcile_cube_materializations(self, plan: DeploymentPlan) -> None:
+        """
+        Bring every declared cube's materialization in line with its
+        `materialization:` block.
+
+        Driven off `deployment_spec.nodes` rather than the deploy's change list.
+        `materialization` is excluded from `CubeSpec.__eq__`, so a push that edits
+        only the schedule leaves the cube in the plan's skip list, and a reconciler
+        keyed on updated nodes would drop exactly the edit this exists to support.
+        Iterating every declared cube also corrects a materialization that was
+        changed outside YAML.
+
+        Only an explicit `materialization: none` removes anything. A cube that
+        declares no block but has one materialized keeps it and earns a warning:
+        the repo may simply not have caught up yet, and a live workflow must not be
+        torn down by omission.
+
+        What a cube has materialized is read from its rows, not from the declarative
+        projection of them. `to_spec` only projects the fused cube dialect, so a cube
+        materialized by any other job -- a legacy `druid_measures_cube`, say -- reads
+        there as unmaterialized, and both the teardown and the warning would then
+        answer for a workflow that is very much running.
+
+        Remote work is queued onto `self._cube_materialization_swaps` and handed to
+        the query service by `execute` after the commit, so a deploy that rolls back
+        -- every dry run -- has asked it to schedule nothing and stop nothing.
+        """
+        cube_names = [
+            spec.rendered_name
+            for spec in self.deployment_spec.nodes
+            if isinstance(spec, CubeSpec)
+        ]
+        if not cube_names:
+            return
+
+        declared = self._declared_materializations()
+        removing = self._cubes_declaring_no_materialization()
+
+        # What each cube's materialization looked like before this deploy, in the
+        # same declarative shape the block is written in. Only ever used to report
+        # the operation a declared block performs, and taken from the plan rather
+        # than from the revision because a cube that got a new revision this deploy
+        # has already had its materialization rebuilt onto it by
+        # `_swap_cube_materializations`, and a dry run skips that rebuild entirely --
+        # reading the revision would make the two disagree.
+        persisted: dict[
+            str,
+            MaterializationSpec
+            | list[MaterializationSpec]
+            | MaterializationAction
+            | None,
+        ] = {
+            name: existing.materialization
+            for name in cube_names
+            if isinstance(existing := plan.existing_specs.get(name), CubeSpec)
+        }
+        # A cube absent from the registry never made it into the deployment -- it
+        # failed validation, say.
+        revisions = {
+            name: node.current
+            for name in cube_names
+            if (node := self.registry.nodes.get(name)) is not None
+            and node.current is not None
+        }
+        active = await self._active_cube_materializations(revisions)
+        # Only a rebuild reads a revision's columns, partitions and cube elements, so
+        # only a declared cube pays for loading them. That keeps a no-change push over
+        # a namespace full of cubes free of extra work.
+        await self._load_cube_rebuild_state(
+            [revisions[name] for name in declared if name in revisions],
+        )
+        access_checker = (
+            AccessChecker(
+                await AuthContext.from_user(self.session, self.context.current_user),
+            )
+            if declared and not self.dry_run
+            else None
+        )
+        for name in cube_names:
+            revision = revisions.get(name)
+            if name in declared:
+                if revision is not None:  # pragma: no branch
+                    await self._declare_cube_materialization(
+                        revision,
+                        declared[name],
+                        persisted.get(name),
+                        access_checker,
+                        {mat.name for mat in active.get(name, [])},
+                    )
+            elif name in removing:
+                self._remove_cube_materialization(
+                    name,
+                    revision,
+                    active.get(name, []),
+                )
+            elif name in active:
+                self._warn_undeclared_materialization(name, active[name])
+
+    async def _active_cube_materializations(
+        self,
+        revisions: dict[str, NodeRevision],
+    ) -> dict[str, list[Materialization]]:
+        """
+        The active materializations of each named cube that has any.
+
+        One query for the whole deployment, and a cheap one: what the teardown and
+        the warning need to know is which rows exist, not what any revision they hang
+        off looks like.
+        """
+        rows = (
+            (
+                await self.session.execute(
+                    select(Materialization).where(
+                        Materialization.node_revision_id.in_(
+                            [revision.id for revision in revisions.values()],
+                        ),
+                        Materialization.deactivated_at.is_(None),
+                    ),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        by_revision: dict[int, list[Materialization]] = {}
+        for row in rows:
+            by_revision.setdefault(row.node_revision_id, []).append(row)
+        return {
+            name: by_revision[revision.id]
+            for name, revision in revisions.items()
+            if revision.id in by_revision
+        }
+
+    async def _load_cube_rebuild_state(
+        self,
+        revisions: list[NodeRevision],
+    ) -> None:
+        """
+        Warm everything a materialization rebuild reads off the given revisions.
+
+        A revision created moments ago has nothing loaded on it, and a lazy load from
+        async code would fail, so the identity map is filled in a single query rather
+        than one per cube.
+        """
+        if revisions:
+            await self.session.execute(
+                select(NodeRevision)
+                .where(NodeRevision.id.in_([rev.id for rev in revisions]))
+                .options(*NodeRevision.cube_load_options()),
+            )
+
+    async def _declare_cube_materialization(
+        self,
+        revision: NodeRevision,
+        blocks: list[MaterializationSpec],
+        persisted: MaterializationSpec
+        | list[MaterializationSpec]
+        | MaterializationAction
+        | None,
+        access_checker: AccessChecker | None,
+        active_names: set[str],
+    ) -> None:
+        """
+        Configure one cube's materializations from its declared blocks.
+
+        A cube declares one block or several, and they are reconciled together: what
+        the blocks name is what the cube ends up materialized by, and the operation
+        is reported for the cube as a whole rather than per block, so that a cube
+        that swapped one strategy for another reads as an update rather than as a
+        creation beside an unmentioned removal.
+
+        The reported operation compares the blocks against what the cube declared
+        before this deploy, so it says the same thing on a dry run as on the wet run
+        that follows. `reconcile_declared_materializations` decides separately whether
+        any DJ-side state actually moved, and only then is the query service asked to
+        schedule anything -- an unchanged re-declare, or a block a revision swap has
+        already built from, costs no remote call at all.
+
+        `active_names` is what the cube had materialized before reconciling, which
+        says whether a block wrote a datasource the cube did not have. It is
+        `_plan_coverage_backfill` that reads it, once the row is in hand.
+        """
+        operation = (
+            DeploymentResult.Operation.CREATE
+            if persisted is None
+            else DeploymentResult.Operation.UPDATE
+            if _blocks_by_strategy(declared_materialization_blocks(persisted))
+            != _blocks_by_strategy(blocks)
+            else DeploymentResult.Operation.NOOP
+        )
+        if not self.dry_run:
+            # A declared block outside a dry run always comes with a checker; the
+            # assert narrows the Optional for mypy.
+            assert access_checker is not None
+            try:
+                reconciled, superseded = await reconcile_declared_materializations(
+                    self.session,
+                    revision,
+                    blocks,
+                    access_checker=access_checker,
+                    current_user=self.context.current_user,
+                )
+            except DJException as exc:
+                # A cube whose measures queries sit at different grains cannot be
+                # materialized at all. That is this cube's failure, not the
+                # deployment's, so it is recorded and the remaining cubes go on.
+                message = f"Cube `{revision.name}`: {exc.message}"
+                self.errors.append(
+                    DJError(
+                        code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                        message=message,
+                    ),
+                )
+                # FAILED, not WARNING, even though every other node in the deployment
+                # still deploys and commits. `api/deployments.py` derives the
+                # aggregate status from these, so this is also what makes the
+                # deployment `failed`: a materialization the author asked for and did
+                # not get is exactly the silent gap this feature exists to close, and
+                # reporting `success` for it would reopen it.
+                self.deployed_results.append(
+                    DeploymentResult(
+                        name=revision.name,
+                        deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                        status=DeploymentResult.Status.FAILED,
+                        operation=DeploymentResult.Operation.UNKNOWN,
+                        message=message,
+                    ),
+                )
+                return
+
+            changed = [entry for entry in reconciled if entry.changed]
+            if changed:
+                # A block can be unchanged while the built config is not -- a cube
+                # materialized outside YAML, or one whose definition moved underneath
+                # an untouched schedule.
+                if operation == DeploymentResult.Operation.NOOP:
+                    operation = DeploymentResult.Operation.UPDATE
+                for entry in changed:
+                    self.session.add(
+                        History(
+                            entity_type=EntityType.MATERIALIZATION,
+                            entity_name=entry.materialization.name,
+                            node=revision.name,
+                            activity_type=(
+                                ActivityType.CREATE
+                                if operation == DeploymentResult.Operation.CREATE
+                                else ActivityType.UPDATE
+                            ),
+                            details={
+                                "materialization": entry.materialization.name,
+                                "schedule": entry.block.schedule,
+                                "strategy": entry.block.strategy.value,
+                                "lookback_window": entry.block.lookback_window,
+                                "superseded_materializations": [
+                                    mat.name for mat in superseded
+                                ],
+                            },
+                            user=self._history_user,
+                        ),
+                    )
+                if superseded:
+                    # Stopped before the declared materializations are scheduled, and
+                    # as its own unit of work, because both sit on the same cube
+                    # version: a superseded row with no workflow names of its own
+                    # falls back to the stop-by-cube-and-version endpoint, which would
+                    # take the replacements down with it if those had already been
+                    # scheduled.
+                    self._cube_materialization_swaps.append(
+                        # No `rebuilt_names`, so this swap never reaches
+                        # `.schedule()` -- it only stops the superseded workflow.
+                        CubeMaterializationSwap(
+                            cube_name=revision.name,
+                            previous_version=revision.version,
+                            new_revision_id=revision.id,
+                            new_version=revision.version,
+                            rebuilt_names=[],
+                            superseded=superseded,
+                        ),
+                    )
+                # The rows themselves were updated in place, so the workflows they
+                # name are replaced by scheduling them again rather than stopped.
+                self._cube_materialization_swaps.append(
+                    CubeMaterializationSwap(
+                        cube_name=revision.name,
+                        previous_version=revision.version,
+                        new_revision_id=revision.id,
+                        new_version=revision.version,
+                        rebuilt_names=[entry.materialization.name for entry in changed],
+                        superseded=[],
+                        is_branch_deploy=await self._is_branch_deploy(),
+                    ),
+                )
+            for entry in reconciled:
+                self._warn_unmatched_measures(revision.name, entry)
+                await self._plan_coverage_backfill(
+                    revision,
+                    entry.block,
+                    entry.materialization,
+                    active_names,
+                )
+        for block in blocks:
+            self.deployed_results.append(
+                DeploymentResult(
+                    name=revision.name,
+                    deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                    status=DeploymentResult.Status.SUCCESS,
+                    operation=operation,
+                    message=f"cube materialization on schedule {block.schedule}",
+                ),
+            )
+
+    async def _plan_coverage_backfill(
+        self,
+        revision: NodeRevision,
+        block: MaterializationSpec,
+        materialization: Materialization,
+        active_names: set[str],
+    ) -> None:
+        """
+        Queue the backfill a cube's declared coverage asks for.
+
+        Two things leave a cube short of the span it declares. A datasource this
+        deploy minted -- a rebuilt version, or a materialization the cube did not
+        have -- is empty, so the whole span is missing. A datasource the cube
+        already has can simply hold less history than the cube now declares, and
+        `coverage_gap` reads how much less off availability.
+
+        A span the query service takes is recorded beside the cube's other
+        backfills and never asked for twice, since availability does not move
+        until the backfill lands. A branch
+        deploy asks for nothing: it previews what the push would give its author,
+        and a preview does not spend hundreds of partition runs. It says so in
+        the report, so the missing backfill reads as a choice.
+        """
+        coverage = block.coverage
+        partition = coverage_partition(revision)
+        if not coverage or partition is None:
+            return
+        if await self._is_branch_deploy():
+            self.deployed_results.append(
+                DeploymentResult(
+                    name=revision.name,
+                    deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                    status=DeploymentResult.Status.SKIPPED,
+                    operation=DeploymentResult.Operation.NOOP,
+                    message="no coverage backfill on a branch deploy",
+                ),
+            )
+            return
+        span = coverage.span(datetime.now(UTC).date())
+        if span is None:
+            self.warnings.append(
+                DJError(
+                    code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                    message=(
+                        f"Cube `{revision.name}`: DJ counts a coverage window in "
+                        "days or weeks only."
+                    ),
+                ),
+            )
+            return
+        fresh = (
+            revision.name in self._rebuilt_cubes
+            or materialization.name not in active_names
+        )
+        if not fresh:
+            span = coverage_gap(span, revision)
+        if span is None:
+            return
+        # A backfill needs the materialization's id.
+        await self.session.flush()
+        if await backfill_recorded(self.session, materialization, span[0]):
+            return
+        self._cube_materialization_swaps.append(
+            # No `rebuilt_names`; this call already returned above whenever
+            # `_is_branch_deploy()` is true, so this swap is always main.
+            CubeMaterializationSwap(
+                cube_name=revision.name,
+                previous_version=revision.version,
+                new_revision_id=revision.id,
+                new_version=revision.version,
+                rebuilt_names=[],
+                superseded=[],
+                backfill=coverage_backfill(materialization, partition, span),
+            ),
+        )
+
+    def _remove_cube_materialization(
+        self,
+        name: str,
+        revision: NodeRevision | None,
+        active: list[Materialization],
+    ) -> None:
+        """
+        Tear down one cube's materialization because it declared
+        `materialization: none`.
+
+        Whatever the cube has active is what comes down, whichever job wrote it: the
+        author asked for this cube not to be materialized, and answering that with a
+        no-op because the rows happen to be of a dialect YAML cannot describe leaves
+        a workflow running against the author's stated wish. No active rows -- and no
+        revision, for a cube that never deployed -- is the only no-op.
+
+        A cube planner row comes down here too, though nothing else in the deployment
+        path touches one. Everywhere else the reason to leave it alone is that DJ
+        cannot rebuild what it stops; a teardown asks for nothing to be rebuilt, and
+        the row records the workflow names needed to stop it cleanly.
+
+        The rows are deactivated and their workflows stopped after the commit, by the
+        same drain that applies a revision swap: a swap with nothing rebuilt is
+        exactly a teardown.
+        """
+        if revision is None or not active:
+            self.deployed_results.append(
+                DeploymentResult(
+                    name=name,
+                    deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                    status=DeploymentResult.Status.SUCCESS,
+                    operation=DeploymentResult.Operation.NOOP,
+                    message="cube declares no materialization",
+                ),
+            )
+            return
+        self.deployed_results.append(
+            DeploymentResult(
+                name=name,
+                deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                status=DeploymentResult.Status.SUCCESS,
+                operation=DeploymentResult.Operation.DELETE,
+                message="cube materialization removed by `materialization: none`",
+            ),
+        )
+        if self.dry_run:
+            return
+        for materialization in active:
+            materialization.deactivated_at = UTCDatetime.now(UTC)  # type: ignore
+        self.session.add(
+            History(
+                entity_type=EntityType.MATERIALIZATION,
+                entity_name=revision.name,
+                node=revision.name,
+                activity_type=ActivityType.DELETE,
+                details={
+                    "message": (
+                        "Cube materialization removed by `materialization: none` and "
+                        "its workflows stopped."
+                    ),
+                    "deactivated_materializations": [mat.name for mat in active],
+                },
+                user=self._history_user,
+            ),
+        )
+        self._cube_materialization_swaps.append(
+            # No `rebuilt_names`, so this swap never reaches `.schedule()` --
+            # a teardown only stops workflows, it does not start one.
+            CubeMaterializationSwap(
+                cube_name=revision.name,
+                previous_version=revision.version,
+                new_revision_id=revision.id,
+                new_version=revision.version,
+                rebuilt_names=[],
+                superseded=active,
+            ),
+        )
+
+    def _warn_unmatched_measures(
+        self,
+        name: str,
+        entry: ReconciledMaterialization,
+    ) -> None:
+        """
+        Flag a `spark.measures` key that names no parent of this cube.
+
+        The key is a parent node name, so a typo matches nothing and the conf it
+        carries is silently dropped. The deploy goes on: the cube is materialized,
+        just not with the conf its author meant.
+        """
+        spark = entry.block.spark
+        if not spark or not spark.measures:
+            return
+        config = entry.materialization.config or {}
+        parents = {
+            measures["node"]["name"]
+            for measures in config.get("measures_materializations", [])
+        }
+        unmatched = sorted(set(spark.measures) - parents)
+        if not unmatched:
+            return
+        message = (
+            f"Cube `{name}`: `spark.measures` names "
+            f"`{'`, `'.join(unmatched)}`, which no measures job of this cube is "
+            "built on, so that config was ignored."
+        )
+        self.warnings.append(
+            DJError(
+                code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                message=message,
+            ),
+        )
+        self.deployed_results.append(
+            DeploymentResult(
+                name=name,
+                deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                status=DeploymentResult.Status.WARNING,
+                operation=DeploymentResult.Operation.NOOP,
+                message=message,
+            ),
+        )
+
+    def _warn_undeclared_materialization(
+        self,
+        name: str,
+        active: list[Materialization],
+    ) -> None:
+        """
+        Flag a cube that is materialized but says nothing about it in YAML.
+
+        Left running on purpose. The materialization may predate the repo, or have
+        been configured through the UI, and a push that has not caught up yet must
+        not silently stop a live workflow -- so the warning names the ways out
+        instead. Which ways those are depends on the dialect: a cube materialized
+        only by the cube planner cannot be adopted into YAML at all, since a
+        `materialization:` block has no way to describe one.
+        """
+        message = (
+            (
+                f"Cube `{name}` is materialized but its spec declares no "
+                "`materialization:` block, so the existing materialization was left "
+                "running. Run `dj pull` to adopt it into YAML, or add "
+                "`materialization: none` to remove it."
+            )
+            if any(not materialization.is_cube_planner for materialization in active)
+            else (
+                f"Cube `{name}` is materialized by the cube planner, which a "
+                "`materialization:` block cannot describe, so the existing "
+                "materialization was left running. Add `materialization: none` to "
+                "remove it."
+            )
+        )
+        self.warnings.append(
+            DJError(
+                code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                message=message,
+            ),
+        )
+        self.deployed_results.append(
+            DeploymentResult(
+                name=name,
+                deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                status=DeploymentResult.Status.WARNING,
+                operation=DeploymentResult.Operation.NOOP,
+                message=message,
+            ),
+        )
+
+    async def _apply_cube_materialization_swaps(self) -> None:
+        """
+        Hand the deployment's committed cube materialization swaps to the query
+        service. Called only after the outer transaction commits, so a deploy that
+        rolls back has told the query service nothing.
+
+        The push happens after the commit but before the result is handed back, so a
+        rejection is still reportable -- and has to be. Reconciliation already
+        recorded the materialization as a success on the strength of DJ's own state
+        moving; if the query service then refuses to schedule it, that success is
+        wrong in exactly the way that hid these failures until now.
+
+        A swap carrying a coverage backfill is queued after the one that schedules
+        the materialization, so the workflow the backfill runs on exists by then.
+        """
+        request_headers = (
+            dict(self.context.request.headers) if self.context.request else {}
+        )
+        for swap in self._cube_materialization_swaps:
+            outcome = await apply_cube_materialization_swap(
+                self.session,
+                swap,
+                self.context.query_service_client,
+                request_headers=request_headers,
+            )
+            if not outcome.scheduled:
+                self._report_materialization_push_failure(outcome)
+            elif swap.backfill:
+                self._report_backfill(outcome)
+
+    async def _is_branch_deploy(self) -> bool:
+        """
+        Whether this deploy targets a feature branch rather than the default one.
+
+        A branch is a namespace of its own, linked to a git branch, so the target
+        namespace is what says which. A namespace with no git root behind it -- a
+        plain `dj deploy` -- is not a branch. Asked once per deploy.
+        """
+        if self._branch_deploy is None:
+            git_info = await get_git_info_for_namespace(
+                self.session,
+                self.deployment_spec.namespace,
+            )
+            self._branch_deploy = (
+                git_info is not None and not git_info["is_default_branch"]
+            )
+        return self._branch_deploy
+
+    def _report_backfill(
+        self,
+        outcome: CubeMaterializationSwapOutcome,
+    ) -> None:
+        """
+        Say what days the cube is being filled with, and what they cost.
+
+        The run count is the point. A backfill runs one job per day of the span,
+        and a mistyped `from` is worth seeing at deploy time rather than on a
+        bill -- so the span is reported, never capped: two years of history is a
+        thing authors legitimately ask for, and a cap is something they could not
+        undo from YAML.
+
+        A launch DJ could not record still ran, and warns: the next deploy sees
+        no record and asks for the same days again.
+        """
+        if outcome.backfill_span is None:
+            self.warnings.append(
+                DJError(
+                    code=ErrorCode.QUERY_SERVICE_ERROR,
+                    message=(
+                        f"Cube `{outcome.cube_name}`: the query service refused "
+                        f"the backfill: {outcome.backfill_error}"
+                    ),
+                ),
+            )
+            return
+        if outcome.backfill_record_error:
+            self.warnings.append(
+                DJError(
+                    code=ErrorCode.QUERY_SERVICE_ERROR,
+                    message=(
+                        f"Cube `{outcome.cube_name}`: DJ could not record the "
+                        f"backfill it launched: {outcome.backfill_record_error}"
+                    ),
+                ),
+            )
+        start, end = outcome.backfill_span
+        runs = (end - start).days + 1
+        self.deployed_results.append(
+            DeploymentResult(
+                name=outcome.cube_name,
+                deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                status=DeploymentResult.Status.SUCCESS,
+                operation=DeploymentResult.Operation.CREATE,
+                message=f"backfilling {start} to {end}, {runs} partition runs",
+            ),
+        )
+
+    def _report_materialization_push_failure(
+        self,
+        outcome: CubeMaterializationSwapOutcome,
+    ) -> None:
+        """
+        Correct the deployment's report on a cube whose materialization the query
+        service refused to schedule.
+
+        FAILED, not WARNING, for the same reason a materialization the reconciler
+        could not build is failed: the author asked for this cube to be materialized
+        and it is not, `api/deployments.py` derives the aggregate status from these
+        results, and reporting `success` for it is precisely the silent gap this
+        feature exists to close.
+
+        The query service's error goes in whole. Its messages name the user, the job,
+        the data project and the table it refused, which is the only part that tells
+        the reader what to do next.
+
+        Matched against the results reconciliation already appended, by the cube's
+        name -- what every materialization result here is keyed by -- and by the
+        rebuilt materialization names, for a swap whose result was recorded under
+        one of those instead. A failure with no result to correct gets a new one
+        rather than going unmentioned.
+        """
+        message = (
+            f"Cube `{outcome.cube_name}`: the query service rejected the request to "
+            f"schedule its materialization: {outcome.error}"
+        )
+        names = {outcome.cube_name, *outcome.materialization_names}
+        matched = [
+            result
+            for result in self.deployed_results
+            if result.deploy_type == DeploymentResult.Type.MATERIALIZATION
+            and result.name in names
+        ]
+        for result in matched:
+            result.status = DeploymentResult.Status.FAILED
+            result.message = message
+        if not matched:
+            self.deployed_results.append(
+                DeploymentResult(
+                    name=outcome.cube_name,
+                    deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                    status=DeploymentResult.Status.FAILED,
+                    operation=DeploymentResult.Operation.UNKNOWN,
+                    message=message,
+                ),
+            )
+
+    def _stop_deleted_node_materializations(self) -> list[DeploymentResult]:
+        """
+        Stop the workflows behind materializations that deleted nodes took with
+        them, once the deletion has committed.
+
+        A node dropped from the spec is hard-deleted, which cascades away the rows
+        naming its workflows -- so unless they are stopped here, the query service
+        keeps running jobs DJ can no longer identify. Reported rather than only
+        logged: the deployment says the node is gone, and a workflow still firing
+        against its table is not something a log line is enough for.
+        """
+        request_headers = (
+            dict(self.context.request.headers) if self.context.request else {}
+        )
+        failures = stop_materialization_workflows(
+            self.context.query_service_client,
+            self._materialization_teardowns,
+            request_headers=request_headers,
+        )
+        return [
+            DeploymentResult(
+                name=self.deployment_spec.namespace,
+                deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                status=DeploymentResult.Status.WARNING,
+                operation=DeploymentResult.Operation.DELETE,
+                message=failure,
+            )
+            for failure in failures
+        ]
 
     async def _bulk_validate_cubes(
         self,
@@ -2031,7 +3388,7 @@ class DeploymentOrchestrator:
             if cube.rendered_filters:
                 all_dim_node_names |= {
                     node_name
-                    for node_name, _ in _extract_dimension_refs_from_filters(
+                    for node_name, _ in extract_dimension_refs_from_filters(
                         cube.rendered_filters,
                     )
                 }
@@ -2274,25 +3631,30 @@ class DeploymentOrchestrator:
             if p.current
         }
 
-        # Check dimension reachability using the pre-computed batched BFS
+        # Role-aware reachability (see DimensionReachability): mirrors the
+        # revalidation availability check so a cube that would revalidate
+        # INVALID is rejected here at deploy.
         dim_compat_errors: list[DJError] = []
         if cube_spec.rendered_dimensions:  # pragma: no branch
-            requested_dim_nodes = {
-                dim.rsplit(SEPARATOR, 1)[0] for dim in cube_spec.rendered_dimensions
+            requested_dim_roles = {
+                (fcn.node_name, fcn.role)
+                for dim in cube_spec.rendered_dimensions
+                for fcn in (FullColumnName(dim),)
             }
-            unreachable = reachability.unreachable_dimensions(
+            unreachable = reachability.unreachable_dimension_roles(
                 cube_parent_rev_ids,
-                requested_dim_nodes,
+                requested_dim_roles,
             )
-            for dim_name, missing_from_ids in unreachable.items():
+            for (dim_name, role), missing_from_ids in unreachable.items():
                 parent_names = sorted(
                     rev_id_to_parent.get(rid, str(rid)) for rid in missing_from_ids
                 )
+                dim_label = dim_name + (f"[{role}]" if role else "")
                 dim_compat_errors.append(
                     DJError(
                         code=ErrorCode.INVALID_DIMENSION,
                         message=(
-                            f"The dimension attribute `{dim_name}` is not "
+                            f"The dimension attribute `{dim_label}` is not "
                             f"reachable from parent node(s): {', '.join(parent_names)}. "
                             f"Add a dimension link to make it available."
                         ),
@@ -2301,8 +3663,11 @@ class DeploymentOrchestrator:
 
         # Validate that dimensions referenced in filters are reachable
         # and that the specific columns exist on those dimension nodes.
+        # TODO: filter reachability is still role-agnostic; a bare filter dim
+        # reachable only under a role can deploy green and flip on revalidation,
+        # the same gap just closed above for cube dimensions.
         if cube_spec.rendered_filters and cube_parent_rev_ids:
-            filter_refs = _extract_dimension_refs_from_filters(
+            filter_refs = extract_dimension_refs_from_filters(
                 cube_spec.rendered_filters,
             )
             filter_dim_nodes = {node_name for node_name, _ in filter_refs}
@@ -2343,9 +3708,15 @@ class DeploymentOrchestrator:
                             ),
                         )
 
-        # Get dimensions for this cube from batch-loaded data
+        # Get dimensions for this cube from batch-loaded data.
+        # cube_dimension_roles is kept strictly 1:1 with cube_dimensions so the
+        # "[role]" suffix travels with each resolved column. References that don't
+        # resolve are skipped, so downstream code must NOT recompute roles by
+        # position from rendered_dimensions (that off-by-one drops/mis-binds roles
+        # on cubes that reach one dimension via two FK roles).
         cube_dimension_nodes = []
         cube_dimensions = []
+        cube_dimension_roles = []
         dimension_attributes = [
             dimension_attribute.rsplit(SEPARATOR, 1)
             for dimension_attribute in (cube_spec.rendered_dimensions or [])
@@ -2361,12 +3732,21 @@ class DeploymentOrchestrator:
             # Get the actual column
             columns = {col.name: col for col in dimension_node.current.columns}
             column_name_without_role = column_name
+            role = None
             match = re.fullmatch(COLUMN_NAME_REGEX, column_name)
-            if match:  # pragma: no cover
+            # no branch: the regex matches every valid column identifier, so the
+            # `not match` path is effectively unreachable — but the body (role
+            # extraction) is exercised, so keep it under line coverage.
+            if match:  # pragma: no branch
                 column_name_without_role = match.groups()[0]
+                role = match.groups()[1]
 
-            if column_name_without_role in columns:  # pragma: no cover
+            # no branch: the resolve-succeeds path is exercised; the silent-skip
+            # (column missing) path is a defensive guard that keeps
+            # cube_dimension_roles 1:1 with cube_dimensions.
+            if column_name_without_role in columns:  # pragma: no branch
                 cube_dimensions.append(columns[column_name_without_role])
+                cube_dimension_roles.append(role)
 
         invalid_dims = [
             d for d in cube_dimension_nodes if d.current.status == NodeStatus.INVALID
@@ -2397,6 +3777,7 @@ class DeploymentOrchestrator:
                 metric_nodes=cube_metric_nodes,
                 dimension_nodes=cube_dimension_nodes,
                 dimension_columns=cube_dimensions,
+                dimension_column_roles=cube_dimension_roles,
                 catalog=catalog,
             ),
         )
@@ -2432,8 +3813,12 @@ class DeploymentOrchestrator:
             if node.current and node.current.columns
         }
 
+        # cube_dimension_roles stays 1:1 with cube_dimensions (see
+        # _validate_single_cube / CubeValidationData) so the "[role]" suffix
+        # travels with each resolved column instead of being aligned by position.
         cube_dimension_nodes: list[Node] = []
         cube_dimensions: list[Column] = []
+        cube_dimension_roles: list = []
         for dim_attr in cube_spec.rendered_dimensions or []:
             node_name, col_name_raw = dim_attr.rsplit(SEPARATOR, 1)
             node = self.registry.nodes.get(node_name)
@@ -2443,9 +3828,11 @@ class DeploymentOrchestrator:
                 cube_dimension_nodes.append(node)
             match = re.fullmatch(COLUMN_NAME_REGEX, col_name_raw)
             col_name = match.groups()[0] if match else col_name_raw
+            role = match.groups()[1] if match else None
             for col in node.current.columns or []:  # pragma: no branch
                 if col.name == col_name:  # pragma: no branch
                     cube_dimensions.append(col)
+                    cube_dimension_roles.append(role)
                     col_to_node[col] = node
                     break
 
@@ -2463,6 +3850,7 @@ class DeploymentOrchestrator:
                 metric_nodes=cube_metric_nodes,
                 dimension_nodes=cube_dimension_nodes,
                 dimension_columns=cube_dimensions,
+                dimension_column_roles=cube_dimension_roles,
                 catalog=catalog,
                 col_to_node=col_to_node,
             ),
@@ -2475,6 +3863,13 @@ class DeploymentOrchestrator:
         """Create cube nodes and revisions from validation results without re-validation"""
         nodes, revisions = [], []
         deployment_results = []
+        await self._lock_versions(
+            [
+                node
+                for result in validation_results
+                if (node := self.registry.nodes.get(result.spec.rendered_name))
+            ],
+        )
 
         for result in validation_results:
             cube_spec = cast(CubeSpec, result.spec)
@@ -2488,11 +3883,20 @@ class DeploymentOrchestrator:
             # Get pre-computed validation data to avoid re-validation
             assert result._cube_validation_data is not None
             validation_data = result._cube_validation_data
-            changelog, changed_fields = await self._generate_changelog(result)
+            changelog, changed_fields, change_tier = await self._generate_changelog(
+                result,
+            )
+            # A cube dragged in by an upstream change has an identical spec, so its
+            # own diff earns nothing; the upstream's tier is the whole bump.
+            change_tier = max(
+                change_tier,
+                self._inherited_change_tier(cube_spec.rendered_name),
+            )
             if existing:
                 new_node = existing
-                new_node.current_version = str(
-                    Version.parse(new_node.current_version).next_major_version(),
+                new_node.current_version = self._deployed_version(
+                    new_node.current_version,
+                    change_tier,
                 )
                 new_node.display_name = cube_spec.display_name
                 new_node.owners = [
@@ -2591,6 +3995,13 @@ class DeploymentOrchestrator:
                 + ("\n".join([""] + changelog))
                 + invalid_note,
                 changed_fields=changed_fields,
+                change_tier=change_tier_name(
+                    change_tier if existing else ChangeTier.MAJOR,
+                ),
+                semantic_fingerprint=self._proposed_semantic_fingerprints.get(
+                    cube_spec.rendered_name,
+                ),
+                revalidation_only=cube_spec.rendered_name in self._revalidation_only,
             )
 
             deployment_results.append(deployment_result)
@@ -2610,11 +4021,28 @@ class DeploymentOrchestrator:
         # Build the "columns" for this node based on the cube elements
         node_columns = []
 
-        dimension_to_roles_mapping = map_dimensions_to_roles(
-            cube_spec.rendered_dimensions or [],
-        )
+        # Role suffix per cube element, aligned to metric_columns + dimension_columns.
+        # Metrics never carry a role; each resolved dimension column carries the
+        # "[role]" it was referenced under, which was captured 1:1 during validation
+        # (dimension_column_roles). This must NOT be recomputed by position from
+        # rendered_dimensions: unresolvable references are skipped during
+        # validation, so a position-based alignment goes off-by-one and drops the
+        # role on cubes that reach one dimension via two FK roles.
+        dimension_roles = list(validation_data.dimension_column_roles)
+        # Guard against legacy/partial validation data (e.g. built directly without
+        # roles): pad so a missing role never IndexErrors the deploy — an unpaired
+        # dimension column is simply treated as unroled. Production validation
+        # paths always populate this 1:1 with dimension_columns.
+        if len(dimension_roles) < len(validation_data.dimension_columns):
+            dimension_roles += [None] * (
+                len(validation_data.dimension_columns) - len(dimension_roles)
+            )
+        element_roles = [None] * len(validation_data.metric_columns) + dimension_roles
 
-        # Build a mapping from column name to column spec for partition lookups
+        # Build a mapping from column spec name to column spec for partition
+        # lookups. col_spec.name keeps the "[role]" suffix (e.g.
+        # "...dt_date_d.dateint[epoch_date]"), so the lookup below must key by the
+        # same role-qualified identity.
         column_spec_map = {}
         if cube_spec.columns:
             for col_spec in cube_spec.rendered_columns:
@@ -2649,14 +4077,17 @@ class DeploymentOrchestrator:
                 ],
                 order=idx,
             )
-            if full_element_name in dimension_to_roles_mapping:
-                node_column.dimension_column = dimension_to_roles_mapping[
-                    full_element_name
-                ]
+            if element_roles[idx]:
+                node_column.dimension_column = element_roles[idx]
 
-            # Apply partition from column spec if specified
-            if full_element_name in column_spec_map:
-                col_spec = column_spec_map[full_element_name]
+            # Apply partition from column spec if specified. Key by the
+            # role-qualified identity (bare element name + "[role]") — the same
+            # identity DJ uses for cube elements — so a partition declared on a
+            # role-played column (e.g. "...dateint[epoch_date]") lands on the right
+            # role instead of being silently dropped.
+            element_key = node_column.cube_element_name
+            if element_key in column_spec_map:
+                col_spec = column_spec_map[element_key]
                 if col_spec.partition:  # pragma: no branch
                     node_column.partition = Partition(
                         type_=col_spec.partition.type,
@@ -2674,8 +4105,9 @@ class DeploymentOrchestrator:
             type=NodeType.CUBE,
             query="",
             columns=node_columns,
-            cube_elements=validation_data.metric_columns
-            + validation_data.dimension_columns,
+            cube_elements=dedupe_cube_elements(
+                validation_data.metric_columns + validation_data.dimension_columns,
+            ),
             parents=list(
                 set(validation_data.dimension_nodes + validation_data.metric_nodes),
             ),
@@ -2711,7 +4143,12 @@ class DeploymentOrchestrator:
         references: dict[str, list[str]] = {}
 
         # Query just IDs and names of nodes being deleted (more efficient than loading full objects)
-        stmt = select(Node.id, Node.name).where(Node.name.in_(list(nodes_to_delete)))
+        stmt = select(Node.id, Node.name).where(
+            Node.name.in_(list(nodes_to_delete)),
+        )
+        if not self.dry_run:
+            # Keep new foreign-key references from racing the delete.
+            stmt = stmt.with_for_update()
         result = await self.session.execute(stmt)
         id_to_name = {node_id: node_name for node_id, node_name in result}
         deleted_node_ids = set(id_to_name.keys())
@@ -2795,11 +4232,16 @@ class DeploymentOrchestrator:
 
         return references
 
-    async def _delete_nodes(self, to_delete: list[NodeSpec]) -> list[DeploymentResult]:
+    async def _delete_nodes(
+        self,
+        to_delete: list[NodeSpec],
+        references: dict[str, list[str]] | None = None,
+    ) -> list[DeploymentResult]:
         logger.info("Starting deletion of %d nodes", len(to_delete))
 
         # Check which nodes have references that would prevent deletion
-        references = await self._validate_node_deletion(to_delete)
+        if references is None:
+            references = await self._validate_node_deletion(to_delete)
 
         # Bulk-delete every deletable node via the shared ``hard_delete_nodes``
         # helper (the same machinery ``hard_delete_namespace`` uses): it
@@ -2829,6 +4271,15 @@ class DeploymentOrchestrator:
             deleted_names = {row.name for row in id_rows}
             node_ids = [row.id for row in id_rows]
             if node_ids:
+                # Read the workflows these nodes still have running before the
+                # delete cascades away the rows that name them. They are stopped
+                # after the deployment commits.
+                self._materialization_teardowns.extend(
+                    await collect_materialization_teardowns(
+                        self.session,
+                        sorted(deleted_names),
+                    ),
+                )
                 await hard_delete_nodes(
                     self.session,
                     node_ids,
@@ -2838,6 +4289,7 @@ class DeploymentOrchestrator:
         results = []
         for node_spec in to_delete:
             node_name = node_spec.rendered_name
+            semantic_fingerprint = self._current_semantic_fingerprints.get(node_name)
             if node_name in references:
                 # Node has references - skip deletion and return FAILED result
                 referencing_nodes = references[node_name]
@@ -2853,6 +4305,8 @@ class DeploymentOrchestrator:
                         status=DeploymentResult.Status.FAILED,
                         operation=DeploymentResult.Operation.DELETE,
                         message=error_msg,
+                        change_tier=change_tier_name(ChangeTier.MAJOR),
+                        semantic_fingerprint=semantic_fingerprint,
                     ),
                 )
             elif node_name in deleted_names:
@@ -2863,6 +4317,8 @@ class DeploymentOrchestrator:
                         status=DeploymentResult.Status.SUCCESS,
                         operation=DeploymentResult.Operation.DELETE,
                         message=f"Node {node_name} has been removed.",
+                        change_tier=change_tier_name(ChangeTier.MAJOR),
+                        semantic_fingerprint=semantic_fingerprint,
                     ),
                 )
             else:
@@ -2874,6 +4330,8 @@ class DeploymentOrchestrator:
                         status=DeploymentResult.Status.FAILED,
                         operation=DeploymentResult.Operation.DELETE,
                         message=f"Node {node_name} not found.",
+                        change_tier=change_tier_name(ChangeTier.MAJOR),
+                        semantic_fingerprint=semantic_fingerprint,
                     ),
                 )
 
@@ -2953,17 +4411,54 @@ class DeploymentOrchestrator:
         self,
         existing_nodes_map: dict[str, NodeSpec],
     ):
+        """Split the deployment's nodes into ones to process and ones to skip.
+
+        Decides only whether to process a node, not how significant its change was
+        -- `change_tier` decides that and `_deployed_version` turns it into a
+        version. So `force` and the INVALID re-deploy below can re-process a node
+        without that implying anything about what changed.
+
+        Those re-deployed only for that retry are recorded in `_revalidation_only`
+        and marked on their `DeploymentResult`.
+
+        A cube whose own spec is unchanged is still processed when something
+        upstream of it is changing, matching what `_propagate_update_downstream`
+        does for a `PATCH`: the cube names the same metrics and dimensions, but
+        they now resolve against new upstream revisions, so its materialized table
+        was computed against a definition that no longer exists.
+        """
         to_create: list[NodeSpec] = []
         to_update: list[NodeSpec] = []
         to_skip: list[NodeSpec] = []
+        revalidation_only: set[str] = set()
         force = self.deployment_spec.force
         for node_spec in self.deployment_spec.nodes:
             existing_spec = existing_nodes_map.get(node_spec.rendered_name)
             if not existing_spec:
                 to_create.append(node_spec)
-            elif force or node_spec != existing_spec:
-                to_update.append(node_spec)
             else:
+                if force:
+                    to_update.append(node_spec)
+                    continue
+                existing_spec.namespace = node_spec.namespace
+                resolved_columns = None
+                proposed_columns = None
+                if isinstance(existing_spec, SourceSpec) and isinstance(
+                    node_spec,
+                    SourceSpec,
+                ):
+                    if not existing_spec.columns:
+                        resolved_columns = node_spec.columns
+                    if not node_spec.columns:
+                        proposed_columns = existing_spec.columns
+                changed_fields, reordered_fields = existing_spec.semantic_diff(
+                    node_spec,
+                    resolved_columns=resolved_columns,
+                    other_resolved_columns=proposed_columns,
+                )
+                if changed_fields or reordered_fields:
+                    to_update.append(node_spec)
+                    continue
                 # Re-deploy unchanged nodes that are stuck in INVALID state so
                 # they get revalidated (e.g. after an upstream fix).
                 existing_node = self.registry.nodes.get(node_spec.rendered_name)
@@ -2973,8 +4468,27 @@ class DeploymentOrchestrator:
                     and existing_node.current.status == NodeStatus.INVALID
                 ):
                     to_update.append(node_spec)
+                    revalidation_only.add(node_spec.rendered_name)
                 else:
                     to_skip.append(node_spec)
+
+        self._revalidation_only = revalidation_only
+        changed_names = {spec.rendered_name for spec in to_create + to_update}
+        self._cubes_bumped_by_upstream = self._cubes_below_changed_nodes(
+            to_skip,
+            changed_names,
+        )
+        if self._cubes_bumped_by_upstream:
+            to_update.extend(
+                spec
+                for spec in to_skip
+                if spec.rendered_name in self._cubes_bumped_by_upstream
+            )
+            to_skip = [
+                spec
+                for spec in to_skip
+                if spec.rendered_name not in self._cubes_bumped_by_upstream
+            ]
 
         desired_node_names = {n.rendered_name for n in self.deployment_spec.nodes}
         to_delete = [
@@ -2984,6 +4498,102 @@ class DeploymentOrchestrator:
         ]
 
         return to_create + to_update, to_skip, to_delete
+
+    def _cubes_below_changed_nodes(
+        self,
+        candidates: list[NodeSpec],
+        changed_names: set[str],
+    ) -> dict[str, list[str]]:
+        """Which unchanged cubes sit above a node this deploy is changing.
+
+        Maps each such cube to the changed nodes above it, which is what
+        `_inherited_change_tier` reads to give the cube a bump as significant as
+        the change that caused it.
+
+        The walk uses the parents already loaded with the namespace's nodes, so it
+        costs no queries and no parsing. It is transitive: a transform three levels
+        under a cube still reaches it, and no node between them has to have changed
+        for that to count -- an unchanged metric over an edited transform serves
+        different rows all the same.
+        """
+        parents = {
+            name: [parent.name for parent in node.current.parents]
+            for name, node in self.registry.nodes.items()
+            if node.current
+        }
+        bumped: dict[str, list[str]] = {}
+        for spec in candidates:
+            if not isinstance(spec, CubeSpec):
+                continue
+            causes, seen = [], set()
+            queue = list(parents.get(spec.rendered_name, []))
+            while queue:
+                ancestor = queue.pop()
+                if ancestor in seen:
+                    continue
+                seen.add(ancestor)
+                if ancestor in changed_names:
+                    causes.append(ancestor)
+                queue.extend(parents.get(ancestor, []))
+            if causes:
+                bumped[spec.rendered_name] = sorted(causes)
+        return bumped
+
+    def _inherited_change_tier(self, cube_name: str) -> ChangeTier:
+        """The tier a cube inherits from the upstream changes that pulled it in.
+
+        The most significant of them: over-rebuilding a cube costs compute, while
+        under-rebuilding serves wrong numbers. An upstream that turned out not to
+        change anything contributes nothing.
+        """
+        return max(
+            (
+                self._change_tiers.get(upstream, ChangeTier.NONE)
+                for upstream in self._cubes_bumped_by_upstream.get(cube_name, [])
+            ),
+            default=ChangeTier.NONE,
+        )
+
+    def _guard_against_accidental_wipe(self, plan: "DeploymentPlan") -> None:
+        """Refuse to wipe a populated namespace from a *fully empty* spec.
+
+        A deployment that carries no content at all -- no nodes, hierarchies, or
+        tags -- is the signature of an accidental empty push (e.g. a mistyped or
+        empty ``directory`` that yielded nothing). Treating that as "delete
+        everything" is a data-loss footgun, so it's refused unless the caller
+        explicitly opts in with ``allow_empty``.
+
+        A spec that carries *any* content (even just a hierarchy or a tag, as a
+        ``sync-from-git`` push may) is an intentional diff and is never guarded --
+        deleting nodes that are genuinely absent from a real spec is the expected
+        sync behavior. Also fires on dry-run, so a preview surfaces the refusal
+        instead of quietly listing deletions.
+
+        Note: external pre-aggregations are protected transitively -- they hang
+        off parent nodes, so a fully-empty spec that would deregister them also
+        deletes those parents and is refused here. The case where a *content-ful*
+        spec omits pre-aggs is handled in ``_reconcile_preaggregations``.
+        """
+        spec = self.deployment_spec
+        if spec.allow_empty or spec.nodes or spec.hierarchies or spec.tags:
+            # Opted in, or the spec carries content -> the deletions are a
+            # genuine diff, not an accidental wipe.
+            return
+        if not plan.to_delete:
+            return  # empty spec, nothing to delete -- harmless
+
+        names = sorted(node.rendered_name for node in plan.to_delete)
+        preview = ", ".join(names[:5]) + (", …" if len(names) > 5 else "")
+        raise DJInvalidDeploymentConfig(
+            message=(
+                f"Refusing to deploy to namespace "
+                f"`{self.deployment_spec.namespace}`: the deployment spec "
+                f"contains no nodes, but this would soft-delete "
+                f"{len(plan.to_delete)} existing node(s) ({preview}). This "
+                f"usually means an empty or mistyped source directory. If you "
+                f"really intend to remove all nodes, re-run with `allow_empty`."
+            ),
+        )
 
     async def check_external_deps(
         self,
@@ -3188,6 +4798,24 @@ class DeploymentOrchestrator:
 
         return to_deploy, []
 
+    def _deployment_link_targets(self) -> dict[str, set[str]]:
+        """Map each linkable node to the dimension nodes it links to, across the
+        whole deployment (rendered names, to match node_graph).
+
+        Links deploy only after every node level, so per-level validation can't
+        see links on nodes in other levels via the committed graph. The
+        cross-fact check uses this to avoid a false negative when base metrics
+        share a dimension only through links this deployment will create.
+        """
+        targets: dict[str, set[str]] = {}
+        for node_spec in self.deployment_spec.nodes:
+            if isinstance(node_spec, LinkableNodeSpec) and node_spec.dimension_links:
+                for link in node_spec.dimension_links:
+                    targets.setdefault(node_spec.rendered_name, set()).add(
+                        link.rendered_dimension_node,
+                    )
+        return targets
+
     async def bulk_deploy_nodes_in_level(
         self,
         node_specs: list[NodeSpec],
@@ -3231,6 +4859,7 @@ class DeploymentOrchestrator:
                     self.session,
                     dependency_nodes=dependency_nodes,
                     deployment_namespace=self.deployment_spec.namespace,
+                    deployment_link_targets=self._deployment_link_targets(),
                 )
             p.append(f"{len(validation_results)} results")
 
@@ -3337,6 +4966,13 @@ class DeploymentOrchestrator:
     ) -> tuple[list[Node], list[NodeRevision], list[DeploymentResult]]:
         nodes, revisions = [], []
         deployment_results = []
+        await self._lock_versions(
+            [
+                node
+                for result in validation_results
+                if (node := self.registry.nodes.get(result.spec.rendered_name))
+            ],
+        )
         # Use no_autoflush to prevent premature flushing mid-loop (columns without
         # node_revision_id, nodes without IDs). The caller (bulk_deploy_nodes_in_level)
         # does a single session.flush() after collecting all objects.
@@ -3410,8 +5046,11 @@ class DeploymentOrchestrator:
             if existing
             else DeploymentResult.Operation.CREATE
         )
-        changelog, changed_fields = await self._generate_changelog(result)
-        new_node = self._create_or_update_node(result.spec, existing)
+        changelog, changed_fields, change_tier = await self._generate_changelog(result)
+        # Read back by `_inherited_change_tier` when the cubes above this node are
+        # deployed, which happens after every non-cube node.
+        self._change_tiers[result.spec.rendered_name] = change_tier
+        new_node = self._create_or_update_node(result.spec, existing, change_tier)
         new_revision = await self._create_node_revision(
             new_node,
             result,
@@ -3453,18 +5092,29 @@ class DeploymentOrchestrator:
             + ("\n".join([""] + changelog))
             + invalid_note,
             changed_fields=changed_fields,
+            change_tier=change_tier_name(
+                change_tier if existing else ChangeTier.MAJOR,
+            ),
+            semantic_fingerprint=self._proposed_semantic_fingerprints.get(
+                result.spec.rendered_name,
+            ),
+            revalidation_only=result.spec.rendered_name in self._revalidation_only,
         )
         return deployment_result, new_node, new_revision
 
     async def _generate_changelog(
         self,
         result: NodeValidationResult,
-    ) -> tuple[list[str], list[str]]:
+    ) -> tuple[list[str], list[str], ChangeTier]:
         """Generate changelog entries for a node update.
 
-        Returns (changelog_lines, changed_fields) where changelog_lines are
-        human-readable strings for the deployment message and changed_fields
-        are the raw field names (for structured display in the dry-run impact response).
+        Returns (changelog_lines, changed_fields, change_tier) where changelog_lines
+        are human-readable strings for the deployment message, changed_fields are the
+        raw field names (for structured display in the dry-run impact response), and
+        change_tier says how significant the change is, i.e. what kind of version
+        bump it earns. The tier is computed here because this is where the full set
+        of changed fields is already known -- the same classification the PATCH path
+        uses, so the two paths cannot drift apart.
         """
         changelog: list[str] = []
         changed_fields: list[str] = []
@@ -3472,12 +5122,17 @@ class DeploymentOrchestrator:
         # No changes if the node is new
         existing = self.registry.nodes.get(result.spec.rendered_name)
         if not existing:
-            return changelog, changed_fields
+            return changelog, changed_fields, ChangeTier.NONE
 
         # Track changes to node columns
         old_revision = existing.current if existing else None
         existing_columns_map = {
-            col.name: col for col in (old_revision.columns if old_revision else [])
+            (
+                col.cube_element_name
+                if old_revision and old_revision.type == NodeType.CUBE
+                else col.name
+            ): col
+            for col in (old_revision.columns if old_revision else [])
         }
         changed_count = [
             column_changed(new_col, existing_columns_map.get(new_col.name))
@@ -3488,38 +5143,46 @@ class DeploymentOrchestrator:
                 f"└─ Set properties for {sum(changed_count)} columns",
             )
 
-        # Track changes to other node fields
+        # Classify changes from the same normalized values used by fingerprints.
         existing_node_spec = await existing.to_spec(self.session)
-        changed_fields = existing_node_spec.diff(result.spec) if existing else []
-
-        # Check if query changed (diff() ignores it, but we want to surface it)
-        if hasattr(
-            existing_node_spec,
-            "rendered_query",
-        ) and hasattr(  # pragma: no branch
+        # to_spec() never sets namespace; semantic_diff() needs it to render ${prefix}.
+        existing_node_spec.namespace = result.spec.namespace
+        existing_columns: list[ColumnSpec] | None = None
+        proposed_columns: list[ColumnSpec] | None = result.inferred_columns
+        if isinstance(existing_node_spec, SourceSpec) and isinstance(
             result.spec,
-            "rendered_query",
+            SourceSpec,
         ):
-            old_query = existing_node_spec.rendered_query
-            new_query = result.spec.rendered_spec().rendered_query
-            if old_query != new_query:
-                changed_fields = ["query"] + changed_fields
+            if not existing_node_spec.columns:
+                existing_columns = proposed_columns
+            if not proposed_columns:
+                proposed_columns = existing_node_spec.columns
+        changed_fields, reordered_fields = existing_node_spec.semantic_diff(
+            result.spec,
+            resolved_columns=existing_columns,
+            other_resolved_columns=proposed_columns,
+        )
 
-        # Check if column metadata changed (diff() ignores columns)
+        # Keep detailed column notes for the human-readable changelog.
         from datajunction_server.models.deployment import LinkableNodeSpec as LNS
 
-        if isinstance(result.spec, LNS) and isinstance(existing_node_spec, LNS):
+        if (
+            "columns" in changed_fields
+            and isinstance(result.spec, LNS)
+            and isinstance(existing_node_spec, LNS)
+        ):
             col_change_notes = _diff_column_metadata(
                 result.spec.rendered_spec().columns,
                 existing_node_spec.columns,
             )
-            if col_change_notes:
-                changed_fields = changed_fields + ["columns"]
-                for note in col_change_notes:
-                    changelog.append(f"└─ {note}")
+            for note in col_change_notes:
+                changelog.append(f"└─ {note}")
 
         if changed_fields:
             changelog.append("└─ Updated " + ", ".join(changed_fields))
+
+        if reordered_fields:
+            changelog.append("└─ Reordered " + ", ".join(reordered_fields))
 
         # If the node has dimension links and is being updated (even if link specs
         # didn't change), the links will be re-deployed — note this in the message.
@@ -3530,14 +5193,77 @@ class DeploymentOrchestrator:
         ):
             changelog.append("└─ Updated dimension_links")
 
-        return changelog, changed_fields
+        change_tier = type(result.spec).change_tier(changed_fields, reordered_fields)
+        return changelog, changed_fields, change_tier
+
+    @staticmethod
+    def _deployed_version(current_version: str, change_tier: ChangeTier) -> str:
+        """The version an updated node's new revision should carry.
+
+        Floored at MINOR because the deployment path always writes a new revision
+        for a node it processes, and (node_id, version) is unique, so the revision
+        needs a version of its own. A node re-processed without having changed --
+        a forced re-deploy, or one stuck in INVALID being revalidated -- therefore
+        earns a minor version rather than none. The PATCH path calls `bump_version`
+        unfloored, since there a NONE tier can write nothing at all.
+        """
+        return bump_version(current_version, max(change_tier, ChangeTier.MINOR))
+
+    async def _lock_versions(self, existing: list[Node]) -> None:
+        """Refresh each node's `current_version` from committed state, under a lock.
+
+        A deployment plans against a snapshot, so one that commits in between can
+        take the versions this one planned and the revision insert then fails on
+        `uq_noderevision_version`. Holding the row locks means a concurrent writer
+        has either already committed, or waits behind this deployment.
+
+        We take the highest of `current_version` and the node's revisions, so a
+        node whose `current_version` lags its revisions still earns one of its own.
+        `_version_key` does the comparing: as strings, v10.0 sorts below v9.0.
+        """
+        node_ids = [node.id for node in existing]
+        if not node_ids or self.dry_run:
+            return
+        # no_autoflush: the caller is mid-build on revisions whose columns have no
+        # node_revision_id yet, and a query would otherwise flush them.
+        with self.session.no_autoflush:
+            highest = dict(
+                (
+                    await self.session.execute(
+                        select(Node.id, Node.current_version)
+                        .where(Node.id.in_(node_ids))
+                        .order_by(Node.id)  # a stable lock order between deploys
+                        .with_for_update(),
+                    )
+                ).all(),
+            )
+            revisions = (
+                await self.session.execute(
+                    select(NodeRevision.node_id, NodeRevision.version).where(
+                        NodeRevision.node_id.in_(node_ids),
+                    ),
+                )
+            ).all()
+        for node_id, version in revisions:
+            # A node deleted between planning and the lock has no row to raise,
+            # though its revisions can still come back from the query above.
+            locked = highest.get(node_id)
+            if locked is not None and _version_key(version) > _version_key(locked):
+                highest[node_id] = version
+        for node in existing:
+            node.current_version = highest.get(node.id, node.current_version)
 
     def _create_or_update_node(
         self,
         node_spec: NodeSpec,
         existing: Node | None,
+        change_tier: ChangeTier,
     ) -> Node:
-        """Create or update a Node object based on the spec and existing node"""
+        """Create or update a Node object based on the spec and existing node.
+
+        `change_tier` drives the version bump on an update, via `_deployed_version`:
+        a metadata-only edit earns a minor version rather than a major one.
+        """
         new_node = (
             Node(
                 name=node_spec.rendered_name,
@@ -3561,8 +5287,9 @@ class DeploymentOrchestrator:
             else existing
         )
         if existing:
-            new_node.current_version = str(
-                Version.parse(new_node.current_version).next_major_version(),
+            new_node.current_version = self._deployed_version(
+                new_node.current_version,
+                change_tier,
             )
             new_node.display_name = node_spec.display_name
             new_node.owners = [
@@ -3570,7 +5297,7 @@ class DeploymentOrchestrator:
                 for owner_name in node_spec.owners
                 if owner_name in self.registry.owners
             ]
-        if set(node_spec.tags) != set([tag.name for tag in new_node.tags]):
+        if set(node_spec.tags) != {tag.name for tag in new_node.tags}:
             tags = [self.registry.tags.get(tag) for tag in node_spec.tags]
             new_node.tags = tags  # type: ignore
         return new_node
@@ -3734,13 +5461,18 @@ class DeploymentOrchestrator:
             )
             new_revision.schema_ = schema
             new_revision.table = table
+            source_columns = source_spec.columns
+            if not source_columns and new_node.current:
+                source_columns = [
+                    column.to_spec() for column in new_node.current.columns
+                ]
             new_revision.columns = [
                 self._create_column_from_spec(
                     col,
                     pk_columns,
                     order=col.order if col.order is not None else idx,
                 )
-                for idx, col in enumerate(result.spec.columns)
+                for idx, col in enumerate(source_columns or [])
             ]
 
         if result.spec.node_type == NodeType.METRIC:
@@ -3775,17 +5507,29 @@ class DeploymentOrchestrator:
                     min_decimal_exponent=metric_spec.min_decimal_exponent,
                 )
 
-            # Assign required dimensions if specified and present in columns
+            # Bind required dimensions. A required dim is either a bare column on a
+            # parent, or a fully-qualified `node.column` path pointing at a node
+            # elsewhere on the graph (e.g. a dimension linked to a parent). Resolve
+            # both against the accumulated in-flight node map (dependency_nodes) —
+            # the same context validation uses. `${prefix}` is rendered to the target
+            # namespace so cross-namespace deploys bind to the right node.
+            #
+            # The referenced dim node is guaranteed to already be in dependency_nodes
+            # because the deploy-ordering graph adds it as an ordering dependency, so
+            # it deploys in an earlier topological level than this metric.
             if metric_spec.required_dimensions:
-                required_dimensions = []
-                origin_node = new_revision.parents[0].current
-                columns_mapping = {col.name: col for col in origin_node.columns}
-                for dim in metric_spec.required_dimensions:
-                    if dim in columns_mapping:
-                        required_dimensions.append(
-                            columns_mapping[dim],
-                        )  # pragma: no cover
-                new_revision.required_dimensions = required_dimensions
+                parent_columns = [
+                    col
+                    for parent in new_revision.parents
+                    if parent.current
+                    for col in parent.current.columns
+                ]
+                _, matched_columns = _resolve_required_dimensions(
+                    metric_spec.rendered_required_dimensions,
+                    parent_columns,
+                    dependency_nodes,
+                )
+                new_revision.required_dimensions = matched_columns
         return new_revision
 
     def _resolve_metric_unit(
@@ -3988,6 +5732,10 @@ def tag_needs_update(existing_tag: Tag, tag_spec: TagSpec) -> bool:
         or existing_tag.description != tag_spec.description
         or existing_tag.display_name
         != (tag_spec.display_name or labelize(tag_spec.name))
+        # A deployment is declarative, so the spec's metadata bag replaces the
+        # stored one; an omitted bag is equivalent to an empty one, matching how
+        # node-level custom_metadata is compared.
+        or not eq_or_fallback(tag_spec.tag_metadata, existing_tag.tag_metadata, {})
     )
 
 

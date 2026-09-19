@@ -6,17 +6,26 @@ Configuration for the datajunction server.
 import urllib.parse
 from datetime import timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import Annotated, Any
 
 from cachelib.base import BaseCache
 from cachelib.file import FileSystemCache
 from cachelib.redis import RedisCache
 from celery import Celery
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints, field_validator
 from pydantic_settings import BaseSettings
 
-if TYPE_CHECKING:
-    pass
+from datajunction_server.naming import parse_scope_pattern
+
+CreatorOwnedNamespacePattern = Annotated[
+    str,
+    StringConstraints(
+        pattern=r"^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)*(\.\*)?$",
+    ),
+]
+
+RESTRICTIVE_SCOPE_ACTIONS = {"read", "write", "execute", "delete", "manage"}
+RESTRICTIVE_SCOPE_TYPES = {"node", "namespace"}
 
 
 class DatabaseConfig(BaseModel):
@@ -79,7 +88,7 @@ class QueryClientConfig(BaseModel):
     type: str = "http"
 
     # Connection parameters (varies by client type)
-    connection: Dict[str, Any] = Field(default_factory=dict)
+    connection: dict[str, Any] = Field(default_factory=dict)
 
     # Number of retries for failed requests (mainly for HTTP client)
     retries: int = 0
@@ -117,7 +126,7 @@ class Settings(BaseSettings):  # pragma: no cover
     url: str = "http://localhost:8000/"
 
     # A list of hostnames that are allowed to make cross-site HTTP requests
-    cors_origin_whitelist: List[str] = ["http://localhost:3000"]
+    cors_origin_whitelist: list[str] = ["http://localhost:3000"]
 
     # Config for the metadata database, with support for writer and reader clusters
     # `writer_db` is the primary database used for write operations
@@ -136,32 +145,32 @@ class Settings(BaseSettings):  # pragma: no cover
     results_backend: BaseCache = FileSystemCache("/tmp/dj", default_timeout=0)
 
     # Cache for paginating results and potentially other things.
-    redis_cache: Optional[str] = None
+    redis_cache: str | None = None
     paginating_timeout: timedelta = timedelta(minutes=5)
 
     # Configure Celery for async requests. If not configured async queries will be
     # executed using FastAPI's ``BackgroundTasks``.
-    celery_broker: Optional[str] = None
+    celery_broker: str | None = None
 
     # How long to wait when pinging databases to find out the fastest online database.
     do_ping_timeout: timedelta = timedelta(seconds=5)
 
     # Query service url (only used with "http" query client config)
     # TODO: once the `QueryClientConfig` is proven out, this can be removed.
-    query_service: Optional[str] = None
+    query_service: str | None = None
 
     # Query client configuration
     query_client: QueryClientConfig = Field(default_factory=QueryClientConfig)
 
     # The namespace where source nodes for registered tables should exist
-    source_node_namespace: Optional[str] = "source"
+    source_node_namespace: str | None = "source"
 
     # This specifies what the DJ_LOGICAL_TIMESTAMP() macro should be replaced with.
     # This defaults to an Airflow compatible value, but other examples include:
     #   ${dj_logical_timestamp}
     #   {{ dj_logical_timestamp }}
     #   $dj_logical_timestamp
-    dj_logical_timestamp_format: Optional[str] = "${dj_logical_timestamp}"
+    dj_logical_timestamp_format: str | None = "${dj_logical_timestamp}"
 
     # Prefix applied to Druid datasource names built by ``build_druid_spec``.
     # All DJ envs share a single Druid cluster; the prefix env-tags datasources
@@ -170,28 +179,28 @@ class Settings(BaseSettings):  # pragma: no cover
     druid_datasource_prefix: str = "dj__"
 
     # DJ UI host, used for OAuth redirection
-    frontend_host: Optional[str] = "http://localhost:3000"
+    frontend_host: str | None = "http://localhost:3000"
 
     # Enabled transpilation plugin names
-    transpilation_plugins: List[str] = ["default", "sqlglot"]
+    transpilation_plugins: list[str] = ["default", "sqlglot"]
 
     # 128 bit DJ secret, used to encrypt passwords and JSON web tokens
     secret: str = "a-fake-secretkey"
 
     # GitHub OAuth application client ID
-    github_oauth_client_id: Optional[str] = None
+    github_oauth_client_id: str | None = None
 
     # GitHub OAuth application client secret
-    github_oauth_client_secret: Optional[str] = None
+    github_oauth_client_secret: str | None = None
 
     # Google OAuth application client ID
-    google_oauth_client_id: Optional[str] = None
+    google_oauth_client_id: str | None = None
 
     # Google OAuth application client secret
-    google_oauth_client_secret: Optional[str] = None
+    google_oauth_client_secret: str | None = None
 
     # Google OAuth application client secret file
-    google_oauth_client_secret_file: Optional[str] = None
+    google_oauth_client_secret_file: str | None = None
 
     # Interval in seconds for which to expire service account tokens
     service_account_token_expire: int = 3600 * 24 * 30
@@ -213,6 +222,59 @@ class Settings(BaseSettings):  # pragma: no cover
     # - "restrictive": Deny by default
     default_access_policy: str = "permissive"  # or "restrictive"
 
+    # Optional role name whose scopes are evaluated as a fallback when no
+    # explicit grant matches. Lets a deployment express graceful defaults such
+    # as "everyone gets read on *" without flipping the whole policy to
+    # permissive. Applied before the default_access_policy fallback.
+    default_access_role: str | None = None
+
+    # Rules that require an explicit principal, group, or service-account grant.
+    # Entries use "action:scope_type:scope_value", for example
+    # "write:node:finance.*". Actions are exact, so configure each governed
+    # mutating action and every resource shape separately.
+    restrictive_scopes: list[str] = Field(default_factory=list)
+
+    # Require configured break-glass admins before serving requests.
+    # Restrictive default access also enables this check automatically.
+    # RBAC_ADMIN_USERS uses JSON list syntax, for example ["admin-user"].
+    rbac_require_admin: bool = False
+    rbac_admin_users: list[str] = Field(default_factory=list)
+
+    @field_validator("restrictive_scopes")
+    @classmethod
+    def validate_restrictive_scopes(cls, values: list[str]) -> list[str]:
+        """Reject malformed policy rules while loading settings."""
+        for value in values:
+            parts = value.split(":")
+            if len(parts) != 3:
+                raise ValueError(
+                    "restrictive scope must be 'action:scope_type:scope_value'",
+                )
+            action, scope_type, scope_value = parts
+            if (
+                action not in RESTRICTIVE_SCOPE_ACTIONS
+                or scope_type not in RESTRICTIVE_SCOPE_TYPES
+            ):
+                raise ValueError(
+                    "restrictive scope action and scope type must be supported values",
+                )
+            if (
+                scope_value != scope_value.strip()
+                or parse_scope_pattern(scope_value) is None
+            ):
+                raise ValueError(
+                    "restrictive scope value must be '*', an exact scope, "
+                    "or a subtree ending in '.*'",
+                )
+        return values
+
+    # Exact namespaces or subtrees where a first human creator becomes the owner.
+    # A subtree excludes its root, so matching both requires JSON list syntax
+    # such as ["personal", "personal.*"].
+    creator_owned_namespace_patterns: list[CreatorOwnedNamespacePattern] = Field(
+        default_factory=list,
+    )
+
     # Interval in seconds with which to expire caching of any indexes
     index_cache_expire: int = 60
 
@@ -231,6 +293,20 @@ class Settings(BaseSettings):  # pragma: no cover
     preagg_catalog: str = "default"
     preagg_schema: str = "dj_preaggs"
 
+    # Freshness gating for pre-aggregations. When enabled, a pre-aggregation is
+    # only allowed to answer a query if the temporal range its table covers
+    # (`min_temporal_partition`/`max_temporal_partition`, falling back to
+    # `valid_through_ts`) contains the range the query asks for. Off by default:
+    # enabling it can route queries away from pre-aggs that serve them today.
+    preagg_freshness_gating: bool = False
+
+    # Wall-clock staleness budget, in seconds, applied only when a query has no
+    # discoverable upper bound on the pre-agg's temporal partition (such a query
+    # implicitly asks for data through the present). When None, unbounded
+    # queries are never rejected for staleness. Ignored unless
+    # `preagg_freshness_gating` is on.
+    preagg_max_staleness_seconds: int | None = None
+
     # Cube view output location
     # Used when generating CREATE OR REPLACE VIEW DDL for cube views
     view_catalog: str = "default"
@@ -242,13 +318,13 @@ class Settings(BaseSettings):  # pragma: no cover
 
     # Option 1: Simple PAT auth (recommended for OSS)
     # Set GITHUB_SERVICE_TOKEN to a Personal Access Token or fine-grained token
-    github_service_token: Optional[str] = None
+    github_service_token: str | None = None
 
     # Option 2: GitHub App auth (for internal/enterprise deployments)
     # Set all three to use GitHub App authentication instead of a PAT
-    github_app_id: Optional[str] = None
-    github_app_private_key: Optional[str] = None  # PEM-encoded private key
-    github_app_installation_id: Optional[str] = None
+    github_app_id: str | None = None
+    github_app_private_key: str | None = None  # PEM-encoded private key
+    github_app_installation_id: str | None = None
 
     @property
     def celery(self) -> Celery:
@@ -258,7 +334,7 @@ class Settings(BaseSettings):  # pragma: no cover
         return Celery(__name__, broker=self.celery_broker)
 
     @property
-    def cache(self) -> Optional[BaseCache]:
+    def cache(self) -> BaseCache | None:
         """
         Configure the Redis cache.
         """

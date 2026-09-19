@@ -2,24 +2,38 @@
 Unit tests for datajunction_server.internal.impact.propagate_impact
 """
 
+from collections.abc import AsyncGenerator
+from datetime import UTC
 from unittest.mock import patch
 
 import pytest
+import pytest_asyncio
+from sqlalchemy import event
 
 from datajunction_server.database.column import Column as DBColumn
-from datajunction_server.database.node import Node, NodeRevision, NodeRelationship
 from datajunction_server.database.namespace import NodeNamespace
+from datajunction_server.database.node import (
+    BoundDimensionsRelationship,
+    Node,
+    NodeRelationship,
+    NodeRevision,
+)
 from datajunction_server.database.user import User
-from datajunction_server.internal.impact import _merge_impacts, propagate_impact
+from datajunction_server.internal.impact import (
+    _build_propagation_context,
+    _merge_impacts,
+    _propagate_via_parent_graph,
+    propagate_impact,
+)
 from datajunction_server.models.impact import DownstreamImpact, ImpactType
 from datajunction_server.models.node import NodeStatus, NodeType
+from datajunction_server.models.user import OAuthProvider
 from datajunction_server.sql.parsing.types import (
     BigIntType,
     DoubleType,
     IntegerType,
     StringType,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -34,6 +48,7 @@ def _make_node(
     version: str = "v1.0",
     query: str = "SELECT 1",
     columns: list[tuple[str, object]] | None = None,
+    owners: list[User] | None = None,
 ) -> tuple[Node, NodeRevision]:
     """Create an unsaved (Node, NodeRevision) pair with optional columns."""
     node = Node(
@@ -43,6 +58,8 @@ def _make_node(
         created_by_id=user_id,
         namespace=name.rsplit(".", 1)[0] if "." in name else name,
     )
+    if owners:
+        node.owners = owners
     rev = NodeRevision(
         name=name,
         type=node_type,
@@ -132,6 +149,63 @@ async def test_propagate_impact_valid_parent_may_affect(session, current_user: U
     assert "ns.source" in impact.caused_by
     # Status must NOT have been mutated
     assert child_rev.status == NodeStatus.VALID
+
+
+@pytest.mark.asyncio
+async def test_required_dimension_on_older_revision_is_discovered(
+    session,
+    current_user: User,
+):
+    session.add(NodeNamespace(namespace="ns"))
+    dimension, current_dimension_rev = _make_node(
+        "ns.dimension",
+        NodeType.DIMENSION,
+        NodeStatus.VALID,
+        current_user.id,
+        version="v2.0",
+        columns=[("id", IntegerType())],
+    )
+    older_dimension_rev = NodeRevision(
+        name=dimension.name,
+        type=NodeType.DIMENSION,
+        node=dimension,
+        version="v1.0",
+        status=NodeStatus.VALID,
+        query="SELECT 1 AS id",
+        created_by_id=current_user.id,
+        columns=[DBColumn(name="id", type=IntegerType())],
+    )
+    metric, metric_rev = _make_node(
+        "ns.metric",
+        NodeType.METRIC,
+        NodeStatus.VALID,
+        current_user.id,
+    )
+    await _persist(
+        session,
+        dimension,
+        older_dimension_rev,
+        current_dimension_rev,
+        metric,
+        metric_rev,
+    )
+    await _persist(
+        session,
+        BoundDimensionsRelationship(
+            metric_id=metric_rev.id,
+            bound_dimension_id=older_dimension_rev.columns[0].id,
+        ),
+    )
+
+    ctx = await _build_propagation_context(
+        session,
+        "ns",
+        {dimension.name},
+        frozenset(),
+    )
+    impacts = await _propagate_via_parent_graph(session, ctx)
+
+    assert [impact.name for impact in impacts] == [metric.name]
 
 
 @pytest.mark.asyncio
@@ -326,7 +400,7 @@ async def test_propagate_impact_deactivated_children_skipped(
     Covers the while-loop exit path where next_frontier becomes empty because
     all discovered child nodes have been deactivated (filtered by deactivated_at IS NULL).
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     session.add(NodeNamespace(namespace="ns"))
 
@@ -346,7 +420,7 @@ async def test_propagate_impact_deactivated_children_skipped(
     await _persist(session, _link(parent, child_rev))
 
     # Deactivate the child node so it is filtered out in BFS
-    child.deactivated_at = datetime.now(timezone.utc)
+    child.deactivated_at = datetime.now(UTC)
     session.add(child)
     await session.flush()
 
@@ -1013,6 +1087,80 @@ async def test_multiple_roots_same_downstream(session, current_user: User):
 
 
 @pytest.mark.asyncio
+async def test_revalidation_independent_sibling_parent_not_dropped(
+    session,
+    current_user: User,
+):
+    """Only one of a child's two parents changes — the untouched sibling parent
+    must still be resolvable during revalidation.
+
+    Regression test: ``ns.source_b`` is not downstream of the changed node, so
+    it never appears in the impact BFS and is absent from both node indexes.
+    ``_build_parent_columns_map`` must fall back to the parent object attached
+    to the child (columns eager-loaded during the batch load); otherwise the
+    sibling silently drops out of the map and the child fails revalidation with
+    "Table `ns.source_b` not found in parent columns map".
+    """
+    session.add(NodeNamespace(namespace="ns"))
+
+    # source_a's id column has changed type (INT -> BIGINT). It is the only
+    # node in the changed set.
+    parent_a, parent_a_rev = _make_node(
+        "ns.source_a",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+        columns=[("id", BigIntType())],
+    )
+    # source_b is independent of source_a and is never edited — it exists only
+    # as a second parent of the child.
+    parent_b, parent_b_rev = _make_node(
+        "ns.source_b",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+        columns=[("id", BigIntType()), ("name", StringType())],
+    )
+    child, child_rev = _make_node(
+        "ns.transform",
+        NodeType.TRANSFORM,
+        NodeStatus.VALID,
+        current_user.id,
+        query="SELECT a.id, b.name FROM ns.source_a a JOIN ns.source_b b ON a.id = b.id",
+        columns=[("id", IntegerType()), ("name", StringType())],
+    )
+    await _persist(
+        session,
+        parent_a,
+        parent_a_rev,
+        parent_b,
+        parent_b_rev,
+        child,
+        child_rev,
+    )
+    await _persist(
+        session,
+        _link(parent_a, child_rev),
+        _link(parent_b, child_rev),
+    )
+
+    result = await propagate_impact(session, "ns", {"ns.source_a"})
+
+    by_name = {r.name: r for r in result}
+    assert "ns.transform" in by_name
+    impact = by_name["ns.transform"]
+    # The child revalidates cleanly: source_a's type change flows through and
+    # the untouched sibling source_b still resolves — not WILL_INVALIDATE.
+    assert impact.impact_type == ImpactType.MAY_AFFECT
+    assert "Column types changed" in impact.impact_reason
+    assert "not found in parent columns map" not in impact.impact_reason
+    # The child's id column picked up the new BIGINT type from source_a.
+    col_types = {col.name: col.type for col in child_rev.columns}
+    assert isinstance(col_types["id"], BigIntType)
+    assert child_rev.status == NodeStatus.VALID
+
+
+@pytest.mark.asyncio
 async def test_propagate_impact_dimension_link_stub(session, current_user: User):
     """Passing changed_link_node_names exercises the dimension link stub."""
     session.add(NodeNamespace(namespace="ns"))
@@ -1393,3 +1541,248 @@ async def test_check_cube_dimension_reachability_cube_still_reachable(
 
     assert len(out) == 1
     assert out[0].impact_type == ImpactType.MAY_AFFECT  # unchanged
+
+
+# ---------------------------------------------------------------------------
+# Owners on downstream impacts
+# ---------------------------------------------------------------------------
+
+
+def _make_user(username: str) -> User:
+    """Create an unsaved User for owner assignment."""
+    return User(
+        username=username,
+        password="secret",
+        email=f"{username}@example.com",
+        name=username,
+        oauth_provider=OAuthProvider.BASIC,
+        is_admin=False,
+    )
+
+
+@pytest.mark.asyncio
+async def test_impact_includes_sorted_owners(session, current_user: User):
+    """Downstream impacts carry the owners' usernames, sorted."""
+    session.add(NodeNamespace(namespace="ns"))
+    # Deliberately out of alphabetical order to pin the sorting.
+    owner_b = _make_user("zoe")
+    owner_a = _make_user("alice")
+    await _persist(session, owner_b, owner_a)
+
+    parent, parent_rev = _make_node(
+        "ns.source",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+        columns=[("id", IntegerType())],
+    )
+    child, child_rev = _make_node(
+        "ns.transform",
+        NodeType.TRANSFORM,
+        NodeStatus.VALID,
+        current_user.id,
+        query="SELECT id FROM ns.source",
+        columns=[("id", IntegerType())],
+        owners=[owner_b, owner_a],
+    )
+    await _persist(session, parent, parent_rev, child, child_rev)
+    await _persist(session, _link(parent, child_rev))
+
+    result = await propagate_impact(session, "ns", {"ns.source"})
+
+    assert result == [
+        DownstreamImpact(
+            name="ns.transform",
+            node_type=NodeType.TRANSFORM,
+            current_status=NodeStatus.VALID,
+            predicted_status=NodeStatus.VALID,
+            impact_type=ImpactType.MAY_AFFECT,
+            impact_reason="Upstream node(s) changed: ns.source",
+            depth=1,
+            caused_by=["ns.source"],
+            is_external=False,
+            owners=["alice", "zoe"],
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_impact_owners_empty_when_unowned(session, current_user: User):
+    """A node with no owners gets an empty list, not a placeholder."""
+    session.add(NodeNamespace(namespace="ns"))
+
+    parent, parent_rev = _make_node(
+        "ns.source",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+        columns=[("id", IntegerType())],
+    )
+    child, child_rev = _make_node(
+        "ns.transform",
+        NodeType.TRANSFORM,
+        NodeStatus.VALID,
+        current_user.id,
+        query="SELECT id FROM ns.source",
+        columns=[("id", IntegerType())],
+    )
+    await _persist(session, parent, parent_rev, child, child_rev)
+    await _persist(session, _link(parent, child_rev))
+
+    result = await propagate_impact(session, "ns", {"ns.source"})
+
+    assert result == [
+        DownstreamImpact(
+            name="ns.transform",
+            node_type=NodeType.TRANSFORM,
+            current_status=NodeStatus.VALID,
+            predicted_status=NodeStatus.VALID,
+            impact_type=ImpactType.MAY_AFFECT,
+            impact_reason="Upstream node(s) changed: ns.source",
+            depth=1,
+            caused_by=["ns.source"],
+            is_external=False,
+            owners=[],
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_impact_owners_propagate_to_invalidated_node(
+    session,
+    current_user: User,
+):
+    """Owners survive the Phase 3 rewrite that turns MAY_AFFECT into
+    WILL_INVALIDATE."""
+    session.add(NodeNamespace(namespace="ns"))
+    owner = _make_user("carol")
+    await _persist(session, owner)
+
+    parent, parent_rev = _make_node(
+        "ns.source",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+        columns=[("id", IntegerType())],
+    )
+    child, child_rev = _make_node(
+        "ns.transform",
+        NodeType.TRANSFORM,
+        NodeStatus.VALID,
+        current_user.id,
+        query="SELECT missing_column FROM ns.source",
+        columns=[("missing_column", IntegerType())],
+        owners=[owner],
+    )
+    await _persist(session, parent, parent_rev, child, child_rev)
+    await _persist(session, _link(parent, child_rev))
+
+    result = await propagate_impact(session, "ns", {"ns.source"})
+
+    assert len(result) == 1
+    assert result[0].impact_type == ImpactType.WILL_INVALIDATE
+    assert result[0].owners == ["carol"]
+
+
+def test_downstream_impact_rehydrates_without_owners_key():
+    """Deployment rows persisted before ``owners`` existed must still
+    rehydrate — the field defaults to an empty list."""
+    legacy_payload = {
+        "name": "ns.transform",
+        "node_type": "transform",
+        "current_status": "valid",
+        "predicted_status": "invalid",
+        "impact_type": "will_invalidate",
+        "impact_reason": "Revalidation failed: boom",
+        "depth": 2,
+        "caused_by": ["ns.source"],
+        "is_external": False,
+    }
+
+    impact = DownstreamImpact(**legacy_payload)
+
+    assert impact == DownstreamImpact(
+        name="ns.transform",
+        node_type=NodeType.TRANSFORM,
+        current_status=NodeStatus.VALID,
+        predicted_status=NodeStatus.INVALID,
+        impact_type=ImpactType.WILL_INVALIDATE,
+        impact_reason="Revalidation failed: boom",
+        depth=2,
+        caused_by=["ns.source"],
+        is_external=False,
+        owners=[],
+    )
+
+
+@pytest_asyncio.fixture
+async def capture_queries(session) -> AsyncGenerator[list[str], None]:
+    """Collect every SQL statement executed during the test."""
+    queries: list[str] = []
+    sync_engine = session.bind.sync_engine
+
+    def before_cursor_execute(
+        _conn,
+        _cursor,
+        statement,
+        _parameters,
+        _context,
+        _executemany,
+    ):
+        queries.append(statement)
+
+    event.listen(sync_engine, "before_cursor_execute", before_cursor_execute)
+    yield queries
+    event.remove(sync_engine, "before_cursor_execute", before_cursor_execute)
+
+
+@pytest.mark.asyncio
+async def test_impact_owners_are_eager_loaded_no_n_plus_one(
+    session,
+    current_user: User,
+    capture_queries: list[str],
+):
+    """Owners are batch-loaded once per BFS level, not once per node."""
+    session.add(NodeNamespace(namespace="ns"))
+    parent, parent_rev = _make_node(
+        "ns.source",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+        columns=[("id", IntegerType())],
+    )
+    await _persist(session, parent, parent_rev)
+
+    fanout = 6
+    for idx in range(fanout):
+        owner = _make_user(f"owner_{idx}")
+        await _persist(session, owner)
+        child, child_rev = _make_node(
+            f"ns.transform_{idx}",
+            NodeType.TRANSFORM,
+            NodeStatus.VALID,
+            current_user.id,
+            query="SELECT id FROM ns.source",
+            columns=[("id", IntegerType())],
+            owners=[owner],
+        )
+        await _persist(session, child, child_rev)
+        await _persist(session, _link(parent, child_rev))
+
+    del capture_queries[:]
+    result = await propagate_impact(session, "ns", {"ns.source"})
+
+    assert sorted(impact.owners for impact in result) == [
+        [f"owner_{idx}"] for idx in range(fanout)
+    ]
+    owner_queries = [q for q in capture_queries if "node_owners" in q]
+    # All six children's owners come back in a single selectin load.
+    assert len(owner_queries) == 1
+    # And that load fetches only the username. The users table carries a
+    # password hash and an email among its columns, and an impact record has no
+    # use for either -- pulling whole rows for every owner of every downstream
+    # node would be both wasteful and needlessly wide.
+    selected = owner_queries[0].split("FROM")[0]
+    assert "users.username" in selected
+    for column in ("password", "email", "oauth_provider", "is_admin"):
+        assert column not in selected

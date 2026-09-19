@@ -1,6 +1,8 @@
 """HTTP query service client - wrapper around the original QueryServiceClient."""
 
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 
 from datajunction_server.database.column import Column
 from datajunction_server.models.cube_materialization import (
@@ -12,10 +14,11 @@ from datajunction_server.models.materialization import (
     GenericMaterializationInput,
     MaterializationInfo,
 )
-from datajunction_server.models.preaggregation import PreAggMaterializationInput
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionBackfill
+from datajunction_server.models.preaggregation import PreAggMaterializationInput
 from datajunction_server.models.query import QueryCreate, QueryWithResults
+from datajunction_server.models.table_metadata import TableMetadata
 from datajunction_server.query_clients.base import BaseQueryServiceClient
 from datajunction_server.service_clients import QueryServiceClient
 
@@ -51,9 +54,9 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
         catalog: str,
         schema: str,
         table: str,
-        request_headers: Optional[Dict[str, str]] = None,
-        engine: Optional["Engine"] = None,
-    ) -> List[Column]:
+        request_headers: dict[str, str] | None = None,
+        engine: Engine | None = None,
+    ) -> list[Column]:
         """Retrieves columns for a table via HTTP query service."""
         return await self._client.get_columns_for_table(
             catalog=catalog,
@@ -63,12 +66,29 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
             engine=engine,
         )
 
+    async def get_table_metadata(
+        self,
+        catalog: str,
+        schema: str,
+        table: str,
+        request_headers: dict[str, str] | None = None,
+        engine: Engine | None = None,
+    ) -> TableMetadata:
+        """Retrieves columns plus the owner for a table via HTTP query service."""
+        return await self._client.get_table_metadata(
+            catalog=catalog,
+            schema=schema,
+            table=table,
+            request_headers=request_headers,
+            engine=engine,
+        )
+
     async def get_columns_for_tables_batch(
         self,
-        tables: List[tuple[str, str, str]],
-        request_headers: Optional[Dict[str, str]] = None,
-        engine: Optional["Engine"] = None,
-    ) -> Dict[tuple[str, str, str], List[Column]]:
+        tables: list[tuple[str, str, str]],
+        request_headers: dict[str, str] | None = None,
+        engine: Engine | None = None,
+    ) -> dict[tuple[str, str, str], list[Column]]:
         """Retrieves columns for multiple tables in a single batch request via HTTP query service."""
         return await self._client.get_columns_for_tables_batch(
             tables=tables,
@@ -80,7 +100,7 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
         self,
         view_name: str,
         query_create: QueryCreate,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> str:
         """Re-create a view using the HTTP query service."""
         return await self._client.create_view(
@@ -92,7 +112,7 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
     async def submit_query(
         self,
         query_create: QueryCreate,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> QueryWithResults:
         """Submit a query to the HTTP query service."""
         return await self._client.submit_query(
@@ -103,7 +123,7 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
     async def get_query(
         self,
         query_id: str,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> QueryWithResults:
         """Get a previously submitted query from the HTTP query service."""
         return await self._client.get_query(
@@ -113,11 +133,8 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
 
     def materialize(
         self,
-        materialization_input: Union[
-            GenericMaterializationInput,
-            DruidMaterializationInput,
-        ],
-        request_headers: Optional[Dict[str, str]] = None,
+        materialization_input: GenericMaterializationInput | DruidMaterializationInput,
+        request_headers: dict[str, str] | None = None,
     ) -> MaterializationInfo:
         """Set up a scheduled materialization via HTTP query service."""
         return self._client.materialize(
@@ -128,7 +145,7 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
     def materialize_cube(
         self,
         materialization_input: DruidCubeMaterializationInput,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> MaterializationInfo:
         """Set up a scheduled cube materialization via HTTP query service."""
         return self._client.materialize_cube(
@@ -139,7 +156,7 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
     def materialize_cube_v2(
         self,
         materialization_input: CubeMaterializationV2Input,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> MaterializationInfo:
         """Set up a v2 cube materialization (pre-agg based) via HTTP query service."""
         return self._client.materialize_cube_v2(  # pragma: no cover
@@ -150,8 +167,8 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
     def materialize_preagg(
         self,
         materialization_input: PreAggMaterializationInput,
-        request_headers: Optional[Dict[str, str]] = None,
-    ) -> Dict[str, Any]:
+        request_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """Create/update a scheduled workflow for pre-aggregation materialization via HTTP query service."""
         return self._client.materialize_preagg(
             materialization_input=materialization_input,
@@ -161,8 +178,8 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
     def deactivate_preagg_workflow(
         self,
         output_table: str,
-        request_headers: Optional[Dict[str, str]] = None,
-    ) -> Dict[str, Any]:
+        request_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """Deactivate a pre-aggregation's workflows via HTTP query service."""
         return self._client.deactivate_preagg_workflow(
             output_table=output_table,
@@ -172,9 +189,9 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
     def deactivate_cube_workflow(
         self,
         cube_name: str,
-        version: Optional[str] = None,
-        request_headers: Optional[Dict[str, str]] = None,
-    ) -> Dict[str, Any]:
+        version: str | None = None,
+        request_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """Deactivate a cube's Druid materialization workflow via HTTP query service."""
         return self._client.deactivate_cube_workflow(  # pragma: no cover
             cube_name=cube_name,
@@ -184,9 +201,9 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
 
     def deactivate_workflows(
         self,
-        workflow_names: List[str],
-        request_headers: Optional[Dict[str, str]] = None,
-    ) -> Dict[str, Any]:
+        workflow_names: list[str],
+        request_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """Deactivate workflows by exact names via HTTP query service."""
         return self._client.deactivate_workflows(
             workflow_names=workflow_names,
@@ -195,9 +212,9 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
 
     def run_preagg_backfill(
         self,
-        backfill_input: "BackfillInput",
-        request_headers: Optional[Dict[str, str]] = None,
-    ) -> Dict[str, Any]:
+        backfill_input: BackfillInput,
+        request_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """Run a backfill for a pre-aggregation via HTTP query service."""
         return self._client.run_preagg_backfill(
             backfill_input=backfill_input,
@@ -206,9 +223,9 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
 
     def run_cube_backfill(
         self,
-        backfill_input: "CubeBackfillInput",
-        request_headers: Optional[Dict[str, str]] = None,
-    ) -> Dict[str, Any]:
+        backfill_input: CubeBackfillInput,
+        request_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """Run a backfill for a cube via HTTP query service."""
         return self._client.run_cube_backfill(  # pragma: no cover
             backfill_input=backfill_input,
@@ -220,7 +237,7 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
         node_name: str,
         materialization_name: str,
         node_version: str | None = None,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> MaterializationInfo:
         """Deactivate materialization via HTTP query service."""
         return self._client.deactivate_materialization(
@@ -233,9 +250,9 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
     def refresh_cube_materialization(
         self,
         cube_name: str,
-        cube_version: Optional[str] = None,
-        materializations: Optional[List[Dict[str, Any]]] = None,
-        request_headers: Optional[Dict[str, str]] = None,
+        cube_version: str | None = None,
+        materializations: list[dict[str, Any]] | None = None,
+        request_headers: dict[str, str] | None = None,
     ) -> MaterializationInfo:
         """Refresh/rebuild materialization workflows for a cube via HTTP query service."""
         return self._client.refresh_cube_materialization(
@@ -251,7 +268,7 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
         node_version: str,
         node_type: NodeType,
         materialization_name: str,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> MaterializationInfo:
         """Get materialization info via HTTP query service."""
         return self._client.get_materialization_info(
@@ -268,8 +285,8 @@ class HttpQueryServiceClient(BaseQueryServiceClient):
         node_version: str,
         node_type: NodeType,
         materialization_name: str,
-        partitions: List[PartitionBackfill],
-        request_headers: Optional[Dict[str, str]] = None,
+        partitions: list[PartitionBackfill],
+        request_headers: dict[str, str] | None = None,
     ) -> MaterializationInfo:
         """Run backfill via HTTP query service."""
         return self._client.run_backfill(

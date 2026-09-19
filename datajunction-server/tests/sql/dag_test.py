@@ -4,20 +4,22 @@ Tests for ``datajunction_server.sql.dag``.
 
 import datetime
 from unittest.mock import MagicMock, patch
+
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.column import Column
 from datajunction_server.database.database import Database
+from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
-from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.errors import DJException
 from datajunction_server.models.node import DimensionAttributeOutput, NodeType
 from datajunction_server.sql.dag import (
     build_reference_link,
     get_common_dimensions,
     get_dimension_attributes,
+    get_dimension_dag_indegree,
     get_dimensions,
     get_dimensions_dag,
     get_downstream_nodes,
@@ -25,7 +27,6 @@ from datajunction_server.sql.dag import (
     get_nodes_with_common_dimensions,
     get_shared_dimensions,
     topological_sort,
-    get_dimension_dag_indegree,
 )
 from datajunction_server.sql.parsing.types import IntegerType, StringType
 
@@ -230,6 +231,167 @@ async def test_get_dimension_attributes_metric_on_dimension_node(
 
 
 @pytest.mark.asyncio
+async def test_get_dimension_attributes_depth_bound(
+    session: AsyncSession,
+    current_user: User,
+) -> None:
+    """
+    ``get_dimension_attributes`` (and the ``get_dimension_nodes`` recursive CTE it
+    relies on) should stop traversing the dimension link graph once ``depth`` hops
+    have been followed. Build a source node linked to a 3-level-deep chain of
+    dimension nodes (fact -> dim_1 -> dim_2 -> dim_3) and confirm that a small
+    ``depth`` excludes the deeper dimensions while a large ``depth`` includes them.
+    """
+    dim_3_ref = Node(
+        name="default.depth_dim_3",
+        type=NodeType.DIMENSION,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    dim_3 = NodeRevision(
+        node=dim_3_ref,
+        name=dim_3_ref.name,
+        type=dim_3_ref.type,
+        display_name="Depth Dim 3",
+        version="1",
+        columns=[
+            Column(name="id", type=IntegerType(), order=0),
+            Column(name="attr_3", type=StringType(), order=1),
+        ],
+        created_by_id=current_user.id,
+    )
+    dim_3_ref.current = dim_3
+
+    dim_2_ref = Node(
+        name="default.depth_dim_2",
+        type=NodeType.DIMENSION,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    dim_2 = NodeRevision(
+        node=dim_2_ref,
+        name=dim_2_ref.name,
+        type=dim_2_ref.type,
+        display_name="Depth Dim 2",
+        version="1",
+        columns=[
+            Column(name="id", type=IntegerType(), order=0),
+            Column(name="attr_2", type=StringType(), order=1),
+        ],
+        created_by_id=current_user.id,
+    )
+    dim_2_ref.current = dim_2
+
+    dim_1_ref = Node(
+        name="default.depth_dim_1",
+        type=NodeType.DIMENSION,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    dim_1 = NodeRevision(
+        node=dim_1_ref,
+        name=dim_1_ref.name,
+        type=dim_1_ref.type,
+        display_name="Depth Dim 1",
+        version="1",
+        columns=[
+            Column(name="id", type=IntegerType(), order=0),
+            Column(name="attr_1", type=StringType(), order=1),
+        ],
+        created_by_id=current_user.id,
+    )
+    dim_1_ref.current = dim_1
+
+    session.add_all(
+        [dim_1, dim_1_ref, dim_2, dim_2_ref, dim_3, dim_3_ref],
+    )
+    await session.flush()
+
+    fact_ref = Node(
+        name="default.depth_fact",
+        type=NodeType.SOURCE,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    fact = NodeRevision(
+        node=fact_ref,
+        name=fact_ref.name,
+        type=fact_ref.type,
+        display_name="Depth Fact",
+        version="1",
+        columns=[Column(name="id", type=IntegerType(), order=0)],
+        created_by_id=current_user.id,
+    )
+    fact_ref.current = fact
+    session.add_all([fact, fact_ref])
+    await session.flush()
+
+    session.add_all(
+        [
+            DimensionLink(
+                dimension_id=dim_1_ref.id,
+                node_revision_id=fact.id,
+                join_sql="default.depth_fact.id = default.depth_dim_1.id",
+            ),
+            DimensionLink(
+                dimension_id=dim_2_ref.id,
+                node_revision_id=dim_1.id,
+                join_sql="default.depth_dim_1.id = default.depth_dim_2.id",
+            ),
+            DimensionLink(
+                dimension_id=dim_3_ref.id,
+                node_revision_id=dim_2.id,
+                join_sql="default.depth_dim_2.id = default.depth_dim_3.id",
+            ),
+        ],
+    )
+    await session.commit()
+
+    depth_1_attrs = await get_dimension_attributes(
+        session,
+        "default.depth_fact",
+        depth=1,
+    )
+    depth_2_attrs = await get_dimension_attributes(
+        session,
+        "default.depth_fact",
+        depth=2,
+    )
+    depth_full_attrs = await get_dimension_attributes(
+        session,
+        "default.depth_fact",
+        depth=30,
+    )
+
+    depth_1_names = {d.name for d in depth_1_attrs}
+    depth_2_names = {d.name for d in depth_2_attrs}
+    depth_full_names = {d.name for d in depth_full_attrs}
+
+    # depth=1 only reaches depth_dim_1.
+    assert depth_1_names == {
+        "default.depth_dim_1.id",
+        "default.depth_dim_1.attr_1",
+    }
+    # depth=2 additionally reaches depth_dim_2, but not depth_dim_3.
+    assert depth_2_names == {
+        "default.depth_dim_1.id",
+        "default.depth_dim_1.attr_1",
+        "default.depth_dim_2.id",
+        "default.depth_dim_2.attr_2",
+    }
+    # A depth large enough to cover the whole chain reaches depth_dim_3 too.
+    assert depth_full_names == {
+        "default.depth_dim_1.id",
+        "default.depth_dim_1.attr_1",
+        "default.depth_dim_2.id",
+        "default.depth_dim_2.attr_2",
+        "default.depth_dim_3.id",
+        "default.depth_dim_3.attr_3",
+    }
+    assert len(depth_1_attrs) < len(depth_2_attrs) < len(depth_full_attrs)
+
+
+@pytest.mark.asyncio
 async def test_topological_sort(session: AsyncSession) -> None:
     """
     Test ``topological_sort``.
@@ -426,7 +588,7 @@ class TestGetDimensionDagIndegree:
             name="default.deactivated_dim",
             type=NodeType.DIMENSION,
             created_by_id=current_user.id,
-            deactivated_at=datetime.datetime.now(datetime.timezone.utc),
+            deactivated_at=datetime.datetime.now(datetime.UTC),
         )
         session.add(dim4)
         await session.commit()
@@ -442,6 +604,8 @@ class TestGetDimensionDagIndegree:
             (["default.fact1"], {"default.fact1": 0}),
             # Nonexistent node: should skip
             (["nonexistent.dim"], {}),
+            # No names requested: short-circuits without querying
+            ([], {}),
             # Deactivated dimension should not be included
             (
                 ["default.dim1", "default.fact1", "default.deactivated_dim"],
@@ -465,6 +629,36 @@ class TestGetDimensionDagIndegree:
         assert result == expected
 
     @pytest.mark.asyncio
+    async def test_get_dimension_dag_indegree_issues_one_query(
+        self,
+        session: AsyncSession,
+        dimension_test_graph,
+        capture_queries: list[str],
+    ):
+        """
+        Indegrees must be resolved with a single aggregate query.
+
+        This previously hydrated full ORM ``Node`` objects just to map names to
+        ids, which dragged in each node's columns, parents, dimension links and
+        those links' dimensions. On a large instance ``GET /dimensions/`` spent
+        tens of seconds issuing hundreds of eager-load queries because of it.
+        """
+        node_names = [
+            "default.dim1",
+            "default.dim2",
+            "default.dim3",
+            "default.fact1",
+        ]
+        result = await get_dimension_dag_indegree(session, node_names)
+        assert result == {
+            "default.dim1": 1,
+            "default.dim2": 2,
+            "default.dim3": 0,
+            "default.fact1": 0,
+        }
+        assert len(capture_queries) == 1
+
+    @pytest.mark.asyncio
     async def test_node_downstreams_with_fanout(
         self,
         module__session: AsyncSession,
@@ -473,22 +667,20 @@ class TestGetDimensionDagIndegree:
         """
         Test getting downstream nodes using the BFS approach.
         """
-        expected_nodes = set(
-            [
-                "default.regional_level_agg",
-                "default.repair_orders_fact",
-                "default.repair_order",
-                "default.discounted_orders_rate",
-                "default.total_repair_order_discounts",
-                "default.avg_repair_order_discounts",
-                "default.avg_time_to_dispatch",
-                "default.regional_repair_efficiency",
-                "default.num_repair_orders",
-                "default.num_unique_hard_hats_approx",
-                "default.avg_repair_price",
-                "default.total_repair_cost",
-            ],
-        )
+        expected_nodes = {
+            "default.regional_level_agg",
+            "default.repair_orders_fact",
+            "default.repair_order",
+            "default.discounted_orders_rate",
+            "default.total_repair_order_discounts",
+            "default.avg_repair_order_discounts",
+            "default.avg_time_to_dispatch",
+            "default.regional_repair_efficiency",
+            "default.num_repair_orders",
+            "default.num_unique_hard_hats_approx",
+            "default.avg_repair_price",
+            "default.total_repair_cost",
+        }
 
         downstreams = await get_downstream_nodes(
             module__session,
@@ -2748,14 +2940,14 @@ async def test_get_dimensions_dag_surfaces_hidden_columns(
     UIs can filter on their end. Server-side query/validation paths must
     continue to see hidden columns.
     """
+    # Attribute types are seeded at startup; reuse them.
+    from sqlalchemy import select as _select
+
     from datajunction_server.database.attributetype import (
         AttributeType,
         ColumnAttribute,
     )
     from datajunction_server.models.attribute import ColumnAttributes
-
-    # Attribute types are seeded at startup; reuse them.
-    from sqlalchemy import select as _select
 
     hidden_attr = (
         await session.execute(
@@ -2869,13 +3061,13 @@ async def test_get_dimensions_surfaces_hidden_reference_link_columns(
     still surface the target column even when it carries the ``hidden``
     attribute — the attribute is a UI-only hint, not a server-side filter.
     """
+    from sqlalchemy import select as _select
+
     from datajunction_server.database.attributetype import (
         AttributeType,
         ColumnAttribute,
     )
     from datajunction_server.models.attribute import ColumnAttributes
-
-    from sqlalchemy import select as _select
 
     hidden_attr = (
         await session.execute(
@@ -2969,6 +3161,87 @@ async def test_get_dimensions_surfaces_hidden_reference_link_columns(
 
 
 @pytest.mark.asyncio
+async def test_get_dimension_attributes_skips_dangling_reference_link(
+    session: AsyncSession,
+    current_user: User,
+) -> None:
+    """
+    ``get_dimension_attributes`` batches candidate reference-link columns and
+    resolves each via ``build_reference_link``. When a column's
+    ``dimension_column`` no longer matches any column on the referenced
+    dimension node's current revision (e.g. the dimension was changed after
+    the link was created), ``build_reference_link`` returns ``None`` for that
+    column and it should simply be skipped, while other, still-valid
+    reference-link columns on the same node continue to surface normally.
+    """
+    dim_ref = Node(
+        name="dangling_ref.D",
+        type=NodeType.DIMENSION,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    dim_rev = NodeRevision(
+        node=dim_ref,
+        name=dim_ref.name,
+        type=dim_ref.type,
+        display_name="dangling_ref.D",
+        version="1",
+        columns=[Column(name="visible_col", type=StringType(), order=0)],
+        created_by_id=current_user.id,
+    )
+    dim_ref.current = dim_rev
+    session.add(dim_rev)
+    session.add(dim_ref)
+    await session.flush()
+
+    src_ref = Node(
+        name="dangling_ref.A",
+        type=NodeType.SOURCE,
+        current_version="1",
+        created_by_id=current_user.id,
+    )
+    src_rev = NodeRevision(
+        node=src_ref,
+        name=src_ref.name,
+        type=src_ref.type,
+        display_name="dangling_ref.A",
+        version="1",
+        columns=[
+            # Valid reference link: dimension_column matches a real column.
+            Column(
+                name="d_visible",
+                type=StringType(),
+                order=0,
+                dimension=dim_ref,
+                dimension_column="visible_col",
+            ),
+            # Dangling reference link: dimension_column no longer exists on
+            # the referenced dimension node's current columns.
+            Column(
+                name="d_missing",
+                type=StringType(),
+                order=1,
+                dimension=dim_ref,
+                dimension_column="does_not_exist_col",
+            ),
+        ],
+        created_by_id=current_user.id,
+    )
+    src_ref.current = src_rev
+    session.add(src_rev)
+    session.add(src_ref)
+    await session.commit()
+
+    attrs = await get_dimension_attributes(session, "dangling_ref.A")
+    names = {a.name for a in attrs}
+
+    assert "dangling_ref.D.visible_col" in names
+    assert not any(
+        name.startswith("dangling_ref.D.does_not_exist_col") for name in names
+    )
+
+
+@pytest.mark.asyncio
 async def test_build_reference_link_returns_attribute(
     session: AsyncSession,
     current_user: User,
@@ -3044,12 +3317,13 @@ async def test_build_reference_link_surfaces_hidden_target_column(
     column is marked ``hidden``; the attribute flows through ``properties``
     so the UI can decide whether to display it.
     """
+    from sqlalchemy import select as _select
+
     from datajunction_server.database.attributetype import (
         AttributeType,
         ColumnAttribute,
     )
     from datajunction_server.models.attribute import ColumnAttributes
-    from sqlalchemy import select as _select
 
     hidden_attr = (
         await session.execute(

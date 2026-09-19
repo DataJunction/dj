@@ -1,15 +1,17 @@
 """Base client dataclasses."""
 
+from __future__ import annotations
+
+import sys
 from dataclasses import MISSING, fields, is_dataclass
 from types import UnionType
 from typing import (
     TYPE_CHECKING,
     Any,
-    Dict,
-    Optional,
-    Type,
+    Self,
     TypeVar,
     Union,
+    cast,
     get_args,
     get_origin,
 )
@@ -28,22 +30,25 @@ class SerializableMixin:  # pylint: disable=too-few-public-methods
 
     @staticmethod
     def _serialize_nested(
-        field_type: Type,
+        field_type: type,
         field_value: Any,
-        dj_client: Optional["DJClient"],
+        dj_client: DJClient | None,
     ):
         """
         Handle nested field serialization
         """
         if is_dataclass(field_type) and isinstance(field_value, dict):
-            return field_type.from_dict(dj_client, field_value)
+            return cast(type[SerializableMixin], field_type).from_dict(
+                dj_client,
+                field_value,
+            )
         return field_value
 
     @staticmethod
     def _serialize_list(
-        field_type: Type,
+        field_type: type,
         field_value: Any,
-        dj_client: Optional["DJClient"],
+        dj_client: DJClient | None,
     ):
         """
         Handle serialization of lists of both primitive and dataclass object types
@@ -74,10 +79,10 @@ class SerializableMixin:  # pylint: disable=too-few-public-methods
 
     @classmethod
     def from_dict(
-        cls: Type[T],
-        dj_client: Optional["DJClient"],
-        data: Dict[str, Any],
-    ) -> T:
+        cls,
+        dj_client: DJClient | None,
+        data: dict[str, Any],
+    ) -> Self:
         """
         Create an instance of the given dataclass `cls` from a dictionary `data`.
         This will handle nested dataclasses and optional types.
@@ -90,14 +95,26 @@ class SerializableMixin:  # pylint: disable=too-few-public-methods
             if field.name == "dj_client":
                 continue
 
-            # Resolve optional types to their inner type
+            # `from __future__ import annotations` makes `field.type` a string;
+            # evaluate it in the defining module's namespace to get the real
+            # type. Forward refs only importable under TYPE_CHECKING (e.g. a
+            # "DJBuilder" used solely for static typing) can't be resolved
+            # here, so fall back to the raw string and skip nested conversion.
             field_type = field.type
+            if isinstance(field_type, str):
+                try:
+                    field_type = eval(  # pylint: disable=eval-used
+                        field_type,
+                        vars(sys.modules[cls.__module__]),
+                        None,
+                    )
+                except NameError:  # pragma: no cover
+                    pass
+
             origin = get_origin(field_type)
             if origin in (Union, UnionType):
                 field_type = next(  # pragma: no cover
-                    typ
-                    for typ in get_args(field_type)
-                    if typ is not type(None)  # noqa
+                    typ for typ in get_args(field_type) if typ is not type(None)
                 )
 
             # Serialize field value
@@ -118,6 +135,6 @@ class SerializableMixin:  # pylint: disable=too-few-public-methods
                 field.name not in field_values or field_values[field.name] is None
             ) and field.default is not MISSING:
                 field_values[field.name] = field.default
-        if is_dataclass(cls) and "dj_client" in cls.__dataclass_fields__.keys():  # type: ignore
+        if is_dataclass(cls) and "dj_client" in cls.__dataclass_fields__:  # type: ignore
             return cls(dj_client=dj_client, **field_values)  # type: ignore
         return cls(**field_values)

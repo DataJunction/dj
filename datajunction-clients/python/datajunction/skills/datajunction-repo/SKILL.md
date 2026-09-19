@@ -3,19 +3,24 @@ name: datajunction-repo
 description: |
   Activate this skill when authoring DataJunction (DJ) nodes via YAML files
   in a git repository — the repo-backed workflow. Covers YAML schemas per
-  node type, branch-based development, temporal partitions on cubes, and
-  the full PR-driven deployment flow. For modeling decisions (how to
-  structure metrics, decomposition workflow), invoke `datajunction-semantic-model`.
-  For direct API authoring, invoke `datajunction-api`. For concepts,
-  invoke `datajunction`.
+  node type, branch-based development, temporal partitions on cubes,
+  registering pre-aggregations / aggregate awareness, and the full
+  PR-driven deployment flow.
   Keywords:
   - YAML nodes, YAML definitions
   - repo-backed namespace, repo-backed workflow
   - git workflow, branch development, feature branch
   - cube YAML, metric YAML, dimension YAML, transform YAML
-  - create metric, create dimension, create cube, build cube
+  - add a metric YAML file, add a dimension YAML file, add a cube YAML file
   - temporal partition, partition pushdown
   - pre-commit, push.sh
+  - pre-aggregation, pre-agg, preagg, kind: preagg
+  - aggregate awareness, aggregate navigation, query routing
+  - external pre-aggregation, externally-built aggregate, registered aggregate
+  - multiple tables for a metric, fact table and agg table, fact/agg hierarchy
+  - summary table, rollup table, agg table, materialized aggregate
+  - metrics map, dimensions map, column binding, valid_through_ts, availability
+  - freshness, join back, retained key
 user-invocable: false
 ---
 
@@ -183,7 +188,7 @@ query: |
 # nodes/sources/transactions.yaml
 name: finance.transactions
 description: Raw transaction data from payment system
-node_type: source
+type: source
 catalog: prod_catalog
 schema_: finance
 table: transactions_table
@@ -227,7 +232,7 @@ mode: published
 # nodes/dimensions/user.yaml
 name: finance.user
 description: User dimension with attributes
-node_type: dimension
+type: dimension
 query: |
   SELECT
     user_id,
@@ -281,7 +286,7 @@ mode: published
 # nodes/metrics/revenue.yaml
 name: finance.total_revenue
 description: Total revenue from completed transactions
-node_type: metric
+type: metric
 query: |
   SELECT
     SUM(
@@ -319,7 +324,7 @@ mode: published
 # nodes/transforms/clean_transactions.yaml
 name: finance.clean_transactions
 description: Cleaned transaction data with standardized status
-node_type: transform
+type: transform
 primary_key:
   - transaction_id
 query: |
@@ -557,6 +562,63 @@ columns:
 
 ---
 
+## Pre-Aggregations / Aggregate Awareness
+
+One concept, many names — all of these mean the same thing: **aggregate awareness**,
+**aggregate navigation**, **query routing**, **pre-aggregations** / **pre-aggs**,
+**external** or **registered aggregates**, **multiple tables for a metric** (a raw
+fact table plus coarser aggregates), **summary tables**, **rollup tables**, **agg
+tables**, **materialized aggregates**, **fact/agg hierarchy**, **last-mile** and
+**intermediate aggregates**.
+
+A metric is defined once against its fact table; the same numbers often exist
+pre-summed in coarser tables. Register those tables and DJ picks per query which to
+read, falling back to the fact table when no aggregate can answer correctly.
+
+**The rules live in the docs, not here** — see
+[Query Routing & Aggregate Awareness](https://datajunction.io/docs/0.1.0/dj-concepts/query-routing-aggregate-awareness/)
+for the `kind: preagg` schema (`metrics` and `dimensions` are maps from each
+reference to the physical column holding it), what makes a metric mappable,
+role-qualified dimension references, freshness reporting, and the current limitations. Read it before registering anything; the rules that decide
+whether your table actually gets used are not guessable.
+
+### The one thing to get right before you author metrics
+
+A pre-agg's `metrics` map binds a **metric to one column**, so a metric decomposing
+into more than one component can never be bound to an aggregate — and its components are
+auto-named with a hash suffix that YAML cannot address. `SUM(revenue) /
+COUNT(DISTINCT view_id)` as a single node is unmappable forever; fixing it means
+refactoring a node other teams may already query.
+
+So **give every aggregation primitive its own metric node** and compose ratios as
+derived metrics referencing them. Free if done from the start, expensive to retrofit,
+worth doing even before an aggregate table exists.
+
+### Repo-specific traps
+
+**Declare partitions in YAML, never through the API.** A temporal partition on the
+parent's date column is what lets DJ reason about when an aggregate's data ends:
+
+```yaml
+columns:
+  - name: activity_date
+    type: int
+    partition:
+      type: temporal
+      granularity: day
+      format: yyyyMMdd
+```
+
+`POST /nodes/{node}/columns/{col}/partition/` works, but the next deploy recreates
+the node from YAML and reverts it — and without a temporal partition column,
+freshness checks have no axis and silently do nothing.
+
+**A parent-node edit strands its aggregates.** Registrations are keyed by node
+revision, so even a description-only change re-registers them at a new revision. A
+repo deploy re-creates the binding, but **availability is not restored** — until the
+pipeline re-reports it, the aggregate is unused and every query silently reverts to
+the fact table.
+
 ## Complete Workflow Example
 
 **Scenario**: Add a new metric to the finance namespace.
@@ -598,7 +660,7 @@ git checkout feature-add-churn-metric
 cat > nodes/metrics/churn_rate.yaml <<'EOF'
 name: finance.churn_rate
 description: Monthly user churn rate
-node_type: metric
+type: metric
 query: |
   SELECT
     CAST(SUM(CASE WHEN churned = true THEN 1 ELSE 0 END) AS DOUBLE) /

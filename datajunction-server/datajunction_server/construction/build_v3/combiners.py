@@ -18,35 +18,33 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
 
-from datajunction_server.models.decompose import MetricComponent
+from datajunction_server.construction.build_v3.builder import build_measures_sql
+from datajunction_server.construction.build_v3.cte import (
+    process_metric_combiner_expression,
+)
 from datajunction_server.construction.build_v3.preagg_matcher import (
     get_temporal_partitions,
 )
+from datajunction_server.construction.build_v3.types import GrainGroupSQL
+from datajunction_server.construction.build_v3.utils import build_join_from_clause
 from datajunction_server.database.preaggregation import (
     PreAggregation,
     compute_expression_hash,
     compute_grain_group_hash,
     compute_preagg_hash_from_hashes,
+    get_measure_identities,
+    measure_identity_token,
 )
-
-from datajunction_server.construction.build_v3.cte import (
-    process_metric_combiner_expression,
-)
-from datajunction_server.construction.build_v3.types import GrainGroupSQL
-from datajunction_server.construction.build_v3.utils import build_join_from_clause
+from datajunction_server.errors import DJWarning
 from datajunction_server.models.column import SemanticType
+from datajunction_server.models.decompose import MetricComponent
+from datajunction_server.models.dialect import Dialect
+from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.models.query import V3ColumnMetadata
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import render_for_dialect, to_sql
-from datajunction_server.construction.build_v3.builder import build_measures_sql
-from datajunction_server.models.dialect import Dialect
-from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.utils import get_settings
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +63,7 @@ class CombinedGrainGroupResult:
     shared_dimensions: list[str]  # Dimension columns used in JOIN
     all_measures: list[str]  # All measure columns in output
     # Metric components with aggregation info (for materialization)
-    measure_components: list["MetricComponent"] = field(default_factory=list)
+    measure_components: list[MetricComponent] = field(default_factory=list)
     # Mapping from component name to output column alias
     # e.g., {"account_id_hll_e7b21ce4": "approx_unique_accounts_rating"}
     component_aliases: dict[str, str] = field(default_factory=dict)
@@ -74,6 +72,9 @@ class CombinedGrainGroupResult:
     metric_combiners: dict[str, str] = field(default_factory=dict)
     # Dialect for rendering SQL (used for dialect-specific function names)
     dialect: Dialect = Dialect.SPARK
+    # Build warnings (e.g. fan-out risk), set from the ctx sink so the pre-agg/cube
+    # endpoints (which hold only this result, not the ctx) can surface them.
+    warnings: list[DJWarning] = field(default_factory=list)
 
     @property
     def sql(self) -> str:
@@ -511,7 +512,7 @@ class PreAggSourceInfo:
 
     table_ref: str  # Fully qualified table name (catalog.schema.table)
     parent_name: str  # The node this pre-agg derives from
-    strategy: "MaterializationStrategy | None" = (
+    strategy: MaterializationStrategy | None = (
         None  # None when no PreAggregation record matched
     )
 
@@ -592,15 +593,22 @@ async def build_combiner_sql_from_preaggs(
             grain_group_hash,
         )
 
-        # Find a pre-agg that covers the required measures
-        # MetricComponent doesn't have expr_hash, so compute it from expression
-        required_measure_hashes = [
-            compute_expression_hash(m.expression) for m in gg.components if m.expression
+        # Find a pre-agg covering the required measures, compared by identity
+        # token so a SUM-backed pre-agg isn't mistaken for a MAX-backed one.
+        # MetricComponent has no expr_hash, so compute it from the expression.
+        required_measure_identities = [
+            measure_identity_token(
+                compute_expression_hash(m.expression),
+                m.aggregation,
+            )
+            for m in gg.components
+            if m.expression
         ]
         matching_preagg = None
         for preagg in preaggs:
-            existing_hashes = {m.expr_hash for m in preagg.measures if m.expr_hash}
-            if set(required_measure_hashes) <= existing_hashes:
+            if set(required_measure_identities) <= get_measure_identities(
+                preagg.measures,
+            ):
                 matching_preagg = preagg
                 break
 
@@ -622,7 +630,7 @@ async def build_combiner_sql_from_preaggs(
             preagg_hash = compute_preagg_hash_from_hashes(
                 node_revision_id,
                 grain_columns_for_hash,
-                required_measure_hashes,
+                required_measure_identities,
             )
 
         # Use the preagg_hash for the table name (includes measures)
@@ -697,6 +705,10 @@ async def build_combiner_sql_from_preaggs(
             tp.column_name == first.column_name for tp in temporal_partitions_found
         ):
             temporal_partition_info = first
+
+    # Carry warnings from the ctx sink onto the combined result: the pre-agg/cube
+    # endpoints hold only this result, not the ctx.
+    combined_result.warnings = result.warnings
 
     # Reorder columns so partition column is last
     # This is required for Hive/Spark INSERT OVERWRITE ... PARTITION (col) syntax
@@ -805,6 +817,7 @@ def _reorder_partition_column_last(
             component_aliases=result.component_aliases,
             metric_combiners=result.metric_combiners,
             dialect=result.dialect,
+            warnings=result.warnings,
         )
 
     return result

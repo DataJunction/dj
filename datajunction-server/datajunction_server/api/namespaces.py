@@ -5,20 +5,56 @@ Node namespace related APIs.
 import io
 import logging
 import zipfile
+from collections.abc import Callable
 from http import HTTPStatus
-from typing import Callable, Dict, List, Optional
 
 import yaml
-from fastapi import Depends, Query, BackgroundTasks, Request, Response, UploadFile, File
+from fastapi import BackgroundTasks, Depends, File, Query, Request, Response, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
-from sqlalchemy import or_, select, func
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import get_node_namespace, get_save_history
-from datajunction_server.database.node import Node
 from datajunction_server.database.namespace import NodeNamespace
+from datajunction_server.database.node import Node
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJAlreadyExistsException, DJInvalidInputException
+from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.internal.access.authorization import (
+    AccessChecker,
+    AccessDenialMode,
+    get_access_checker,
+)
+from datajunction_server.internal.git.github_service import (
+    GitHubService,
+    GitHubServiceError,
+)
+from datajunction_server.internal.git.yaml_export import (
+    fetch_existing_yaml_map,
+    generate_namespace_yaml_files,
+)
+from datajunction_server.internal.namespaces import (
+    create_or_reactivate_namespace,
+    detect_parent_cycle,
+    get_git_info_for_namespace,
+    get_node_specs_for_export,
+    get_nodes_in_namespace,
+    get_nodes_in_namespace_detailed,
+    get_project_config,
+    get_sources_for_namespace,
+    get_sources_for_namespaces_bulk,
+    hard_delete_namespace,
+    mark_namespace_deactivated,
+    mark_namespace_restored,
+    namespace_boundary_scope_targets,
+    namespaces_to_authorize,
+    provision_namespace_boundary,
+    resolve_git_config,
+    validate_git_path,
+    validate_sibling_relationship,
+)
+from datajunction_server.internal.nodes import activate_node, deactivate_node
+from datajunction_server.models import access
 from datajunction_server.models.access import ResourceAction
 from datajunction_server.models.deployment import (
     BulkNamespaceSourcesRequest,
@@ -27,36 +63,11 @@ from datajunction_server.models.deployment import (
     NamespaceGitConfig,
     NamespaceSourcesResponse,
 )
-
-from datajunction_server.internal.access.authentication.http import SecureAPIRouter
-from datajunction_server.internal.git.yaml_export import (
-    fetch_existing_yaml_map,
-    generate_namespace_yaml_files,
+from datajunction_server.models.namespace import (
+    NamespaceProvisionRequest,
+    NamespaceProvisionResponse,
+    NamespaceWriteStatus,
 )
-from datajunction_server.internal.access.authorization import (
-    AccessChecker,
-    get_access_checker,
-    AccessDenialMode,
-)
-from datajunction_server.internal.namespaces import (
-    create_namespace,
-    get_git_info_for_namespace,
-    get_nodes_in_namespace,
-    get_nodes_in_namespace_detailed,
-    get_project_config,
-    hard_delete_namespace,
-    mark_namespace_deactivated,
-    mark_namespace_restored,
-    get_sources_for_namespace,
-    get_sources_for_namespaces_bulk,
-    get_node_specs_for_export,
-    detect_parent_cycle,
-    resolve_git_config,
-    validate_sibling_relationship,
-    validate_git_path,
-)
-from datajunction_server.internal.nodes import activate_node, deactivate_node
-from datajunction_server.models import access
 from datajunction_server.models.node import (
     NamespaceOutput,
     NodeMinimumDetail,
@@ -82,78 +93,107 @@ router = SecureAPIRouter(tags=["namespaces"])
 @router.post("/namespaces/{namespace}/", status_code=HTTPStatus.CREATED)
 async def create_node_namespace(
     namespace: str,
-    include_parents: Optional[bool] = False,
+    include_parents: bool | None = False,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     *,
     save_history: Callable = Depends(get_save_history),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> JSONResponse:
     """
     Create a node namespace
     """
-    if node_namespace := await NodeNamespace.get(
+    # A namespace write is governed by the namespace itself, matching node creation
+    # and register_table. include_parents can add ancestors too, so authorize every
+    # namespace this request would create or reactivate.
+    targets = await namespaces_to_authorize(
         session,
         namespace,
-        raise_if_not_exists=False,
-    ):  # pragma: no cover
-        if node_namespace.deactivated_at:
-            node_namespace.deactivated_at = None
-            session.add(node_namespace)
-            await session.commit()
-            return JSONResponse(
-                status_code=HTTPStatus.CREATED,
-                content={
-                    "message": (
-                        "The following node namespace has been successfully reactivated: "
-                        + namespace
-                    ),
-                },
-            )
-        return JSONResponse(
-            status_code=409,
-            content={
-                "message": f"Node namespace `{namespace}` already exists",
-            },
-        )
-    # Block creating child namespaces under a git root — only branch namespaces
-    # (configured via PATCH /namespaces/{name}/git with parent_namespace + git_branch)
-    # are allowed there.
-    parent = namespace.rsplit(".", 1)[0] if "." in namespace else None
-    if parent:
-        parent_ns = await NodeNamespace.get(session, parent, raise_if_not_exists=False)
-        if parent_ns and parent_ns.github_repo_path and parent_ns.git_branch is None:
-            raise DJInvalidInputException(
-                message=(
-                    f"Cannot create namespace '{namespace}' under git root '{parent}'. "
-                    "Create a new branch under this namespace instead."
-                ),
-            )
+        include_parents=bool(include_parents),
+    )
+    access_checker.add_namespaces(targets, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
-    created_namespaces = await create_namespace(
-        session=session,
+    result = await create_or_reactivate_namespace(
         namespace=namespace,
-        include_parents=include_parents,  # type: ignore
+        include_parents=bool(include_parents),
+        session=session,
         current_user=current_user,
         save_history=save_history,
+        creator_owned_namespace_patterns=settings.creator_owned_namespace_patterns,
     )
+    if result.status == NamespaceWriteStatus.ALREADY_EXISTS:
+        return JSONResponse(
+            status_code=HTTPStatus.CONFLICT,
+            content={"message": f"Node namespace `{namespace}` already exists"},
+        )
+    if result.status == NamespaceWriteStatus.REACTIVATED:  # pragma: no cover
+        return JSONResponse(
+            status_code=HTTPStatus.CREATED,
+            content={
+                "message": (
+                    "The following node namespace has been successfully reactivated: "
+                    + namespace
+                ),
+            },
+        )
     return JSONResponse(
         status_code=HTTPStatus.CREATED,
         content={
             "message": (
                 "The following node namespaces have been successfully created: "
-                + ", ".join(created_namespaces)
+                + ", ".join(result.namespaces)
             ),
         },
     )
 
 
+@router.post(
+    "/namespaces/{namespace}/provision",
+    response_model=NamespaceProvisionResponse,
+    status_code=HTTPStatus.CREATED,
+)
+async def provision_node_namespace(
+    namespace: str,
+    provisioning: NamespaceProvisionRequest,
+    *,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    access_checker: AccessChecker = Depends(get_access_checker),
+) -> NamespaceProvisionResponse:
+    """
+    Provision a governed namespace boundary for an owner group and deployers.
+
+    Provisioning requires a new namespace. Restore a deactivated governed
+    namespace through ``POST /namespaces/{namespace}/restore/`` so its existing
+    roles and assignments remain attached.
+    """
+    for scope_type, scope_value in namespace_boundary_scope_targets(namespace):
+        access_checker.add_scope(
+            scope_type,
+            scope_value,
+            ResourceAction.MANAGE,
+        )
+    await access_checker.check(
+        on_denied=AccessDenialMode.RAISE,
+        require_explicit_grant=True,
+    )
+    return await provision_namespace_boundary(
+        session=session,
+        namespace=namespace,
+        current_user=current_user,
+        owner_group=provisioning.owner_group,
+        deployer_service_accounts=provisioning.deployer_service_accounts,
+    )
+
+
 @router.get(
     "/namespaces/",
-    response_model=List[NamespaceOutput],
+    response_model=list[NamespaceOutput],
     status_code=200,
 )
 async def list_namespaces(
-    git_backed: Optional[bool] = Query(
+    git_backed: bool | None = Query(
         default=None,
         description=(
             "Filter to namespaces by git backing. ``true`` returns only "
@@ -163,7 +203,7 @@ async def list_namespaces(
     ),
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> List[NamespaceOutput]:
+) -> list[NamespaceOutput]:
     """
     List namespaces with node counts and git repository information
     """
@@ -202,12 +242,12 @@ async def list_namespaces(
 
 @router.get(
     "/namespaces/{namespace}/",
-    response_model=List[NodeMinimumDetail],
+    response_model=list[NodeMinimumDetail],
     status_code=HTTPStatus.OK,
 )
 async def list_nodes_in_namespace(
     namespace: str,
-    type_: Optional[NodeType] = Query(
+    type_: NodeType | None = Query(
         default=None,
         description="Filter the list of nodes to this type",
     ),
@@ -217,7 +257,7 @@ async def list_nodes_in_namespace(
     ),
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> List[NodeMinimumDetail]:
+) -> list[NodeMinimumDetail]:
     """
     List node names in namespace, filterable to a given type if desired.
     """
@@ -268,7 +308,10 @@ async def deactivate_a_namespace(
     """
     Deactivates a node namespace
     """
-    access_checker.add_namespace(namespace, ResourceAction.WRITE)
+    # Deactivation is a delete-class operation (it can cascade-delete nodes), so
+    # it requires DELETE -- matching node deactivation and namespace hard-delete,
+    # not the weaker WRITE.
+    access_checker.add_namespace(namespace, ResourceAction.DELETE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     node_namespace = await NodeNamespace.get(
@@ -438,6 +481,8 @@ async def hard_delete_node_namespace(
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
     access_checker: AccessChecker = Depends(get_access_checker),
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    request: Request,
 ) -> JSONResponse:
     """
     Hard delete a namespace, which will completely remove the namespace. Additionally,
@@ -477,6 +522,8 @@ async def hard_delete_node_namespace(
         cascade=cascade,
         current_user=current_user,
         save_history=save_history,
+        query_service_client=query_service_client,
+        request_headers=dict(request.headers),
     )
     return JSONResponse(
         status_code=HTTPStatus.OK,
@@ -496,7 +543,7 @@ async def export_a_namespace(
     *,
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> List[Dict]:
+) -> list[dict]:
     """
     Generates a zip of YAML files for the contents of the given namespace
     as well as a project definition file.
@@ -542,7 +589,7 @@ async def export_namespace_spec(
 )
 async def export_namespace_yaml(
     namespace: str,
-    existing_zip: Optional[UploadFile] = File(None),
+    existing_zip: UploadFile | None = File(None),
     *,
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
@@ -567,7 +614,7 @@ async def export_namespace_yaml(
         # Merge with client-provided files. Re-add git_path prefix so keys match
         # what _node_spec_to_file_path produces.
         raw = await existing_zip.read()
-        existing_files_map: Dict[str, str] = {}
+        existing_files_map: dict[str, str] = {}
         with zipfile.ZipFile(io.BytesIO(raw)) as zf:
             for name in zf.namelist():
                 if name.endswith(".yaml"):
@@ -756,8 +803,12 @@ async def update_namespace_git_config(
     - git_path: Subdirectory in repo for node definitions (e.g., "definitions/")
     - parent_namespace: Parent namespace for branch namespaces (for PR targeting)
     - git_only: If True, UI edits are blocked; must edit via git deployments
+
+    Governed by MANAGE, not WRITE: this is control-plane configuration, so it can
+    repoint the namespace at another repo or block UI edits entirely, and it
+    auto-creates the namespace below.
     """
-    access_checker.add_namespace(namespace, ResourceAction.WRITE)
+    access_checker.add_namespace(namespace, ResourceAction.MANAGE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     # Get or create the namespace - auto-create if it doesn't exist
@@ -792,9 +843,6 @@ async def update_namespace_git_config(
         if config.parent_namespace is not None
         else node_namespace.parent_namespace
     )
-    new_git_only = (
-        config.git_only if config.git_only is not None else node_namespace.git_only
-    )
 
     # Early validations (independent of parent relationship)
     validate_git_path(new_path)
@@ -817,21 +865,13 @@ async def update_namespace_git_config(
                 "Remove parent_namespace if you want to configure this as a git root.",
             )
 
-    # Validate git_only - only meaningful for branch namespaces.
-    # Git root namespaces (those with github_repo_path) are auto-locked and do not
-    # need git_only to be set explicitly.
-    if new_git_only:
-        is_branch_namespace = new_parent and new_branch
-
-        if not is_branch_namespace:
-            raise DJInvalidInputException(
-                message=(
-                    "git_only is only applicable to branch namespaces that have "
-                    "parent_namespace and git_branch configured. "
-                    "Git root namespaces are automatically locked when "
-                    "github_repo_path is set."
-                ),
-            )
+    # git_only is a per-namespace lock and is valid on ANY namespace — flat,
+    # git root, or branch. Git roots are still auto-locked via is_git_root, but
+    # a flat git-backed namespace (one that does not follow the
+    # <namespace>.<branch> structure) can now be locked explicitly instead of
+    # silently staying UI-editable. Enforcement lives in
+    # check_namespace_not_git_only, which already honors the flag on any
+    # namespace and cascades to descendants.
 
     # Validate parent_namespace if provided
     if new_parent:
@@ -887,6 +927,62 @@ async def update_namespace_git_config(
                 "git location to avoid overwriting files.",
             )
 
+    # --- Git-config invariants (guard against the class of misconfiguration that
+    # silently strands namespaces on branches that don't exist). Only relevant when
+    # the branch is actually changing, so we skip the DB/GitHub lookups otherwise. ---
+    new_branch_val = config.git_branch or None
+    if config.git_branch is not None and new_branch_val != node_namespace.git_branch:
+        # Resolve the effective git config for THIS namespace before the update so
+        # the guards can reason about the default branch and the repo to check.
+        current_info = await get_git_info_for_namespace(session, namespace)
+        default_branch = (current_info or {}).get("default_branch")
+
+        # Guard 1: protect the canonical default-branch namespace. If this namespace
+        # is currently pinned to its repo's default branch, its git_branch must not
+        # be repointed to some other branch here — that is what corrupts the "main"
+        # view for everyone. Branch work belongs in Create Branch, which spins up a
+        # separate branch namespace instead of mutating the default one.
+        if default_branch and node_namespace.git_branch == default_branch:
+            raise DJInvalidInputException(
+                message=(
+                    f"'{namespace}' is pinned to the default branch "
+                    f"'{default_branch}' and its git branch cannot be repointed here. "
+                    f"Use Create Branch to make a new branch namespace instead of "
+                    f"changing the default branch."
+                ),
+            )
+
+        # Guard 2: the target branch must actually exist on the remote. A branch that
+        # was deleted (or never created) leaves the namespace pointing at a ghost ref,
+        # so every sync silently fails. Only enforced when GitHub is configured; if the
+        # API is unreachable we fail open rather than blocking namespace administration.
+        if new_branch_val and (settings.github_service_token or settings.github_app_id):
+            check_repo = new_repo
+            if not check_repo and new_parent:
+                check_repo, _, _ = await resolve_git_config(session, new_parent)
+            if check_repo:
+                try:
+                    exists = await GitHubService().branch_exists(
+                        check_repo,
+                        new_branch_val,
+                    )
+                except GitHubServiceError as exc:  # pragma: no cover
+                    _logger.warning(
+                        "Could not verify branch '%s' in '%s' (%s); allowing update.",
+                        new_branch_val,
+                        check_repo,
+                        exc,
+                    )
+                    exists = True
+                if not exists:
+                    raise DJInvalidInputException(
+                        message=(
+                            f"Branch '{new_branch_val}' does not exist in "
+                            f"'{check_repo}'. Create the branch on the remote (or use "
+                            f"Create Branch) before pointing this namespace at it."
+                        ),
+                    )
+
     # Update only provided fields (None means no change)
     if config.github_repo_path is not None:
         node_namespace.github_repo_path = config.github_repo_path or None
@@ -940,7 +1036,13 @@ async def delete_namespace_git_config(
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
 ):
-    access_checker.add_namespace(namespace, ResourceAction.WRITE)
+    """
+    Remove the git configuration for a namespace.
+
+    Governed by MANAGE, matching the update endpoint: unbinding a namespace from
+    its repo is control-plane configuration, not a content edit.
+    """
+    access_checker.add_namespace(namespace, ResourceAction.MANAGE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     node_namespace = await get_node_namespace(session, namespace)

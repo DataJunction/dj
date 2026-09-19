@@ -3,7 +3,6 @@ Cube materialization jobs
 """
 
 import logging
-from typing import Dict, Optional
 
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.node import NodeRevision
@@ -14,6 +13,7 @@ from datajunction_server.materialization.jobs.materialization_job import (
 from datajunction_server.models.cube_materialization import (
     DruidCubeConfig,
     DruidCubeMaterializationInput,
+    principal_refs,
 )
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import (
@@ -41,6 +41,8 @@ class DefaultCubeMaterialization(MaterializationJob):
         self,
         materialization: Materialization,
         query_service_client: QueryServiceClient,
+        request_headers: dict[str, str] | None = None,
+        is_branch_deploy: bool = False,
     ):
         """
         Since this is a settings-only dummy job, we do nothing in this stage.
@@ -59,7 +61,8 @@ class DruidMaterializationJob(MaterializationJob):
         self,
         materialization: Materialization,
         query_service_client: QueryServiceClient,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
+        is_branch_deploy: bool = False,
     ) -> MaterializationInfo:
         """
         Use the query service to kick off the materialization setup.
@@ -133,7 +136,8 @@ class DruidCubeMaterializationJob(DruidMaterializationJob, MaterializationJob):
         self,
         materialization: Materialization,
         query_service_client: QueryServiceClient,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
+        is_branch_deploy: bool = False,
     ) -> MaterializationInfo:
         """
         Use the query service to kick off the materialization setup.
@@ -147,6 +151,7 @@ class DruidCubeMaterializationJob(DruidMaterializationJob, MaterializationJob):
             "Scheduling DruidCubeMaterializationJob for node=%s",
             cube_config.cube,
         )
+        revision = materialization.node_revision
         return query_service_client.materialize_cube(
             materialization_input=DruidCubeMaterializationInput(
                 name=materialization.name,
@@ -157,8 +162,13 @@ class DruidCubeMaterializationJob(DruidMaterializationJob, MaterializationJob):
                 schedule=materialization.schedule,
                 job=materialization.job,
                 lookback_window=cube_config.lookback_window,
+                retention=cube_config.retention,
+                owners=principal_refs(revision.node.owners),
+                custom_metadata=revision.custom_metadata,
+                platform=cube_config.platform,
                 measures_materializations=cube_config.measures_materializations,
                 combiners=cube_config.combiners,
+                is_branch_deploy=is_branch_deploy,
             ),
             request_headers=request_headers,
         )
@@ -190,7 +200,8 @@ def build_materialization_query(
         temporal_partition_col = [
             col
             for col in cube_materialization_query_ast.select.projection
-            if col.alias_or_name.name == amenable_name(temporal_partitions[0].name)  # type: ignore
+            if col.alias_or_name.name  # type: ignore
+            == amenable_name(temporal_partitions[0].cube_element_name)
         ]
         temporal_op = (
             ast.BinaryOp(
@@ -220,13 +231,15 @@ def build_materialization_query(
                 col
                 for col in cube_materialization_query_ast.select.projection
                 if col.alias_or_name.name  # type: ignore
-                == amenable_name(categorical_partitions[0].name)  # type: ignore
+                == amenable_name(categorical_partitions[0].cube_element_name)
             ]
             categorical_op = ast.BinaryOp(
                 left=ast.Column(
                     name=ast.Name(categorical_partition_col[0].alias_or_name.name),  # type: ignore
                 ),
-                right=categorical_partitions[0].partition.categorical_expression(),
+                right=categorical_partitions[0].partition.categorical_expression(
+                    categorical_partitions[0].cube_element_name,
+                ),
                 op=ast.BinaryOpKind.Eq,
             )
             final_query.select.where = ast.BinaryOp(

@@ -1,8 +1,8 @@
 """History database schema."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import partial
-from typing import Any, Dict, Optional
+from typing import Any
 
 from sqlalchemy import (
     JSON,
@@ -35,24 +35,24 @@ class History(Base):
         BigInteger().with_variant(Integer, "sqlite"),
         primary_key=True,
     )
-    entity_type: Mapped[Optional[EntityType]] = mapped_column(
+    entity_type: Mapped[EntityType | None] = mapped_column(
         Enum(EntityType),
         default=None,
     )
-    entity_name: Mapped[Optional[str]] = mapped_column(String, default=None)
-    node: Mapped[Optional[str]] = mapped_column(String, default=None)
-    version: Mapped[Optional[str]] = mapped_column(String, default=None)
-    activity_type: Mapped[Optional[ActivityType]] = mapped_column(
+    entity_name: Mapped[str | None] = mapped_column(String, default=None)
+    node: Mapped[str | None] = mapped_column(String, default=None)
+    version: Mapped[str | None] = mapped_column(String, default=None)
+    activity_type: Mapped[ActivityType | None] = mapped_column(
         Enum(ActivityType),
         default=None,
     )
-    user: Mapped[Optional[str]] = mapped_column(String, default=None)
-    pre: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, default=dict)
-    post: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, default=dict)
-    details: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, default=dict)
+    user: Mapped[str | None] = mapped_column(String, default=None)
+    pre: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=dict)
+    post: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=dict)
+    details: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=dict)
     created_at: Mapped[UTCDatetime] = mapped_column(
         DateTime(timezone=True),
-        insert_default=partial(datetime.now, timezone.utc),
+        insert_default=partial(datetime.now, UTC),
     )
 
     def __hash__(self) -> int:

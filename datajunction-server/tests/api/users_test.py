@@ -79,3 +79,74 @@ class TestUsers:
             ("default.avg_time_to_dispatch", "metric"),
         }
         assert expected_roads_nodes.issubset(actual_nodes)
+
+    @pytest.mark.asyncio
+    async def test_list_nodes_by_user_no_history(
+        self,
+        module__client_with_roads: AsyncClient,
+    ) -> None:
+        """
+        Test ``GET /users/{username}`` for a user with no matching history
+        returns an empty list without querying nodes/tags/history further.
+        """
+
+        response = await module__client_with_roads.get(
+            "/users/a-user-with-no-history-whatsoever",
+        )
+        assert response.status_code == 200
+        assert response.json() == []
+
+    @pytest.mark.asyncio
+    async def test_list_nodes_by_user_tags_and_edited_by(
+        self,
+        client_with_roads: AsyncClient,
+    ) -> None:
+        """
+        Test that ``GET /users/{username}`` includes tags on nodes the user
+        has touched, and correctly populates `edited_by` from history (rather
+        than always returning it empty).
+        """
+
+        # Create a tag and attach it to a node created by the `dj` user
+        tag_response = await client_with_roads.post(
+            "/tags/",
+            json={
+                "name": "user_activity_tag",
+                "description": "A tag for testing user activity",
+                "tag_type": "test",
+            },
+        )
+        assert tag_response.status_code == 201
+
+        tag_node_response = await client_with_roads.post(
+            "/nodes/default.hard_hat/tags/?tag_names=user_activity_tag",
+        )
+        assert tag_node_response.status_code == 200
+
+        response = await client_with_roads.get("/users/dj")
+        assert response.status_code == 200
+        nodes_by_name = {node["name"]: node for node in response.json()}
+        hard_hat_node = nodes_by_name["default.hard_hat"]
+        assert hard_hat_node["tags"] == [{"name": "user_activity_tag"}]
+        assert hard_hat_node["edited_by"] == ["dj"]
+
+    @pytest.mark.asyncio
+    async def test_list_nodes_by_user_excludes_deactivated(
+        self,
+        client_with_roads: AsyncClient,
+    ) -> None:
+        """
+        Test that ``GET /users/{username}`` omits nodes the user touched that
+        have since been deactivated.
+        """
+
+        response = await client_with_roads.get("/users/dj")
+        assert response.status_code == 200
+        assert "default.hard_hat" in {node["name"] for node in response.json()}
+
+        delete_response = await client_with_roads.delete("/nodes/default.hard_hat")
+        assert delete_response.status_code == 200
+
+        response = await client_with_roads.get("/users/dj")
+        assert response.status_code == 200
+        assert "default.hard_hat" not in {node["name"] for node in response.json()}

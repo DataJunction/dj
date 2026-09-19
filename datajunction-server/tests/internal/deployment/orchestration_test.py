@@ -2,60 +2,75 @@
 Unit tests for DeploymentOrchestrator
 """
 
+from datetime import UTC, date
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
 import pytest
 from sqlalchemy import select
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
-from datajunction_server.internal.deployment.orchestrator import (
-    DeploymentOrchestrator,
-)
-from datajunction_server.internal.deployment.utils import DeploymentContext
-from datajunction_server.internal.deployment.validation import (
-    CubeValidationData,
-)
+from datajunction_server.database.availabilitystate import AvailabilityState
+from datajunction_server.database.backfill import Backfill
 from datajunction_server.database.catalog import Catalog
-from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.column import Column
-from datajunction_server.models.partition import Granularity
-
-from datajunction_server.internal.deployment.utils import DeploymentContext
+from datajunction_server.database.dimensionlink import (
+    JoinCardinality,
+    JoinType,
+)
+from datajunction_server.database.materialization import Materialization
+from datajunction_server.database.namespace import NodeNamespace
+from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.partition import Partition
+from datajunction_server.database.tag import Tag
+from datajunction_server.database.user import OAuthProvider, User
+from datajunction_server.errors import DJError, DJInvalidDeploymentConfig, ErrorCode
+from datajunction_server.internal.deployment.fingerprints import (
+    SemanticFingerprintGraph,
+)
 from datajunction_server.internal.deployment.orchestrator import (
     DeploymentOrchestrator,
     DeploymentPlan,
     ResourceRegistry,
     column_changed,
+    tag_needs_update,
 )
+from datajunction_server.internal.deployment.utils import DeploymentContext
 from datajunction_server.internal.deployment.validation import (
+    CubeValidationData,
     NodeValidationResult,
 )
-from datajunction_server.models.deployment import (
-    ColumnSpec,
-    DeploymentSpec,
-    PartitionType,
-    PartitionSpec,
-    TagSpec,
+from datajunction_server.internal.materializations import (
+    CoverageBackfill,
+    CubeMaterializationSwap,
+    CubeMaterializationSwapOutcome,
+    coverage_backfill,
+    record_backfill,
 )
 from datajunction_server.models.deployment import (
-    SourceSpec,
-    TransformSpec,
-    MetricSpec,
+    ChangeTier,
+    ColumnSpec,
     CubeSpec,
     DeploymentResult,
+    DeploymentSpec,
     DimensionJoinLinkSpec,
     DimensionReferenceLinkSpec,
-)
-from datajunction_server.models.node import MetricUnit, NodeStatus
-from datajunction_server.database.namespace import NodeNamespace
-from datajunction_server.database.user import OAuthProvider, User
-from datajunction_server.database.tag import Tag
-from datajunction_server.database.catalog import Catalog
-from datajunction_server.database.dimensionlink import (
-    JoinCardinality,
-    JoinType,
+    HierarchyLevelSpec,
+    HierarchySpec,
+    MaterializationSpec,
+    MetricSpec,
+    PartitionSpec,
+    PartitionType,
+    SourceSpec,
+    TagSpec,
+    TransformSpec,
 )
 from datajunction_server.models.dimensionlink import JoinLinkInput
 from datajunction_server.models.history import ActivityType
-from datajunction_server.errors import DJError, DJInvalidDeploymentConfig, ErrorCode
+from datajunction_server.models.node import MetricUnit, NodeStatus
+from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.partition import Granularity
+from datajunction_server.models.semantic_fingerprint import SemanticFingerprint
+from datajunction_server.sql.parsing.types import StringType
 
 
 @pytest.fixture
@@ -157,6 +172,121 @@ def mock_registry():
     )
 
     return registry
+
+
+class TestGuardAgainstAccidentalWipe:
+    """Regression for issue #2301: an empty deployment spec must not silently
+    soft-delete an entire namespace.
+
+    A ``dj push`` against a non-existent/mistyped directory resolves to zero
+    node files, which the diff would otherwise interpret as "delete every node
+    in the namespace". The guard refuses that unless ``allow_empty`` is set.
+    """
+
+    @staticmethod
+    def _make_orchestrator(
+        session,
+        current_user,
+        *,
+        nodes,
+        hierarchies=None,
+        tags=None,
+        allow_empty=False,
+    ):
+        spec = DeploymentSpec(
+            namespace="test",
+            nodes=nodes,
+            hierarchies=hierarchies or [],
+            tags=tags or [],
+            allow_empty=allow_empty,
+        )
+        mock_context = MagicMock(spec=DeploymentContext)
+        mock_context.current_user = current_user
+        return DeploymentOrchestrator(
+            deployment_spec=spec,
+            deployment_id="test-wipe-guard",
+            session=session,
+            context=mock_context,
+        )
+
+    @staticmethod
+    def _plan_deleting(count):
+        """A stand-in plan that would delete ``count`` nodes."""
+        return SimpleNamespace(
+            to_delete=[
+                SimpleNamespace(rendered_name=f"test.node_{i}") for i in range(count)
+            ],
+        )
+
+    def test_allow_empty_bypasses_guard(self, session, current_user):
+        """allow_empty=True opts into deleting a namespace from an empty spec."""
+        orchestrator = self._make_orchestrator(
+            session,
+            current_user,
+            nodes=[],
+            allow_empty=True,
+        )
+        # Would delete 3 nodes, but the caller opted in -> no raise.
+        orchestrator._guard_against_accidental_wipe(self._plan_deleting(3))
+
+    def test_non_empty_spec_bypasses_guard(self, orchestrator):
+        """A spec with nodes -> deletions are a genuine diff, never guarded."""
+        orchestrator._guard_against_accidental_wipe(self._plan_deleting(3))
+
+    def test_hierarchy_only_spec_bypasses_guard(self, session, current_user):
+        """A spec carrying a hierarchy (but no nodes) is intentional content,
+        not an accidental empty push -- e.g. a sync-from-git push of a hierarchy.
+        It must not be guarded even though it would delete nodes.
+        """
+        orchestrator = self._make_orchestrator(
+            session,
+            current_user,
+            nodes=[],
+            hierarchies=[
+                HierarchySpec(
+                    name="h",
+                    levels=[
+                        HierarchyLevelSpec(name="l1", dimension_node="test.d"),
+                        HierarchyLevelSpec(name="l2", dimension_node="test.d"),
+                    ],
+                ),
+            ],
+        )
+        orchestrator._guard_against_accidental_wipe(self._plan_deleting(3))
+
+    def test_tag_only_spec_bypasses_guard(self, session, current_user):
+        """A spec carrying only tags (no nodes) is intentional content too."""
+        orchestrator = self._make_orchestrator(
+            session,
+            current_user,
+            nodes=[],
+            tags=[TagSpec(name="t", display_name="T")],
+        )
+        orchestrator._guard_against_accidental_wipe(self._plan_deleting(3))
+
+    def test_empty_spec_no_deletions_is_ok(self, session, current_user):
+        """An empty spec that deletes nothing is harmless."""
+        orchestrator = self._make_orchestrator(session, current_user, nodes=[])
+        orchestrator._guard_against_accidental_wipe(self._plan_deleting(0))
+
+    def test_empty_spec_refuses_wipe(self, session, current_user):
+        """Empty spec + pending deletions -> refused, with a listing preview."""
+        orchestrator = self._make_orchestrator(session, current_user, nodes=[])
+        with pytest.raises(
+            DJInvalidDeploymentConfig,
+            match=r"contains no nodes.*soft-delete 2 existing node\(s\)",
+        ) as exc:
+            orchestrator._guard_against_accidental_wipe(self._plan_deleting(2))
+        # 2 <= 5 deletions -> no truncation ellipsis
+        assert "…" not in exc.value.message
+
+    def test_empty_spec_refuses_wipe_truncates_preview(self, session, current_user):
+        """More than 5 pending deletions -> preview is truncated with an ellipsis."""
+        orchestrator = self._make_orchestrator(session, current_user, nodes=[])
+        with pytest.raises(DJInvalidDeploymentConfig) as exc:
+            orchestrator._guard_against_accidental_wipe(self._plan_deleting(7))
+        assert "soft-delete 7 existing node(s)" in exc.value.message
+        assert "…" in exc.value.message
 
 
 class TestResourceSetup:
@@ -371,6 +501,114 @@ class TestDeploymentPlanning:
         result_tags = await orchestrator._setup_tags()
         assert result_tags.keys() == {"new_tag"}
         assert len(orchestrator.errors) == 0
+
+    @pytest.mark.asyncio
+    async def test_setup_tags_metadata_is_declarative(
+        self,
+        session,
+        current_user,
+    ):
+        """
+        tag_metadata declared in the deployment spec must be written on the
+        create path and on the update path. A deployment is declarative: the
+        spec is the source of truth, so the declared bag replaces whatever is
+        stored — keys dropped from the spec (or written out-of-band by someone
+        else) are removed, and an omitted bag clears the metadata entirely.
+        """
+        context = MagicMock(autospec=DeploymentContext)
+        context.current_user = current_user
+        context.save_history = AsyncMock()
+
+        def make_orchestrator(tag_metadata):
+            return DeploymentOrchestrator(
+                deployment_spec=DeploymentSpec(
+                    namespace="some.namespace",
+                    nodes=[],
+                    tags=[
+                        TagSpec(
+                            name="inventory",
+                            display_name="Inventory",
+                            description="Inventory tag",
+                            tag_type="group",
+                            tag_metadata=tag_metadata,
+                        ),
+                    ],
+                ),
+                deployment_id="test-deployment",
+                session=session,
+                context=context,
+            )
+
+        # Create path
+        result_tags = await make_orchestrator(
+            {"order": 1, "display": {"color": "blue"}},
+        )._setup_tags()
+        assert result_tags["inventory"].tag_metadata == {
+            "order": 1,
+            "display": {"color": "blue"},
+        }
+
+        # A key is added out-of-band (e.g. via PATCH /tags), so the stored bag
+        # no longer matches the spec
+        result_tags["inventory"].tag_metadata = {
+            "order": 1,
+            "display": {"color": "blue"},
+            "added_out_of_band": {"foo": "bar"},
+        }
+        session.add(result_tags["inventory"])
+        await session.commit()
+
+        # Update path: the spec replaces the stored bag wholesale, so the
+        # out-of-band key is dropped and nested contents are replaced, not merged
+        orchestrator = make_orchestrator({"order": 2, "display": {"icon": "box"}})
+        assert (
+            tag_needs_update(
+                result_tags["inventory"],
+                orchestrator.deployment_spec.tags[0],
+            )
+            is True
+        )
+        result_tags = await orchestrator._setup_tags()
+        assert result_tags["inventory"].tag_metadata == {
+            "order": 2,
+            "display": {"icon": "box"},
+        }
+
+        # Redeploying the same metadata is not a change
+        assert (
+            tag_needs_update(
+                result_tags["inventory"],
+                make_orchestrator(
+                    {"order": 2, "display": {"icon": "box"}},
+                ).deployment_spec.tags[0],
+            )
+            is False
+        )
+
+        # Dropping a key from the spec removes it from the server
+        result_tags = await make_orchestrator({"order": 3})._setup_tags()
+        assert result_tags["inventory"].tag_metadata == {"order": 3}
+
+        # A spec without tag_metadata clears the bag
+        orchestrator = make_orchestrator(None)
+        assert (
+            tag_needs_update(
+                result_tags["inventory"],
+                orchestrator.deployment_spec.tags[0],
+            )
+            is True
+        )
+        result_tags = await orchestrator._setup_tags()
+        assert result_tags["inventory"].tag_metadata == {}
+
+        # ...and an already-empty bag with an omitted spec value is not a change
+        assert (
+            tag_needs_update(
+                result_tags["inventory"],
+                make_orchestrator(None).deployment_spec.tags[0],
+            )
+            is False
+        )
 
     @pytest.mark.asyncio
     async def test_setup_owners_missing(self, session, current_user):
@@ -603,6 +841,76 @@ class TestDeploymentPlanning:
         assert len(to_skip) == len(sample_deployment_spec.nodes)
         assert to_delete == []
 
+    def test_filter_nodes_records_revalidation_only(
+        self,
+        orchestrator,
+        sample_deployment_spec,
+    ):
+        """An unchanged node that is stuck INVALID is queued for revalidation."""
+        existing_specs = {
+            node.rendered_name: node for node in sample_deployment_spec.nodes
+        }
+        stuck = sample_deployment_spec.nodes[1]
+        orchestrator.registry.add_nodes(
+            {
+                stuck.rendered_name: SimpleNamespace(
+                    current=SimpleNamespace(
+                        status=NodeStatus.INVALID,
+                        parents=[],
+                    ),
+                ),
+            },
+        )
+        to_deploy, to_skip, _ = orchestrator.filter_nodes_to_deploy(existing_specs)
+        assert to_deploy == [stuck]
+        assert orchestrator._revalidation_only == {stuck.rendered_name}
+        assert [spec.rendered_name for spec in to_skip] == [
+            spec.rendered_name
+            for spec in sample_deployment_spec.nodes
+            if spec is not stuck
+        ]
+
+    def test_filter_nodes_uses_normalized_query_and_source_columns(self):
+        incoming = [
+            TransformSpec(name="transform", query=" SELECT id\nFROM source "),
+            SourceSpec(
+                name="source",
+                catalog="catalog",
+                schema_="schema",
+                table="table",
+                columns=None,
+            ),
+        ]
+        orchestrator = DeploymentOrchestrator(
+            deployment_spec=DeploymentSpec(namespace="test", nodes=incoming),
+            deployment_id="normalized-filter",
+            session=MagicMock(),
+            context=MagicMock(),
+        )
+        existing = {
+            "test.transform": TransformSpec(
+                name="transform",
+                namespace="test",
+                query="SELECT id FROM source",
+            ),
+            "test.source": SourceSpec(
+                name="source",
+                namespace="test",
+                catalog="catalog",
+                schema_="schema",
+                table="table",
+                columns=[ColumnSpec(name="id", type="bigint")],
+            ),
+        }
+
+        to_deploy, to_skip, _ = orchestrator.filter_nodes_to_deploy(existing)
+        assert to_deploy == []
+        assert to_skip == incoming
+
+        incoming[1].columns = [ColumnSpec(name="id", type="string")]
+        to_deploy, _, _ = orchestrator.filter_nodes_to_deploy(existing)
+        assert to_deploy == [incoming[1]]
+
     def test_filter_nodes_to_deploy_with_force(
         self,
         session,
@@ -662,6 +970,8 @@ class TestOrchestrationFlow:
             mock_plan.is_empty.return_value = False
             mock_plan.to_deploy = []
             mock_plan.to_delete = []
+            mock_plan.to_delete_namespaces = []
+            mock_plan.existing_specs = {}
             mock_create_plan.return_value = (mock_plan, [])
 
             # Execute
@@ -688,6 +998,9 @@ class TestOrchestrationFlow:
             mock_plan.is_empty.return_value = True
             mock_plan.to_deploy = []
             mock_plan.to_delete = []
+            mock_plan.to_delete_namespaces = []
+            mock_plan.existing_specs = {}
+            mock_plan.deletable_specs = []
             mock_create_plan.return_value = (mock_plan, [])
 
             mock_handle_no_changes.return_value = []
@@ -918,7 +1231,16 @@ class TestCubeDeployment:
         orchestrator._create_cube_node_revision_from_validation_data = AsyncMock(
             return_value=mock_revision,
         )
-        orchestrator._generate_changelog = AsyncMock(return_value=([], []))
+        orchestrator._generate_changelog = AsyncMock(
+            return_value=([], [], ChangeTier.NONE),
+        )
+        cube = invalid_results[0].spec
+        cube_fingerprint = SemanticFingerprintGraph(
+            {cube.rendered_name: cube},
+        ).fingerprint(cube.rendered_name)
+        orchestrator._proposed_semantic_fingerprints = {
+            invalid_results[0].spec.rendered_name: cube_fingerprint,
+        }
 
         with patch(
             "datajunction_server.internal.deployment.orchestrator.get_node_namespace",
@@ -936,6 +1258,8 @@ class TestCubeDeployment:
         assert len(revisions) == 1
         assert len(results) == 1
         assert results[0].status == "invalid"
+        assert results[0].change_tier == "major"
+        assert results[0].semantic_fingerprint == cube_fingerprint
 
     @pytest.mark.asyncio
     async def test_cube_column_partition_applied_from_spec(
@@ -1259,6 +1583,168 @@ class TestCubeDeployment:
 
         await session.refresh(revision_2, ["columns"])
         assert len(revision_2.columns) == 2
+
+    @pytest.mark.asyncio
+    async def test_cube_role_played_dimension_roles_and_partition(
+        self,
+        session,
+        current_user,
+    ):
+        """
+        Regression (AIE-3105): a cube that reaches one date dimension via two FK
+        roles produces two cube columns with the same bare name
+        (``test.date.dateint``) distinguished only by ``dimension_column``
+        (``[epoch_date]`` vs ``[region_date]``).
+
+        The declarative deploy path must (1) preserve BOTH roles and (2) apply a
+        YAML-declared partition to the role it was declared on
+        (``...dateint[epoch_date]``) and to that role only. Previously the role
+        was dropped (positional off-by-one against the resolved-dimension list)
+        and the partition was keyed by the bare element name, so it never matched
+        a role-qualified column and was silently dropped.
+        """
+        catalog = Catalog(name="test_catalog")
+        session.add(catalog)
+
+        date_node = Node(
+            name="test.date",
+            type="dimension",
+            current_version="v1.0",
+            created_by_id=current_user.id,
+        )
+        revenue_node = Node(
+            name="test.revenue",
+            type="metric",
+            current_version="v1.0",
+            created_by_id=current_user.id,
+        )
+        session.add_all([date_node, revenue_node])
+
+        date_revision = NodeRevision(
+            name="test.date",
+            display_name="Date",
+            type="dimension",
+            node=date_node,
+            version="v1.0",
+            query="SELECT dateint FROM dates",
+            created_by_id=current_user.id,
+        )
+        revenue_revision = NodeRevision(
+            name="test.revenue",
+            display_name="Revenue",
+            type="metric",
+            node=revenue_node,
+            version="v1.0",
+            query="SELECT SUM(amount) FROM sales",
+            created_by_id=current_user.id,
+        )
+        session.add_all([date_revision, revenue_revision])
+        await session.commit()
+
+        date_column = Column(
+            name="dateint",
+            type="int",
+            node_revision_id=date_revision.id,
+            node_revision=date_revision,
+            attributes=[],
+        )
+        revenue_column = Column(
+            name="revenue",
+            type="bigint",
+            node_revision_id=revenue_revision.id,
+            node_revision=revenue_revision,
+            attributes=[],
+        )
+        session.add_all([date_column, revenue_column])
+        await session.commit()
+
+        await session.refresh(date_column, ["node_revision", "attributes"])
+        await session.refresh(revenue_column, ["node_revision", "attributes"])
+
+        # The same date column resolved under two roles -> two dimension columns,
+        # with the roles captured 1:1 alongside them (as the validation path does).
+        validation_data = CubeValidationData(
+            metric_columns=[revenue_column],
+            dimension_columns=[date_column, date_column],
+            dimension_column_roles=["[epoch_date]", "[region_date]"],
+            metric_nodes=[revenue_node],
+            dimension_nodes=[date_node],
+            catalog=catalog,
+        )
+
+        cube_node = Node(
+            name="test.role_cube",
+            type="cube",
+            current_version="v1.0",
+            created_by_id=current_user.id,
+        )
+        session.add(cube_node)
+        await session.commit()
+
+        # Partition declared on the epoch_date role only.
+        cube_spec = CubeSpec(
+            name="test.role_cube",
+            node_type="cube",
+            metrics=["test.revenue"],
+            dimensions=[
+                "test.date.dateint[epoch_date]",
+                "test.date.dateint[region_date]",
+            ],
+            namespace="test",
+            columns=[
+                ColumnSpec(
+                    name="test.date.dateint[epoch_date]",
+                    partition=PartitionSpec(
+                        type=PartitionType.TEMPORAL,
+                        granularity=Granularity.DAY,
+                        format="yyyyMMdd",
+                    ),
+                ),
+            ],
+        )
+
+        context = DeploymentContext(
+            current_user=current_user,
+            request=Mock(),
+            query_service_client=Mock(),
+            background_tasks=Mock(),
+            cache=Mock(),
+        )
+        orchestrator = DeploymentOrchestrator(
+            deployment_id="test-deployment",
+            deployment_spec=DeploymentSpec(namespace="test", nodes=[]),
+            session=session,
+            context=context,
+        )
+
+        node_revision = (
+            await orchestrator._create_cube_node_revision_from_validation_data(
+                cube_spec=cube_spec,
+                validation_data=validation_data,
+                new_node=cube_node,
+            )
+        )
+        session.add(node_revision)
+        await session.commit()
+        await session.refresh(node_revision, ["columns"])
+
+        # Bug 2: both roles preserved (neither dropped nor mis-bound).
+        date_cols = [
+            col for col in node_revision.columns if col.name == "test.date.dateint"
+        ]
+        assert len(date_cols) == 2
+        by_role = {col.dimension_column: col for col in date_cols}
+        assert set(by_role) == {"[epoch_date]", "[region_date]"}
+
+        # Bug 1: the YAML partition lands on the epoch_date role, and ONLY there.
+        await session.refresh(by_role["[epoch_date]"], ["partition"])
+        await session.refresh(by_role["[region_date]"], ["partition"])
+        epoch_partition = by_role["[epoch_date]"].partition
+        assert epoch_partition is not None
+        assert epoch_partition.type_ == PartitionType.TEMPORAL
+        assert epoch_partition.granularity == Granularity.DAY
+        assert epoch_partition.format == "yyyyMMdd"
+        assert by_role["[region_date]"].partition is None
 
 
 @pytest.mark.asyncio
@@ -1956,7 +2442,7 @@ async def test_create_deployment_plan_reactivates_deactivated_auto_source(
     so the deploy tried to INSERT a row that already existed and Postgres
     rejected with a UniqueViolation.
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     session.add(NodeNamespace(namespace="test"))
     catalog = Catalog(name="ext_cat2")
@@ -1969,7 +2455,7 @@ async def test_create_deployment_plan_reactivates_deactivated_auto_source(
         type="source",
         current_version="v1.0",
         created_by_id=current_user.id,
-        deactivated_at=datetime.now(timezone.utc),
+        deactivated_at=datetime.now(UTC),
     )
     session.add(deactivated_source)
     deactivated_rev = NodeRevision(
@@ -2084,14 +2570,16 @@ async def test_create_deployment_plan_acquires_advisory_lock_for_autoreg(
             lock_calls.append(params["key"])
         return await real_execute(stmt, params, *args, **kwargs)
 
-    with patch.object(session, "execute", side_effect=spy_execute):
-        with patch.object(
+    with (
+        patch.object(session, "execute", side_effect=spy_execute),
+        patch.object(
             orchestrator,
             "check_external_deps",
             # Pass sources in NON-sorted order to verify they get sorted.
             side_effect=[(set(), [src_b, src_a], []), (set(), [], [])],
-        ):
-            await orchestrator._create_deployment_plan()
+        ),
+    ):
+        await orchestrator._create_deployment_plan()
 
     # Both source names had their lock acquired, in sorted order.
     assert lock_calls == [
@@ -2108,7 +2596,7 @@ async def test_node_get_by_names_include_inactive(
     """Node.get_by_names returns deactivated nodes only when include_inactive=True.
     Guards the (previously uncovered) inactive filter so a future regression
     in this contract would surface immediately."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     session.add(NodeNamespace(namespace="test_inactive"))
     catalog = Catalog(name="inactive_test_cat")
@@ -2120,7 +2608,7 @@ async def test_node_get_by_names_include_inactive(
         type="source",
         current_version="v1.0",
         created_by_id=current_user.id,
-        deactivated_at=datetime.now(timezone.utc),
+        deactivated_at=datetime.now(UTC),
     )
     session.add(node)
     await session.commit()
@@ -2229,6 +2717,73 @@ async def test_deploy_reference_link_on_invalid_node(
 
 
 @pytest.mark.asyncio
+async def test_deploy_join_link_without_join_on(
+    session,
+    mock_deployment_context,
+):
+    """A join link with no join_on and a stray node_column is rejected, not written."""
+    node = await Node.get_by_name(session, "default.repair_orders")
+    dimension_node = await Node.get_by_name(session, "default.hard_hat")
+    node.current.status = NodeStatus.INVALID
+
+    link_spec = DimensionJoinLinkSpec(
+        dimension_node="default.hard_hat",
+        node_column="hard_hat_id",
+    )
+    link_spec.namespace = "default"
+    source_spec = SourceSpec(
+        name="repair_orders",
+        namespace="default",
+        catalog="default",
+        schema="roads",
+        table="repair_orders",
+        columns=[],
+    )
+
+    orch = DeploymentOrchestrator(
+        deployment_spec=DeploymentSpec(namespace="default", nodes=[]),
+        deployment_id="join-link-test",
+        session=session,
+        context=mock_deployment_context,
+        dry_run=True,
+    )
+    orch.registry.nodes[node.name] = node
+    orch.registry.nodes[dimension_node.name] = dimension_node
+
+    result = await orch._process_node_dimension_link(
+        node_spec=source_spec,
+        link_spec=link_spec,
+    )
+    # join_sql is NOT NULL, so a written link would fail here.
+    await session.flush()
+
+    assert result.status == DeploymentResult.Status.FAILED
+    assert result.operation == DeploymentResult.Operation.CREATE
+    assert result.name == "default.repair_orders -> default.hard_hat"
+    assert result.message == (
+        "Dimension link from default.repair_orders to default.hard_hat sets "
+        "node_column, which only applies to reference links. Express the join "
+        "in join_on instead.\n"
+        "Dimension link from default.repair_orders to default.hard_hat has no "
+        "join_on clause. Set join_on to the equality between this node's "
+        "foreign key column(s) and the dimension's primary key."
+    )
+
+
+def test_cross_join_link_needs_no_join_on():
+    """A CROSS join has no ON clause, so it is stored as-is."""
+    link_spec = DimensionJoinLinkSpec(
+        dimension_node="default.hard_hat",
+        join_type=JoinType.CROSS,
+    )
+    problems = DeploymentOrchestrator._join_link_problems(
+        link_spec,
+        "default.repair_orders",
+    )
+    assert problems == []
+
+
+@pytest.mark.asyncio
 async def test_delete_nodes_bulk_deletes_existing_node(
     session,
     current_user,
@@ -2245,9 +2800,13 @@ async def test_delete_nodes_bulk_deletes_existing_node(
         context=mock_deployment_context,
         dry_run=False,
     )
-    # "default.hard_hat" is present in the pre-loaded roads example DB.
-    spec = Mock()
-    spec.rendered_name = "default.hard_hat"
+    # "default.hard_hat" is present in the pre-loaded roads example DB. Its
+    # unparseable legacy query must not prevent deletion.
+    spec = TransformSpec(
+        name="hard_hat",
+        namespace="default",
+        query="SELECT (",
+    )
     # No external references block the delete.
     with patch.object(orch, "_validate_node_deletion", AsyncMock(return_value={})):
         results = await orch._delete_nodes([spec])
@@ -2256,6 +2815,8 @@ async def test_delete_nodes_bulk_deletes_existing_node(
     assert results[0].status == DeploymentResult.Status.SUCCESS
     assert results[0].operation == DeploymentResult.Operation.DELETE
     assert results[0].name == "default.hard_hat"
+    assert results[0].change_tier == "major"
+    assert results[0].semantic_fingerprint is None
 
     # The node row is gone.
     gone = (
@@ -2264,6 +2825,32 @@ async def test_delete_nodes_bulk_deletes_existing_node(
         )
     ).scalar_one_or_none()
     assert gone is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("dry_run", "expects_lock"), [(True, False), (False, True)])
+async def test_validate_node_deletion_only_locks_wet_runs(
+    current_user,
+    mock_deployment_context,
+    dry_run,
+    expects_lock,
+):
+    session = AsyncMock()
+    session.execute.return_value = []
+    orch = DeploymentOrchestrator(
+        deployment_spec=DeploymentSpec(namespace="default", nodes=[]),
+        deployment_id="delete-lock-test",
+        session=session,
+        context=mock_deployment_context,
+        dry_run=dry_run,
+    )
+
+    await orch._validate_node_deletion(
+        [TransformSpec(name="target", query="SELECT 1")],
+    )
+
+    stmt = session.execute.await_args.args[0]
+    assert (stmt._for_update_arg is not None) is expects_lock
 
 
 @pytest.mark.asyncio
@@ -2284,6 +2871,10 @@ async def test_delete_nodes_reports_referenced_and_missing(
     referenced.rendered_name = "default.referenced"
     absent = Mock()
     absent.rendered_name = "default.does_not_exist"
+    orch._current_semantic_fingerprints = {
+        "default.referenced": SemanticFingerprint(digest="b" * 64),
+        "default.does_not_exist": SemanticFingerprint(digest="c" * 64),
+    }
 
     with patch.object(
         orch,
@@ -2297,6 +2888,8 @@ async def test_delete_nodes_reports_referenced_and_missing(
     assert "referenced by" in by_name["default.referenced"].message
     assert by_name["default.does_not_exist"].status == DeploymentResult.Status.FAILED
     assert "not found" in by_name["default.does_not_exist"].message
+    assert all(result.change_tier == "major" for result in results)
+    assert by_name["default.referenced"].semantic_fingerprint.digest == "b" * 64
 
 
 class TestGenerateChangelog:
@@ -2318,7 +2911,7 @@ class TestGenerateChangelog:
         transform_spec = TransformSpec(
             name="test_node",
             namespace="default",
-            query="SELECT id FROM default.source_table",
+            query=" SELECT  id\nFROM default.source_table ",
             dimension_links=[dim_link],
         )
         # existing_spec is identical — diff() will return []
@@ -2351,10 +2944,146 @@ class TestGenerateChangelog:
             dependencies=[],
         )
 
-        changelog, changed_fields = await orchestrator._generate_changelog(result)
+        (
+            changelog,
+            changed_fields,
+            change_tier,
+        ) = await orchestrator._generate_changelog(result)
 
         assert changed_fields == []
         assert changelog == ["└─ Updated dimension_links"]
+        assert change_tier == ChangeTier.NONE
+
+    @pytest.mark.asyncio
+    async def test_source_column_type_change_is_major(self):
+        existing_spec = SourceSpec(
+            name="source",
+            namespace="test",
+            catalog="catalog",
+            schema_="schema",
+            table="table",
+            columns=[ColumnSpec(name="id", type="bigint")],
+        )
+        proposed = existing_spec.model_copy(deep=True)
+        proposed.columns[0].type = "string"
+        existing = MagicMock()
+        existing.current.columns = []
+        existing.to_spec = AsyncMock(return_value=existing_spec)
+        orchestrator = DeploymentOrchestrator(
+            deployment_spec=DeploymentSpec(namespace="test", nodes=[]),
+            deployment_id="source-changelog",
+            session=MagicMock(),
+            context=MagicMock(),
+        )
+        orchestrator.registry.nodes["test.source"] = existing
+        result = NodeValidationResult(
+            spec=proposed,
+            status=NodeStatus.VALID,
+            inferred_columns=proposed.columns,
+            errors=[],
+            dependencies=[],
+        )
+
+        changelog, changed_fields, tier = await orchestrator._generate_changelog(
+            result,
+        )
+
+        assert changed_fields == ["columns"]
+        assert tier == ChangeTier.MAJOR
+        assert changelog[-1] == "└─ Updated columns"
+
+    @pytest.mark.asyncio
+    async def test_source_without_declared_columns_uses_inferred_columns(self):
+        source_spec = SourceSpec(
+            name="source",
+            namespace="test",
+            catalog="catalog",
+            schema_="schema",
+            table="table",
+            columns=[],
+        )
+        existing = MagicMock()
+        existing.current.columns = []
+        existing.to_spec = AsyncMock(return_value=source_spec)
+        orchestrator = DeploymentOrchestrator(
+            deployment_spec=DeploymentSpec(namespace="test", nodes=[]),
+            deployment_id="source-inferred-columns",
+            session=MagicMock(),
+            context=MagicMock(),
+        )
+        orchestrator.registry.nodes["test.source"] = existing
+        result = NodeValidationResult(
+            spec=source_spec,
+            status=NodeStatus.VALID,
+            inferred_columns=[ColumnSpec(name="id", type="bigint")],
+            errors=[],
+            dependencies=[],
+        )
+
+        changelog, changed_fields, tier = await orchestrator._generate_changelog(
+            result,
+        )
+
+        assert changed_fields == []
+        assert tier == ChangeTier.NONE
+        assert changelog == []
+
+    @pytest.mark.asyncio
+    async def test_cube_column_change_uses_role_qualified_identity(
+        self,
+        session,
+        mock_deployment_context,
+    ):
+        """A property change on one role must compare with that same role."""
+        cube_spec = CubeSpec(
+            name="role_cube",
+            namespace="default",
+            metrics=["default.metric"],
+            dimensions=["default.date.date_id[ship]"],
+            columns=[
+                ColumnSpec(
+                    name="default.date.date_id[ship]",
+                    description="new description",
+                ),
+            ],
+        )
+        existing_column = Column(
+            name="default.date.date_id",
+            dimension_column="[ship]",
+            description="old description",
+        )
+        existing_revision = MagicMock(
+            type=NodeType.CUBE,
+            columns=[existing_column],
+        )
+        existing = MagicMock(current=existing_revision)
+        existing.to_spec = AsyncMock(return_value=cube_spec)
+
+        orchestrator = DeploymentOrchestrator(
+            deployment_spec=DeploymentSpec(namespace="default", nodes=[]),
+            deployment_id="role-changelog-test",
+            session=session,
+            context=mock_deployment_context,
+            dry_run=True,
+        )
+        orchestrator.registry.nodes["default.role_cube"] = existing
+        result = NodeValidationResult(
+            spec=cube_spec,
+            status=NodeStatus.VALID,
+            inferred_columns=cube_spec.rendered_columns,
+            errors=[],
+            dependencies=[],
+        )
+
+        (
+            changelog,
+            changed_fields,
+            change_tier,
+        ) = await orchestrator._generate_changelog(result)
+
+        assert changed_fields == []
+        assert changelog == ["└─ Set properties for 1 columns"]
+        assert change_tier == ChangeTier.NONE
 
 
 @pytest.mark.asyncio
@@ -2749,6 +3478,7 @@ class TestSqlalchemyHelpers:
     def test_sqlalchemy_to_dj_type_known_types(self):
         """Each SQLAlchemy type maps to the expected DJ type string."""
         from sqlalchemy import (
+            JSON,
             BigInteger,
             Boolean,
             Date,
@@ -2756,14 +3486,13 @@ class TestSqlalchemyHelpers:
             Float,
             Integer,
             Interval,
-            JSON,
             Numeric,
             SmallInteger,
             String,
             Text,
             Time,
         )
-        from sqlalchemy.dialects.postgresql import JSONB, UUID, ARRAY
+        from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 
         from datajunction_server.internal.deployment.orchestrator import (
             _sqlalchemy_to_dj_type,
@@ -3145,3 +3874,776 @@ class TestDeriveLegacyUnitForStorage:
             None,
         )
         assert result == MetricUnit.SECOND
+
+
+class TestSwapCubeMaterializations:
+    """
+    Which cubes a version swap rebuilt, and so which start on an empty datasource.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_swap_that_rebuilt_nothing(self, orchestrator):
+        """
+        A swap that supersedes without rebuilding keeps the datasource the cube
+        already has, so the cube is not one a coverage backfill has to fill.
+        """
+        old_revision = MagicMock(name="old")
+        new_revision = MagicMock()
+        new_revision.name = "default.a_cube"
+        swap = CubeMaterializationSwap(
+            cube_name="default.a_cube",
+            previous_version="v1.0",
+            new_revision_id=7,
+            new_version="v1.1",
+            rebuilt_names=[],
+            superseded=[],
+        )
+        with (
+            patch(
+                "datajunction_server.internal.deployment.orchestrator."
+                "swap_cube_materializations",
+                AsyncMock(return_value=swap),
+            ),
+            patch(
+                "datajunction_server.internal.deployment.orchestrator."
+                "is_non_trivial_cube_change",
+                AsyncMock(return_value=False),
+            ),
+        ):
+            await orchestrator._swap_cube_materializations(
+                {"default.a_cube": old_revision},
+                [new_revision],
+            )
+
+        assert orchestrator._rebuilt_cubes == set()
+        assert orchestrator._cube_materialization_swaps == [swap]
+
+
+class TestApplyCubeMaterializationSwaps:
+    """
+    Reporting on the query service's answer to a cube materialization push.
+
+    The push happens after the deploy commits, and until it was reported a query
+    service that rejected it left the deployment claiming success.
+    """
+
+    @staticmethod
+    def _swap(
+        cube_name: str,
+        rebuilt_names: list[str],
+        backfill: tuple[date, date] | None = None,
+    ) -> CubeMaterializationSwap:
+        return CubeMaterializationSwap(
+            cube_name=cube_name,
+            previous_version="v1.0",
+            new_revision_id=7,
+            new_version="v1.1",
+            rebuilt_names=rebuilt_names,
+            superseded=[],
+            backfill=(
+                CoverageBackfill(
+                    span=backfill,
+                    materialization_id=7,
+                    column_name="date_id",
+                )
+                if backfill
+                else None
+            ),
+        )
+
+    @staticmethod
+    def _result(name: str) -> DeploymentResult:
+        """The success reconciliation appends before the push is attempted."""
+        return DeploymentResult(
+            name=name,
+            deploy_type=DeploymentResult.Type.MATERIALIZATION,
+            status=DeploymentResult.Status.SUCCESS,
+            operation=DeploymentResult.Operation.CREATE,
+            message="cube materialization on schedule @daily",
+        )
+
+    @pytest.mark.asyncio
+    async def test_rejected_push_fails_the_reported_materialization(
+        self,
+        orchestrator,
+    ):
+        """
+        A rejection turns the cube's already-reported success into a failure that
+        repeats the query service's message word for word, while an unrelated cube
+        that pushed cleanly keeps its success.
+        """
+        orchestrator.context.request = None
+        rejection = (
+            "User `dj` does not own data project `analytics`; Jenkins job "
+            "`analytics-a_cube` cannot write `prodhive.analytics.a_cube`"
+        )
+        orchestrator._cube_materialization_swaps = [
+            self._swap("default.a_cube", ["druid_cube__full__a_cube"]),
+            self._swap("default.b_cube", ["druid_cube__full__b_cube"]),
+        ]
+        orchestrator.deployed_results = [
+            self._result("default.a_cube"),
+            self._result("default.b_cube"),
+        ]
+
+        with patch(
+            "datajunction_server.internal.deployment.orchestrator."
+            "apply_cube_materialization_swap",
+            new=AsyncMock(
+                side_effect=[
+                    CubeMaterializationSwapOutcome(
+                        cube_name="default.a_cube",
+                        materialization_names=["druid_cube__full__a_cube"],
+                        scheduled=False,
+                        error=rejection,
+                    ),
+                    CubeMaterializationSwapOutcome(
+                        cube_name="default.b_cube",
+                        materialization_names=["druid_cube__full__b_cube"],
+                        scheduled=True,
+                    ),
+                ],
+            ),
+        ):
+            await orchestrator._apply_cube_materialization_swaps()
+
+        assert orchestrator.deployed_results == [
+            DeploymentResult(
+                name="default.a_cube",
+                deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                status=DeploymentResult.Status.FAILED,
+                operation=DeploymentResult.Operation.CREATE,
+                message=(
+                    "Cube `default.a_cube`: the query service rejected the request "
+                    f"to schedule its materialization: {rejection}"
+                ),
+            ),
+            self._result("default.b_cube"),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_rejected_push_matched_by_materialization_name(
+        self,
+        orchestrator,
+    ):
+        """
+        A result recorded under the materialization's own name rather than the
+        cube's is still the result the failure belongs on.
+        """
+        orchestrator.context.request = None
+        orchestrator._cube_materialization_swaps = [
+            self._swap("default.a_cube", ["druid_cube__full__a_cube"]),
+        ]
+        orchestrator.deployed_results = [self._result("druid_cube__full__a_cube")]
+
+        with patch(
+            "datajunction_server.internal.deployment.orchestrator."
+            "apply_cube_materialization_swap",
+            new=AsyncMock(
+                return_value=CubeMaterializationSwapOutcome(
+                    cube_name="default.a_cube",
+                    materialization_names=["druid_cube__full__a_cube"],
+                    scheduled=False,
+                    error="unreachable",
+                ),
+            ),
+        ):
+            await orchestrator._apply_cube_materialization_swaps()
+
+        assert orchestrator.deployed_results == [
+            DeploymentResult(
+                name="druid_cube__full__a_cube",
+                deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                status=DeploymentResult.Status.FAILED,
+                operation=DeploymentResult.Operation.CREATE,
+                message=(
+                    "Cube `default.a_cube`: the query service rejected the request "
+                    "to schedule its materialization: unreachable"
+                ),
+            ),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_rejected_push_with_nothing_to_correct_is_still_reported(
+        self,
+        orchestrator,
+    ):
+        """
+        A revision swap the deployment never reported a materialization for -- a
+        cube rebuilt because its definition moved, not because it declared a block
+        -- gets a result of its own rather than being dropped.
+        """
+        orchestrator.context.request = None
+        orchestrator._cube_materialization_swaps = [
+            self._swap("default.a_cube", ["druid_cube__full__a_cube"]),
+        ]
+        node_result = DeploymentResult(
+            name="default.a_cube",
+            deploy_type=DeploymentResult.Type.NODE,
+            status=DeploymentResult.Status.SUCCESS,
+            operation=DeploymentResult.Operation.UPDATE,
+            message="Updated cube (v1.1)",
+        )
+        orchestrator.deployed_results = [node_result]
+
+        with patch(
+            "datajunction_server.internal.deployment.orchestrator."
+            "apply_cube_materialization_swap",
+            new=AsyncMock(
+                return_value=CubeMaterializationSwapOutcome(
+                    cube_name="default.a_cube",
+                    materialization_names=["druid_cube__full__a_cube"],
+                    scheduled=False,
+                    error="403 Forbidden",
+                ),
+            ),
+        ):
+            await orchestrator._apply_cube_materialization_swaps()
+
+        assert orchestrator.deployed_results == [
+            node_result,
+            DeploymentResult(
+                name="default.a_cube",
+                deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                status=DeploymentResult.Status.FAILED,
+                operation=DeploymentResult.Operation.UNKNOWN,
+                message=(
+                    "Cube `default.a_cube`: the query service rejected the request "
+                    "to schedule its materialization: 403 Forbidden"
+                ),
+            ),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_backfill_is_reported_with_its_run_count(self, orchestrator):
+        """
+        A launched backfill is reported with the runs it costs -- never capped, so
+        a wide span still runs and a mistyped `from` is visible at deploy time
+        rather than at billing time.
+        """
+        orchestrator.context.request = None
+        orchestrator._cube_materialization_swaps = [
+            self._swap(
+                "default.a_cube",
+                [],
+                backfill=(date(2024, 1, 1), date(2024, 6, 30)),
+            ),
+        ]
+
+        with patch(
+            "datajunction_server.internal.deployment.orchestrator."
+            "apply_cube_materialization_swap",
+            new=AsyncMock(
+                return_value=CubeMaterializationSwapOutcome(
+                    cube_name="default.a_cube",
+                    materialization_names=[],
+                    scheduled=True,
+                    backfill_span=(date(2024, 1, 1), date(2024, 6, 30)),
+                ),
+            ),
+        ):
+            await orchestrator._apply_cube_materialization_swaps()
+
+        assert orchestrator.deployed_results == [
+            DeploymentResult(
+                name="default.a_cube",
+                deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                status=DeploymentResult.Status.SUCCESS,
+                operation=DeploymentResult.Operation.CREATE,
+                message="backfilling 2024-01-01 to 2024-06-30, 182 partition runs",
+            ),
+        ]
+        assert orchestrator.warnings == []
+
+    @pytest.mark.asyncio
+    async def test_a_refused_backfill_is_warned_about(self, orchestrator):
+        """
+        A cube left with days it declares and does not hold is worth a warning of
+        its own: the materialization is running, so nothing else says so.
+        """
+        orchestrator.context.request = None
+        orchestrator._cube_materialization_swaps = [
+            self._swap(
+                "default.a_cube",
+                [],
+                backfill=(date(2024, 1, 1), date(2024, 6, 30)),
+            ),
+        ]
+
+        with patch(
+            "datajunction_server.internal.deployment.orchestrator."
+            "apply_cube_materialization_swap",
+            new=AsyncMock(
+                return_value=CubeMaterializationSwapOutcome(
+                    cube_name="default.a_cube",
+                    materialization_names=[],
+                    scheduled=True,
+                    backfill_error="429 Too Many Requests",
+                ),
+            ),
+        ):
+            await orchestrator._apply_cube_materialization_swaps()
+
+        assert orchestrator.deployed_results == []
+        assert orchestrator.warnings == [
+            DJError(
+                code=ErrorCode.QUERY_SERVICE_ERROR,
+                message=(
+                    "Cube `default.a_cube`: the query service refused the "
+                    "backfill: 429 Too Many Requests"
+                ),
+            ),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_an_unrecorded_backfill_is_warned_about(self, orchestrator):
+        """
+        The backfill is running, so it is reported as launched, but nothing wrote
+        it down -- and the next deploy will ask for the same days again.
+        """
+        orchestrator.context.request = None
+        orchestrator._cube_materialization_swaps = [
+            self._swap(
+                "default.a_cube",
+                [],
+                backfill=(date(2024, 1, 1), date(2024, 1, 2)),
+            ),
+        ]
+
+        with patch(
+            "datajunction_server.internal.deployment.orchestrator."
+            "apply_cube_materialization_swap",
+            new=AsyncMock(
+                return_value=CubeMaterializationSwapOutcome(
+                    cube_name="default.a_cube",
+                    materialization_names=[],
+                    scheduled=True,
+                    backfill_span=(date(2024, 1, 1), date(2024, 1, 2)),
+                    backfill_record_error="connection reset",
+                ),
+            ),
+        ):
+            await orchestrator._apply_cube_materialization_swaps()
+
+        assert orchestrator.deployed_results == [
+            DeploymentResult(
+                name="default.a_cube",
+                deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                status=DeploymentResult.Status.SUCCESS,
+                operation=DeploymentResult.Operation.CREATE,
+                message="backfilling 2024-01-01 to 2024-01-02, 2 partition runs",
+            ),
+        ]
+        assert orchestrator.warnings == [
+            DJError(
+                code=ErrorCode.QUERY_SERVICE_ERROR,
+                message=(
+                    "Cube `default.a_cube`: DJ could not record the backfill it "
+                    "launched: connection reset"
+                ),
+            ),
+        ]
+
+
+class TestPlanCoverageBackfill:
+    """
+    Deciding what a cube's declared `coverage:` still owes it.
+
+    A datasource this deploy minted is empty and needs the whole span; one the
+    cube already has needs only the days before what availability reports.
+    """
+
+    @staticmethod
+    async def _cube(
+        session,
+        current_user,
+        min_temporal_partition: list[str] | None = None,
+        partitioned: bool = True,
+        name: str = "default.a_cube",
+    ) -> tuple[NodeRevision, Materialization]:
+        """A stored cube revision and the materialization it is served by."""
+        columns = [
+            Column(
+                name="date_id",
+                display_name="date_id",
+                type=StringType(),
+                partition=Partition(
+                    type_=PartitionType.TEMPORAL,
+                    granularity=Granularity.DAY,
+                    format="yyyyMMdd",
+                ),
+                order=0,
+            ),
+        ]
+        node = Node(
+            name=name,
+            type=NodeType.CUBE,
+            current_version="v1.0",
+            created_by_id=current_user.id,
+        )
+        revision = NodeRevision(
+            name=name,
+            node=node,
+            version="v1.0",
+            type=NodeType.CUBE,
+            created_by_id=current_user.id,
+            columns=columns if partitioned else [],
+            availability=(
+                AvailabilityState(
+                    catalog="default",
+                    table="a_cube",
+                    valid_through_ts=0,
+                    min_temporal_partition=min_temporal_partition,
+                )
+                if min_temporal_partition is not None
+                else None
+            ),
+        )
+        materialization = Materialization(
+            node_revision=revision,
+            name="druid_cube__full__date_id",
+            schedule="@daily",
+            config={},
+        )
+        session.add(materialization)
+        await session.commit()
+        return revision, materialization
+
+    @staticmethod
+    async def _recorded(session, materialization: Materialization) -> list[list]:
+        """The backfill specs stored against a materialization."""
+        return list(
+            (
+                await session.execute(
+                    select(Backfill.spec).where(
+                        Backfill.materialization_id == materialization.id,
+                    ),
+                )
+            )
+            .scalars()
+            .all(),
+        )
+
+    @staticmethod
+    def _block(**coverage) -> MaterializationSpec:
+        return MaterializationSpec(schedule="@daily", coverage=coverage)
+
+    @staticmethod
+    async def _plan(
+        orchestrator,
+        revision: NodeRevision,
+        block: MaterializationSpec,
+        materialization: Materialization,
+        active_names: set[str],
+        branch: bool = False,
+    ) -> None:
+        with patch(
+            "datajunction_server.internal.deployment.orchestrator."
+            "get_git_info_for_namespace",
+            new=AsyncMock(return_value={"is_default_branch": not branch}),
+        ):
+            await orchestrator._plan_coverage_backfill(
+                revision,
+                block,
+                materialization,
+                active_names,
+            )
+
+    @staticmethod
+    def _queued(orchestrator) -> list[CoverageBackfill | None]:
+        return [swap.backfill for swap in orchestrator._cube_materialization_swaps]
+
+    @staticmethod
+    def _spans(orchestrator) -> list[tuple[date, date]]:
+        return [swap.backfill.span for swap in orchestrator._cube_materialization_swaps]
+
+    @pytest.mark.asyncio
+    async def test_gap_before_the_covered_start(
+        self,
+        orchestrator,
+        session,
+        current_user,
+    ):
+        """
+        A cube that already holds data back to March is short everything the
+        declared span asks for before it, and that is what gets queued.
+        """
+        revision, materialization = await self._cube(
+            session,
+            current_user,
+            min_temporal_partition=["20250301"],
+        )
+
+        await self._plan(
+            orchestrator,
+            revision,
+            self._block(**{"from": date(2024, 1, 1)}),
+            materialization,
+            {materialization.name},
+        )
+
+        assert self._queued(orchestrator) == [
+            CoverageBackfill(
+                span=(date(2024, 1, 1), date(2025, 2, 28)),
+                materialization_id=materialization.id,
+                column_name="date_id",
+            ),
+        ]
+        # Nothing is written down until the launch lands.
+        assert await self._recorded(session, materialization) == []
+
+    @pytest.mark.asyncio
+    async def test_nothing_missing_before_the_start(
+        self,
+        orchestrator,
+        session,
+        current_user,
+    ):
+        """A cube already reaching back past what it declares owes nothing."""
+        revision, materialization = await self._cube(
+            session,
+            current_user,
+            min_temporal_partition=["20230101"],
+        )
+
+        await self._plan(
+            orchestrator,
+            revision,
+            self._block(**{"from": date(2024, 1, 1)}),
+            materialization,
+            {materialization.name},
+        )
+
+        assert self._queued(orchestrator) == []
+        assert await self._recorded(session, materialization) == []
+
+    @pytest.mark.asyncio
+    async def test_a_new_datasource_takes_the_whole_span(
+        self,
+        orchestrator,
+        session,
+        current_user,
+    ):
+        """
+        A materialization the cube did not have writes an empty datasource, so
+        availability says nothing about it and the whole span is missing.
+        """
+        revision, materialization = await self._cube(
+            session,
+            current_user,
+            min_temporal_partition=["20250301"],
+        )
+
+        await self._plan(
+            orchestrator,
+            revision,
+            self._block(**{"from": date(2024, 1, 1), "to": date(2026, 1, 1)}),
+            materialization,
+            set(),
+        )
+
+        assert self._spans(orchestrator) == [(date(2024, 1, 1), date(2026, 1, 1))]
+
+    @pytest.mark.asyncio
+    async def test_a_rebuilt_cube_takes_the_whole_span(
+        self,
+        orchestrator,
+        session,
+        current_user,
+    ):
+        """
+        A cube rebuilt onto a new version writes a datasource named for it, so the
+        availability its previous version posted describes a different table.
+        """
+        revision, materialization = await self._cube(
+            session,
+            current_user,
+            min_temporal_partition=["20250301"],
+        )
+        orchestrator._rebuilt_cubes = {revision.name}
+
+        await self._plan(
+            orchestrator,
+            revision,
+            self._block(**{"from": date(2024, 1, 1), "to": date(2026, 1, 1)}),
+            materialization,
+            {materialization.name},
+        )
+
+        assert self._spans(orchestrator) == [(date(2024, 1, 1), date(2026, 1, 1))]
+
+    @pytest.mark.asyncio
+    async def test_a_recorded_span_is_not_asked_for_twice(
+        self,
+        orchestrator,
+        session,
+        current_user,
+    ):
+        """
+        Availability does not move until the backfill lands, so the next deploy
+        sees the same gap. What DJ launched it does not ask for again.
+        """
+        revision, materialization = await self._cube(
+            session,
+            current_user,
+            min_temporal_partition=["20250301"],
+        )
+        await record_backfill(
+            session,
+            coverage_backfill(
+                materialization,
+                revision.columns[0],
+                (date(2024, 1, 1), date(2025, 2, 28)),
+            ),
+        )
+
+        await self._plan(
+            orchestrator,
+            revision,
+            self._block(**{"from": date(2024, 1, 1)}),
+            materialization,
+            {materialization.name},
+        )
+
+        assert self._queued(orchestrator) == []
+
+    @pytest.mark.asyncio
+    async def test_an_unlaunched_span_is_asked_again(
+        self,
+        orchestrator,
+        session,
+        current_user,
+    ):
+        """
+        A launch the query service refused writes nothing down, so the deploy
+        after it queues the same days rather than skipping them forever.
+        """
+        revision, materialization = await self._cube(
+            session,
+            current_user,
+            min_temporal_partition=["20250301"],
+        )
+        block = self._block(**{"from": date(2024, 1, 1)})
+
+        await self._plan(
+            orchestrator,
+            revision,
+            block,
+            materialization,
+            {materialization.name},
+        )
+        await self._plan(
+            orchestrator,
+            revision,
+            block,
+            materialization,
+            {materialization.name},
+        )
+
+        span = (date(2024, 1, 1), date(2025, 2, 28))
+        assert self._spans(orchestrator) == [span, span]
+
+    @pytest.mark.asyncio
+    async def test_a_branch_deploy_asks_for_nothing(
+        self,
+        orchestrator,
+        session,
+        current_user,
+    ):
+        """
+        A branch namespace previews what the push would give its author, and a
+        preview does not spend hundreds of partition runs. The report says the
+        backfill was skipped, so the author is not left guessing.
+        """
+        revision, materialization = await self._cube(
+            session,
+            current_user,
+            min_temporal_partition=["20250301"],
+        )
+
+        await self._plan(
+            orchestrator,
+            revision,
+            self._block(**{"from": date(2024, 1, 1)}),
+            materialization,
+            {materialization.name},
+            branch=True,
+        )
+
+        assert self._queued(orchestrator) == []
+        assert await self._recorded(session, materialization) == []
+        assert orchestrator.deployed_results == [
+            DeploymentResult(
+                name="default.a_cube",
+                deploy_type=DeploymentResult.Type.MATERIALIZATION,
+                status=DeploymentResult.Status.SKIPPED,
+                operation=DeploymentResult.Operation.NOOP,
+                message="no coverage backfill on a branch deploy",
+            ),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_an_uncountable_window_is_warned_about(
+        self,
+        orchestrator,
+        session,
+        current_user,
+    ):
+        """A window DJ cannot turn into days fills nothing, and says so."""
+        revision, materialization = await self._cube(session, current_user)
+
+        await self._plan(
+            orchestrator,
+            revision,
+            self._block(window="6 MONTHS"),
+            materialization,
+            {materialization.name},
+        )
+
+        assert self._queued(orchestrator) == []
+        assert orchestrator.warnings == [
+            DJError(
+                code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                message=(
+                    "Cube `default.a_cube`: DJ counts a coverage window in days "
+                    "or weeks only."
+                ),
+            ),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_no_coverage_and_no_axis_ask_for_nothing(
+        self,
+        orchestrator,
+        session,
+        current_user,
+    ):
+        """
+        A block that declares no span asks for nothing, and neither does a cube
+        with no single temporal partition to run a span over.
+        """
+        revision, materialization = await self._cube(session, current_user)
+
+        await self._plan(
+            orchestrator,
+            revision,
+            MaterializationSpec(schedule="@daily"),
+            materialization,
+            {materialization.name},
+        )
+        unpartitioned, _ = await self._cube(
+            session,
+            current_user,
+            partitioned=False,
+            name="default.no_axis_cube",
+        )
+        await self._plan(
+            orchestrator,
+            unpartitioned,
+            self._block(**{"from": date(2024, 1, 1)}),
+            materialization,
+            {materialization.name},
+        )
+
+        assert self._queued(orchestrator) == []
+        assert orchestrator.warnings == []

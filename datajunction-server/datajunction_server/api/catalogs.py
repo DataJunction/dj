@@ -4,7 +4,6 @@ Catalog related APIs.
 
 import logging
 from http import HTTPStatus
-from typing import List
 
 from fastapi import Depends, HTTPException
 from sqlalchemy import select
@@ -26,11 +25,11 @@ settings = get_settings()
 router = SecureAPIRouter(tags=["catalogs"])
 
 
-@router.get("/catalogs/", response_model=List[CatalogInfo])
+@router.get("/catalogs/", response_model=list[CatalogInfo])
 async def list_catalogs(
     *,
     session: AsyncSession = Depends(get_session),
-) -> List[CatalogInfo]:
+) -> list[CatalogInfo]:
     """
     List all available catalogs
     """
@@ -122,7 +121,7 @@ async def add_catalog(
 )
 async def add_engines_to_catalog(
     name: str,
-    data: List[EngineInfo],
+    data: list[EngineInfo],
     *,
     session: AsyncSession = Depends(get_session),
 ) -> CatalogInfo:
@@ -142,8 +141,8 @@ async def add_engines_to_catalog(
 async def list_new_engines(
     session: AsyncSession,
     catalog: Catalog,
-    create_engines: List[EngineInfo],
-) -> List[Engine]:
+    create_engines: list[EngineInfo],
+) -> list[Engine]:
     """
     Filter to engines that are not already set on a catalog
     """

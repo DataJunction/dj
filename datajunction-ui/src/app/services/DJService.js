@@ -1,3 +1,5 @@
+import { getColumnIdentifier } from '../utils/column';
+
 // Note: MarkerType.Arrow is just the string "arrow" - we use the literal
 // to avoid importing reactflow in this service (which would bloat the main bundle)
 const MARKER_TYPE_ARROW = 'arrow';
@@ -1563,7 +1565,12 @@ export const DataJunctionAPI = {
     return results;
   },
 
-  nodeData: async function (nodeName, selection = null) {
+  nodeData: async function (
+    nodeName,
+    selection = null,
+    maxAge = 86400,
+    staleWhileRevalidate = false,
+  ) {
     if (selection === null) {
       selection = {
         dimensions: [],
@@ -1579,11 +1586,16 @@ export const DataJunctionAPI = {
     }
     params.append('limit', '1000');
     params.append('async_', 'true');
+    const cacheControl = staleWhileRevalidate
+      ? `max-age=${maxAge}, stale-while-revalidate`
+      : `max-age=${maxAge}`;
 
     return await (
       await fetch(`${DJ_URL}/data/${nodeName}?${params}`, {
         credentials: 'include',
-        headers: { 'Cache-Control': 'max-age=86400' },
+        headers: {
+          'Cache-Control': cacheControl,
+        },
       })
     ).json();
   },
@@ -1709,7 +1721,7 @@ export const DataJunctionAPI = {
         )
         .map(col => col.name);
       const column_names = node.columns.map(col => {
-        return { name: col.name, type: col.type };
+        return { name: getColumnIdentifier(node, col), type: col.type };
       });
       return {
         id: String(node.name),
@@ -1772,12 +1784,41 @@ export const DataJunctionAPI = {
     );
     return { status: response.status, json: await response.json() };
   },
-  dimensions: async function () {
+  // The full list runs to tens of thousands of entries on a large instance, so
+  // callers that render it should ask for a limit and use `searchDimensions`
+  // for anything past the cut-off.
+  dimensions: async function (limit = null) {
+    const query = limit ? `?limit=${limit}` : '';
     return await (
-      await fetch(`${DJ_URL}/dimensions`, {
+      await fetch(`${DJ_URL}/dimensions/${query}`, {
         credentials: 'include',
       })
     ).json();
+  },
+
+  searchDimensions: async function (query, { signal, limit = 100 } = {}) {
+    const gqlQuery = `
+      query SearchDimensions($q: String!, $limit: Int!) {
+        findNodes(search: $q, nodeTypes: [DIMENSION], limit: $limit) {
+          name
+          current {
+            displayName
+          }
+        }
+      }
+    `;
+    const response = await fetch(DJ_GQL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      signal,
+      body: JSON.stringify({ query: gqlQuery, variables: { q: query, limit } }),
+    });
+    const result = await response.json();
+    return (result?.data?.findNodes || []).map(node => ({
+      name: node.name,
+      displayName: node.current?.displayName || node.name,
+    }));
   },
   nodeDimensions: async function (nodeName) {
     return await (
@@ -1912,7 +1953,9 @@ export const DataJunctionAPI = {
       },
       credentials: 'include',
     });
-    return { status: response.status, json: await response.json() };
+    // A 204 carries no body, and a gateway error page carries no JSON.
+    const json = await response.json().catch(() => ({}));
+    return { status: response.status, json };
   },
   addNamespace: async function (namespace) {
     const response = await fetch(`${DJ_URL}/namespaces/${namespace}`, {

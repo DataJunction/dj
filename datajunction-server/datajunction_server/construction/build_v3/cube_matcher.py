@@ -9,14 +9,12 @@ from scratch.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload, noload
+from sqlalchemy.orm import joinedload, load_only, noload, selectinload
 
 from datajunction_server.construction.build_v3.decomposition import is_derived_metric
-from datajunction_server.models.dialect import Dialect
 from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
 from datajunction_server.construction.build_v3.filters import (
     parse_and_resolve_filters,
@@ -27,27 +25,77 @@ from datajunction_server.construction.build_v3.metrics import (
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
     ColumnMetadata,
+    DecomposedMetricInfo,
     GeneratedMeasuresSQL,
     GeneratedSQL,
     GrainGroupSQL,
-    DecomposedMetricInfo,
     ResolvedExecutionContext,
+)
+from datajunction_server.construction.build_v3.utils import (
+    extract_filter_dimension_refs,
 )
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.database.partition import Partition
+from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.instrumentation.provider import timed
 from datajunction_server.models.decompose import Aggregability
+from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.naming import amenable_name
 from datajunction_server.sql.parsing import ast
-from datajunction_server.instrumentation.provider import timed
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
+
+
+# Sentinel returned by _required_filter_dimensions when a filter cannot be
+# parsed: coverage can't be proven, so cube matching must fail SAFE (reject the
+# cube and fall back) rather than fail open and emit invalid SQL.
+_FILTER_COVERAGE_UNKNOWN = object()
+
+
+async def _required_filter_dimensions(
+    session: AsyncSession,
+    filters: list[str] | None,
+) -> list[str] | object:
+    """
+    The role-qualified dimension refs a cube must cover for a set of filters.
+
+    Uses the shared ``extract_filter_dimension_refs`` normalization (so this
+    can't drift from the builder's filter→dimension handling) and then drops
+    refs that point at METRIC nodes: those are HAVING predicates applied on the
+    aggregated result, not columns that must exist in the cube's table.
+
+    Returns the list of required dimension refs, or ``_FILTER_COVERAGE_UNKNOWN``
+    if any filter cannot be parsed (caller must then reject the cube).
+    """
+    if not filters:
+        return []
+    try:
+        refs = extract_filter_dimension_refs(filters)
+    except Exception:  # noqa: BLE001
+        # A filter we can't parse can't be proven covered — fail safe.
+        logger.warning("[BuildV3] Unparseable filter; skipping cube match")
+        return _FILTER_COVERAGE_UNKNOWN
+
+    if not refs:
+        return []
+
+    # A filter ref whose FULL name is a metric node (e.g. "v3.total_revenue" in
+    # "v3.total_revenue > 100") is a HAVING predicate, not a dimension the cube
+    # must materialize — mirrors classify_filters' metric/dimension split.
+    # Only name/type are needed to spot metric refs; skip the default heavy
+    # NodeRevision eager-load tree.
+    metric_nodes = await Node.get_by_names(
+        session,
+        refs,
+        options=[load_only(Node.name, Node.type)],
+    )
+    metric_ref_names = {
+        node.name for node in metric_nodes if node.type == NodeType.METRIC
+    }
+    return [ref for ref in refs if ref not in metric_ref_names]
 
 
 @timed("dj.cube_matching.ms")
@@ -56,13 +104,19 @@ async def find_matching_cube(
     metrics: list[str],
     dimensions: list[str],
     require_availability: bool = True,
-) -> Optional[NodeRevision]:
+    filters: list[str] | None = None,
+) -> NodeRevision | None:
     """
     Find a cube that covers all requested metrics and dimensions.
 
     A cube matches if:
     1. It contains all requested metrics (by node name)
-    2. It contains all requested dimensions
+    2. It covers every REQUIRED dimension — the union of requested ``dimensions``
+       and the dimension refs used in ``filters`` (a filter on a dimension the
+       cube's materialized table lacks would produce invalid SQL, so such cubes
+       are rejected and the query falls back to the metric's own engine).
+       Coverage is role-sensitive (``date_id[order]`` is not satisfied by
+       ``date_id[ship]``). Metric-threshold filters (HAVING) are NOT required.
     3. Cube has availability state (materialized) - configurable with require_availability
 
     Args:
@@ -70,12 +124,22 @@ async def find_matching_cube(
         metrics: List of metric node names
         dimensions: List of dimension references (e.g., "default.date_dim.date_id")
         require_availability: If True, only consider cubes with availability defined
+        filters: Optional filter predicates. Any DIMENSION referenced here must
+            also be covered by the cube, even when it is not a requested
+            ``dimension``. Metric (HAVING) filters impose no coverage requirement.
 
     Returns:
         Matching cube NodeRevision if found, None otherwise
     """
     if not metrics:
         return None
+
+    required_filter_dims = await _required_filter_dimensions(session, filters)
+    if required_filter_dims is _FILTER_COVERAGE_UNKNOWN:
+        # Couldn't prove filter coverage — fail safe, don't match any cube.
+        return None
+    # The full role-sensitive coverage requirement: requested dims ∪ filter dims.
+    required_dims = set(dimensions) | set(required_filter_dims)  # type: ignore[arg-type]
 
     # Build query for cubes
     statement = (
@@ -128,7 +192,7 @@ async def find_matching_cube(
     candidate_cubes = result.unique().scalars().all()
 
     # Find the best matching cube (smallest grain that covers all dimensions)
-    best_match: Optional[NodeRevision] = None
+    best_match: NodeRevision | None = None
     best_grain_size = float("inf")
 
     for cube_node in candidate_cubes:
@@ -143,14 +207,17 @@ async def find_matching_cube(
             )
             continue
 
-        # Check dimension coverage: requested dims must be subset of cube dims
+        # Coverage: the cube must cover every REQUIRED dimension — requested
+        # grouping dims AND dimensions referenced in filters. A single
+        # role-sensitive subset check keeps grouping and filter coverage
+        # consistent (a filter on a dim the cube lacks would otherwise emit
+        # Druid SQL referencing a missing column).
         cube_dims = set(cube_rev.cube_dimensions())
-        requested_dims = set(dimensions)
 
-        if not requested_dims.issubset(cube_dims):
+        if not required_dims.issubset(cube_dims):
             logger.debug(
                 f"[BuildV3] Cube {cube_rev.name} dims {cube_dims} "
-                f"don't cover requested {requested_dims}",
+                f"don't cover required {required_dims}",
             )
             continue
 
@@ -172,14 +239,56 @@ async def find_matching_cube(
     return best_match
 
 
+async def validate_pinned_cube_covers_filters(
+    session: AsyncSession,
+    cube: NodeRevision,
+    dimensions: list[str],
+    filters: list[str] | None,
+) -> None:
+    """
+    Ensure an explicitly pinned cube covers every filtered dimension.
+
+    Cube matching (find_matching_cube) already rejects cubes that don't cover a
+    filtered dimension and falls back. But when the caller pins a specific cube
+    (``cube=`` param), that discovery is skipped — so a filter on a dimension the
+    pinned cube's table lacks would silently produce invalid Druid SQL.
+
+    Here we fail LOUD instead of falling back: the caller asked for THIS cube, so
+    a clear error is more useful than quietly running on a different engine.
+
+    Raises:
+        DJInvalidInputException: if a filter references a dimension the pinned
+            cube does not materialize (or a filter can't be parsed).
+    """
+    required = await _required_filter_dimensions(session, filters)
+    if required is _FILTER_COVERAGE_UNKNOWN:
+        raise DJInvalidInputException(
+            f"Cannot verify that pinned cube `{cube.name}` covers the requested "
+            "filters because a filter could not be parsed.",
+            http_status_code=422,
+        )
+    required_dims = set(dimensions) | set(required)  # type: ignore[arg-type]
+    cube_dims = set(cube.cube_dimensions())
+    missing = required_dims - cube_dims
+    if missing:
+        raise DJInvalidInputException(
+            f"Pinned cube `{cube.name}` does not cover dimension(s) "
+            f"{sorted(missing)} referenced by the query. Remove the filter/"
+            "dimension, or pick a cube that materializes it.",
+            http_status_code=422,
+        )
+
+
 async def resolve_dialect_and_engine_for_metrics(
     session: AsyncSession,
     metrics: list[str],
     dimensions: list[str],
     use_materialized: bool = True,
-    engine_name: Optional[str] = None,
-    engine_version: Optional[str] = None,
-    dialect_override: Optional[Dialect] = None,
+    engine_name: str | None = None,
+    engine_version: str | None = None,
+    dialect_override: Dialect | None = None,
+    matched_cube: NodeRevision | None = None,
+    filters: list[str] | None = None,
 ) -> ResolvedExecutionContext:
     """
     Resolve dialect and engine for a metrics query in a single lookup.
@@ -194,8 +303,8 @@ async def resolve_dialect_and_engine_for_metrics(
        matching cube with availability exists:
        - Use the cube's availability catalog's engine matching dialect_override (or
          the first engine if none match)
-    2. Otherwise, fall back to the first metric's catalog's default engine,
-       filtered by dialect_override if provided
+    2. Otherwise, fall back to the first metric's catalog, or for a metricless
+       query the first dimension node's catalog, filtered by dialect_override.
 
     Args:
         session: Database session
@@ -206,13 +315,21 @@ async def resolve_dialect_and_engine_for_metrics(
         engine_version: Optional explicit engine version override
         dialect_override: Optional dialect to force, overrides auto-resolution for
             both SQL generation and engine selection
+        matched_cube: When provided, resolve the dialect from THIS cube's
+            availability instead of discovering one via find_matching_cube — so a
+            pinned query's dialect matches the cube it actually builds from.
+        filters: Optional filter predicates, threaded into cube discovery so a
+            cube is only chosen when it also covers every filter-referenced
+            dimension (see find_matching_cube). A filter on an uncovered
+            dimension therefore resolves to the metric's own engine instead of
+            an unusable Druid cube.
 
     Returns:
         ResolvedExecutionContext with dialect, engine, catalog_name, and optional cube
     """
     from datajunction_server.api.helpers import resolve_engine
 
-    cube: Optional[NodeRevision] = None
+    cube: NodeRevision | None = None
 
     # Try to find a matching cube with availability, unless the caller is explicitly
     # requesting a non-Druid dialect (in which case we skip cube matching and run
@@ -221,11 +338,20 @@ async def resolve_dialect_and_engine_for_metrics(
         dialect_override is None or dialect_override == Dialect.DRUID
     )
     if use_cube:
-        cube = await find_matching_cube(
-            session,
-            metrics,
-            dimensions,
-            require_availability=True,
+        # When a cube is pinned, resolve the dialect from that specific cube's
+        # availability rather than discovering an arbitrary superset cube — this
+        # keeps the resolved dialect consistent with the cube the build actually
+        # renders from. Otherwise, discover a materialized cube as before.
+        cube = (
+            matched_cube
+            if matched_cube is not None
+            else await find_matching_cube(
+                session,
+                metrics,
+                dimensions,
+                require_availability=True,
+                filters=filters,
+            )
         )
 
         if cube and cube.availability:
@@ -257,16 +383,19 @@ async def resolve_dialect_and_engine_for_metrics(
                     cube=cube,
                 )
 
-    if not metrics:
+    if not metrics and not dimensions:
         raise DJInvalidInputException(
-            "At least one metric is required.",
+            "At least one metric or dimension is required.",
             http_status_code=422,
         )
 
-    # Fallback: use first metric's catalog's default engine
+    # Fall back to the first requested metric or dimension's catalog.
+    anchor_name = (
+        metrics[0] if metrics else parse_dimension_ref(dimensions[0]).node_name
+    )
     node = await Node.get_by_name(
         session,
-        metrics[0],
+        anchor_name,
         raise_if_not_exists=True,
         options=[
             joinedload(Node.current).options(
@@ -277,18 +406,18 @@ async def resolve_dialect_and_engine_for_metrics(
         ],
     )
     if not node:  # pragma: no cover
-        raise ValueError(f"Metric not found: {metrics[0]}")
+        raise ValueError(f"Query node not found: {anchor_name}")
 
     catalog_name = node.current.catalog.name if node.current.catalog else None
     if not catalog_name:  # pragma: no cover
-        raise ValueError(f"Metric {metrics[0]} has no catalog")
+        raise ValueError(f"Query node {anchor_name} has no catalog")
 
     # Resolve engine: when no dialect is explicitly requested, prefer Trino.
     # Fall back to the catalog's first engine if no Trino engine exists.
     if not dialect_override and not engine_name:
         catalog_engines = node.current.catalog.engines
         trino_engines = [e for e in catalog_engines if e.dialect == Dialect.TRINO]
-        preferred_dialect: Optional[Dialect] = Dialect.TRINO if trino_engines else None
+        preferred_dialect: Dialect | None = Dialect.TRINO if trino_engines else None
     else:
         preferred_dialect = dialect_override
 
@@ -304,10 +433,10 @@ async def resolve_dialect_and_engine_for_metrics(
         Dialect(engine.dialect) if engine.dialect else Dialect.TRINO
     )
     logger.info(
-        "[BuildV3] Resolved dialect=%s engine=%s from metric %s catalog=%s",
+        "[BuildV3] Resolved dialect=%s engine=%s from query node %s catalog=%s",
         dialect,
         engine.name,
-        metrics[0],
+        anchor_name,
         catalog_name,
     )
 
@@ -398,6 +527,9 @@ async def build_sql_from_cube(
     Returns:
         GeneratedSQL with the query and column metadata.
     """
+    if not metrics:
+        raise DJInvalidInputException("At least one metric is required")
+
     # Import here to avoid circular dependency
     from datajunction_server.construction.build_v3.builder import setup_build_context
 
@@ -417,8 +549,8 @@ async def build_sql_from_cube(
 
 def _build_mat_col_lookup(cube: NodeRevision) -> dict[str, str]:
     """
-    Build a mapping from short column name -> physical column name by reading
-    the cube's materialization config columns.
+    Build a mapping from semantic column reference -> physical column name by
+    reading the cube's materialization config columns.
 
     Example entry in config["columns"]:
       {
@@ -429,9 +561,9 @@ def _build_mat_col_lookup(cube: NodeRevision) -> dict[str, str]:
         ...
       }
 
-    We key on ``column`` (the short name) because that is what
-    parse_dimension_ref().column_name returns, and it is stable across
-    different namespace / path representations.
+    New configs key ``column`` by the full semantic reference, including a
+    role suffix when present. Older configs used a short column name; callers
+    retain a short-name fallback for compatibility.
 
     Returns {} when no materialization config is available (e.g. in tests that
     set availability directly without going through the materialization pipeline),
@@ -448,6 +580,19 @@ def _build_mat_col_lookup(cube: NodeRevision) -> dict[str, str]:
     return lookup
 
 
+def _materialized_dimension_column(
+    lookup: dict[str, str],
+    dimension_ref: str,
+    default: str,
+) -> str:
+    """Resolve a materialized dimension by role first, then legacy short name."""
+    parsed = parse_dimension_ref(dimension_ref)
+    return lookup.get(
+        dimension_ref,
+        lookup.get(parsed.column_name, default),
+    )
+
+
 def build_synthetic_grain_group(
     ctx: BuildContext,
     decomposed_metrics: dict[str, DecomposedMetricInfo],
@@ -456,14 +601,10 @@ def build_synthetic_grain_group(
     """
     Build a synthetic GrainGroupSQL that reads from the cube's materialized Druid table.
 
-    Physical column names are resolved from the cube's materialization config
-    (``materialization.config["columns"]``).  Each entry there carries a
-    ``column`` key (the short column name, e.g. ``dateint``) and a ``name`` key
-    (the physical column name as it exists in the Druid table, e.g.
-    ``common_DOT_dimensions_DOT_time_DOT_date_DOT_dateint``).  We key on the
-    short column name because that is what parse_dimension_ref().column_name
-    returns.  When a match is found the physical name is used; otherwise we fall
-    back to the short name (which is correct for new-style materializations).
+    Physical column names are resolved from the cube's materialization config.
+    New configs use the full semantic reference (including any role) as the
+    ``column`` key; legacy configs used a short bare name. When neither exists,
+    the generated role-aware alias is already the correct fallback.
     """
     all_components = []
     component_aliases: dict[str, str] = {}
@@ -480,7 +621,7 @@ def build_synthetic_grain_group(
             p for p in [avail.catalog, avail.schema_, avail.table] if p
         )
 
-    # short_col_name -> physical column name from the materialization config.
+    # Semantic reference (or legacy short name) -> physical column name.
     # Empty when no materialization config is present (tests / direct calls).
     mat_col_lookup = _build_mat_col_lookup(cube)
 
@@ -516,7 +657,11 @@ def build_synthetic_grain_group(
         short_name = parsed_dim.column_name
         if parsed_dim.role:
             short_name = f"{short_name}_{parsed_dim.role}"
-        physical_name = mat_col_lookup.get(parsed_dim.column_name, short_name)
+        physical_name = _materialized_dimension_column(
+            mat_col_lookup,
+            dim_ref,
+            short_name,
+        )
         dim_short_names.append(short_name)
         dim_physical_names.append(physical_name)
         # Use the physical column name for WHERE clause resolution:
@@ -591,7 +736,7 @@ def build_synthetic_grain_group(
     # by the derived metrics loop in generate_metrics_sql, which handles PARTITION BY
     # injection for window functions
     base_metrics = []
-    for metric_name in decomposed_metrics.keys():
+    for metric_name in decomposed_metrics:
         metric_node = ctx.nodes.get(metric_name)
         if metric_node and not is_derived_metric(ctx, metric_node):
             base_metrics.append(metric_name)

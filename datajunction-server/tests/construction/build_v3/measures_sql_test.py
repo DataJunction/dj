@@ -1,7 +1,8 @@
 import pytest
-from . import assert_sql_equal, get_first_grain_group
+
 from datajunction_server.construction.build_v3.builder import build_measures_sql
 
+from . import assert_sql_equal, get_first_grain_group
 
 # All base metrics from order_details
 ORDER_DETAILS_BASE_METRICS = [
@@ -120,7 +121,7 @@ class TestMeasuresSQLEndpoint:
 
     @pytest.mark.asyncio
     async def test_metrics_v3_no_metrics_raises_422(self, client_with_build_v3):
-        """GET /sql/metrics/v3/ with no metrics must return 422, not a 500 IndexError."""
+        """GET /sql/metrics/v3/ requires at least one metric."""
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
             params={
@@ -3044,6 +3045,62 @@ class TestTemporalFilters:
         )
 
     @pytest.mark.asyncio
+    async def test_temporal_filter_uses_partitioned_dimension_role(
+        self,
+        session,
+        client_with_build_v3,
+    ):
+        """A role-qualified cube partition filters through that exact link."""
+        response = await client_with_build_v3.post(
+            "/nodes/v3.order_details/link",
+            json={
+                "dimension_node": "v3.date",
+                "join_type": "left",
+                "join_on": "v3.order_details.customer_id = v3.date.date_id",
+                "role": "ship",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+        cube_name = "v3.test_role_temporal_cube"
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": cube_name,
+                "metrics": ["v3.total_revenue"],
+                "dimensions": [
+                    "v3.date.date_id[order]",
+                    "v3.date.date_id[ship]",
+                ],
+                "mode": "published",
+                "description": "Role-aware temporal filter regression",
+            },
+        )
+        assert response.status_code == 201, response.json()
+        response = await client_with_build_v3.post(
+            f"/nodes/{cube_name}/columns/v3.date.date_id[ship]/partition",
+            json={
+                "type_": "temporal",
+                "format": "yyyyMMdd",
+                "granularity": "day",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        result = await build_measures_sql(
+            session=session,
+            metrics=["v3.total_revenue"],
+            dimensions=[
+                "v3.date.date_id[order]",
+                "v3.date.date_id[ship]",
+            ],
+            include_temporal_filters=True,
+        )
+        sql = result.grain_groups[0].sql
+        assert "customer_id = CAST(DATE_FORMAT" in sql
+        assert "order_date = CAST(DATE_FORMAT" not in sql
+
+    @pytest.mark.asyncio
     async def test_no_temporal_filter_when_disabled(
         self,
         session,
@@ -3622,16 +3679,7 @@ class TestTemporalFilterPushdown:
             WITH v3_order_details AS (
               SELECT
                 o.order_id,
-                oi.line_number,
-                o.customer_id,
-                o.order_date,
-                o.from_location_id,
-                o.to_location_id,
-                o.status,
-                oi.product_id,
-                oi.quantity,
-                oi.unit_price,
-                oi.quantity * oi.unit_price AS line_total
+                o.order_date
               FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             ),
             v3_orders_by_date AS (
@@ -4160,7 +4208,7 @@ class TestCombinedMeasuresSQLEndpoint:
         # Source tables should be pre-agg table references
         assert len(data["source_tables"]) >= 1
         assert data["source_tables"] == [
-            "default.dj_preaggs.v3_order_details_preagg_d344b4e3",
+            "default.dj_preaggs.v3_order_details_preagg_0bad539a",
         ]
 
         # Extract the preagg table name for SQL comparison
@@ -4169,7 +4217,7 @@ class TestCombinedMeasuresSQLEndpoint:
             data["sql"],
             """
             SELECT status, SUM(line_total_sum_e1f61696) line_total_sum_e1f61696
-            FROM default.dj_preaggs.v3_order_details_preagg_d344b4e3
+            FROM default.dj_preaggs.v3_order_details_preagg_0bad539a
             GROUP BY status
             """,
         )
@@ -4200,7 +4248,7 @@ class TestCombinedMeasuresSQLEndpoint:
 
         expected_table = (
             f"{settings.preagg_catalog}.{settings.preagg_schema}"
-            f".v3_order_details_preagg_d344b4e3"
+            f".v3_order_details_preagg_0bad539a"
         )
 
         # Source tables should include the configured catalog.schema prefix
@@ -6145,8 +6193,7 @@ class TestOuterJoinFilterSafety:
             WITH v3_dates_with_orders AS (
                 SELECT
                     d.date_id,
-                    o.order_id,
-                    o.status
+                    o.order_id
                 FROM (SELECT * FROM default.v3.orders o WHERE o.status = 'completed') o
                 RIGHT OUTER JOIN default.v3.dates d ON o.order_date = d.date_id
             )
@@ -6263,16 +6310,9 @@ class TestUpstreamFilterOnlyPushdown:
             v3_order_details AS (
                 SELECT
                     o.order_id,
-                    oi.line_number,
-                    o.customer_id,
-                    o.order_date,
-                    o.from_location_id,
-                    o.to_location_id,
-                    o.status,
                     oi.product_id,
                     oi.quantity,
-                    oi.unit_price,
-                    oi.quantity * oi.unit_price AS line_total
+                    oi.unit_price
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
                 WHERE oi.product_id = 7
@@ -6280,7 +6320,6 @@ class TestUpstreamFilterOnlyPushdown:
             v3_order_details_wrapper_filter_only AS (
                 SELECT
                     order_id,
-                    product_id,
                     quantity * unit_price AS line_total
                 FROM v3_order_details
                 WHERE product_id = 7
@@ -6522,7 +6561,7 @@ class TestUpstreamFilterOnlyPushdown:
             sql,
             """
             WITH v3_status_events AS (
-                SELECT log_id, raw_status AS event_status
+                SELECT log_id
                 FROM default.v3.status_log
                 WHERE raw_status = 'OPEN'
             )
@@ -6801,17 +6840,11 @@ class TestUpstreamFilterOnlyPushdown:
             ),
             v3_order_details AS (
                 SELECT
-                    o.order_id,
-                    oi.line_number,
                     o.customer_id,
                     o.order_date,
-                    o.from_location_id,
-                    o.to_location_id,
-                    o.status,
                     oi.product_id,
                     oi.quantity,
-                    oi.unit_price,
-                    oi.quantity * oi.unit_price AS line_total
+                    oi.unit_price
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
                 WHERE oi.product_id = 7
@@ -6820,7 +6853,6 @@ class TestUpstreamFilterOnlyPushdown:
                 SELECT
                     customer_id,
                     order_date,
-                    product_id,
                     quantity * unit_price AS line_total
                 FROM v3_order_details
                 WHERE product_id = 7
@@ -7899,7 +7931,7 @@ class TestFilterPushdownScope:
             sql,
             """
             WITH v3_events_with_date AS (
-              SELECT account_id, event_type, audit_date
+              SELECT account_id, event_type
               FROM default.v3.audit_log_txlink_unlinked AS s
               WHERE audit_date >= 20260101
             ),
@@ -7998,7 +8030,7 @@ class TestFilterPushdownScope:
             sql,
             """
             WITH v3_events_double_link AS (
-              SELECT account_id, event_type, audit_date
+              SELECT account_id, event_type
               FROM default.v3.audit_log_txlinkdouble AS s
               WHERE audit_date >= 20260101
                 AND s.audit_date >= 20260101
@@ -9017,7 +9049,7 @@ class TestParentCteFilterLanding:
             """
             WITH
             v3_events_by_window_multi AS (
-                SELECT e.account_id, e.event_date, e.value, w.window
+                SELECT e.account_id, e.value, w.window
                 FROM default.v3.events_multi_filter AS e
                 CROSS JOIN default.v3.obs_windows AS w
                 WHERE w.window IN ('1-35') AND e.event_date >= 20260101
@@ -9099,11 +9131,11 @@ class TestParentCteFilterLanding:
             """
             WITH
             v3_events_union AS (
-                SELECT account_id, event_date, value, 'a' AS branch
+                SELECT value, 'a' AS branch
                 FROM default.v3.events_setop
                 WHERE event_date >= 20260101
                 UNION ALL
-                SELECT account_id, event_date, value, 'b' AS branch
+                SELECT value, 'b' AS branch
                 FROM default.v3.events_setop
             )
             SELECT t1.branch, SUM(t1.value) value_sum_HASH
@@ -9372,7 +9404,7 @@ class TestParentCteFilterLanding:
             sql,
             """
             WITH v3_events_with_side AS (
-              SELECT e.account_id, s.measure_date
+              SELECT e.account_id
               FROM default.v3.events_left_join_primary AS e
               LEFT JOIN (
                 SELECT *
@@ -9490,7 +9522,7 @@ class TestParentCteFilterLanding:
             sql,
             """
             WITH v3_events_with_nested_self AS (
-              SELECT a.account_id, a.event_date
+              SELECT a.account_id
               FROM default.v3.events_nested_self_ref AS a
               LEFT JOIN (
                 SELECT rev.account_id, rev.lifecycle_id
@@ -9689,7 +9721,7 @@ class TestParentCteFilterLanding:
               WHERE column_b = 20260101
             ),
             v3_fact_transform_dual AS (
-              SELECT account_id, column_a, value
+              SELECT account_id, value
               FROM default.v3.fact_dual
               WHERE column_a = 20260101
             )
@@ -10412,7 +10444,7 @@ class TestParentCteFilterLanding:
               WHERE window_label = 'demo'
             ),
             v3_alias_collide_xform AS (
-              SELECT a.account_id, a.window_label
+              SELECT a.account_id
               FROM (
                 SELECT a.account_id, a.event_date, a.value, w.window_label
                 FROM default.v3.events_alias_collide AS a

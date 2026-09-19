@@ -4,18 +4,18 @@ Node related APIs.
 
 import logging
 import os
+from collections.abc import Callable
 from http import HTTPStatus
-from typing import Callable, List, Optional, cast
+from typing import cast
 
 from fastapi import BackgroundTasks, Depends, Query, Response
 from fastapi.responses import JSONResponse
 from fastapi_cache.decorator import cache
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm import joinedload, load_only, noload, selectinload
 from sqlalchemy.sql.operators import is_
 from starlette.requests import Request
-
 
 from datajunction_server.api.helpers import (
     check_namespace_not_git_only,
@@ -23,19 +23,17 @@ from datajunction_server.api.helpers import (
     get_column,
     get_node_by_name,
     get_node_namespace,
-    raise_if_node_exists,
     get_save_history,
+    raise_if_node_exists,
 )
-from datajunction_server.api.namespaces import create_node_namespace
 from datajunction_server.api.tags import get_tags_by_name
 from datajunction_server.database.attributetype import ColumnAttribute
 from datajunction_server.database.column import Column
+from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.history import History
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.partition import Partition
 from datajunction_server.database.user import User
-from datajunction_server.internal.caching.cachelib_cache import get_cache
-from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.errors import (
     DJAlreadyExistsException,
     DJConfigurationException,
@@ -45,20 +43,22 @@ from datajunction_server.errors import (
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
-    get_access_checker,
     AccessDenialMode,
+    get_access_checker,
 )
-from datajunction_server.models.access import ResourceAction
+from datajunction_server.internal.caching.cachelib_cache import get_cache
+from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.internal.history import ActivityType, EntityType
-from datajunction_server.internal.namespaces import get_git_info_for_namespace
+from datajunction_server.internal.namespaces import (
+    create_or_reactivate_namespace,
+    get_git_info_for_namespace,
+)
 from datajunction_server.internal.nodes import (
     activate_node,
-    create_a_cube,
-    create_a_source_node,
-    upsert_reference_dimension_link,
-    upsert_simple_dimension_link,
     copy_to_new_node,
+    create_a_cube,
     create_a_node,
+    create_a_source_node,
     deactivate_node,
     get_column_level_lineage,
     get_node_column,
@@ -69,10 +69,13 @@ from datajunction_server.internal.nodes import (
     set_node_column_attributes,
     update_any_node,
     upsert_complex_dimension_link,
+    upsert_reference_dimension_link,
+    upsert_simple_dimension_link,
 )
 from datajunction_server.internal.validation import validate_node_data
 from datajunction_server.internal.views import create_cube_views
 from datajunction_server.models import access
+from datajunction_server.models.access import ResourceAction
 from datajunction_server.models.attribute import (
     AttributeTypeIdentifier,
 )
@@ -115,10 +118,10 @@ from datajunction_server.models.query import QueryCreate
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import (
     _node_output_options,
-    get_dimensions,
     get_dimension_attributes,
     get_dimension_inbound_bfs,
     get_dimension_outbound_bfs,
+    get_dimensions,
     get_downstream_nodes,
     get_filter_only_dimensions,
     get_upstream_nodes,
@@ -197,7 +200,11 @@ async def revalidate(
 
     # Create/update views if requested and this is a cube (non-blocking)
     if sync_views:
-        node = await Node.get_by_name(session, name)
+        node = await Node.get_by_name(
+            session,
+            name,
+            options=[load_only(Node.type)],
+        )
         if node and node.type == NodeType.CUBE:  # type: ignore
             background_tasks.add_task(
                 create_cube_views,
@@ -233,19 +240,19 @@ async def revalidate(
 
 @router.post(
     "/nodes/{node_name}/columns/{column_name}/attributes/",
-    response_model=List[ColumnOutput],
+    response_model=list[ColumnOutput],
     status_code=201,
 )
 async def set_column_attributes(
     node_name: str,
     column_name: str,
-    attributes: List[AttributeTypeIdentifier],
+    attributes: list[AttributeTypeIdentifier],
     *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> List[ColumnOutput]:
+) -> list[ColumnOutput]:
     """
     Set column attributes for the node.
     """
@@ -256,7 +263,17 @@ async def set_column_attributes(
         session,
         node_name,
         options=[
-            joinedload(Node.current).options(*NodeRevision.default_load_options()),
+            joinedload(Node.current).options(
+                selectinload(NodeRevision.columns).options(
+                    joinedload(Column.attributes).joinedload(
+                        ColumnAttribute.attribute_type,
+                    ),
+                    joinedload(Column.dimension).options(
+                        noload(Node.created_by),
+                    ),
+                    joinedload(Column.partition),
+                ),
+            ),
         ],
     )
     columns = await set_node_column_attributes(
@@ -270,30 +287,32 @@ async def set_column_attributes(
     return columns  # type: ignore
 
 
-@router.get("/nodes/", response_model=List[str])
+@router.get("/nodes/", response_model=list[str])
 async def list_nodes(
-    node_type: Optional[NodeType] = None,
-    prefix: Optional[str] = None,
+    node_type: NodeType | None = None,
+    prefix: str | None = None,
     *,
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> List[str]:
+) -> list[str]:
     """
     List the available nodes.
     """
-    nodes = await Node.find(session, prefix, node_type)  # type: ignore
-    access_checker.add_nodes(nodes, access.ResourceAction.READ)
+    # Only the names are needed, here and for the access check.
+    node_names = await Node.find_names(session, prefix, node_type)
+    for node_name in node_names:
+        access_checker.add_request_by_node_name(node_name, access.ResourceAction.READ)
     return await access_checker.approved_resource_names()
 
 
-@router.get("/nodes/details/", response_model=List[NodeIndexItem])
+@router.get("/nodes/details/", response_model=list[NodeIndexItem])
 @cache(expire=settings.index_cache_expire)
 async def list_all_nodes_with_details(
-    node_type: Optional[NodeType] = None,
+    node_type: NodeType | None = None,
     *,
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> List[NodeIndexItem]:
+) -> list[NodeIndexItem]:
     """
     List the available nodes.
     """
@@ -351,6 +370,12 @@ async def get_node(
     access_checker.add_request_by_node_name(name, ResourceAction.READ)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
+    # Answer from the database, not from the identity map: SQLAlchemy hands back an
+    # instance the session already holds without re-applying the load options below,
+    # which would serve a superseded revision, or one loaded without the relationships
+    # this response needs. A request's session is its own, so nothing is expired here
+    # that this request did not load itself.
+    session.expire_all()
     node = await Node.get_by_name(
         session,
         name,
@@ -403,10 +428,12 @@ async def delete_node(
 @router.delete("/nodes/{name}/hard/", name="Hard Delete a DJ Node")
 async def hard_delete(
     name: str,
+    request: Request,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
     access_checker: AccessChecker = Depends(get_access_checker),
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
 ) -> JSONResponse:
     """
     Hard delete a node, destroying all links and invalidating all downstream nodes.
@@ -417,17 +444,26 @@ async def hard_delete(
     namespace = name.rsplit(".", 1)[0]
     await check_namespace_not_git_only(session, namespace)
 
-    impact = await hard_delete_node(
+    result = await hard_delete_node(
         name=name,
         session=session,
         current_user=current_user,
         save_history=save_history,
+        query_service_client=query_service_client,
+        request_headers=dict(request.headers),
     )
     return JSONResponse(
         status_code=HTTPStatus.OK,
         content={
             "message": f"The node `{name}` has been completely removed.",
-            "impact": impact,
+            "impact": result.impact,
+            # Reported only when there is something to report: the node is gone
+            # either way, and DJ no longer knows what the workflow was called.
+            **(
+                {"materialization_failures": result.materialization_failures}
+                if result.materialization_failures
+                else {}
+            ),
         },
     )
 
@@ -461,13 +497,13 @@ async def restore_node(
     )
 
 
-@router.get("/nodes/{name}/revisions/", response_model=List[NodeRevisionOutput])
+@router.get("/nodes/{name}/revisions/", response_model=list[NodeRevisionOutput])
 async def list_node_revisions(
     name: str,
     *,
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> List[NodeRevisionOutput]:
+) -> list[NodeRevisionOutput]:
     """
     List all revisions for the node.
     """
@@ -478,7 +514,28 @@ async def list_node_revisions(
         session,
         name,
         options=[
-            joinedload(Node.revisions).options(*NodeRevision.default_load_options()),
+            joinedload(Node.revisions).options(
+                selectinload(NodeRevision.columns).options(
+                    joinedload(Column.attributes).joinedload(
+                        ColumnAttribute.attribute_type,
+                    ),
+                    joinedload(Column.dimension).options(
+                        noload(Node.created_by),
+                    ),
+                    joinedload(Column.partition),
+                ),
+                joinedload(NodeRevision.catalog),
+                selectinload(NodeRevision.parents),
+                selectinload(NodeRevision.materializations),
+                selectinload(NodeRevision.metric_metadata),
+                selectinload(NodeRevision.availability),
+                selectinload(NodeRevision.dimension_links).options(
+                    joinedload(DimensionLink.dimension).options(
+                        noload(Node.created_by),
+                    ),
+                    joinedload(DimensionLink.node_revision),
+                ),
+            ),
         ],
         raise_if_not_exists=True,
     )
@@ -673,15 +730,21 @@ async def register_table(
     name = f"{namespace}.{table}"
     await raise_if_node_exists(session, name)
 
+    # Authorize before the idempotent namespace create/reactivate below (which can
+    # commit). Uses the node's own namespace (node-create semantics); the namespace
+    # endpoint's parent-boundary rule is intentionally different (see PR description).
+    access_checker.add_namespace(namespace, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     # Create the namespace if required (idempotent)
-    await create_node_namespace(
+    await create_or_reactivate_namespace(
         namespace=namespace,
+        include_parents=False,
         session=session,
         current_user=current_user,
         save_history=save_history,
+        creator_owned_namespace_patterns=settings.creator_owned_namespace_patterns,
     )
-    access_checker.add_namespace(namespace, ResourceAction.WRITE)
-    await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     # Use reflection to get column names and types
     _catalog = await get_catalog_by_name(session=session, name=catalog)
@@ -748,6 +811,7 @@ async def register_view(
     view_name = f"{schema_}.{view}"
     await raise_if_node_exists(session, node_name)
 
+    # Node-create semantics: authorize on the node's own namespace (see register_table).
     access_checker.add_namespace(namespace, ResourceAction.WRITE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
@@ -778,11 +842,13 @@ async def register_view(
     )
 
     # Create the namespace if required (idempotent)
-    await create_node_namespace(
+    await create_or_reactivate_namespace(
         namespace=namespace,
+        include_parents=False,
         session=session,
         current_user=current_user,
         save_history=save_history,
+        creator_owned_namespace_patterns=settings.creator_owned_namespace_patterns,
     )
 
     return await create_source(
@@ -811,7 +877,7 @@ async def link_dimension(
     name: str,
     column: str,
     dimension: str,
-    dimension_column: Optional[str] = None,
+    dimension_column: str | None = None,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
@@ -858,7 +924,7 @@ async def add_reference_dimension_link(
     node_column: str,
     dimension_node: str,
     dimension_column: str,
-    role: Optional[str] = None,
+    role: str | None = None,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
@@ -1006,6 +1072,7 @@ async def remove_complex_dimension_link(
         link_identifier.dimension_node,
         ResourceAction.READ,
     )
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
     return await remove_dimension_link(
         session,
         node_name,
@@ -1020,7 +1087,7 @@ async def delete_dimension_link(
     name: str,
     column: str,
     dimension: str,
-    dimension_column: Optional[str] = None,
+    dimension_column: str | None = None,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
@@ -1050,7 +1117,7 @@ async def delete_dimension_link(
 )
 async def tags_node(
     name: str,
-    tag_names: Optional[List[str]] = Query(default=None),
+    tag_names: list[str] | None = Query(default=None),
     *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -1066,6 +1133,10 @@ async def tags_node(
     node = await Node.get_by_name(
         session=session,
         name=name,
+        options=[
+            load_only(Node.name),
+            selectinload(Node.tags),
+        ],
         raise_if_not_exists=True,
     )
     existing_tags = {tag.name for tag in node.tags}  # type: ignore
@@ -1244,17 +1315,17 @@ async def calculate_node_similarity(
 
 @router.get(
     "/nodes/{name}/downstream/",
-    response_model=List[DAGNodeOutput],
+    response_model=list[DAGNodeOutput],
     name="List Downstream Nodes For A Node",
 )
 async def list_downstream_nodes(
     name: str,
     *,
-    node_type: NodeType = None,
+    node_type: NodeType | None = None,
     depth: int = -1,
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> List[DAGNodeOutput]:
+) -> list[DAGNodeOutput]:
     """
     List all nodes that are downstream from the given node, filterable by type and max depth.
     Setting a max depth of -1 will include all downstream nodes.
@@ -1278,25 +1349,33 @@ async def list_downstream_nodes(
 
 @router.get(
     "/nodes/{name}/upstream/",
-    response_model=List[DAGNodeOutput],
+    response_model=list[DAGNodeOutput],
     name="List Upstream Nodes For A Node",
 )
 async def list_upstream_nodes(
     name: str,
     *,
-    node_type: NodeType = None,
+    node_type: NodeType | None = None,
     cache: Cache = Depends(get_cache),
     background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> List[DAGNodeOutput]:
+) -> list[DAGNodeOutput]:
     """
     List all nodes that are upstream from the given node, filterable by type.
     """
     access_checker.add_request_by_node_name(name, ResourceAction.READ)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
-    node = cast(Node, await Node.get_by_name(session, name, raise_if_not_exists=True))
+    node = cast(
+        Node,
+        await Node.get_by_name(
+            session,
+            name,
+            options=[load_only(Node.name, Node.current_version)],
+            raise_if_not_exists=True,
+        ),
+    )
     upstream_cache_key = node.upstream_cache_key()
     results = cache.get(upstream_cache_key)
     if results is None:
@@ -1323,7 +1402,7 @@ async def list_node_dag(
     *,
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> List[DAGNodeOutput]:
+) -> list[DAGNodeOutput]:
     """
     List all nodes that are part of the DAG of the given node. This means getting all upstreams,
     downstreams, and linked dimension nodes.
@@ -1358,7 +1437,7 @@ async def list_node_dag(
 
 @router.get(
     "/nodes/{name}/dimensions/",
-    response_model=List[DimensionAttributeOutput],
+    response_model=list[DimensionAttributeOutput],
     name="List All Dimension Attributes",
 )
 async def list_all_dimension_attributes(
@@ -1374,7 +1453,7 @@ async def list_all_dimension_attributes(
     access_checker.add_request_by_node_name(name, ResourceAction.READ)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
-    dimensions = await get_dimension_attributes(session, name)
+    dimensions = await get_dimension_attributes(session, name, depth=depth)
     filter_only_dimensions = await get_filter_only_dimensions(session, name)
     return dimensions + filter_only_dimensions
 
@@ -1494,7 +1573,7 @@ async def get_dimension_dag(
 
 @router.get(
     "/nodes/{name}/lineage/",
-    response_model=List[LineageColumn],
+    response_model=list[LineageColumn],
     name="List column level lineage of node",
 )
 async def column_lineage(
@@ -1502,7 +1581,7 @@ async def column_lineage(
     *,
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> List[LineageColumn]:
+) -> list[LineageColumn]:
     """
     List column-level lineage of a node in a graph
     """
@@ -1554,7 +1633,9 @@ async def set_column_display_name(
         session,
         node_name,
         options=[joinedload(Node.current)],
+        raise_if_not_exists=True,
     )
+    assert node is not None  # raise_if_not_exists=True ensures this
     column = await get_column(session, node.current, column_name)  # type: ignore
     column.display_name = display_name
     session.add(column)
@@ -1565,7 +1646,11 @@ async def set_column_display_name(
             node=node.name,  # type: ignore
             activity_type=ActivityType.UPDATE,
             details={
-                "column": column.name,
+                "column": (
+                    column.cube_element_name
+                    if node.type == NodeType.CUBE
+                    else column.name
+                ),
                 "display_name": display_name,
             },
             user=current_user.username,
@@ -1600,7 +1685,9 @@ async def set_column_description(
         session,
         node_name,
         options=[joinedload(Node.current)],
+        raise_if_not_exists=True,
     )
+    assert node is not None  # raise_if_not_exists=True ensures this
     column = await get_column(session, node.current, column_name)  # type: ignore
     column.description = description
     session.add(column)
@@ -1611,7 +1698,11 @@ async def set_column_description(
             node=node.name,  # type: ignore
             activity_type=ActivityType.UPDATE,
             details={
-                "column": column.name,
+                "column": (
+                    column.cube_element_name
+                    if node.type == NodeType.CUBE
+                    else column.name
+                ),
                 "description": description,
             },
             user=current_user.username,
@@ -1648,18 +1739,31 @@ async def set_column_partition(
         node_name,
         options=[
             joinedload(Node.current).options(
-                *NodeRevision.default_load_options(),
-                joinedload(NodeRevision.cube_elements),
+                selectinload(NodeRevision.columns).options(
+                    joinedload(Column.attributes).joinedload(
+                        ColumnAttribute.attribute_type,
+                    ),
+                    joinedload(Column.dimension).options(
+                        noload(Node.created_by),
+                    ),
+                    joinedload(Column.partition),
+                ),
+                selectinload(NodeRevision.cube_elements),
             ),
         ],
+        raise_if_not_exists=True,
     )
+    assert node is not None  # raise_if_not_exists=True ensures this
     column = get_node_column(node, column_name)  # type: ignore
+    column_identifier = (
+        column.cube_element_name if node.type == NodeType.CUBE else column.name
+    )
     upsert_partition_event = History(
         entity_type=EntityType.PARTITION,
         node=node_name,
         activity_type=ActivityType.CREATE,
         details={
-            "column": column_name,
+            "column": column_identifier,
             "partition": input_partition.model_dump(),
         },
         user=current_user.username,
@@ -1722,12 +1826,25 @@ async def remove_column_partition(
         node_name,
         options=[
             joinedload(Node.current).options(
-                *NodeRevision.default_load_options(),
-                joinedload(NodeRevision.cube_elements),
+                selectinload(NodeRevision.columns).options(
+                    joinedload(Column.attributes).joinedload(
+                        ColumnAttribute.attribute_type,
+                    ),
+                    joinedload(Column.dimension).options(
+                        noload(Node.created_by),
+                    ),
+                    joinedload(Column.partition),
+                ),
+                selectinload(NodeRevision.cube_elements),
             ),
         ],
+        raise_if_not_exists=True,
     )
+    assert node is not None  # raise_if_not_exists=True ensures this
     column = get_node_column(node, column_name)  # type: ignore
+    column_identifier = (
+        column.cube_element_name if node.type == NodeType.CUBE else column.name
+    )
     if column.partition:
         await session.delete(column.partition)
         column.partition = None
@@ -1737,7 +1854,7 @@ async def remove_column_partition(
                 entity_type=EntityType.PARTITION,
                 node=node_name,
                 activity_type=ActivityType.DELETE,
-                details={"column": column_name},
+                details={"column": column_identifier},
                 user=current_user.username,
             ),
             session=session,
@@ -1768,9 +1885,11 @@ async def copy_node(
     new_node_namespace = ".".join(new_name.split(".")[:-1])
     await get_node_namespace(session, new_node_namespace, raise_if_not_exists=True)
 
-    # Check that the user has access to read the existing node and write to the new namespace
+    # Check that the user has access to read the existing node and write to the new
+    # namespace. The write target is the new node's parent namespace, not the full
+    # new node name.
     access_checker.add_request_by_node_name(node_name, ResourceAction.READ)
-    access_checker.add_namespace(new_name, ResourceAction.WRITE)
+    access_checker.add_namespace(new_node_namespace, ResourceAction.WRITE)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
     # Check if there is already a node with the new name

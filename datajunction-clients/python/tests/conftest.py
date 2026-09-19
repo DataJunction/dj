@@ -10,7 +10,7 @@ from datetime import timedelta
 import os
 from http.client import HTTPException
 from pathlib import Path
-from typing import AsyncGenerator, Awaitable, Dict, Iterator, List, Optional
+from collections.abc import AsyncGenerator, Awaitable, Iterator
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -28,6 +28,7 @@ from datajunction_server.models.query import (
     QueryCreate,
     QueryWithResults,
 )
+from datajunction_server.models.table_metadata import TableMetadata
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.typing import QueryState
 from datajunction_server.utils import (
@@ -196,11 +197,12 @@ def module__query_service_client(
         catalog: str,
         schema: str,
         table: str,
-        request_headers: Optional[  # pylint: disable=unused-argument
-            Dict[str, str]
-        ] = None,
-        engine: Optional[Engine] = None,  # pylint: disable=unused-argument
-    ) -> List[Column]:
+        request_headers: None
+        | (  # pylint: disable=unused-argument
+            dict[str, str]
+        ) = None,
+        engine: Engine | None = None,  # pylint: disable=unused-argument
+    ) -> list[Column]:
         return COLUMN_MAPPINGS[f"{catalog}.{schema}.{table}"]
 
     module_mocker.patch.object(
@@ -209,11 +211,38 @@ def module__query_service_client(
         mock_get_columns_for_table,
     )
 
+    async def mock_get_table_metadata(
+        catalog: str,
+        schema: str,
+        table: str,
+        request_headers: dict[str, str] | None = None,
+        engine: Engine | None = None,
+    ) -> TableMetadata:
+        # Resolved through get_columns_for_table above rather than duplicating the
+        # mapping, and stubbed at all so that refresh does not fall through to the
+        # HTTP implementation and issue a real request to the scheme-less test URI.
+        return TableMetadata(
+            columns=await qs_client.get_columns_for_table(
+                catalog,
+                schema,
+                table,
+                request_headers,
+                engine,
+            ),
+        )
+
+    module_mocker.patch.object(
+        qs_client,
+        "get_table_metadata",
+        mock_get_table_metadata,
+    )
+
     async def mock_submit_query(
         query_create: QueryCreate,
-        request_headers: Optional[  # pylint: disable=unused-argument
-            Dict[str, str]
-        ] = None,
+        request_headers: None
+        | (  # pylint: disable=unused-argument
+            dict[str, str]
+        ) = None,
     ) -> QueryWithResults:
         normalized_query = (
             query_create.submitted_query.strip()
@@ -265,9 +294,10 @@ def module__query_service_client(
     async def mock_create_view(
         view_name: str,
         query_create: QueryCreate,  # pylint: disable=unused-argument
-        request_headers: Optional[  # pylint: disable=unused-argument
-            Dict[str, str]
-        ] = None,
+        request_headers: None
+        | (  # pylint: disable=unused-argument
+            dict[str, str]
+        ) = None,
     ) -> str:
         return f"View {view_name} created successfully."
 

@@ -14,7 +14,7 @@ test('should return something', async () => {
 
     const source = await dj.sources.create({
         name: 'integration.tests.source1',
-        catalog: 'unknown',
+        catalog: 'tpch',
         schema_: 'db',
         table: 'tbl',
         display_name: 'Test Source with Columns',

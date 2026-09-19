@@ -1,7 +1,8 @@
 """Tests for DimensionAttribute scalar."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from datajunction_server.api.graphql.scalars.node import DimensionAttribute
 
@@ -86,7 +87,7 @@ async def test_dimension_node_lazy_loads_with_role():
 
     # Should extract "default.dispatcher" from "default.dispatcher.company_name[origin]"
     # The rsplit('.', 1)[0] should handle this correctly
-    expected_name = "default.dispatcher.company_name[origin]".rsplit(".", 1)[0]
+    expected_name = ["default.dispatcher", "company_name[origin]"][0]
     mock_node_loader.load.assert_called_once_with(expected_name)
     assert result == mock_loaded_node
 

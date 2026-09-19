@@ -1,6 +1,6 @@
 """History database schema."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import partial
 
 from sqlalchemy import (
@@ -16,8 +16,8 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datajunction_server.database.base import Base
-from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.database.user import User
+from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.typing import UTCDatetime
 
 
@@ -61,5 +61,5 @@ class NotificationPreference(Base):  # pylint: disable=too-few-public-methods
     alert_types: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
     created_at: Mapped[UTCDatetime] = mapped_column(
         DateTime(timezone=True),
-        insert_default=partial(datetime.now, timezone.utc),
+        insert_default=partial(datetime.now, UTC),
     )

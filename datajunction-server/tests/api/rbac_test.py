@@ -1,6 +1,6 @@
 """Tests for RBAC API endpoints."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest import mock
 
 import pytest
@@ -9,9 +9,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.history import History
-from datajunction_server.database.rbac import RoleScope, RoleAssignment
+from datajunction_server.database.rbac import RoleAssignment, RoleScope
 from datajunction_server.database.user import User
-from datajunction_server.internal.access.authorization import AuthorizationService
+from datajunction_server.internal.access.authorization import (
+    AuthorizationService,
+    PassthroughAuthorizationService,
+    RBACAuthorizationService,
+)
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.models import access
 
@@ -35,6 +39,9 @@ class DenyManageAuthorizationService(AuthorizationService):
             for request in requests
         ]
 
+    def authorize_explicit_grants(self, auth_context, requests):
+        return self.authorize(auth_context, requests)
+
 
 class ScopedManageAuthorizationService(AuthorizationService):
     """Grants MANAGE only on a fixed set of namespace patterns."""
@@ -55,6 +62,18 @@ class ScopedManageAuthorizationService(AuthorizationService):
             )
             for request in requests
         ]
+
+    def authorize_explicit_grants(self, auth_context, requests):
+        return self.authorize(auth_context, requests)
+
+
+@pytest.fixture(autouse=True)
+def allow_control_plane_by_default(mocker):
+    """Keep existing endpoint tests focused on role behavior."""
+    mocker.patch(
+        VALIDATOR_AUTH_SERVICE,
+        lambda: PassthroughAuthorizationService(),
+    )
 
 
 @pytest.mark.asyncio
@@ -111,6 +130,64 @@ async def test_create_role_with_scopes(client_with_basic: AsyncClient):
     scopes = {(s["action"], s["scope_type"], s["scope_value"]) for s in data["scopes"]}
     assert ("read", "namespace", "finance.*") in scopes
     assert ("write", "namespace", "finance.*") in scopes
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scope_value", ["", " ", "\t"])
+async def test_create_role_rejects_blank_scope_value(
+    client_with_basic: AsyncClient,
+    scope_value: str,
+):
+    """Global scopes must use an explicit wildcard."""
+    response = await client_with_basic.post(
+        "/roles/",
+        json={
+            "name": "invalid-blank-scope",
+            "scopes": [
+                {
+                    "action": "read",
+                    "scope_type": "namespace",
+                    "scope_value": scope_value,
+                },
+            ],
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == [
+        "body",
+        "scopes",
+        0,
+        "scope_value",
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "scope_value",
+    ["finance*", ".*", "**", "finance.*.revenue", "finance..*", ".finance"],
+)
+async def test_create_role_rejects_malformed_scope_value(
+    client_with_basic: AsyncClient,
+    scope_value: str,
+):
+    """Malformed scope patterns fail request validation."""
+    response = await client_with_basic.post(
+        "/roles/",
+        json={
+            "name": "invalid-malformed-scope",
+            "scopes": [
+                {
+                    "action": "read",
+                    "scope_type": "namespace",
+                    "scope_value": scope_value,
+                },
+            ],
+        },
+    )
+
+    assert response.status_code == 422
+    assert "exact scope" in response.json()["detail"][0]["msg"]
 
 
 @pytest.mark.asyncio
@@ -487,6 +564,19 @@ async def test_delete_scope_not_found(client_with_basic: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_delete_scope_rejects_malformed_scope_value(
+    client_with_basic: AsyncClient,
+):
+    """Path scope values use the same validation as request bodies."""
+    response = await client_with_basic.delete(
+        "/roles/test-role/scopes/read/namespace/finance*",
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["path", "scope_value"]
+
+
+@pytest.mark.asyncio
 async def test_soft_delete_preserves_scopes(
     client_with_basic: AsyncClient,
     session: AsyncSession,
@@ -695,7 +785,7 @@ async def test_create_role_assignment_with_expiration(
     user = user_result.scalar_one()
 
     # Create assignment with expiration
-    expires_at = datetime.now(timezone.utc) + timedelta(days=30)
+    expires_at = datetime.now(UTC) + timedelta(days=30)
     response = await client_with_basic.post(
         "/roles/temp-role/assign",
         json={
@@ -962,6 +1052,34 @@ async def test_audit_logging_for_role_assignments(
 # ============================================================================
 # MANAGE Enforcement Tests
 # ============================================================================
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scope_type", ["node", "namespace"])
+async def test_global_scope_requires_explicit_manage_under_permissive_policy(
+    client_with_basic: AsyncClient,
+    mocker,
+    scope_type: str,
+):
+    """Permissive policy cannot authorize global grant delegation."""
+    mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: RBACAuthorizationService())
+
+    response = await client_with_basic.post(
+        "/roles/",
+        json={
+            "name": f"blocked-global-{scope_type}",
+            "scopes": [
+                {
+                    "action": "write",
+                    "scope_type": scope_type,
+                    "scope_value": "*",
+                },
+            ],
+        },
+    )
+
+    assert response.status_code == 403
+    assert "Access denied" in response.json()["message"]
 
 
 @pytest.mark.asyncio

@@ -8,10 +8,10 @@ to git branches for the git-backed workflow.
 import asyncio
 import logging
 import time
+from collections.abc import Callable
 from http import HTTPStatus
-from typing import Callable, List
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import or_, select
@@ -25,14 +25,17 @@ from datajunction_server.errors import (
     DJAlreadyExistsException,
     DJInvalidInputException,
 )
+from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
     AccessDenialMode,
     get_access_checker,
 )
-from datajunction_server.internal.git.github_service import GitHubService
-from datajunction_server.internal.git.github_service import GitHubServiceError
+from datajunction_server.internal.git.github_service import (
+    GitHubService,
+    GitHubServiceError,
+)
 from datajunction_server.internal.namespaces import (
     get_branches,
     hard_delete_namespace,
@@ -43,8 +46,13 @@ from datajunction_server.internal.nodes import copy_nodes_to_namespace
 from datajunction_server.models.access import ResourceAction
 from datajunction_server.models.deployment import DeploymentResult
 from datajunction_server.models.namespace import BranchInfo
-from datajunction_server.instrumentation.provider import get_metrics_provider
-from datajunction_server.utils import SEPARATOR, get_current_user, get_session
+from datajunction_server.service_clients import QueryServiceClient
+from datajunction_server.utils import (
+    SEPARATOR,
+    get_current_user,
+    get_query_service_client,
+    get_session,
+)
 
 _logger = logging.getLogger(__name__)
 router = SecureAPIRouter(tags=["branches"])
@@ -60,7 +68,7 @@ class CreateBranchResult(BaseModel):
     """Result of creating a branch."""
 
     branch: BranchInfo
-    deployment_results: List[DeploymentResult]
+    deployment_results: list[DeploymentResult]
 
 
 async def _create_git_branch(
@@ -89,7 +97,7 @@ async def _create_namespace_and_copy_nodes(
     branch_name: str,
     root_namespace: NodeNamespace,
     current_user: User,
-) -> List[DeploymentResult]:
+) -> list[DeploymentResult]:
     """Create DJ namespace and copy nodes from appropriate source.
 
     Args:
@@ -467,7 +475,7 @@ async def create_branch(
 
 @router.get(
     "/namespaces/{namespace}/branches",
-    response_model=List[BranchInfo],
+    response_model=list[BranchInfo],
     name="List branch namespaces",
 )
 async def list_branches(
@@ -475,7 +483,7 @@ async def list_branches(
     *,
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> List[BranchInfo]:
+) -> list[BranchInfo]:
     """
     List all branch namespaces that were created from this namespace.
     """
@@ -497,6 +505,8 @@ async def delete_branch(
     current_user: User = Depends(get_current_user),
     access_checker: AccessChecker = Depends(get_access_checker),
     save_history: Callable = Depends(get_save_history),
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    request: Request,
 ) -> JSONResponse:
     """
     Delete a branch namespace.
@@ -566,6 +576,8 @@ async def delete_branch(
         current_user=current_user,
         save_history=save_history,
         cascade=True,
+        query_service_client=query_service_client,
+        request_headers=dict(request.headers),
     )
     nodes_deleted = len(impact.deleted_nodes)
 
@@ -583,5 +595,10 @@ async def delete_branch(
             "message": f"Branch namespace '{branch_namespace}' deleted",
             "nodes_deleted": nodes_deleted,
             "git_branch_deleted": git_branch_deleted,
+            **(
+                {"materialization_failures": impact.materialization_failures}
+                if impact.materialization_failures
+                else {}
+            ),
         },
     )

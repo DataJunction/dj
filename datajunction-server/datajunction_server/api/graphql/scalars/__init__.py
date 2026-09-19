@@ -6,8 +6,9 @@ import dataclasses
 import datetime
 import json
 from base64 import b64decode, b64encode
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Generic, List, Optional, TypeVar, Union
+from typing import Generic, TypeVar, Union
 
 import strawberry
 from strawberry import field
@@ -112,7 +113,7 @@ class Connection(Generic[GenericItemNode]):
 
     page_info: PageInfo
     edges: list[Edge[GenericItemNode]]
-    total_count: Optional[int] = field(
+    total_count: int | None = field(
         default=None,
         description=(
             "Total number of items matching the filters, ignoring pagination. "
@@ -124,12 +125,12 @@ class Connection(Generic[GenericItemNode]):
     @classmethod
     def from_list(
         cls,
-        items: List[GenericItem],
-        before: Optional[str],
-        after: Optional[str],
+        items: list[GenericItem],
+        before: str | None,
+        after: str | None,
         limit: int,
         encode_cursor: Callable[[GenericItem], Cursor],
-        total_count: Optional[int] = None,
+        total_count: int | None = None,
     ) -> "Connection":
         """
         Construct a Connection from a list of items.

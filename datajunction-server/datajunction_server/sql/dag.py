@@ -8,14 +8,14 @@ import logging
 import time
 from collections import namedtuple
 from dataclasses import dataclass, field
-from typing import Dict, List, Union, cast
+from typing import cast
 
-from sqlalchemy import and_, func, join, or_, select, text, bindparam
-from sqlalchemy.sql.base import ExecutableOption
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload
-from sqlalchemy.sql.operators import is_
+from sqlalchemy import and_, bindparam, func, join, literal, or_, select, text
 from sqlalchemy.dialects.postgresql import array
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased, joinedload, load_only, noload, selectinload
+from sqlalchemy.sql.base import ExecutableOption
+from sqlalchemy.sql.operators import is_
 
 from datajunction_server.database.attributetype import ColumnAttribute
 from datajunction_server.database.column import Column
@@ -31,8 +31,8 @@ from datajunction_server.models.attribute import ColumnAttributes
 from datajunction_server.models.node import DimensionAttributeOutput
 from datajunction_server.models.node_type import (
     DimensionDAGEdge,
-    NodeType,
     NodeNameVersion,
+    NodeType,
     NodeTypeDisplay,
 )
 from datajunction_server.utils import SEPARATOR, get_settings, refresh_if_needed
@@ -57,7 +57,7 @@ def _dag_timed(operation: str):
             try:
                 return await fn(*args, **kwargs)
             finally:
-                from datajunction_server.instrumentation.provider import (  # noqa: PLC0415
+                from datajunction_server.instrumentation.provider import (
                     get_metrics_provider,
                 )
 
@@ -110,15 +110,38 @@ def _node_output_options():
     ]
 
 
+def _dimension_graph_node_options():
+    """
+    Statement options for ``get_dimension_nodes``, covering only the display
+    names and column attributes that ``get_dimension_attributes`` reads.
+    """
+    return [
+        noload(Node.created_by),
+        noload(Node.tags),
+        selectinload(Node.current).options(
+            noload(NodeRevision.created_by),
+            noload(NodeRevision.node),
+            noload(NodeRevision.catalog),
+            selectinload(NodeRevision.columns).options(
+                selectinload(Column.attributes).joinedload(
+                    ColumnAttribute.attribute_type,
+                ),
+                noload(Column.dimension),
+                noload(Column.partition),
+            ),
+        ),
+    ]
+
+
 @_dag_timed("get_downstream_nodes")
 async def get_downstream_nodes(
     session: AsyncSession,
     node_name: str,
-    node_type: NodeType = None,
+    node_type: NodeType | None = None,
     include_deactivated: bool = True,
     include_cubes: bool = True,
     depth: int = -1,
-    options: list[ExecutableOption] = None,
+    options: list[ExecutableOption] | None = None,
 ) -> list[Node]:
     """
     Gets all downstream children of the given node, filterable by node type.
@@ -206,11 +229,11 @@ async def get_downstream_nodes(
 @_dag_timed("get_upstream_nodes")
 async def get_upstream_nodes(
     session: AsyncSession,
-    node_name: Union[str, List[str]],
-    node_type: NodeType = None,
+    node_name: str | list[str],
+    node_type: NodeType | None = None,
     include_deactivated: bool = True,
-    options: List = None,
-) -> List[Node]:
+    options: list | None = None,
+) -> list[Node]:
     """
     Gets all upstreams of the given node(s), filterable by node type.
 
@@ -284,26 +307,32 @@ async def build_reference_link(
     col: Column,
     path: list[str],
     role: list[str] | None = None,
+    dimension_node: Node | None = None,
 ) -> DimensionAttributeOutput | None:
     """
     Builds a reference link dimension attribute output for a column.
+
+    ``dimension_node`` must already have ``current.columns`` loaded. Passing it
+    skips the refresh chain, which is what callers in a loop should do.
     """
     if not (col.dimension_id and col.dimension_column):
         return None  # pragma: no cover
-    await session.refresh(col, ["dimension"])
-    await session.refresh(col.dimension, ["current"])
-    await session.refresh(col.dimension.current, ["columns"])
+    if dimension_node is None:
+        await session.refresh(col, ["dimension"])
+        dimension_node = col.dimension
+        await session.refresh(dimension_node, ["current"])
+        await session.refresh(dimension_node.current, ["columns"])
 
-    dim_cols = col.dimension.current.columns
+    dim_cols = dimension_node.current.columns
     if dim_col := next(
         (dc for dc in dim_cols if dc.name == col.dimension_column),
         None,
     ):
         return DimensionAttributeOutput(
-            name=f"{col.dimension.name}.{col.dimension_column}"
+            name=f"{dimension_node.name}.{col.dimension_column}"
             + (f"[{'->'.join(role)}]" if role else ""),
-            node_name=col.dimension.name,
-            node_display_name=col.dimension.current.display_name,
+            node_name=dimension_node.name,
+            node_display_name=dimension_node.current.display_name,
             column_display_name=dim_col.display_name,
             properties=dim_col.attribute_names(),
             type=str(col.type),
@@ -316,9 +345,11 @@ async def get_dimension_attributes(
     session: AsyncSession,
     node_name: str,
     include_deactivated: bool = True,
+    depth: int = 30,
 ):
     """
-    Get all dimension attributes for a given node.
+    Get all dimension attributes for a given node. `depth` bounds how many
+    dimension link hops are traversed from the node.
     """
     node = cast(
         Node,
@@ -358,7 +389,12 @@ async def get_dimension_attributes(
             # Derived metric - use get_dimensions which handles intersection
             dimensions = cast(
                 list[DimensionAttributeOutput],
-                await get_dimensions(session, node, with_attributes=True),
+                await get_dimensions(
+                    session,
+                    node,
+                    with_attributes=True,
+                    depth=depth,
+                ),
             )
             # Prepend the metric's name to each dimension's path
             for dim in dimensions:
@@ -382,22 +418,18 @@ async def get_dimension_attributes(
         session,
         node,
         include_deactivated,
+        depth,
     )
     dimensions_map = {dim.id: dim for dim, _, _ in dimension_nodes_and_paths}
 
-    # Add all reference links to the list of dimension attributes
-    reference_links = []
+    # Collect the columns that reference a dimension, then resolve them in one
+    # batch rather than a refresh per column.
     await refresh_if_needed(session, node.current, ["columns"])
+    candidate_columns: list[tuple[Column, list[str], list[str] | None]] = []
     for col in node.current.columns:
         await refresh_if_needed(session, col, ["dimension_id", "dimension_column"])
         if col.dimension_id and col.dimension_column:
-            await session.refresh(col, ["dimension"])
-            if ref_link := await build_reference_link(  # pragma: no cover
-                session,
-                col,
-                path=[f"{node.name}.{col.name}"],
-            ):
-                reference_links.append(ref_link)
+            candidate_columns.append((col, [f"{node.name}.{col.name}"], None))
     for dimension_node, path, role in dimension_nodes_and_paths:
         await refresh_if_needed(session, dimension_node.current, ["columns"])
         for col in dimension_node.current.columns:
@@ -406,13 +438,37 @@ async def get_dimension_attributes(
                 join_path = (
                     [node.name] if dimension_node.name != node.name else []
                 ) + [dimensions_map[int(node_id)].name for node_id in path]
-                if ref_link := await build_reference_link(  # pragma: no cover
-                    session,
-                    col,
-                    join_path,
-                    role,
-                ):
-                    reference_links.append(ref_link)
+                candidate_columns.append((col, join_path, role))
+
+    referenced_dimension_ids = {
+        col.dimension_id for col, _, _ in candidate_columns if col.dimension_id
+    }
+    dimension_nodes_by_id: dict[int, Node] = {}
+    if referenced_dimension_ids:
+        referenced_dimension_nodes = (
+            (
+                await session.execute(
+                    select(Node)
+                    .where(Node.id.in_(referenced_dimension_ids))
+                    .options(*_dimension_graph_node_options()),
+                )
+            )
+            .unique()
+            .scalars()
+            .all()
+        )
+        dimension_nodes_by_id = {n.id: n for n in referenced_dimension_nodes}
+
+    reference_links = []
+    for col, ref_path, role in candidate_columns:
+        if ref_link := await build_reference_link(
+            session,
+            col,
+            ref_path,
+            role,
+            dimension_node=dimension_nodes_by_id.get(col.dimension_id),
+        ):
+            reference_links.append(ref_link)
 
     # Build all dimension attributes from the dimension nodes in the graph
     graph_dimensions = [
@@ -456,10 +512,12 @@ async def get_dimension_nodes(
     session: AsyncSession,
     node: Node,
     include_deactivated: bool = True,
+    depth: int = 30,
 ) -> list[tuple[Node, list[str], list[str] | None]]:
     """
     Discovers all dimension nodes in the given node's dimensions graph using a recursive
-    CTE query to build out the dimension links.
+    CTE query to build out the dimension links. The traversal stops once `join_path`
+    reaches `depth` hops from the starting node.
     """
     dag = (
         (
@@ -469,6 +527,7 @@ async def get_dimension_nodes(
                 NodeRevision.node_id,
                 array([NodeRevision.node_id]).label("join_path"),  # start path
                 array([DimensionLink.role]).label("role"),
+                literal(1).label("level"),
             )
             .where(DimensionLink.node_revision_id == node.current.id)
             .join(Node, DimensionLink.dimension_id == Node.id)
@@ -493,6 +552,7 @@ async def get_dimension_nodes(
                 "join_path",
             ),
             func.array_cat(dag.c.role, array([DimensionLink.role])).label("role"),
+            (dag.c.level + 1).label("level"),
         )
         .join(DimensionLink, dag.c.id == DimensionLink.node_revision_id)
         .join(Node, DimensionLink.dimension_id == Node.id)
@@ -500,7 +560,8 @@ async def get_dimension_nodes(
             NodeRevision,
             (Node.id == NodeRevision.node_id)
             & (Node.current_version == NodeRevision.version),
-        ),
+        )
+        .where(dag.c.level < depth),
     )
 
     node_selector = select(Node, paths.c.join_path, paths.c.role)
@@ -515,7 +576,7 @@ async def get_dimension_nodes(
             (Node.current_version == NodeRevision.version)
             & (Node.id == NodeRevision.node_id),
         )
-        .options(*_node_output_options())
+        .options(*_dimension_graph_node_options())
     )
     return [
         (node, path, [r for r in role if r])
@@ -529,7 +590,7 @@ async def get_dimensions_dag(
     node_revision: NodeRevision,
     with_attributes: bool = True,
     depth: int = 30,
-) -> List[Union[DimensionAttributeOutput, Node]]:
+) -> list[DimensionAttributeOutput | Node]:
     """
     Gets the dimensions graph of the given node revision using layered BFS raw SQL queries.
     This graph is split out into dimension attributes or dimension nodes depending on the
@@ -552,7 +613,7 @@ async def _get_dimensions_dag_bfs(
     node_revision: NodeRevision,
     with_attributes: bool = True,
     depth: int = 30,
-) -> List[Union[DimensionAttributeOutput, Node]]:
+) -> list[DimensionAttributeOutput | Node]:
     """
     BFS implementation of get_dimensions_dag.
 
@@ -848,7 +909,7 @@ async def get_dimensions(
     node: Node,
     with_attributes: bool = True,
     depth: int = 30,
-) -> List[Union[DimensionAttributeOutput, Node]]:
+) -> list[DimensionAttributeOutput | Node]:
     """
     Return all available dimensions for a given node.
     * Setting `attributes` to True will return a list of dimension attributes,
@@ -886,7 +947,7 @@ async def get_dimensions(
         return []  # pragma: no cover
 
     # Get dimensions for all ultimate parents
-    all_dimensions: List[List[DimensionAttributeOutput]] = []
+    all_dimensions: list[list[DimensionAttributeOutput]] = []
     for parent in ultimate_parents:
         node_revision = (
             (
@@ -915,9 +976,9 @@ async def get_dimensions(
         return all_dimensions[0]
 
     # Find intersection by dimension name
-    common_names = set(d.name for d in all_dimensions[0])
+    common_names = {d.name for d in all_dimensions[0]}
     for dims in all_dimensions[1:]:
-        common_names &= set(d.name for d in dims)
+        common_names &= {d.name for d in dims}
 
     # Return dimensions from first parent that are in the intersection
     return sorted(
@@ -983,7 +1044,7 @@ async def get_filter_only_dimensions(
 async def group_dimensions_by_name(
     session: AsyncSession,
     node: Node,
-) -> Dict[str, List[DimensionAttributeOutput]]:
+) -> dict[str, list[DimensionAttributeOutput]]:
     """
     Group the dimensions for the node by the dimension attribute name
     """
@@ -1000,18 +1061,18 @@ async def group_dimensions_by_name(
 class SharedDimensionsResult:
     """Result of get_shared_dimensions, carrying both the shared list and per-metric detail."""
 
-    shared: List[DimensionAttributeOutput] = field(default_factory=list)
+    shared: list[DimensionAttributeOutput] = field(default_factory=list)
     # metric_name → {dim_name → [DimensionAttributeOutput]}
-    per_metric: Dict[str, Dict[str, List[DimensionAttributeOutput]]] = field(
+    per_metric: dict[str, dict[str, list[DimensionAttributeOutput]]] = field(
         default_factory=dict,
     )
     # metric_name → [parent Node]
-    metric_to_parents: Dict[str, List[Node]] = field(default_factory=dict)
+    metric_to_parents: dict[str, list[Node]] = field(default_factory=dict)
 
 
 async def get_shared_dimensions(
     session: AsyncSession,
-    metric_nodes: List[Node],
+    metric_nodes: list[Node],
 ) -> SharedDimensionsResult:
     """
     Return a list of dimensions that are common between the metric nodes.
@@ -1033,27 +1094,27 @@ async def get_shared_dimensions(
     metric_to_parents = await get_metric_parents_map(session, metric_nodes)
 
     # Collect all unique parent nodes across all metrics
-    unique_parents: Dict[int, Node] = {}
+    unique_parents: dict[int, Node] = {}
     for parents in metric_to_parents.values():
         for parent in parents:
             if parent.id not in unique_parents:
                 unique_parents[parent.id] = parent
 
     # Compute dimensions once per unique parent
-    parent_dims_cache: Dict[int, Dict[str, List[DimensionAttributeOutput]]] = {}
+    parent_dims_cache: dict[int, dict[str, list[DimensionAttributeOutput]]] = {}
     for parent_id, parent in unique_parents.items():
         parent_dims = await group_dimensions_by_name(session, parent)
         parent_dims_cache[parent_id] = parent_dims
 
     # Map cached results back to each metric, keyed by metric name
-    per_metric: Dict[str, Dict[str, List[DimensionAttributeOutput]]] = {}
+    per_metric: dict[str, dict[str, list[DimensionAttributeOutput]]] = {}
     for metric_node in metric_nodes:
         parents = metric_to_parents.get(metric_node.name, [])
         if not parents:
             continue  # pragma: no cover
 
         # Compute union of dimensions from all parents (using cached results)
-        dims_by_name: Dict[str, List[DimensionAttributeOutput]] = {}
+        dims_by_name: dict[str, list[DimensionAttributeOutput]] = {}
         for parent in parents:
             parent_dims = parent_dims_cache[parent.id]
             for dim_name, dim_list in parent_dims.items():
@@ -1106,7 +1167,7 @@ async def get_shared_dimensions(
 async def get_metric_parents_map(
     session: AsyncSession,
     metric_nodes: list[Node],
-) -> Dict[str, List[Node]]:
+) -> dict[str, list[Node]]:
     """
     Return a mapping from metric name to its non-metric parent nodes.
 
@@ -1123,7 +1184,14 @@ async def get_metric_parents_map(
         return {}
 
     metric_names = {m.name for m in metric_nodes}
-    result: Dict[str, List[Node]] = {name: [] for name in metric_names}
+    result: dict[str, list[Node]] = {name: [] for name in metric_names}
+
+    # Callers read only id, name, type and current_version off these parents.
+    parent_node_options = [
+        load_only(Node.id, Node.name, Node.type, Node.current_version),
+        noload(Node.created_by),
+        noload(Node.tags),
+    ]
 
     # Get all immediate parents for the input metrics WITH the child metric name
     find_latest_node_revisions = [
@@ -1147,15 +1215,16 @@ async def get_metric_parents_map(
                 NodeRelationship.parent_id == Node.id,
             ),
         )
+        .options(*parent_node_options)
     )
     rows = (await session.execute(statement)).all()
 
     # Build mapping and track metric parents that need further resolution
     # Maps: parent_metric_name -> [original_metric_names that need this parent resolved]
-    metric_parents_to_resolve: Dict[str, List[str]] = {}
+    metric_parents_to_resolve: dict[str, list[str]] = {}
 
     # Group parents by metric name first
-    parents_by_metric: Dict[str, List[Node]] = {}
+    parents_by_metric: dict[str, list[Node]] = {}
     for metric_name, parent_node in rows:
         if metric_name not in parents_by_metric:
             parents_by_metric[metric_name] = []
@@ -1190,9 +1259,7 @@ async def get_metric_parents_map(
 
     while metric_parents_to_resolve:
         base_metric_names = [
-            name
-            for name in metric_parents_to_resolve.keys()
-            if name not in visited_metrics
+            name for name in metric_parents_to_resolve if name not in visited_metrics
         ]
 
         if not base_metric_names:
@@ -1206,6 +1273,7 @@ async def get_metric_parents_map(
             select(Node)
             .where(Node.name.in_(base_metric_names))
             .where(is_(Node.deactivated_at, None))
+            .options(*parent_node_options)
         )
         base_metrics = list((await session.execute(base_metrics_stmt)).scalars().all())
 
@@ -1233,18 +1301,19 @@ async def get_metric_parents_map(
                     NodeRelationship.parent_id == Node.id,
                 ),
             )
+            .options(*parent_node_options)
         )
         base_rows = (await session.execute(statement)).all()
 
         # Group parents by base metric name first
-        base_parents_by_metric: Dict[str, List[Node]] = {}
+        base_parents_by_metric: dict[str, list[Node]] = {}
         for base_metric_name, parent_node in base_rows:
             if base_metric_name not in base_parents_by_metric:
                 base_parents_by_metric[base_metric_name] = []
             base_parents_by_metric[base_metric_name].append(parent_node)
 
         # Process results and track new metric parents for next iteration
-        next_metric_parents_to_resolve: Dict[str, List[str]] = {}
+        next_metric_parents_to_resolve: dict[str, list[str]] = {}
 
         for base_metric_name, parents in base_parents_by_metric.items():
             original_metrics = metric_parents_to_resolve.get(base_metric_name, [])
@@ -1506,7 +1575,7 @@ async def get_nodes_with_common_dimensions(
     return [NodeNameVersion(name=row[0], version=row[1]) for row in results.all()]
 
 
-def topological_sort(nodes: List[Node]) -> List[Node]:
+def topological_sort(nodes: list[Node]) -> list[Node]:
     """
     Sort a list of nodes into topological order so that the nodes with the most dependencies
     are later in the list, and the nodes with the fewest dependencies are earlier.
@@ -1514,8 +1583,8 @@ def topological_sort(nodes: List[Node]) -> List[Node]:
     all_nodes = {node.name: node for node in nodes}
 
     # Build adjacency list and calculate in-degrees
-    adjacency_list: Dict[str, List[Node]] = {}
-    in_degrees: Dict[str, int] = {}
+    adjacency_list: dict[str, list[Node]] = {}
+    in_degrees: dict[str, int] = {}
     for node in nodes:
         adjacency_list[node.name] = [
             parent for parent in node.current.parents if parent.name in all_nodes
@@ -1536,12 +1605,12 @@ def topological_sort(nodes: List[Node]) -> List[Node]:
             adjacency_list[parent.name].append(all_nodes[node_name])
 
     # Initialize queue with nodes having in-degree 0
-    queue: List[Node] = [
+    queue: list[Node] = [
         all_nodes[name] for name, degree in in_degrees.items() if degree == 0
     ]
 
     # Perform topological sort using Kahn's algorithm
-    sorted_nodes: List[Node] = []
+    sorted_nodes: list[Node] = []
     while queue:
         current_node = queue.pop(0)
         sorted_nodes.append(current_node)
@@ -1557,34 +1626,43 @@ def topological_sort(nodes: List[Node]) -> List[Node]:
     return sorted_nodes
 
 
-async def get_dimension_dag_indegree(session, node_names: List[str]) -> Dict[str, int]:
+async def get_dimension_dag_indegree(session, node_names: list[str]) -> dict[str, int]:
     """
     For a given node, calculate the indegrees for its dimensions graph by finding the number
     of dimension links that reference this node. Non-dimension nodes will always have an
     indegree of 0.
     """
-    nodes = await Node.get_by_names(session, node_names)
-    dimension_ids = [node.id for node in nodes]
+    if not node_names:
+        return {}
+
+    # Aggregate directly rather than hydrating ORM nodes and their eager loads.
+    linking_revision = aliased(NodeRevision)
+    linking_node = aliased(Node)
     statement = (
-        select(
-            DimensionLink.dimension_id,
-            func.count(DimensionLink.id),
+        select(Node.name, func.count(linking_node.id))
+        .select_from(Node)
+        .outerjoin(DimensionLink, DimensionLink.dimension_id == Node.id)
+        .outerjoin(
+            linking_revision,
+            DimensionLink.node_revision_id == linking_revision.id,
         )
-        .where(DimensionLink.dimension_id.in_(dimension_ids))
-        .join(NodeRevision, DimensionLink.node_revision_id == NodeRevision.id)
-        .join(
-            Node,
+        # Only a node's current revision contributes to indegree; a failed join
+        # leaves a NULL that count() skips.
+        .outerjoin(
+            linking_node,
             and_(
-                Node.id == NodeRevision.node_id,
-                Node.current_version == NodeRevision.version,
+                linking_node.id == linking_revision.node_id,
+                linking_node.current_version == linking_revision.version,
             ),
         )
-        .group_by(DimensionLink.dimension_id)
+        .where(
+            Node.name.in_(node_names),
+            is_(Node.deactivated_at, None),
+        )
+        .group_by(Node.name)
     )
     result = await session.execute(statement)
-    link_counts = {link[0]: link[1] for link in result.unique().all()}
-    dimension_dag_indegree = {node.name: link_counts.get(node.id, 0) for node in nodes}
-    return dimension_dag_indegree
+    return {name: indegree for name, indegree in result.all()}
 
 
 async def get_cubes_using_dimensions(

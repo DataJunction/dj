@@ -1,17 +1,19 @@
 """Tests for PreAggregation database schema."""
 
+from unittest.mock import MagicMock
+
 import pytest
 import pytest_asyncio
-from unittest.mock import MagicMock
 
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.preaggregation import (
-    PreAggregation,
     VALID_PREAGG_STRATEGIES,
-    compute_grain_group_hash,
+    PreAggregation,
     compute_expression_hash,
-    get_measure_expr_hashes,
+    compute_grain_group_hash,
     compute_preagg_hash,
+    get_measure_identities,
+    measure_identity_token,
 )
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.models.decompose import AggregationRule, PreAggMeasure
@@ -65,11 +67,11 @@ class TestComputeExpressionHash:
         assert hash1 == hash2 == hash3
 
 
-class TestGetMeasureExprHashes:
-    """Tests for get_measure_expr_hashes function."""
+class TestGetMeasureIdentities:
+    """Tests for get_measure_identities function."""
 
-    def test_extracts_hashes(self):
-        """Test extracting expr_hashes from measures."""
+    def test_extracts_identities(self):
+        """Identity pairs the expr_hash with the Phase-1 aggregation."""
         measures = [
             PreAggMeasure(
                 name="sum_revenue",
@@ -86,8 +88,8 @@ class TestGetMeasureExprHashes:
                 expr_hash="def456",
             ),
         ]
-        hashes = get_measure_expr_hashes(measures)
-        assert hashes == {"abc123", "def456"}
+        identities = get_measure_identities(measures)
+        assert identities == {"abc123:SUM", "def456:COUNT"}
 
     def test_handles_missing_hash(self):
         """Test that missing expr_hash is handled."""
@@ -107,13 +109,13 @@ class TestGetMeasureExprHashes:
                 expr_hash=None,  # No expr_hash
             ),
         ]
-        hashes = get_measure_expr_hashes(measures)
-        assert hashes == {"abc123"}
+        identities = get_measure_identities(measures)
+        assert identities == {"abc123:SUM"}
 
     def test_empty_list(self):
         """Test with empty measures list."""
-        hashes = get_measure_expr_hashes([])
-        assert hashes == set()
+        identities = get_measure_identities([])
+        assert identities == set()
 
 
 class TestComputeGrainGroupHash:
@@ -553,12 +555,19 @@ class TestPreAggregationDBMethods:
         result = await PreAggregation.get_by_id(session, 999999)
         assert result is None
 
-    async def test_find_matching_with_superset(
+    async def test_find_matching_rejects_covering_row(
         self,
         session,
         minimal_node_revision,
     ):
-        """Test find_matching returns pre-agg with superset of measures."""
+        """
+        A wider pre-agg is NOT the row a narrower declaration upserts into.
+
+        Matching is exact because the caller replaces the matched row wholesale:
+        a covering match would strip the extra measures off a row other metrics
+        route to, and leave its frozen preagg_hash describing contents it no
+        longer has.
+        """
         grain_columns = ["test.dim.col"]
 
         measures = [
@@ -584,18 +593,81 @@ class TestPreAggregationDBMethods:
         session.add(preagg)
         await session.flush()
 
-        # Request subset - should match
+        # A subset of the stored measures is a different declaration.
         result = await PreAggregation.find_matching(
             session,
             node_revision_id=minimal_node_revision.id,
             grain_columns=grain_columns,
-            measure_expr_hashes={compute_expression_hash("price")},
+            measure_identities={
+                measure_identity_token(compute_expression_hash("price"), "SUM"),
+            },
+        )
+        assert result is None
+
+        # The full set is the same declaration, and matches.
+        result = await PreAggregation.find_matching(
+            session,
+            node_revision_id=minimal_node_revision.id,
+            grain_columns=grain_columns,
+            measure_identities={
+                measure_identity_token(compute_expression_hash("price"), "SUM"),
+                measure_identity_token(compute_expression_hash("1"), "COUNT"),
+            },
         )
         assert result is not None
         assert result.id == preagg.id
 
+    async def test_find_matching_row_predating_identity_change(
+        self,
+        session,
+        minimal_node_revision,
+    ):
+        """A pre-agg stored before the identity change is still matched, and
+        keeps its original preagg_hash.
+
+        Older rows hold a hash built from expression hashes alone, and that hash
+        names their materialization table. Matching compares identities, not the
+        hash, so such rows keep matching and keep their table name -- no backfill.
+        """
+        grain_columns = ["test.dim.col"]
+        measures = [make_measure("sum_price", "price")]
+        legacy_hash = "deadbeef"  # what an older server would have stored
+        preagg = PreAggregation(
+            node_revision_id=minimal_node_revision.id,
+            grain_columns=grain_columns,
+            measures=measures,
+            columns=[],
+            sql="SELECT price FROM t GROUP BY col",
+            grain_group_hash=compute_grain_group_hash(
+                minimal_node_revision.id,
+                grain_columns,
+            ),
+            preagg_hash=legacy_hash,
+        )
+        session.add(preagg)
+        await session.flush()
+
+        # The hash this server would compute today differs from the stored one...
+        assert (
+            compute_preagg_hash(minimal_node_revision.id, grain_columns, measures)
+            != legacy_hash
+        )
+        # ...yet the row is still found, because matching compares identities.
+        result = await PreAggregation.find_matching(
+            session,
+            node_revision_id=minimal_node_revision.id,
+            grain_columns=grain_columns,
+            measure_identities={
+                measure_identity_token(compute_expression_hash("price"), "SUM"),
+            },
+        )
+        assert result is not None
+        assert result.id == preagg.id
+        # Untouched, so its materialization table name is preserved.
+        assert result.preagg_hash == legacy_hash
+
     async def test_find_matching_no_match(self, session, minimal_node_revision):
-        """Test find_matching returns None when no candidate has superset."""
+        """Test find_matching returns None when no candidate matches."""
         grain_columns = ["test.dim.col"]
 
         measures = [make_measure("sum_price", "price")]
@@ -623,7 +695,9 @@ class TestPreAggregationDBMethods:
             session,
             node_revision_id=minimal_node_revision.id,
             grain_columns=grain_columns,
-            measure_expr_hashes={compute_expression_hash("nonexistent")},
+            measure_identities={
+                measure_identity_token(compute_expression_hash("nonexistent"), "SUM"),
+            },
         )
         assert result is None
 
@@ -637,6 +711,8 @@ class TestPreAggregationDBMethods:
             session,
             node_revision_id=minimal_node_revision.id,
             grain_columns=["completely.different.grain"],
-            measure_expr_hashes={compute_expression_hash("anything")},
+            measure_identities={
+                measure_identity_token(compute_expression_hash("anything"), "SUM"),
+            },
         )
         assert result is None

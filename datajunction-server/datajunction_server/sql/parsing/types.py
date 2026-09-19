@@ -13,19 +13,17 @@ field_type=IntegerType(), is_optional=True, doc='an optional field'))
 """
 
 import re
+from collections.abc import Callable
 from typing import (
     TYPE_CHECKING,
     Any,
     ClassVar,
-    Dict,
-    Optional,
-    Tuple,
     cast,
-    Callable,
 )
-from datajunction_server.enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict
+
+from datajunction_server.enum import StrEnum
 
 AnyCallable = Callable[..., Any]
 
@@ -53,7 +51,7 @@ class Singleton:
 
     def __new__(cls, *args, **kwargs):
         # Always create a new instance (singleton disabled)
-        return super(Singleton, cls).__new__(cls)
+        return super().__new__(cls)
 
 
 class ColumnType(BaseModel):
@@ -68,7 +66,7 @@ class ColumnType(BaseModel):
     def __init__(
         self,
         type_string: str,
-        repr_string: str = None,
+        repr_string: str | None = None,
         *args,
         **kwargs,
     ):
@@ -132,7 +130,7 @@ class ColumnType(BaseModel):
             Uses MRO (Method Resolution Order) to find all ancestors of both types
             and checks for meaningful common ancestors.
             """
-            base_types = {ColumnType, Singleton, PrimitiveType, object}
+            base_types: set[type] = {ColumnType, Singleton, PrimitiveType, object}
             # Get meaningful ancestors from MRO, excluding base types
             ancestors1 = {cls for cls in type1.__mro__ if cls not in base_types}
             ancestors2 = {cls for cls in type2.__mro__ if cls not in base_types}
@@ -248,7 +246,7 @@ class NestedField(ColumnType):
         name: "ast.Name",
         field_type: ColumnType,
         is_optional: bool = True,
-        doc: Optional[str] = None,
+        doc: str | None = None,
     ):
         if isinstance(name, str):  # pragma: no cover
             from datajunction_server.sql.parsing.ast import Name
@@ -259,15 +257,15 @@ class NestedField(ColumnType):
             name_str = name.name
             name_obj = name
 
-        doc_string = "" if doc is None else f", doc={repr(doc)}"
+        doc_string = "" if doc is None else f", doc={doc!r}"
         super().__init__(
             (
                 f"{name_str} {field_type}"
                 f"{' NOT NULL' if not is_optional else ''}"
                 + ("" if doc is None else f" {doc}")
             ),
-            f"NestedField(name={repr(name_obj)}, "
-            f"field_type={repr(field_type)}, "
+            f"NestedField(name={name_obj!r}, "
+            f"field_type={field_type!r}, "
             f"is_optional={is_optional}"
             f"{doc_string})",
         )
@@ -298,7 +296,7 @@ class NestedField(ColumnType):
         return self._name
 
     @property
-    def doc(self) -> Optional[str]:
+    def doc(self) -> str | None:
         """
         The docstring of the field
         """
@@ -336,19 +334,19 @@ field_type=IntegerType(), is_optional=True, doc='an optional field'))
     def __init__(self, *fields: NestedField):
         super().__init__(
             f"struct<{','.join(map(str, fields))}>",
-            f"StructType{repr(fields)}",
+            f"StructType{fields!r}",
         )
         object.__setattr__(self, "_fields", fields)
 
     @property
-    def fields(self) -> Tuple[NestedField, ...]:
+    def fields(self) -> tuple[NestedField, ...]:
         """
         Returns the struct's fields.
         """
         return self._fields  # pragma: no cover
 
     @property
-    def fields_mapping(self) -> Dict[str, NestedField]:
+    def fields_mapping(self) -> dict[str, NestedField]:
         """
         Returns the struct's fields.
         """
@@ -376,7 +374,7 @@ class ListType(ColumnType):
     ):
         super().__init__(
             f"array<{element_type}>",
-            f"ListType(element_type={repr(element_type)})",
+            f"ListType(element_type={element_type!r})",
         )
         object.__setattr__(
             self,
@@ -719,7 +717,7 @@ class DayTimeIntervalType(IntervalTypeBase):
     def __init__(
         self,
         from_: DateTimeBase.Unit = DateTimeBase.Unit.day,
-        to_: Optional[DateTimeBase.Unit] = DateTimeBase.Unit.second,
+        to_: DateTimeBase.Unit | None = DateTimeBase.Unit.second,
     ):
         from_ = from_.upper()  # type: ignore
         to_ = to_.upper() if to_ else None  # type: ignore
@@ -739,7 +737,7 @@ class DayTimeIntervalType(IntervalTypeBase):
     @property
     def to_(
         self,
-    ) -> Optional[str]:
+    ) -> str | None:
         return self._to  # pragma: no cover
 
 
@@ -754,7 +752,7 @@ class YearMonthIntervalType(IntervalTypeBase):
     def __init__(
         self,
         from_: DateTimeBase.Unit = DateTimeBase.Unit.year,
-        to_: Optional[DateTimeBase.Unit] = DateTimeBase.Unit.month,
+        to_: DateTimeBase.Unit | None = DateTimeBase.Unit.month,
     ):
         from_ = from_.upper()  # type: ignore
         to_ = to_.upper() if to_ else None  # type: ignore
@@ -774,7 +772,7 @@ class YearMonthIntervalType(IntervalTypeBase):
     @property
     def to_(
         self,
-    ) -> Optional[str]:
+    ) -> str | None:
         return self._to  # pragma: no cover
 
 
@@ -807,7 +805,7 @@ class VarcharType(StringBase):
         True
     """
 
-    def __init__(self, length: Optional[int] = None):
+    def __init__(self, length: int | None = None):
         super().__init__("varchar", "VarcharType()")
         object.__setattr__(self, "_length", length)
 
@@ -879,7 +877,7 @@ class UnknownType(ColumnType, Singleton):
 
 
 # Define the primitive data types and their corresponding Python classes
-PRIMITIVE_TYPES: Dict[str, PrimitiveType] = {
+PRIMITIVE_TYPES: dict[str, PrimitiveType] = {
     "bool": BooleanType(),
     "boolean": BooleanType(),
     "varchar": VarcharType(),

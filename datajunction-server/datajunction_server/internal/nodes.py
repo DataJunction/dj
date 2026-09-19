@@ -2,9 +2,11 @@
 
 import logging
 from collections import defaultdict
-from datetime import datetime, timezone
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from http import HTTPStatus
-from typing import Callable, Dict, List, Optional, Union, cast
+from typing import Any, cast
 
 from fastapi import BackgroundTasks, Request
 from fastapi.responses import JSONResponse
@@ -13,30 +15,28 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
-
-from datajunction_server.internal.access.authorization import (
-    AccessChecker,
-)
-from datajunction_server.internal.caching.interface import Cache
-from datajunction_server.models.deployment import DeploymentResult
-from datajunction_server.models.query import QueryCreate
 from datajunction_server.api.helpers import (
+    dedupe_cube_elements,
     get_attribute_type,
     get_catalog_by_name,
     get_column,
     get_node_by_name,
     get_node_namespace,
-    map_dimensions_to_roles,
     raise_if_node_exists,
+    resolve_column,
     resolve_downstream_references,
     validate_cube,
 )
 from datajunction_server.construction.build_v2 import compile_node_ast
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
-from datajunction_server.database.column import Column
 from datajunction_server.database.catalog import Catalog
+from datajunction_server.database.column import Column
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.history import History
+from datajunction_server.database.measure import (
+    FrozenMeasure,
+    NodeRevisionFrozenMeasure,
+)
 from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.node import (
     MissingParent,
@@ -46,9 +46,11 @@ from datajunction_server.database.node import (
     NodeRevision,
 )
 from datajunction_server.database.partition import Partition
-from datajunction_server.database.user import User
-from datajunction_server.database.measure import FrozenMeasure
-from datajunction_server.sql.decompose import MetricComponentExtractor
+from datajunction_server.database.preaggregation import (
+    compute_expression_hash,
+    measure_identity_token,
+)
+from datajunction_server.database.user import OAuthProvider, PrincipalKind, User
 from datajunction_server.errors import (
     DJDoesNotExistException,
     DJError,
@@ -57,15 +59,30 @@ from datajunction_server.errors import (
     DJNodeNotFound,
     ErrorCode,
 )
+from datajunction_server.internal.access.authorization import (
+    AccessChecker,
+    AccessDenialMode,
+)
+from datajunction_server.internal.access.authorization.context import AuthContext
+from datajunction_server.internal.caching.interface import Cache
+from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.materializations import (
+    apply_cube_materialization_swap,
+    collect_materialization_teardowns,
     create_new_materialization,
     schedule_materialization_jobs_bg,
+    stop_materialization_workflows,
+    swap_cube_materializations,
 )
-from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.validation import (
     NodeValidator,
     validate_node_data,
     validate_node_data_v2,
+)
+from datajunction_server.models.access import (
+    Resource,
+    ResourceAction,
+    ResourceRequest,
 )
 from datajunction_server.models.attribute import (
     AttributeTypeIdentifier,
@@ -74,17 +91,29 @@ from datajunction_server.models.attribute import (
 )
 from datajunction_server.models.base import labelize
 from datajunction_server.models.cube import CubeRevisionMetadata
+from datajunction_server.models.cube_materialization import (
+    UpsertCubeMaterialization,
+    principal_refs,
+)
+from datajunction_server.models.deployment import (
+    ChangeTier,
+    CubeSpec,
+    DeploymentResult,
+    bump_version,
+    fold_change_tiers,
+    version_change_tier,
+)
 from datajunction_server.models.dimensionlink import (
     JoinLinkInput,
     JoinType,
     LinkDimensionIdentifier,
+    missing_join_on_message,
 )
 from datajunction_server.models.history import status_change_history
 from datajunction_server.models.materialization import (
     MaterializationJobTypeEnum,
     UpsertMaterialization,
 )
-from datajunction_server.models.cube_materialization import UpsertCubeMaterialization
 from datajunction_server.models.node import (
     DEFAULT_DRAFT_VERSION,
     DEFAULT_PUBLISHED_VERSION,
@@ -99,16 +128,20 @@ from datajunction_server.models.node import (
 )
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import QueryCreate
+from datajunction_server.models.table_metadata import TableMetadata, TableOwner
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import (
+    _node_output_options,
     get_downstream_nodes,
     get_nodes_with_common_dimensions,
     topological_sort,
 )
+from datajunction_server.sql.decompose import MetricComponentExtractor
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import parse, parse_rule
 from datajunction_server.typing import UTCDatetime
+from datajunction_server.internal.custom_metadata import validate_custom_metadata
 from datajunction_server.utils import (
     SEPARATOR,
     Version,
@@ -147,6 +180,7 @@ async def create_a_source_node(
         access_checker=access_checker,
         background_tasks=background_tasks,
         save_history=save_history,
+        access_target=_create_access_target(data),
     ):
         return recreated_node
 
@@ -238,6 +272,8 @@ async def create_a_node(
 
     await raise_if_node_exists(session, data.name)
 
+    create_access_target = _create_access_target(data)
+
     # if the node previously existed and now is inactive
     if recreated_node := await create_node_from_inactive(
         new_node_type=node_type,
@@ -250,6 +286,7 @@ async def create_a_node(
         access_checker=access_checker,
         save_history=save_history,
         cache=cache,
+        access_target=create_access_target,
     ):
         return recreated_node  # pragma: no cover
 
@@ -268,6 +305,13 @@ async def create_a_node(
         created_by_id=current_user.id,
     )
     node_revision = await create_node_revision(data, node_type, session, current_user)
+
+    await validate_custom_metadata(
+        session,
+        namespace=namespace,
+        node_type=node_type,
+        custom_metadata=data.custom_metadata,
+    )
 
     column_names = {col.name: col for col in node_revision.columns}
     if data.primary_key:
@@ -296,14 +340,25 @@ async def create_a_node(
         save_history=save_history,
     )
 
-    # For metric nodes, derive the referenced frozen measures and save them
-    if node.type == NodeType.METRIC:
-        background_tasks.add_task(derive_frozen_measures, node_revision.id)
-
+    # Scheduled before `derive_frozen_measures`: Starlette's `BackgroundTasks`
+    # runs queued tasks sequentially and stops at the first one that raises,
+    # so lineage must not be ordered after a task that's allowed to raise on
+    # a real bug.
     background_tasks.add_task(
         save_column_level_lineage,
         node_revision_id=node_revision.id,
+        current_user=current_user,
+        access_target=create_access_target,
     )
+
+    # For metric nodes, derive the referenced frozen measures and save them
+    if node.type == NodeType.METRIC:
+        background_tasks.add_task(
+            derive_frozen_measures,
+            node_revision.id,
+            current_user=current_user,
+            access_target=create_access_target,
+        )
 
     return await Node.get_by_name(  # type: ignore
         session,
@@ -336,6 +391,7 @@ async def create_a_cube(
         background_tasks=background_tasks,
         access_checker=access_checker,
         save_history=save_history,
+        access_target=_create_access_target(data),
     ):
         return recreated_node  # pragma: no cover
 
@@ -345,6 +401,13 @@ async def create_a_cube(
         namespace=namespace,
     )
     data.namespace = namespace
+
+    await validate_custom_metadata(
+        session,
+        namespace=namespace,
+        node_type=NodeType.CUBE,
+        custom_metadata=data.custom_metadata,
+    )
 
     node = Node(
         name=data.name,
@@ -371,15 +434,21 @@ async def create_a_cube(
 
 def get_node_column(node: Node, column_name: str) -> Column:
     """
-    Gets the specified column on a node
+    Gets the specified column on a node.
+
+    Resolution order:
+      1. Role-qualified identity: `<name>[<role>]` (i.e. name + dimension_column),
+         so a caller can target a specific role-played dimension column.
+      2. Bare name, when unambiguous (backward compatible).
+      3. Bare name that maps to multiple role-played columns -> raise, listing the
+         role-qualified options, instead of silently binding the last one.
     """
-    column_map = {column.name: column for column in node.current.columns}
-    if column_name not in column_map:
-        raise DJDoesNotExistException(
-            message=f"Column `{column_name}` does not exist on node `{node.name}`!",
-        )
-    column = column_map[column_name]
-    return column
+    return resolve_column(
+        node.current.columns,
+        column_name,
+        node.name,
+        node.type,
+    )
 
 
 async def validate_and_build_attribute(
@@ -421,16 +490,14 @@ async def set_node_column_attributes(
     session: AsyncSession,
     node: Node,
     column_name: str,
-    attributes: List[AttributeTypeIdentifier],
+    attributes: list[AttributeTypeIdentifier],
     current_user: User,
     save_history: Callable,
-) -> List[Column]:
+) -> list[Column]:
     """
     Sets the column attributes on the node if allowed.
     """
     column = get_node_column(node, column_name)
-    all_columns_map = {column.name: column for column in node.current.columns}
-
     existing_attributes = column.attributes
     existing_attributes_map = {
         attr.attribute_type.name: attr for attr in existing_attributes
@@ -448,7 +515,7 @@ async def set_node_column_attributes(
     # Validate column attributes by building mapping between
     # attribute scope and columns
     attributes_columns_map = defaultdict(set)
-    all_columns = all_columns_map.values()
+    all_columns = node.current.columns
 
     for _col in all_columns:
         for attribute in _col.attributes:
@@ -464,7 +531,9 @@ async def set_node_column_attributes(
                         for item in attribute.attribute_type.uniqueness_scope
                     ),
                 )
-            ].add(_col.name)
+            ].add(
+                _col.cube_element_name if node.type == NodeType.CUBE else _col.name,
+            )
 
     for (attribute, _), columns in attributes_columns_map.items():
         if len(columns) > 1 and attribute.uniqueness_scope:
@@ -483,7 +552,11 @@ async def set_node_column_attributes(
             node=node.name,
             activity_type=ActivityType.SET_ATTRIBUTE,
             details={
-                "column": column.name,
+                "column": (
+                    column.cube_element_name
+                    if node.type == NodeType.CUBE
+                    else column.name
+                ),
                 "attributes": [attr.model_dump() for attr in attributes],
             },
             user=current_user.username,
@@ -618,6 +691,7 @@ async def create_cube_node_revision(
         metric_nodes,
         dimension_nodes,
         dimension_columns,
+        dimension_roles,
         catalog,
     ) = await validate_cube(
         session,
@@ -637,7 +711,11 @@ async def create_cube_node_revision(
     # Build the "columns" for this node based on the cube elements. These are used
     # for marking partition columns when the cube gets materialized.
     node_columns = []
-    dimension_to_roles_mapping = map_dimensions_to_roles(data.dimensions or [])
+    # Role suffix per cube element, aligned to metric_columns + dimension_columns.
+    # Metrics never carry a role; validate_cube returns dimension_roles 1:1 with
+    # the resolved dimension_columns, so a silently-skipped (unresolvable)
+    # dimension reference can't shift roles onto the wrong column.
+    element_roles = [None] * len(metric_columns) + dimension_roles
     for idx, col in enumerate(metric_columns + dimension_columns):
         await session.refresh(col, ["node_revision"])
         referenced_node = col.node_revision
@@ -659,13 +737,8 @@ async def create_cube_node_revision(
             ],
             order=idx,
         )
-        if (
-            full_element_name in dimension_to_roles_mapping
-            and dimension_to_roles_mapping[full_element_name]
-        ):
-            node_column.dimension_column = (
-                "[" + dimension_to_roles_mapping[full_element_name] + "]"
-            )
+        if element_roles[idx]:
+            node_column.dimension_column = element_roles[idx]
 
         node_columns.append(node_column)
 
@@ -676,7 +749,7 @@ async def create_cube_node_revision(
         type=NodeType.CUBE,
         query="",
         columns=node_columns,
-        cube_elements=metric_columns + dimension_columns,
+        cube_elements=dedupe_cube_elements(metric_columns + dimension_columns),
         parents=list(set(dimension_nodes + metric_nodes)),
         status=status,
         catalog=catalog,
@@ -688,7 +761,62 @@ async def create_cube_node_revision(
     return node_revision
 
 
-async def derive_frozen_measures(node_revision_id: int) -> list[FrozenMeasure]:
+def _create_access_target(
+    data: CreateSourceNode | CreateNode | CreateCubeNode,
+) -> Resource:
+    """
+    The resource a create endpoint governs: the node's target namespace.
+
+    Background work scheduled by a create re-authorizes this rather than the node
+    (see ``_background_write_allowed``), including on the re-creation path, which
+    routes through the update helper.
+    """
+    return Resource.from_namespace(data.namespace or get_namespace_from_name(data.name))
+
+
+async def _background_write_allowed(
+    session: AsyncSession,
+    access_target: Resource,
+    current_user: User,
+    action_description: str,
+) -> bool:
+    """
+    Whether ``current_user`` may WRITE ``access_target``.
+
+    Background tasks mutate after the response has returned, outside the request's
+    AccessChecker, so they re-authorize here instead of trusting the scheduling
+    caller. The target is supplied by that caller rather than derived here,
+    because the endpoints do not all govern the same resource: node creation
+    authorizes the target namespace while updates authorize the node. Deriving a
+    node request here would deny the create path, whose grant may be a namespace
+    scope that no node pattern matches.
+
+    Denials are logged and skip the mutation rather than raising, since the
+    callers swallow exceptions and an exception would be indistinguishable from
+    a failure.
+    """
+    access_checker = AccessChecker(await AuthContext.from_user(session, current_user))
+    access_checker.add_request(
+        ResourceRequest(verb=ResourceAction.WRITE, access_object=access_target),
+    )
+    decisions = await access_checker.check(on_denied=AccessDenialMode.RETURN)
+    if any(not decision.approved for decision in decisions):
+        _logger.warning(
+            "Skipping %s for %s %s: %s lacks WRITE",
+            action_description,
+            access_target.resource_type.value,
+            access_target.name,
+            current_user.username,
+        )
+        return False
+    return True
+
+
+async def derive_frozen_measures(
+    node_revision_id: int,
+    current_user: User,
+    access_target: Resource,
+) -> list[FrozenMeasure]:
     """
     Find or create frozen measures for a metric.
 
@@ -700,18 +828,34 @@ async def derive_frozen_measures(node_revision_id: int) -> list[FrozenMeasure]:
     the derivation runs asynchronously. Opens its own session and commits
     on completion. The deployment path uses ``derive_frozen_measures_bulk``
     instead to batch DB work across all metrics in a single transaction.
+
+    Runs after the response, so it authorizes ``current_user`` for WRITE on
+    ``access_target`` -- the resource the scheduling endpoint governed -- rather
+    than trusting that caller to have checked (#2234 step 0).
     """
     try:
         async with session_context() as session:
+            if not await _background_write_allowed(
+                session,
+                access_target,
+                current_user,
+                "deriving frozen measures",
+            ):
+                return []
             result = await _derive_frozen_measures_impl(node_revision_id, session)
             await session.commit()
             return result
     except Exception:
+        # Re-raise exceptions so extraction failures are logged by Starlette
+        # instead of silently saving a metric with an empty measures list.
+        # This runs as a BackgroundTask after the HTTP response is sent.
+        # Note: BackgroundTasks abort on the first exception, so this must be
+        # scheduled after other critical tasks (like save_column_level_lineage).
         _logger.exception(
             "Error deriving frozen measures for node revision %s",
             node_revision_id,
         )
-        return []
+        raise
 
 
 async def _derive_frozen_measures_impl(
@@ -1079,7 +1223,7 @@ async def copy_nodes_to_namespace(
     source_namespace: str,
     target_namespace: str,
     current_user: User,
-) -> List[DeploymentResult]:
+) -> list[DeploymentResult]:
     """
     Copies all nodes from source namespace to target namespace.
 
@@ -1156,12 +1300,12 @@ async def update_any_node(
     name: str,
     data: UpdateNode,
     session: AsyncSession,
-    request_headers: Dict[str, str],
+    request_headers: dict[str, str],
     query_service_client: QueryServiceClient,
     current_user: User,
     save_history: Callable,
     background_tasks: BackgroundTasks = None,
-    access_checker: AccessChecker = None,
+    access_checker: AccessChecker | None = None,
     refresh_materialization: bool = False,
     cache: Cache | None = None,
 ) -> Node:
@@ -1194,8 +1338,16 @@ async def update_any_node(
         node.missing_table = data.missing_table  # type: ignore
         session.add(node)
 
+    if data.custom_metadata is not None:
+        await validate_custom_metadata(
+            session,
+            namespace=node.namespace,
+            node_type=node.type,  # type: ignore[arg-type]
+            custom_metadata=data.custom_metadata,
+        )
+
     if node.type == NodeType.CUBE:  # type: ignore
-        node = await Node.get_cube_by_name(session, name)
+        node = cast(Node, await Node.get_cube_by_name(session, name))
         node_revision = await update_cube_node(
             session,
             node.current,  # type: ignore
@@ -1228,17 +1380,23 @@ async def update_node_with_query(
     data: UpdateNode,
     session: AsyncSession,
     *,
-    request_headers: Dict[str, str],
+    request_headers: dict[str, str],
     query_service_client: QueryServiceClient,
     current_user: User,
     background_tasks: BackgroundTasks,
     access_checker: AccessChecker,
     save_history: Callable,
-    cache: Cache,
+    cache: Cache | None = None,
+    access_target: Resource | None = None,
 ) -> Node:
     """
     Update the named node with the changes defined in the UpdateNode object.
     Propagate these changes to all of the node's downstream children.
+
+    ``access_target`` is the resource the calling endpoint authorized, used by the
+    background work scheduled below. It defaults to the node, which is what the
+    update endpoint governs; re-creating an inactive node routes here from the
+    create endpoint, which governs the target namespace instead.
 
     Note: this function works for both source nodes and nodes with query (transforms,
     dimensions, metrics). We should update it to separate out the logic for source nodes
@@ -1349,6 +1507,8 @@ async def update_node_with_query(
         background_tasks.add_task(
             save_column_level_lineage,
             node_revision_id=new_revision.id,
+            current_user=current_user,
+            access_target=access_target or Resource.from_node(new_revision),
         )
         # TODO: Do not save this until:
         #   1. We get to the bottom of why there are query building discrepancies
@@ -1381,6 +1541,11 @@ async def update_node_with_query(
         current_user=current_user,
         save_history=save_history,
         cache=cache,
+        # Downstream cubes inherit this tier: a cube's own shape can be identical
+        # across an upstream change that alters every row it serves.
+        change_tier=version_change_tier(old_revision.version, node.current_version),  # type: ignore
+        query_service_client=query_service_client,
+        request_headers=request_headers,
     )
     await session.refresh(node, ["current"])
     await session.refresh(node.current, ["materializations"])  # type: ignore
@@ -1424,37 +1589,238 @@ async def update_owners(
     await session.commit()
 
 
-def has_minor_changes(
-    old_revision: NodeRevision,
-    data: UpdateNode,
-):
+async def apply_table_owner(
+    session: AsyncSession,
+    node: Node,
+    owner: TableOwner,
+    save_history: Callable,
+    current_user: User,
+) -> bool:
     """
-    Whether the node has minor changes
+    Set the node's owners to exactly the table's owner.
+
+    Returns True when a change was made. Creates the user if absent, keyed on
+    ``owner.username`` -- the query service is responsible for mapping its
+    catalog's identity to a DJ username, since DJ usernames are not universally
+    emails. Never clears owners: the caller only invokes this with a resolved
+    owner.
+
+    Owners live on ``Node`` rather than ``NodeRevision``, so this never forks a
+    revision. The caller is responsible for committing.
     """
-    return (
-        (
-            data
-            and data.description
-            and old_revision.description
-            and (old_revision.description != data.description)
+    await session.refresh(node, ["owners"])
+    old_owners = [existing.username for existing in node.owners]
+    if old_owners == [owner.username]:
+        return False
+
+    user = await User.get_by_username(session, owner.username)
+    if user is None:
+        user = User(
+            username=owner.username,
+            email=owner.email,
+            name=owner.display_name or owner.username,
+            oauth_provider=OAuthProvider.BASIC,
+            kind=PrincipalKind.GROUP if owner.is_group else PrincipalKind.USER,
         )
-        or (data and data.mode and old_revision.mode != data.mode)
-        or (
-            data
-            and data.display_name
-            and old_revision.display_name != data.display_name
-        )
-        or (
-            data
-            and data.filters is not None
-            and data.filters != (old_revision.cube_filters or [])
-        )
-        or (
-            data
-            and data.custom_metadata is not None
-            and old_revision.custom_metadata != data.custom_metadata
-        )
+        session.add(user)
+        await session.flush()
+
+    node.owners = [user]
+    session.add(node)
+    await save_history(
+        event=History(
+            entity_type=EntityType.NODE,
+            entity_name=node.name,
+            node=node.name,
+            activity_type=ActivityType.UPDATE,
+            details={"old_owners": old_owners, "new_owners": [owner.username]},
+            # The actor is whoever ran the refresh, not the new owner -- the new
+            # owner is the object of the change. `get_node_creator`-style callers
+            # read this field, so it has to name a real actor.
+            user=current_user.username,
+        ),
+        session=session,
     )
+    return True
+
+
+async def apply_table_primary_key(
+    session: AsyncSession,
+    node: Node,
+    primary_key: list[str],
+    current_user: User,
+    save_history: Callable,
+) -> bool:
+    """
+    Set the primary key attribute from the catalog's primary key.
+
+    Fill-when-empty: if the node already declares a primary key, leave it alone.
+    A primary key is structural -- dimension joins and cube grain depend on it --
+    so a hand-chosen one is a deliberate modelling decision and the catalog is
+    not automatically more right than the person who set it.
+
+    Goes through set_node_column_attributes so the attribute's uniqueness scopes
+    are validated the same way a manual change is, and so any other attribute
+    already on the column is preserved rather than replaced.
+    """
+    if not primary_key or node.current.primary_key():
+        return False
+
+    by_name = {column.name: column for column in node.current.columns}
+    changed = False
+    for column_name in primary_key:
+        column = by_name.get(column_name)
+        if column is None:
+            # The catalog named a column the node does not have; the column diff
+            # elsewhere in refresh is what reconciles that, not this.
+            continue
+        attributes = [
+            AttributeTypeIdentifier(name=attribute.attribute_type.name)
+            for attribute in column.attributes
+        ]
+        attributes.append(
+            AttributeTypeIdentifier(name=ColumnAttributes.PRIMARY_KEY.value),
+        )
+        await set_node_column_attributes(
+            session,
+            node,
+            column_name,
+            attributes,
+            current_user=current_user,
+            save_history=save_history,
+        )
+        changed = True
+    return changed
+
+
+def describe_column_changes(
+    existing: list[Column],
+    incoming: list[Column],
+) -> dict:
+    """
+    Describe how a table's columns changed, for the audit trail.
+
+    Returns the same keys ``revalidate`` already records -- ``type_changes``,
+    ``added_columns``, ``removed_columns`` -- so a version bump is explained the
+    same way however it was triggered. Empty when nothing changed, so the result
+    doubles as the "did anything change" test.
+
+    Type changes matter beyond documentation: a source column changing type can
+    change the value of a metric computed from it, so a refresh that silently
+    bumps a version leaves no way to explain a number that moved.
+    """
+    existing_by_name = {column.name: column for column in existing}
+    incoming_by_name = {column.name: column for column in incoming}
+
+    changes: dict = {}
+    type_changes = [
+        {
+            "column": name,
+            "from": str(existing_by_name[name].type),
+            "to": str(column.type),
+        }
+        for name, column in incoming_by_name.items()
+        if name in existing_by_name
+        and str(existing_by_name[name].type) != str(column.type)
+    ]
+    added = sorted(set(incoming_by_name) - set(existing_by_name))
+    removed = sorted(set(existing_by_name) - set(incoming_by_name))
+
+    if type_changes:
+        changes["type_changes"] = type_changes
+    if added:
+        changes["added_columns"] = added
+    if removed:
+        changes["removed_columns"] = removed
+    return changes
+
+
+def apply_table_descriptions(
+    session: AsyncSession,
+    revision: NodeRevision,
+    table_metadata: TableMetadata,
+) -> bool:
+    """
+    Fill in the node's and columns' descriptions from the warehouse table.
+
+    Fill-when-empty, never overwrite: a description is curated prose that
+    someone may have written in DJ, and the table's comment is not automatically
+    the better one. This only closes the gap where DJ has nothing.
+
+    Applied in place rather than by forking a revision -- a comment is not a
+    schema change, and the caller commits.
+    """
+    changed = False
+
+    if table_metadata.description and not revision.description:
+        revision.description = table_metadata.description
+        changed = True
+
+    incoming = {
+        column.name: column.description
+        for column in table_metadata.columns
+        if column.description
+    }
+    for column in revision.columns:
+        description = incoming.get(column.name)
+        if description and not column.description:
+            column.description = description
+            changed = True
+
+    if changed:
+        session.add(revision)
+    return changed
+
+
+def cube_changed_fields(
+    old_revision: NodeRevision,
+    new_cube: CreateCubeNode,
+) -> tuple[list[str], list[str]]:
+    """
+    Compare a cube's current revision against the fully resolved cube about to
+    replace it, returning the fields whose value changed and the fields whose
+    contents only moved. `CubeSpec.change_tier` turns those two into a version bump.
+
+    Compares against the resolved `CreateCubeNode`, not the raw `UpdateNode` payload,
+    because the resolved object is what gets persisted: a field the payload omitted,
+    or supplied a value that resolution then discarded, cannot be reported as changed.
+    That rules out guard bugs like `metrics: []` reading as "not supplied" under a
+    truthiness check.
+    """
+    changed: list[str] = []
+    reordered: list[str] = []
+
+    old_metrics = [metric.name for metric in old_revision.cube_metrics()]
+    old_dimensions = old_revision.cube_dimensions()
+    old_filters = old_revision.cube_filters or []
+
+    # Metrics and dimensions: adding or removing one is major, reordering them is
+    # minor (it moves the cube's column order but no values). Both tiers live in
+    # CubeSpec, so all this has to do is say which of the two happened.
+    for field, new_value, old_value in (
+        ("metrics", list(new_cube.metrics or []), old_metrics),
+        ("dimensions", list(new_cube.dimensions or []), old_dimensions),
+    ):
+        if set(new_value) != set(old_value):
+            changed.append(field)
+        elif new_value != old_value:
+            reordered.append(field)
+
+    # Filters are compared as sets: they are ANDed, so their ordering carries no
+    # meaning, but which rows they keep does -- hence major, not minor.
+    if set(new_cube.filters or []) != set(old_filters):
+        changed.append("filters")
+
+    if new_cube.description != old_revision.description:
+        changed.append("description")
+    if new_cube.display_name != old_revision.display_name:
+        changed.append("display_name")
+    if new_cube.mode != old_revision.mode:
+        changed.append("mode")
+    if new_cube.custom_metadata != old_revision.custom_metadata:
+        changed.append("custom_metadata")
+
+    return changed, reordered
 
 
 def node_update_history_event(new_revision: NodeRevision, current_user: User):
@@ -1473,36 +1839,135 @@ def node_update_history_event(new_revision: NodeRevision, current_user: User):
     )
 
 
+def cube_metric_revision_ids(cube_revision: NodeRevision) -> set[int]:
+    """
+    Ids of the metric node revisions a cube revision points at.
+
+    Requires ``cube_elements`` and each element's ``node_revision`` to be loaded:
+    the relationship declares no lazy strategy, so an unloaded access raises
+    ``MissingGreenlet`` under async. ``Node.get_cube_by_name`` selectin-loads both,
+    and revisions freshly built by ``create_cube_node_revision`` hold them in memory.
+    """
+    return {
+        element.node_revision.id
+        for element in cube_revision.cube_elements
+        if element.node_revision.type == NodeType.METRIC
+    }
+
+
+async def cube_metric_component_identities(
+    session: AsyncSession,
+    cube_revision: NodeRevision,
+) -> set[str]:
+    """
+    Identity tokens for every metric component used by a cube revision's metrics.
+
+    A cube revision does not store its own components: it points at metric node
+    revisions (through ``cube_elements``) and each of those owns the frozen measures
+    derived from its query. A token combines the owning metric, the component name
+    and the component's expression hash + phase-1 aggregation, so a metric being
+    added, removed, or silently recompiled into a different expression all show up
+    as a change to this set.
+    """
+    metric_revision_ids = cube_metric_revision_ids(cube_revision)
+    statement = (
+        select(
+            NodeRevision.name,
+            FrozenMeasure.name,
+            FrozenMeasure.expression,
+            FrozenMeasure.aggregation,
+        )
+        .select_from(NodeRevisionFrozenMeasure)
+        .join(
+            NodeRevision,
+            NodeRevision.id == NodeRevisionFrozenMeasure.node_revision_id,
+        )
+        .join(
+            FrozenMeasure,
+            FrozenMeasure.id == NodeRevisionFrozenMeasure.frozen_measure_id,
+        )
+        .where(NodeRevisionFrozenMeasure.node_revision_id.in_(metric_revision_ids))
+    )
+    rows = (await session.execute(statement)).all()
+    return {
+        f"{metric_name}:{component_name}:"
+        + measure_identity_token(compute_expression_hash(expression), aggregation)
+        for metric_name, component_name, expression, aggregation in rows
+    }
+
+
+async def is_non_trivial_cube_change(
+    session: AsyncSession,
+    old_revision: NodeRevision,
+    new_revision: NodeRevision,
+) -> bool:
+    """
+    Whether a new cube revision differs from the previous one in a way that
+    invalidates the previous revision's materialized table.
+
+    A change is non-trivial when the set of metric components (including their
+    expression hashes), the dimension set, or the filters changed. Anything else
+    (description, display name, mode, custom metadata, dimension or filter ordering)
+    leaves the materialized table's schema and contents valid. Sets are compared
+    because filters are ANDed and dimension ordering does not affect the
+    materialized table, so neither carries meaning through its ordering.
+
+    Deliberately a different question from the change tier that `cube_changed_fields`
+    and `CubeSpec.change_tier` compute: that one decides the version bump, this one
+    asks whether the previously materialized table is still usable. The two can and
+    do diverge -- reordering dimensions earns a minor bump but leaves the table
+    valid, while a filters change is major and invalidates it.
+
+    It no longer decides whether the superseded revision's workflows are stopped:
+    `swap_cube_materializations` does that on every new revision, because a revision
+    that keeps neither its materialization nor its availability cannot be left
+    pointing at another revision's running workflow. What remains is the
+    adopt-or-backfill question -- whether the rebuilt materialization can reuse the
+    previous revision's data -- which the swap records on its history event.
+    """
+    if set(old_revision.cube_dimensions()) != set(new_revision.cube_dimensions()):
+        return True
+    if set(old_revision.cube_filters or []) != set(new_revision.cube_filters or []):
+        return True
+    # Both revisions pointing at the same metric revisions necessarily own the same
+    # frozen measures, so the components — and the table's schema — cannot differ.
+    # Checking ids in memory first avoids two joined queries on minor-only edits.
+    if cube_metric_revision_ids(old_revision) == cube_metric_revision_ids(
+        new_revision,
+    ):
+        return False
+    return await cube_metric_component_identities(
+        session,
+        old_revision,
+    ) != await cube_metric_component_identities(session, new_revision)
+
+
 async def update_cube_node(
     session: AsyncSession,
     node_revision: NodeRevision,
     data: UpdateNode,
     *,
-    request_headers: Dict[str, str],
+    request_headers: dict[str, str],
     query_service_client: QueryServiceClient,
     current_user: User,
     background_tasks: BackgroundTasks = None,
     access_checker: AccessChecker,
     save_history: Callable,
     refresh_materialization: bool = False,
-) -> Optional[NodeRevision]:
+) -> NodeRevision | None:
     """
     Update cube node based on changes
     """
     node = await Node.get_cube_by_name(session, node_revision.name)
     node_revision = node.current  # type: ignore
-    minor_changes = has_minor_changes(node_revision, data)
     old_metrics = [m.name for m in node_revision.cube_metrics()]
     old_dimensions = node_revision.cube_dimensions()
-    major_changes = (data.metrics and data.metrics != old_metrics) or (
-        data.dimensions and data.dimensions != old_dimensions
-    )
     create_cube = CreateCubeNode(
         name=node_revision.name,
         display_name=data.display_name or node_revision.display_name,
         description=data.description or node_revision.description,
-        metrics=data.metrics or old_metrics,
-        dimensions=data.dimensions or old_dimensions,
+        metrics=data.metrics if data.metrics is not None else old_metrics,
+        dimensions=data.dimensions if data.dimensions is not None else old_dimensions,
         mode=data.mode or node_revision.mode,
         filters=data.filters
         if data.filters is not None
@@ -1513,7 +1978,11 @@ async def update_cube_node(
         if data.custom_metadata is not None
         else node_revision.custom_metadata,
     )
-    if not major_changes and not minor_changes:
+    # "Did anything change?" and "how significant was it?" are one question here:
+    # the tier answers both, and it is the same classifier the deployment path uses.
+    changed_fields, reordered_fields = cube_changed_fields(node_revision, create_cube)
+    change_tier = CubeSpec.change_tier(changed_fields, reordered_fields)
+    if change_tier is ChangeTier.NONE:
         # If refresh_materialization requested but no other changes, refresh and return
         if refresh_materialization and query_service_client:
             _logger.info(
@@ -1535,9 +2004,19 @@ async def update_cube_node(
                     mat.deactivated_at = None
             await session.commit()
 
+            # ``Node.owners`` is lazy and ``get_cube_by_name`` does not eager-load
+            # it, so reading it here without an explicit refresh would emit a sync
+            # lazy-load inside the async request and surface as MissingGreenlet
+            # whenever the identity map happens not to hold it already.
+            await session.refresh(node, ["owners"])  # type: ignore
+            owners = [owner.model_dump() for owner in principal_refs(node.owners)]  # type: ignore
+
             # Serialize active materializations as complete, ready-to-use dicts
             # so dj-query can parse them directly into model inputs without merging.
             # This avoids a callback from query service back to DJ.
+            # The attribution fields (owners, custom_metadata) must match what the
+            # normal scheduling path in DruidCubeMaterializationJob.schedule sends,
+            # or the query service cannot tell who owns the refreshed workflow.
             active_mats = []
             for mat in node_revision.materializations:
                 if mat.deactivated_at:
@@ -1552,6 +2031,8 @@ async def update_cube_node(
                         "name": node_revision.name,
                         "version": node_revision.version,
                     },
+                    "owners": owners,
+                    "custom_metadata": node_revision.custom_metadata,
                 }
                 active_mats.append(mat_dict)
             query_service_client.refresh_cube_materialization(
@@ -1561,6 +2042,59 @@ async def update_cube_node(
                 request_headers=request_headers,
             )
         return None
+
+    return await save_new_cube_revision(
+        session,
+        node_revision,
+        create_cube,
+        change_tier,
+        request_headers=request_headers,
+        query_service_client=query_service_client,
+        current_user=current_user,
+        access_checker=access_checker,
+        save_history=save_history,
+    )
+
+
+async def save_new_cube_revision(
+    session: AsyncSession,
+    node_revision: NodeRevision,
+    create_cube: CreateCubeNode,
+    change_tier: ChangeTier,
+    *,
+    request_headers: dict[str, str] | None,
+    query_service_client: QueryServiceClient | None,
+    current_user: User,
+    access_checker: AccessChecker,
+    save_history: Callable,
+    extra_history_details: dict | None = None,
+    previous_table_usable: bool | None = None,
+) -> NodeRevision:
+    """
+    Commit `create_cube` as the cube's next revision, at the version `change_tier`
+    earns, and move its materializations onto it.
+
+    Everything a new cube revision needs beyond deciding *that* there should be one:
+    resolving the cube against the current metrics and dimensions, the version bump,
+    carrying partition columns forward, the audit event, and the materialization
+    swap. Both writers that start from a cube's *own* definition go through here --
+    a user editing the cube (`update_cube_node`) and an upstream change propagating
+    into it -- so the two cannot produce differently-shaped revisions. Deploy builds
+    cube revisions on its own path and swaps them itself
+    (`orchestrator._swap_cube_materializations`).
+
+    `extra_history_details` is merged into the UPDATE event's details, which is how
+    the propagation path records the upstream node and version that caused the bump.
+
+    `previous_table_usable` is recorded on the swap's history event for an operator
+    deciding whether the rebuild can adopt the old table or needs a backfill. Left
+    unset it is derived from `is_non_trivial_cube_change`, which compares the cube's
+    own shape -- correct when the cube itself changed. An upstream change must pass
+    False: the shapes can be identical while every row differs, which is the same
+    reason propagation does not use that predicate to decide whether to rebuild.
+    """
+    old_metrics = [m.name for m in node_revision.cube_metrics()]
+    old_dimensions = node_revision.cube_dimensions()
 
     # Disable autoflush to prevent partial state from being persisted if an error
     # occurs during revision creation. This ensures that node.current_version and
@@ -1574,11 +2108,7 @@ async def update_cube_node(
             current_user,
         )
 
-        old_version = Version.parse(node_revision.version)
-        if major_changes:
-            new_cube_revision.version = str(old_version.next_major_version())
-        elif minor_changes:  # pragma: no cover
-            new_cube_revision.version = str(old_version.next_minor_version())
+        new_cube_revision.version = bump_version(node_revision.version, change_tier)
         new_cube_revision.node = node_revision.node
         new_cube_revision.node.current_version = new_cube_revision.version  # type: ignore
 
@@ -1590,6 +2120,7 @@ async def update_cube_node(
                 activity_type=ActivityType.UPDATE,
                 details={
                     "version": new_cube_revision.version,  # type: ignore
+                    **(extra_history_details or {}),
                 },
                 pre={
                     "metrics": old_metrics,
@@ -1605,9 +2136,11 @@ async def update_cube_node(
         )
 
         # Bring over existing partition columns, if any
-        new_columns_mapping = {col.name: col for col in new_cube_revision.columns}
+        new_columns_mapping = {
+            col.cube_element_name: col for col in new_cube_revision.columns
+        }
         for col in node_revision.columns:
-            new_col = new_columns_mapping.get(col.name)
+            new_col = new_columns_mapping.get(col.cube_element_name)
             if col.partition and new_col:
                 new_col.partition = Partition(
                     column=new_col,
@@ -1616,44 +2149,42 @@ async def update_cube_node(
                     granularity=col.partition.granularity,
                 )
 
-        # Note: Materializations are NOT auto-recreated on cube update.
-        # Users should explicitly set up materializations for the new cube version
-        # after updating the cube definition.
-
-        # Notify if the old revision had active materializations that won't be migrated
-        active_materializations = [
-            mat
-            for mat in node_revision.materializations
-            if not mat.deactivated_at and mat.name != "default"
-        ]
-        if active_materializations:
-            await save_history(
-                event=History(
-                    entity_type=EntityType.MATERIALIZATION,
-                    entity_name=node_revision.name,
-                    node=node_revision.name,
-                    activity_type=ActivityType.STATUS_CHANGE,
-                    details={
-                        "message": (
-                            f"Cube updated to {new_cube_revision.version}. "
-                            "Active materializations from the previous version were not migrated. "
-                            "Please reconfigure materializations if you want to continue "
-                            "materializing this cube."
-                        ),
-                        "previous_version": node_revision.version,
-                        "new_version": new_cube_revision.version,
-                        "invalidated_materializations": [
-                            mat.name for mat in active_materializations
-                        ],
-                    },
-                    user=current_user.username,
-                ),
-                session=session,
-            )
-
         session.add(new_cube_revision)
         session.add(new_cube_revision.node)
         await session.commit()
+
+    # Swap the materializations onto the new revision only once it is committed: the
+    # rebuild reads the new revision's columns and partitions back out of the DB.
+    swap = await swap_cube_materializations(
+        session,
+        node_revision,
+        new_cube_revision,
+        access_checker=access_checker,
+        current_user=current_user,
+        previous_table_usable=(
+            previous_table_usable
+            if previous_table_usable is not None
+            else not await is_non_trivial_cube_change(
+                session,
+                node_revision,
+                new_cube_revision,
+            )
+        ),
+    )
+    if swap:
+        # Talk to the query service only once DJ's own record of the swap is
+        # committed, so a slow or failing query service can neither hold the
+        # transaction open nor leave DJ claiming the superseded materializations are
+        # still active. The call never raises: a stop or a schedule that cannot be
+        # delivered must not abort a legitimate cube edit, and the History event
+        # recorded above says what we attempted.
+        await session.commit()
+        await apply_cube_materialization_swap(
+            session,
+            swap,
+            query_service_client,
+            request_headers=request_headers,
+        )
 
     await session.refresh(new_cube_revision)
     await session.refresh(new_cube_revision.node)
@@ -1666,9 +2197,16 @@ async def propagate_update_downstream(
     current_user: User,
     save_history: Callable,
     cache: Cache | None = None,
+    change_tier: ChangeTier = ChangeTier.MAJOR,
+    query_service_client: QueryServiceClient | None = None,
+    request_headers: dict[str, str] | None = None,
 ):
     """
     Background task to propagate the updated node's changes to all of its downstream children.
+
+    `change_tier` is how significant the change to `node` itself was, which is what
+    downstream cubes inherit as their own bump. It defaults to MAJOR because
+    over-rebuilding a cube costs compute while under-rebuilding serves wrong numbers.
     """
     try:
         async with session_context() as session:
@@ -1678,6 +2216,9 @@ async def propagate_update_downstream(
                 current_user=current_user,
                 save_history=save_history,
                 cache=cache,
+                change_tier=change_tier,
+                query_service_client=query_service_client,
+                request_headers=request_headers,
             )
     except Exception:
         _logger.exception(
@@ -1686,12 +2227,111 @@ async def propagate_update_downstream(
         )
 
 
+async def _reload_nodes_in_order(
+    session: AsyncSession,
+    names: list[str],
+) -> list[Node]:
+    """
+    Reload the named nodes in one query, preserving the order they were given in.
+
+    Used to recover the tail of a propagation walk after a rollback has expired the
+    instances it was holding. A node that has disappeared meanwhile is dropped
+    rather than resurrected, and an empty list of names is a select that matches
+    nothing rather than a case to special-case.
+    """
+    reloaded = (
+        (
+            await session.execute(
+                select(Node)
+                .where(Node.name.in_(names))
+                .options(*_node_output_options()),
+            )
+        )
+        .unique()
+        .scalars()
+        .all()
+    )
+    position = {name: index for index, name in enumerate(names)}
+    return sorted(reloaded, key=lambda reloaded_node: position[reloaded_node.name])
+
+
+async def _rebuild_downstream_cube(
+    session: AsyncSession,
+    cube: Node,
+    upstream: Node,
+    change_tier: ChangeTier,
+    *,
+    current_user: User,
+    save_history: Callable,
+    query_service_client: QueryServiceClient | None,
+    request_headers: dict[str, str] | None,
+) -> None:
+    """
+    Bump a cube because something upstream of it changed.
+
+    Nobody edited the cube, so there is no payload to reconstruct it from: the new
+    revision is resolved from the cube's *own* current metrics and dimensions, which
+    is exactly what `update_cube_node` falls back to for every field a PATCH omits.
+    Re-resolving them is the point -- the metrics and dimensions are the same names,
+    but they now resolve against new upstream revisions, so the cube's columns,
+    elements and parents recompile against what the upstream became.
+
+    The cube inherits the upstream's tier rather than being classified on its own
+    shape. `is_non_trivial_cube_change` asks whether the *cube's* definition moved,
+    which is the wrong question here: widening a transform's WHERE clause changes no
+    metric, no dimension and no component identity, yet every row in the cube's
+    materialized table was computed under the old filter. Over-rebuilding costs
+    compute; under-rebuilding serves wrong numbers.
+    """
+    cube_node = await Node.get_cube_by_name(session, cube.name)
+    node_revision = cube_node.current  # type: ignore
+    create_cube = CreateCubeNode(
+        name=node_revision.name,
+        display_name=node_revision.display_name,
+        description=node_revision.description,
+        metrics=[metric.name for metric in node_revision.cube_metrics()],
+        dimensions=node_revision.cube_dimensions(),
+        mode=node_revision.mode,
+        filters=node_revision.cube_filters or [],
+        custom_metadata=node_revision.custom_metadata,
+    )
+    # Propagation runs after the response returned, outside the request's
+    # AccessChecker, so the rebuild gets a fresh one. It does not gate the bump:
+    # a cube whose owner pointed it at this upstream is not the updater's call.
+    access_checker = AccessChecker(await AuthContext.from_user(session, current_user))
+    await save_new_cube_revision(
+        session,
+        node_revision,
+        create_cube,
+        change_tier,
+        request_headers=request_headers,
+        query_service_client=query_service_client,
+        current_user=current_user,
+        access_checker=access_checker,
+        save_history=save_history,
+        extra_history_details={
+            "upstream": {
+                "node": upstream.name,
+                "version": upstream.current_version,
+            },
+            "reason": f"Caused by update of `{upstream.name}` to "
+            f"{upstream.current_version}",
+        },
+        # The cube's own shape can be identical across an upstream change that
+        # altered every row, so the old table cannot be assumed adoptable.
+        previous_table_usable=False,
+    )
+
+
 async def _propagate_update_downstream(
     session: AsyncSession,
     node: Node,
     current_user: User,
     save_history: Callable,
     cache: Cache | None = None,
+    change_tier: ChangeTier = ChangeTier.MAJOR,
+    query_service_client: QueryServiceClient | None = None,
+    request_headers: dict[str, str] | None = None,
 ):
     """
     Propagate the updated node's changes to all of its downstream children.
@@ -1699,15 +2339,34 @@ async def _propagate_update_downstream(
     - altered column names: may invalidate downstream nodes
     - altered column types: may invalidate downstream nodes
     - new columns: won't affect downstream nodes
+
+    Authorization: this revalidates nodes the updater may not hold WRITE on, and
+    that is deliberate (#2234 step 0). A node is only downstream because its own
+    owner pointed it at this upstream, so the blast radius is opt-in rather than
+    caller-controlled, and revalidation only makes stored status reflect reality.
+    Requiring WRITE here would either block owners from updating their own nodes
+    whenever another team depends on them, or skip the denied ones and leave the
+    graph asserting VALID for nodes that are now broken -- silently, since the
+    caller above swallows exceptions. Pinned by
+    tests/internal/nodes/background_authz_test.py.
+
+    Cubes are included. They used to be filtered out, which meant a cube kept
+    serving a materialized table built against a definition that no longer existed
+    -- the only way to recompile it was a no-op edit to the cube itself. They also
+    can't go through `revalidate_node`, whose cube branch only refreshes status; a
+    cube's next revision comes from `save_new_cube_revision`, which is what
+    `_rebuild_downstream_cube` calls.
     """
     _logger.info("Propagating update of node %s downstream", node.name)
     downstreams = await get_downstream_nodes(
         session,
         node.name,
         include_deactivated=False,
-        include_cubes=False,
     )
     downstreams = topological_sort(downstreams)
+    # Kept separately because the rollback below expires every instance, and
+    # reading `.name` back off one would lazy-load from async code.
+    downstream_names = [downstream.name for downstream in downstreams]
     _logger.info(
         "Node %s updated — revalidating %s downstreams",
         node.name,
@@ -1727,18 +2386,9 @@ async def _propagate_update_downstream(
             downstream.name,
             node.name,
         )
-        node_validator = await revalidate_node(
-            downstream.name,
-            session,
-            current_user=current_user,
-            save_history=save_history,
-            # propagate_update_downstream writes its own richer history event
-            # below (with upstream context); skip the inner one to avoid
-            # duplicate audit rows for the same revision bump.
-            record_revision_bump_event=False,
-        )
 
-        # Reset the upstreams DAG cache of any downstream nodes
+        # Before the per-type work, so a cube -- which returns early -- is
+        # invalidated too.
         if cache:
             upstream_cache_key = downstream.upstream_cache_key()
             results = cache.get(upstream_cache_key)
@@ -1750,6 +2400,60 @@ async def _propagate_update_downstream(
                     upstream_cache_key,
                 )
                 cache.delete(upstream_cache_key)
+
+        if downstream.type == NodeType.CUBE:
+            # Any tier rebuilds, and the churn is deliberate. Narrowing this by
+            # comparing the upstream's resolved columns was rejected: a query edit
+            # can move a filter, a join or a CASE threshold while leaving every
+            # column and type identical, and each changes every row the cube serves.
+            # Nothing short of reading the SQL tells those apart, so a changed query
+            # makes anything built from it suspect. Only NONE is skipped, the one
+            # case where DJ knows nothing material happened.
+            #
+            # A rebuild can fail, and one cube's failure must not cost the remaining
+            # downstreams theirs.
+            if change_tier is not ChangeTier.NONE:
+                try:
+                    await _rebuild_downstream_cube(
+                        session,
+                        downstream,
+                        node,
+                        change_tier,
+                        current_user=current_user,
+                        save_history=save_history,
+                        query_service_client=query_service_client,
+                        request_headers=request_headers,
+                    )
+                except Exception:
+                    _logger.exception(
+                        "Error rebuilding downstream cube %s after update of node %s",
+                        downstream.name,
+                        node.name,
+                    )
+                    # Discard partial writes, then reload the rest of the walk:
+                    # the rollback expires every instance, so the next iteration
+                    # would lazy-load from async code. Failure path only.
+                    #
+                    # `node` and `current_user` survive it because they belong to
+                    # the request's session, not this one, so the rollback never
+                    # touches them and reading `.name` below needs no IO. Load
+                    # either one in this session and that stops being true.
+                    await session.rollback()
+                    downstreams[idx + 1 :] = await _reload_nodes_in_order(
+                        session,
+                        downstream_names[idx + 1 :],
+                    )
+            continue
+        node_validator = await revalidate_node(
+            downstream.name,
+            session,
+            current_user=current_user,
+            save_history=save_history,
+            # propagate_update_downstream writes its own richer history event
+            # below (with upstream context); skip the inner one to avoid
+            # duplicate audit rows for the same revision bump.
+            record_revision_bump_event=False,
+        )
 
         # Record history event
         if (
@@ -1831,20 +2535,25 @@ def copy_existing_node_revision(old_revision: NodeRevision, current_user: User):
 
 async def create_node_from_inactive(
     new_node_type: NodeType,
-    data: Union[CreateSourceNode, CreateNode, CreateCubeNode],
+    data: CreateSourceNode | CreateNode | CreateCubeNode,
     session: AsyncSession,
     *,
     current_user: User,
-    request_headers: Dict[str, str],
+    request_headers: dict[str, str],
     query_service_client: QueryServiceClient,
     save_history: Callable,
     background_tasks: BackgroundTasks = None,
-    access_checker: AccessChecker = None,
+    access_checker: AccessChecker | None = None,
     cache: Cache | None = None,
-) -> Optional[Node]:
+    access_target: Resource | None = None,
+) -> Node | None:
     """
     If the node existed and is inactive the re-creation takes different steps than
     creating it from scratch.
+
+    ``access_target`` is forwarded to the update path so background work
+    re-authorizes what the *create* endpoint governed (the namespace), not the
+    node that path would otherwise assume.
     """
     previous_inactive_node = await Node.get_by_name(
         session,
@@ -1892,6 +2601,7 @@ async def create_node_from_inactive(
                 access_checker=access_checker,  # type: ignore
                 save_history=save_history,
                 cache=cache,
+                access_target=access_target,
             )
         else:
             await update_cube_node(
@@ -1976,8 +2686,8 @@ async def create_new_revision_from_existing(
     node: Node,
     current_user: User,
     data: UpdateNode = None,
-    version_upgrade: VersionUpgrade = None,
-) -> Optional[NodeRevision]:
+    version_upgrade: VersionUpgrade | None = None,
+) -> NodeRevision | None:
     """
     Creates a new revision from an existing node revision.
     """
@@ -2176,7 +2886,7 @@ async def create_new_revision_from_existing(
                     ),
                 )
             ).scalar_one()
-            if set(data.primary_key) - set(col.name for col in new_revision.columns):
+            if set(data.primary_key) - {col.name for col in new_revision.columns}:
                 raise DJInvalidInputException(  # pragma: no cover
                     f"Primary key {data.primary_key} does not exist on {new_revision.name}",
                 )
@@ -2219,12 +2929,27 @@ async def create_new_revision_from_existing(
     return new_revision
 
 
-async def save_column_level_lineage(node_revision_id: int):
+async def save_column_level_lineage(
+    node_revision_id: int,
+    current_user: User,
+    access_target: Resource,
+):
     """
     Saves the column-level lineage for a node revision
+
+    Runs after the response, so it authorizes ``current_user`` for WRITE on
+    ``access_target`` -- the resource the scheduling endpoint governed -- rather
+    than trusting that caller to have checked (#2234 step 0).
     """
     try:
         async with session_context() as session:
+            if not await _background_write_allowed(
+                session,
+                access_target,
+                current_user,
+                "saving column-level lineage",
+            ):
+                return
             statement = (
                 select(NodeRevision)
                 .where(NodeRevision.id == node_revision_id)
@@ -2283,7 +3008,7 @@ async def save_query_ast(  # pragma: no cover
 async def get_column_level_lineage(
     session: AsyncSession,
     node_revision: NodeRevision,
-) -> List[LineageColumn]:
+) -> list[LineageColumn]:
     """
     Gets the column-level lineage for the node
     """
@@ -2460,6 +3185,10 @@ async def validate_complex_dimension_link(
             message=f"Cannot link dimension to a node of type {dimension_node.type}. "
             "Must be a dimension node.",
         )
+    if not link_input.join_on and link_input.join_type != JoinType.CROSS:
+        raise DJInvalidInputException(
+            message=missing_join_on_message(node.name, link_input.dimension_node),  # type: ignore
+        )
 
     if (
         dimension_node.current.catalog is not None  # type: ignore
@@ -2619,12 +3348,14 @@ async def upsert_complex_dimension_link(
         if link.dimension_id == dimension_node.id and link.role == link_input.role  # type: ignore
     ]
     activity_type = ActivityType.CREATE
+    # A CROSS join has no ON clause, but join_sql is NOT NULL.
+    join_sql = link_input.join_on or ""
 
     if existing_link:
         # Update the existing dimension link
         activity_type = ActivityType.UPDATE
         dimension_link = existing_link[0]
-        dimension_link.join_sql = link_input.join_on
+        dimension_link.join_sql = join_sql
         dimension_link.join_type = DimensionLink.parse_join_type(
             join_relation.join_type,
         )
@@ -2636,7 +3367,7 @@ async def upsert_complex_dimension_link(
         dimension_link = DimensionLink(
             node_revision_id=new_revision.id,  # type: ignore
             dimension_id=dimension_node.id,  # type: ignore
-            join_sql=link_input.join_on,
+            join_sql=join_sql,
             join_type=DimensionLink.parse_join_type(join_relation.join_type),
             join_cardinality=link_input.join_cardinality,
             role=link_input.role,
@@ -3004,7 +3735,7 @@ async def create_new_revision_for_dimension_link_update(
 
 async def propagate_valid_status(
     session: AsyncSession,
-    valid_nodes: List[NodeRevision],
+    valid_nodes: list[NodeRevision],
     catalog_id: int,
     current_user: User,
     save_history: Callable,
@@ -3082,11 +3813,11 @@ async def delete_orphaned_missing_parents(session: AsyncSession) -> None:
 async def mark_node_as_missing_parent(
     session: AsyncSession,
     node_name: str,
-    node: Optional[Node],
+    node: Node | None,
     invalidate_downstreams: bool = True,
     remove_parent_relationships: bool = False,
-    current_user: Optional[User] = None,
-    save_history: Optional[Callable] = None,
+    current_user: User | None = None,
+    save_history: Callable | None = None,
 ) -> tuple[MissingParent, list[Node]]:
     """
     Get or create a MissingParent entry for a node and update downstream nodes.
@@ -3169,11 +3900,18 @@ async def deactivate_node(
     save_history: Callable,
     query_service_client: QueryServiceClient,
     background_tasks: BackgroundTasks,
-    request_headers: Dict[str, str] = None,
-    message: str = None,
+    request_headers: dict[str, str] | None = None,
+    message: str | None = None,
 ):
     """
     Deactivates a node and propagates to all downstreams.
+
+    A deactivated node stops materializing. Restoring it does not reschedule
+    anything, so leaving its workflows running would keep writing a table whose node
+    is not readable -- which is why this path has always asked the query service to
+    stop them. It just could not stop a cube's: those workflows are named in the
+    materialization config, not derivable from the node and materialization name, so
+    the teardown goes through the shared helper that knows both dialects.
     """
     node = await Node.get_by_name(session, name, raise_if_not_exists=True)
 
@@ -3189,18 +3927,19 @@ async def deactivate_node(
         save_history=save_history,
     )
 
-    # If the node has materializations, deactivate them
-    for materialization in (
-        node.current.materializations if node and node.current else []
-    ):
+    # If the node has materializations, stop the workflows behind them. Collected
+    # here, before the deactivation, and handed to a background task as detached
+    # copies so the query service call happens off the request path.
+    teardowns = await collect_materialization_teardowns(session, [name])
+    if teardowns:
         background_tasks.add_task(
-            query_service_client.deactivate_materialization,
-            node_name=name,
-            materialization_name=materialization.name,
+            stop_materialization_workflows,
+            query_service_client,
+            teardowns,
             request_headers=request_headers,
         )
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     node.deactivated_at = UTCDatetime(  # type: ignore
         year=now.year,
         month=now.month,
@@ -3234,7 +3973,7 @@ async def activate_node(
     name: str,
     current_user: User,
     save_history: Callable,
-    message: str = None,
+    message: str | None = None,
 ):
     """Restores node and revalidate all downstreams."""
     node = await get_node_by_name(
@@ -3513,42 +4252,62 @@ async def revalidate_node(
     # columns remain a faithful snapshot of what was committed at that
     # version. Track *why* the validator decided a column changed so the
     # history event can explain the bump.
-    type_changes: list[dict] = []
-    order_fixed: list[str] = []
-    added_columns: list[str] = []
-    for col in node_validator.columns:
-        existing_col = existing_columns.get(col.name)
-        if existing_col is None:
-            added_columns.append(col.name)
-            continue
-        if existing_col.type != col.type:
-            type_changes.append(
-                {
-                    "column": col.name,
-                    "from": str(existing_col.type),
-                    "to": str(col.type),
-                },
-            )
-        if existing_col.order is None:
-            order_fixed.append(col.name)
-    updated_columns = bool(type_changes or order_fixed or added_columns)
+    #
+    # Uses the shared comparison so removals are seen at all: walking the
+    # validator's columns can only find what the validator produced, so a column
+    # the revision still stores but the query no longer selects went unnoticed.
+    column_changes = describe_column_changes(
+        node.current.columns,  # type: ignore
+        node_validator.columns,
+    )
+    type_changes: list[dict] = column_changes.get("type_changes", [])
+    added_columns: list[str] = column_changes.get("added_columns", [])
+    removed_columns: list[str] = column_changes.get("removed_columns", [])
+    # Not a column change, and so not part of the shared comparison: `order` is
+    # DJ's own bookkeeping rather than anything the query says.
+    order_fixed: list[str] = [
+        col.name
+        for col in node_validator.columns
+        if col.name in existing_columns and existing_columns[col.name].order is None
+    ]
+    # A tier rather than a version, so propagation can hand the same value to
+    # `bump_version` for downstream cubes.
+    #
+    # Any column change is major. An addition looks harmless -- nothing could
+    # already reference a column that did not exist -- but the query produced it,
+    # and a query edit can move a filter or a join while leaving the rest of the
+    # projection identical. Demoting additions to MINOR buys nothing anyway: the
+    # cube rebuild below skips only NONE, so a minor bump rebuilds all the same.
+    #
+    # `order_fixed` earns no tier. DJ filling in a missing projection index is its
+    # own bookkeeping, not a change to the node, so a revision would describe
+    # nothing and any tier above NONE would rebuild every cube below. It is applied
+    # to the current revision in place instead, below.
+    change_tier = fold_change_tiers(
+        [
+            ChangeTier.MAJOR
+            if (type_changes or removed_columns or added_columns)
+            else ChangeTier.NONE,
+        ],
+    )
+    updated_columns = change_tier is not ChangeTier.NONE
 
     _logger.info(
-        "Columns updated: %s for node %s (current version: %s) — "
-        "type_changes=%s, order_fixed=%s, added_columns=%s",
+        "Columns updated: %s (tier %s) for node %s (current version: %s) — "
+        "type_changes=%s, order_fixed=%s, added_columns=%s, removed_columns=%s",
         updated_columns,
+        change_tier.name,
         node.name,
         node.current.version,
         type_changes,
         order_fixed,
         added_columns,
+        removed_columns,
     )
     # Only create a new revision if the columns have been updated
     if updated_columns:  # type: ignore
         new_revision = copy_existing_node_revision(node.current, current_user)  # type: ignore
-        new_revision.version = str(
-            Version.parse(node.current.version).next_major_version(),  # type: ignore
-        )
+        new_revision.version = bump_version(node.current.version, change_tier)  # type: ignore
 
         new_revision.status = node_validator.status
         # Snapshot pending m2m state before compile — autoflush during
@@ -3617,19 +4376,16 @@ async def revalidate_node(
         # Record the revision bump so the audit trail reflects revalidate-
         # driven version changes, not just deploy-driven ones, and explains
         # *which* validator-detected differences triggered it (type changes,
-        # missing column orders, new columns). Skip when the caller will
-        # write its own (richer) event for the same bump.
+        # new columns, dropped columns, missing column orders). Skip when the
+        # caller will write its own (richer) event for the same bump.
         if record_revision_bump_event:
             history_details: dict = {
                 "version": new_revision.version,
                 "reason": "revalidate",
+                **column_changes,
             }
-            if type_changes:
-                history_details["type_changes"] = type_changes
             if order_fixed:
                 history_details["order_fixed"] = order_fixed
-            if added_columns:
-                history_details["added_columns"] = added_columns
             await save_history(
                 event=History(
                     entity_type=EntityType.NODE,
@@ -3641,6 +4397,38 @@ async def revalidate_node(
                 ),
                 session=session,
             )
+    elif order_fixed:
+        # No new revision was earned, so the backfill lands on the current one.
+        # Leaving it unset is not free: readers sort by `order` with None last, so
+        # an unordered column drifts to the end of the projection. Only missing
+        # values are filled, so an order set deliberately is never overwritten.
+        for idx, validator_col in enumerate(node_validator.columns):
+            stored_col = existing_columns[validator_col.name]
+            if stored_col.order is None:
+                stored_col.order = idx
+        session.add(node.current)  # type: ignore
+
+        # The audit trail records that DJ touched the row even though the node's
+        # definition did not change, so a column that changes position has an
+        # explanation. Not gated on ``record_revision_bump_event``: this is not a
+        # revision bump, and no caller writes a richer event in its place.
+        await save_history(
+            event=History(
+                entity_type=EntityType.NODE,
+                entity_name=node.name,  # type: ignore
+                node=node.name,  # type: ignore
+                activity_type=ActivityType.UPDATE,
+                details={
+                    # The version the node still has -- this event explains a
+                    # metadata fix, not a bump.
+                    "version": node.current.version,  # type: ignore
+                    "reason": "column order backfill",
+                    "order_fixed": order_fixed,
+                },
+                user=current_user.username,
+            ),
+            session=session,
+        )
     await session.commit()
     await session.refresh(node.current)  # type: ignore
     await session.refresh(node, ["current"])
@@ -3648,9 +4436,26 @@ async def revalidate_node(
     # For metric nodes, derive frozen measures (ensures they exist even for
     # metrics created via deployment or updated after initial creation)
     if current_node_revision.type == NodeType.METRIC and background_tasks:
-        background_tasks.add_task(derive_frozen_measures, node.current.id)  # type: ignore
+        background_tasks.add_task(
+            derive_frozen_measures,
+            node.current.id,  # type: ignore
+            current_user=current_user,
+            # Revalidation is governed on the node itself.
+            access_target=Resource.from_node(node),  # type: ignore
+        )
 
     return node_validator
+
+
+@dataclass
+class HardDeleteNodeResult:
+    """
+    What a hard delete did: its downstream impact, plus any materialization
+    workflow the query service would not stop on the way out.
+    """
+
+    impact: list[dict[str, Any]]
+    materialization_failures: list[str]
 
 
 async def hard_delete_node(
@@ -3658,10 +4463,17 @@ async def hard_delete_node(
     session: AsyncSession,
     current_user: User,
     save_history: Callable,
-):
+    query_service_client: QueryServiceClient | None = None,
+    request_headers: dict[str, str] | None = None,
+) -> HardDeleteNodeResult:
     """
     Hard delete a node, destroying all links and invalidating all downstream nodes.
     This should be used with caution, deactivating a node is preferred.
+
+    The node's materializations are read before it is deleted and their workflows
+    stopped once the delete has committed. Deleting the node cascades away the rows
+    naming those workflows, so a delete that skips this leaves the query service
+    firing jobs on schedule that DJ can no longer even name, let alone stop.
     """
     node = await Node.get_by_name(
         session,
@@ -3670,6 +4482,7 @@ async def hard_delete_node(
         include_inactive=True,
         raise_if_not_exists=True,
     )
+    node = cast(Node, node)
 
     # Mark node as missing parent and update downstream nodes (without invalidating)
     # For hard delete, we remove parent relationships since the node is being permanently deleted
@@ -3688,8 +4501,20 @@ async def hard_delete_node(
             common_dimensions=[node],  # type: ignore
         )
 
+    teardowns = await collect_materialization_teardowns(session, [name])
+
     await session.delete(node)
     await session.commit()
+
+    # Straight after the commit that made the deletion durable, and before the
+    # downstream revalidation below, which is DB work that could fail and must not
+    # be what decides whether the workflows get stopped.
+    materialization_failures = stop_materialization_workflows(
+        query_service_client,
+        teardowns,
+        request_headers=request_headers,
+    )
+
     impact = []  # Aggregate all impact of this deletion to include in response
 
     # Revalidate all downstream nodes in topological order so that parents are
@@ -3766,7 +4591,10 @@ async def hard_delete_node(
     await delete_orphaned_missing_parents(session)
     await session.commit()
 
-    return impact
+    return HardDeleteNodeResult(
+        impact=impact,
+        materialization_failures=materialization_failures,
+    )
 
 
 async def refresh_source(
@@ -3806,10 +4634,11 @@ async def refresh_source(
         )
         new_query = current_revision.query
 
-    # Get the latest columns for the source node's table from the query service
+    # Get the latest columns and owner for the source node's table from the query service
+    table_metadata = None
     new_columns = []
     try:
-        new_columns = await query_service_client.get_columns_for_table(
+        table_metadata = await query_service_client.get_table_metadata(
             current_revision.catalog.name,
             current_revision.schema_,  # type: ignore
             current_revision.table,  # type: ignore
@@ -3818,9 +4647,35 @@ async def refresh_source(
             if len(current_revision.catalog.engines) >= 1
             else None,
         )
+        new_columns = table_metadata.columns
     except DJDoesNotExistException:
         # continue with the update, if the table was not found
         pass
+
+    # Apply the table's owner before the column comparison below, so that an
+    # ownership-only change still takes effect on the two short-circuit paths.
+    # ``owner is None`` means "no ownership information", never "no owner", so it
+    # leaves the node's existing owners alone.
+    if table_metadata is not None and table_metadata.owner is not None:
+        await apply_table_owner(
+            session,
+            source_node,  # type: ignore
+            table_metadata.owner,
+            save_history,
+            current_user,
+        )
+
+    # Descriptions are deliberately not recorded in the audit trail: a comment is
+    # documentation, not something a reported number can turn on.
+    if table_metadata is not None:
+        apply_table_descriptions(session, current_revision, table_metadata)
+        await apply_table_primary_key(
+            session,
+            source_node,  # type: ignore
+            table_metadata.primary_key,
+            current_user,
+            save_history,
+        )
 
     refresh_details = {}
     if new_columns:
@@ -3833,6 +4688,10 @@ async def refresh_source(
         # if the columns haven't changed and the node has a table, we can skip the update
         if not column_changes:
             if not source_node.missing_table:  # type: ignore
+                # No revision to fork. An ownership change is already recorded by
+                # apply_table_owner above, and descriptions are deliberately not
+                # audited, so there is nothing further to record here.
+                await session.commit()
                 return source_node  # type: ignore
             # if the columns haven't changed but the node has a missing table, we should fix it
             source_node.missing_table = False  # type: ignore
@@ -3841,6 +4700,7 @@ async def refresh_source(
         # since we don't see any columns, we assume the table is gone
         if source_node.missing_table:  # type: ignore
             # but if the node already has a missing table, we can skip the update
+            await session.commit()
             return source_node  # type: ignore
         source_node.missing_table = True  # type: ignore
         new_columns = current_revision.columns
@@ -3897,6 +4757,12 @@ async def refresh_source(
     session.add(source_node)
 
     refresh_details["version"] = new_revision.version
+    # Explain the bump the same way `revalidate` does. A source column changing
+    # type can change a metric computed from it, so "which columns and how" is
+    # the part of a refresh worth auditing.
+    refresh_details.update(
+        describe_column_changes(current_revision.columns, new_columns),
+    )
     await save_history(
         event=History(
             entity_type=EntityType.NODE,

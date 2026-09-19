@@ -2,8 +2,6 @@
 Namespace GraphQL queries.
 """
 
-from typing import Optional, Union
-
 from sqlalchemy import func, select
 from strawberry.types import Info
 
@@ -47,7 +45,7 @@ async def list_namespaces(
 
         namespaces = []
         for ns, num_nodes in rows:
-            git: Optional[Union[GitRootConfig, GitBranchConfig]] = None
+            git: GitRootConfig | GitBranchConfig | None = None
             if ns.github_repo_path:
                 git = GitRootConfig(  # type: ignore
                     repo=ns.github_repo_path,

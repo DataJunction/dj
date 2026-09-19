@@ -2,7 +2,7 @@
 Helper functions for API
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.exc import NoSuchTableError, OperationalError
@@ -12,11 +12,11 @@ from djqs.exceptions import DJException, DJTableNotFound
 
 def get_columns(
     table: str,
-    schema: Optional[str],
-    catalog: Optional[str],
-    uri: Optional[str],
-    extra_params: Optional[Dict[str, Any]],
-) -> List[Dict[str, str]]:  # pragma: no cover
+    schema: str | None,
+    catalog: str | None,
+    uri: str | None,
+    extra_params: dict[str, Any] | None,
+) -> list[dict[str, str]]:  # pragma: no cover
     """
     Return all columns in a given table.
     """

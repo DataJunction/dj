@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional, Union, cast
+from typing import TYPE_CHECKING, cast
 
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.node import NodeType
@@ -32,10 +34,10 @@ class WindowLookbackPlan:
     # Named scalar CTEs (one per order column) to prepend to result.ctes so
     # the ranked offset subquery is evaluated once, shared by both the fact scan
     # and the densify spine.
-    offset_ctes: list["ast.Query"]
+    offset_ctes: list[ast.Query]
 
 
-def read_window_lookback(expr: ast.Function) -> Optional[WindowLookback]:
+def read_window_lookback(expr: ast.Function) -> WindowLookback | None:
     """
     Read the lookback extent + order column from a window-frame function.
     Returns None if `expr` has no OVER clause with a row/range frame whose
@@ -61,7 +63,7 @@ def read_window_lookback(expr: ast.Function) -> Optional[WindowLookback]:
     )
 
 
-def validate_window_lookback(wl: "WindowLookback", order_is_sequence_dim: bool) -> None:
+def validate_window_lookback(wl: WindowLookback, order_is_sequence_dim: bool) -> None:
     """Raise DJInvalidInputException if this window metric is unsupported in v1."""
     if not order_is_sequence_dim:
         raise DJInvalidInputException(
@@ -91,7 +93,7 @@ def build_densify_join(
     )
 
 
-def _agg_copy(select: ast.Select, alias: str) -> "ast.Query":
+def _agg_copy(select: ast.Select, alias: str) -> ast.Query:
     """
     A fresh parenthesized subquery over a DEEP COPY of the aggregation select,
     used as the FROM of a cohort's DISTINCT-domain query. Copying avoids sharing
@@ -153,7 +155,7 @@ def resolve_offset_low(
     sql = (
         f"SELECT (SELECT MIN(__o.{order_col_name}) FROM ("
         f"SELECT {order_col_name} FROM {tbl} "
-        f"WHERE {order_col_name} <= {str(lower_expr)} "
+        f"WHERE {order_col_name} <= {lower_expr!s} "
         f"ORDER BY {order_col_name} DESC LIMIT {extent + 1}"
         f") __o)"
     )
@@ -165,7 +167,7 @@ def _build_offset_cte(
     order_col_name: str,
     lower_expr: ast.Expression,
     extent: int,
-) -> tuple["ast.Query", ast.Expression]:
+) -> tuple[ast.Query, ast.Expression]:
     """
     Build a named scalar CTE ``__wl_low_<col>`` that computes the offset once,
     and a scalar subquery reference to read it back.
@@ -179,7 +181,7 @@ def _build_offset_cte(
     body_sql = (
         f"SELECT (SELECT MIN(__o.{order_col_name}) FROM ("
         f"SELECT {order_col_name} FROM {tbl} "
-        f"WHERE {order_col_name} <= {str(lower_expr)} "
+        f"WHERE {order_col_name} <= {lower_expr!s} "
         f"ORDER BY {order_col_name} DESC LIMIT {extent + 1}"
         f") __o) AS low_val"
     )
@@ -194,7 +196,7 @@ def _build_offset_cte(
 
 def _read_lookback_role_aware(
     func: ast.Function,
-) -> Optional[tuple["WindowLookback", Optional[str]]]:
+) -> tuple[WindowLookback, str | None] | None:
     """
     Wrap :func:`read_window_lookback` so a role-qualified order column
     (``ORDER BY v3.date.date_id[order]``, parsed as a ``Subscript`` over a
@@ -211,7 +213,7 @@ def _read_lookback_role_aware(
         return None
     order_expr = over.order_by[0].expr
 
-    role: Optional[str] = None
+    role: str | None = None
     if isinstance(order_expr, ast.Subscript) and isinstance(
         order_expr.expr,
         ast.Column,
@@ -234,7 +236,7 @@ def _read_lookback_role_aware(
 def _order_filter_bounds(
     filter_ast: ast.Expression,
     order_col_name: str,
-) -> Optional[tuple[Optional[ast.Expression], Optional[ast.Expression]]]:
+) -> tuple[ast.Expression | None, ast.Expression | None] | None:
     """
     Read (low, high) bounds off a dimension filter that constrains the order
     column, or None if this filter does not constrain it.
@@ -278,7 +280,7 @@ def _order_filter_bounds(
     return None
 
 
-def _is_static_literal_bound(expr: Optional[ast.Expression]) -> bool:
+def _is_static_literal_bound(expr: ast.Expression | None) -> bool:
     """
     True when ``expr`` is a static literal we can safely interpolate into the
     offset subquery (see :func:`resolve_offset_low`, which renders the lower
@@ -294,11 +296,11 @@ def _is_static_literal_bound(expr: Optional[ast.Expression]) -> bool:
 
 
 def _tighter_bound(
-    current: Optional[ast.Expression],
+    current: ast.Expression | None,
     candidate: ast.Expression,
     *,
     keep_max: bool,
-) -> Optional[ast.Expression]:
+) -> ast.Expression | None:
     """
     Reconcile two same-side bounds to the TIGHTEST one. For a lower bound keep
     the MAX (``keep_max=True``); for an upper bound keep the MIN. Comparison is
@@ -319,9 +321,9 @@ def _tighter_bound(
 
 
 def _dimension_physical_table(
-    ctx: "BuildContext",
+    ctx: BuildContext,
     dim_node,
-) -> Optional[str]:
+) -> str | None:
     """
     Resolve the physical (``catalog.schema.table``) source for a sequence
     dimension so the offset subquery can reference it directly.
@@ -358,7 +360,7 @@ def _dimension_physical_table(
     return None  # pragma: no cover
 
 
-def apply_live_window_lookback(ctx: "BuildContext") -> Optional["WindowLookbackPlan"]:
+def apply_live_window_lookback(ctx: BuildContext) -> WindowLookbackPlan | None:
     """
     Live frame-aware lookback adapter (mirror of the cube-side
     :func:`build_temporal_filter`).
@@ -486,8 +488,8 @@ def apply_live_window_lookback(ctx: "BuildContext") -> Optional["WindowLookbackP
         # filter pushdown still enforces every constraint. We never pop a filter
         # whose constraint we are not going to re-apply above the window.
         target_indices: list[int] = []
-        low_expr: Optional[ast.Expression] = None
-        high_expr: Optional[ast.Expression] = None
+        low_expr: ast.Expression | None = None
+        high_expr: ast.Expression | None = None
         bail = False
         for idx, filter_str in enumerate(ctx.dimension_filters):
             filter_ast = parse_filter(filter_str)
@@ -620,8 +622,8 @@ def apply_live_window_lookback(ctx: "BuildContext") -> Optional["WindowLookbackP
 
 
 def densify_window_base_metrics(
-    result: "ast.Query",
-    plan: Optional["WindowLookbackPlan"],
+    result: ast.Query,
+    plan: WindowLookbackPlan | None,
 ) -> None:
     """
     Rewrite the ``base_metrics`` CTE (the per-date grain relation the live
@@ -683,7 +685,7 @@ def densify_window_base_metrics(
     result.ctes = plan.offset_ctes + list(result.ctes)
 
     # Locate the base_metrics CTE by alias.
-    base_metrics_cte: Optional[ast.Query] = None
+    base_metrics_cte: ast.Query | None = None
     for cte in result.ctes:
         if cte.alias is not None and cte.alias.name == "base_metrics":
             base_metrics_cte = cte
@@ -834,7 +836,7 @@ def densify_window_base_metrics(
         # Rebuild the projection: the order column + cohort dims come from the
         # spine (so gap cells survive and cohort dims keep their real type);
         # every measure is 0-filled from agg.
-        new_projection: list[Union[ast.Aliasable, ast.Expression, ast.Column]] = []
+        new_projection: list[ast.Aliasable | ast.Expression | ast.Column] = []
         for proj in original_select.projection:
             alias_name = proj.alias_or_name.name  # type: ignore[union-attr]
             if alias_name == output_col_name:
@@ -875,8 +877,8 @@ def densify_window_base_metrics(
 
 
 def apply_output_restriction(
-    result: "ast.Query",
-    plan: Optional["WindowLookbackPlan"],
+    result: ast.Query,
+    plan: WindowLookbackPlan | None,
 ) -> None:
     """
     Move the windowed SELECT into a ``__windowed`` CTE and replace the main
@@ -892,7 +894,7 @@ def apply_output_restriction(
     if plan is None or not plan.output_restrictions:
         return
 
-    where_expr: Optional[ast.Expression] = None
+    where_expr: ast.Expression | None = None
     for output_col, low_expr, high_expr in plan.output_restrictions:
         between = ast.Between(
             expr=ast.Column(name=ast.Name(output_col)),

@@ -7,7 +7,7 @@ Create Date: 2024-09-09 06:00:00.000000+00:00
 """
 # pylint: disable=no-member, invalid-name, missing-function-docstring, unused-import, no-name-in-module
 
-from alembic import op
+from alembic import op  # type: ignore[attr-defined]
 
 # revision identifiers, used by Alembic.
 revision = "b8f22b3549c7"

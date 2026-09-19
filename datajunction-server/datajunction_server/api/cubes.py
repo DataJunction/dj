@@ -4,7 +4,6 @@ Cube related APIs.
 
 import logging
 from http import HTTPStatus
-from typing import List, Optional
 
 from fastapi import Depends, Query, Request
 from fastapi.responses import JSONResponse
@@ -16,12 +15,6 @@ from datajunction_server.construction.build_v3.combiners import (
     build_combiner_sql_from_preaggs,
 )
 from datajunction_server.construction.build_v3.cte import strip_role_suffix
-from datajunction_server.internal.views import _build_view_body, CubeViewNames
-from datajunction_server.transpilation import transpile_sql
-from datajunction_server.models.materialization import (
-    DRUID_AGG_MAPPING,
-    DRUID_SKETCH_TYPES,
-)
 from datajunction_server.construction.dimensions import build_dimensions_from_cube_query
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.node import Node
@@ -34,13 +27,19 @@ from datajunction_server.errors import (
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
+    AccessDenialMode,
     get_access_checker,
 )
-from datajunction_server.internal.materializations import build_cube_materialization
+from datajunction_server.models.access import ResourceAction
+from datajunction_server.internal.materializations import (
+    build_cube_materialization,
+    stop_cube_materialization_workflows,
+)
 from datajunction_server.internal.nodes import (
     get_all_cube_revisions_metadata,
     get_single_cube_revision_metadata,
 )
+from datajunction_server.internal.views import CubeViewNames, _build_view_body
 from datajunction_server.models.cube import (
     CubeRevisionMetadata,
     DimensionValue,
@@ -49,30 +48,34 @@ from datajunction_server.models.cube import (
     ViewDDLResponse,
 )
 from datajunction_server.models.cube_materialization import (
+    DRUID_CUBE_V3_MATERIALIZATION_NAME,
+    CubeMaterializationV2Input,
     CubeMaterializeRequest,
     CubeMaterializeResponse,
-    CubeMaterializationV2Input,
     DruidCubeMaterializationInput,
     DruidCubeV3Config,
     PreAggTableInfo,
     UpsertCubeMaterialization,
 )
 from datajunction_server.models.dialect import Dialect
-from datajunction_server.models.preaggregation import (
-    BackfillRequest,
-    BackfillResponse,
-    CubeBackfillInput,
-)
 from datajunction_server.models.materialization import (
+    DRUID_AGG_MAPPING,
+    DRUID_SKETCH_TYPES,
     Granularity,
     MaterializationJobTypeEnum,
     MaterializationStrategy,
 )
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.node_type import NodeNameVersion
+from datajunction_server.models.preaggregation import (
+    BackfillRequest,
+    BackfillResponse,
+    CubeBackfillInput,
+)
 from datajunction_server.models.query import ColumnMetadata, QueryCreate
 from datajunction_server.naming import from_amenable_name
 from datajunction_server.service_clients import QueryServiceClient
+from datajunction_server.transpilation import transpile_sql
 from datajunction_server.utils import (
     get_current_user,
     get_query_service_client,
@@ -83,6 +86,58 @@ from datajunction_server.utils import (
 _logger = logging.getLogger(__name__)
 settings = get_settings()
 router = SecureAPIRouter(tags=["cubes"])
+
+
+def _resolve_cube_partition_output_column(
+    columns: list,
+    cube_partition_ref: str,
+    allow_role_fallback: bool,
+):
+    """Resolve a cube partition to one combined-query output column.
+
+    Exact semantic identity always wins. Unqualified cube partitions may fall
+    back to a role-qualified output for compatibility, but only when that
+    fallback is unique.
+    """
+    exact_matches = [
+        column for column in columns if column.semantic_name == cube_partition_ref
+    ]
+    if len(exact_matches) == 1:
+        return exact_matches[0]
+    if len(exact_matches) > 1:
+        output_names = sorted(column.name for column in exact_matches)
+        raise DJInvalidInputException(
+            message=(
+                f"Cube partition column '{cube_partition_ref}' matches multiple "
+                f"combined query output columns: {output_names}"
+            ),
+            http_status_code=HTTPStatus.BAD_REQUEST,
+        )
+
+    if not allow_role_fallback:
+        return None
+
+    fallback_matches = [
+        column
+        for column in columns
+        if column.semantic_name
+        and strip_role_suffix(column.semantic_name) == cube_partition_ref
+    ]
+    if len(fallback_matches) == 1:
+        return fallback_matches[0]
+    if len(fallback_matches) > 1:
+        choices = sorted(
+            f"{column.semantic_name} ({column.name})" for column in fallback_matches
+        )
+        raise DJInvalidInputException(
+            message=(
+                f"Cube partition column '{cube_partition_ref}' is ambiguous across "
+                f"role-qualified combined query outputs. Use a role-qualified cube "
+                f"partition. Matches: {choices}"
+            ),
+            http_status_code=HTTPStatus.BAD_REQUEST,
+        )
+    return None
 
 
 def _build_metrics_spec(
@@ -150,7 +205,7 @@ def _build_metrics_spec(
 async def get_all_cubes(
     *,
     session: AsyncSession = Depends(get_session),
-    catalog: Optional[str] = Query(
+    catalog: str | None = Query(
         None,
         description="Filter to include only cubes available in a specific catalog",
     ),
@@ -239,7 +294,7 @@ async def cube_materialization_info(
             "The cube must have a single temporal partition column set "
             "in order for it to be materialized.",
         )
-    temporal_partition = temporal_partitions[0] if temporal_partitions else None
+    temporal_partition = temporal_partitions[0]
     granularity_lookback_defaults = {
         Granularity.MINUTE: "1 MINUTE",
         Granularity.HOUR: "1 HOUR",
@@ -287,6 +342,7 @@ async def cube_materialization_info(
         strategy=upsert.strategy,
         schedule=upsert.schedule,
         job=upsert.job.name,  # type: ignore
+        retention=cube_config.retention,
         measures_materializations=cube_config.measures_materializations,
         combiners=cube_config.combiners,
     )
@@ -296,12 +352,12 @@ async def cube_materialization_info(
 async def get_cube_dimension_sql(
     name: str,
     *,
-    dimensions: List[str] = Query([], description="Dimensions to get values for"),
-    filters: Optional[str] = Query(
+    dimensions: list[str] = Query([], description="Dimensions to get values for"),
+    filters: str | None = Query(
         None,
         description="Filters on dimensional attributes",
     ),
-    limit: Optional[int] = Query(
+    limit: int | None = Query(
         None,
         description="Number of rows to limit the data retrieved to",
     ),
@@ -334,12 +390,12 @@ async def get_cube_dimension_sql(
 async def get_cube_dimension_values(
     name: str,
     *,
-    dimensions: List[str] = Query([], description="Dimensions to get values for"),
-    filters: Optional[str] = Query(
+    dimensions: list[str] = Query([], description="Dimensions to get values for"),
+    filters: str | None = Query(
         None,
         description="Filters on dimensional attributes",
     ),
-    limit: Optional[int] = Query(
+    limit: int | None = Query(
         None,
         description="Number of rows to limit the data retrieved to",
     ),
@@ -421,6 +477,7 @@ async def materialize_cube(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> CubeMaterializeResponse:
     """
     Create a Druid cube materialization workflow.
@@ -447,6 +504,8 @@ async def materialize_cube(
     Returns:
         CubeMaterializeResponse with pre-agg dependencies, combined SQL, and Druid spec.
     """
+    access_checker.add_request_by_node_name(name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
     # Get the cube
     node = await Node.get_cube_by_name(session, name)
     if not node:
@@ -542,16 +601,14 @@ async def materialize_cube(
     # value when the cube hasn't declared one.
     if cube_tps:
         cube_tp = cube_tps[0]
-        cube_partition_ref = cube_tp.name
-        # Look up the actual output column name by semantic identity
-        output_col = next(
-            (
-                c
-                for c in combined_result.columns
-                if c.semantic_name
-                and strip_role_suffix(c.semantic_name) == cube_partition_ref
-            ),
-            None,
+        cube_partition_ref = cube_tp.cube_element_name
+        # Look up the actual output column name by semantic identity. A bare
+        # partition may use a role-qualified output only when that fallback is
+        # unique; otherwise selecting the first match would be order-dependent.
+        output_col = _resolve_cube_partition_output_column(
+            combined_result.columns,
+            cube_partition_ref,
+            allow_role_fallback=not bool(cube_tp.dimension_column),
         )
         if output_col is None:
             output_names = sorted(c.name for c in combined_result.columns)
@@ -706,7 +763,7 @@ async def materialize_cube(
     )
 
     # Persist materialization record on the cube's node revision
-    materialization_name = "druid_cube_v3"
+    materialization_name = DRUID_CUBE_V3_MATERIALIZATION_NAME
     existing_mats = await Materialization.get_by_names(
         session,
         cube_revision.id,
@@ -786,6 +843,7 @@ async def materialize_cube(
         metric_combiners=combined_result.metric_combiners,
         workflow_urls=workflow_urls,
         message=message,
+        warnings=combined_result.warnings,
     )
 
 
@@ -800,6 +858,7 @@ async def deactivate_cube_materialization(
     current_user: User = Depends(get_current_user),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     request: Request,
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> JSONResponse:
     """
     Deactivate (remove) the Druid cube materialization for this cube.
@@ -808,6 +867,8 @@ async def deactivate_cube_materialization(
     1. Remove the materialization record from the cube
     2. Optionally deactivate the workflow in the query service (if supported)
     """
+    access_checker.add_request_by_node_name(name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
     node = await Node.get_cube_by_name(session, name)
     if not node:
         raise DJInvalidInputException(
@@ -818,7 +879,7 @@ async def deactivate_cube_materialization(
     cube_revision = node.current
 
     # Find and delete the druid_cube_v3 materialization
-    materialization_name = "druid_cube_v3"
+    materialization_name = DRUID_CUBE_V3_MATERIALIZATION_NAME
     existing_mats = await Materialization.get_by_names(
         session,
         cube_revision.id,
@@ -833,48 +894,14 @@ async def deactivate_cube_materialization(
 
     mat = existing_mats[0]
 
-    # Extract stored workflow names from the materialization config
-    mat_config = mat.config if isinstance(mat.config, dict) else {}
-    workflow_names = mat_config.get("workflow_names", [])
-
-    # Deactivate workflows in the query service using stored names
-    request_headers = dict(request.headers)
-    if workflow_names:
-        try:
-            query_service_client.deactivate_workflows(
-                workflow_names=workflow_names,
-                request_headers=request_headers,
-            )
-            _logger.info(
-                "Deactivated workflows for cube=%s: %s",
-                name,
-                workflow_names,
-            )
-        except Exception as e:  # pragma: no cover
-            _logger.warning(
-                "Failed to deactivate workflows for cube=%s: %s (continuing with deletion)",
-                name,
-                str(e),
-            )
-    else:
-        # Fallback to old endpoint for backwards compatibility
-        try:
-            query_service_client.deactivate_cube_workflow(
-                name,
-                version=cube_revision.version,
-                request_headers=request_headers,
-            )
-            _logger.info(
-                "Deactivated workflow for cube=%s version=%s (legacy)",
-                name,
-                cube_revision.version,
-            )
-        except Exception as e:
-            _logger.warning(
-                "Failed to deactivate workflow for cube=%s: %s (continuing with deletion)",
-                name,
-                str(e),
-            )
+    # Deactivate workflows in the query service
+    stop_cube_materialization_workflows(
+        query_service_client=query_service_client,
+        cube_name=name,
+        cube_version=cube_revision.version,
+        materializations=[mat],
+        request_headers=dict(request.headers),
+    )
 
     # Delete the materialization record
     await session.delete(mat)
@@ -902,6 +929,7 @@ async def run_cube_backfill(
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> BackfillResponse:
     """
     Run a backfill for the cube over the specified date range.
@@ -913,6 +941,9 @@ async def run_cube_backfill(
     Prerequisites:
     - Cube materialization must be scheduled (via POST /cubes/{name}/materialize)
     """
+    access_checker.add_request_by_node_name(name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     from datetime import date as date_type
 
     # Verify the cube exists
@@ -925,7 +956,7 @@ async def run_cube_backfill(
 
     # Verify cube has a materialization
     cube_revision = node.current
-    materialization_name = "druid_cube_v3"
+    materialization_name = DRUID_CUBE_V3_MATERIALIZATION_NAME
     existing_mats = await Materialization.get_by_names(
         session,
         cube_revision.id,

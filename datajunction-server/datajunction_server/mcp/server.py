@@ -7,7 +7,7 @@ Exposes DJ semantic layer to AI agents.
 
 import logging
 
-import mcp.types as types
+from mcp import types
 from mcp.server import Server
 
 from datajunction_server.mcp import tools
@@ -522,8 +522,8 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
         return [types.TextContent(type="text", text=result)]
 
     except Exception as e:
-        logger.error(f"Error executing tool {name}: {str(e)}", exc_info=True)
-        error_msg = f"Error executing {name}: {str(e)}"
+        logger.error(f"Error executing tool {name}: {e!s}", exc_info=True)
+        error_msg = f"Error executing {name}: {e!s}"
         return [types.TextContent(type="text", text=error_msg)]
 
 

@@ -7,14 +7,13 @@ tests pin down each branch with full-equality assertions so any change
 to the formatting shape is intentional and visible in the diff.
 """
 
-from typing import Any, Dict, List
+from typing import Any
 
 from datajunction_server.mcp.formatters import (
     format_dimensions_compatibility,
     format_node_details,
     format_nodes_list,
 )
-
 
 # ---------------------------------------------------------------------------
 # format_nodes_list
@@ -207,7 +206,7 @@ def test_format_node_details_with_query_definition() -> None:
 
 def test_format_node_details_with_dimensions_arg() -> None:
     node = {"name": "n.foo", "type": "metric"}
-    dimensions: List[Dict[str, Any]] = [
+    dimensions: list[dict[str, Any]] = [
         {"name": "d.country", "type": "string"},
         {
             "name": "d.region",
@@ -344,7 +343,7 @@ def test_format_node_details_dimension_with_dimension_node_no_description() -> N
     current revision skips the Description line — covers the false branch
     of the inner ``if dn.get("current", {}).get("description")`` check."""
     node = {"name": "n.foo", "type": "metric"}
-    dimensions: List[Dict[str, Any]] = [
+    dimensions: list[dict[str, Any]] = [
         {"name": "d.country", "dimensionNode": {"current": {}}},
     ]
     expected = (
@@ -375,7 +374,7 @@ def test_format_node_details_dimension_without_dimension_node() -> None:
     """A dimension without a ``dimensionNode`` skips the description line —
     covers the ``if dim.get("dimensionNode")`` False branch in the loop."""
     node = {"name": "n.foo", "type": "metric"}
-    dimensions: List[Dict[str, Any]] = [{"name": "d.country"}]
+    dimensions: list[dict[str, Any]] = [{"name": "d.country"}]
     expected = (
         "Node: n.foo\n"
         "Type: metric\n" + "=" * 60 + "\n"
@@ -389,7 +388,7 @@ def test_format_node_details_dimension_without_dimension_node() -> None:
 def test_format_dimensions_compatibility_dim_without_dimension_node() -> None:
     """A common dimension without a ``dimensionNode`` is rendered with
     just its name — no Description: line."""
-    dims: List[Dict[str, Any]] = [{"name": "d.country"}]
+    dims: list[dict[str, Any]] = [{"name": "d.country"}]
     expected = (
         "Dimension Compatibility Analysis\n"
         "Metrics: m1\n" + "=" * 60 + "\n"
@@ -410,7 +409,7 @@ def test_format_dimensions_compatibility_dim_with_dimension_node_no_description(
     """A dimension with a ``dimensionNode`` but no description still
     renders just the name. Covers the inner ``if current.get("description")``
     False branch."""
-    dims: List[Dict[str, Any]] = [
+    dims: list[dict[str, Any]] = [
         {"name": "d.country", "dimensionNode": {"current": {}}},
     ]
     expected = (
@@ -428,7 +427,7 @@ def test_format_dimensions_compatibility_dim_with_dimension_node_no_description(
 
 
 def test_format_dimensions_compatibility_with_dims() -> None:
-    dims: List[Dict[str, Any]] = [
+    dims: list[dict[str, Any]] = [
         {"name": "d.date", "dimensionNode": {"current": {"description": "calendar"}}},
         {"name": "d.country"},
     ]

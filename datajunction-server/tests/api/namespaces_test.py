@@ -2,14 +2,20 @@
 Tests for the namespaces API.
 """
 
+import asyncio
 from http import HTTPStatus
 from unittest import mock
 
-import asyncio
-from unittest import mock
-
 import pytest
+from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.api.namespaces import provision_node_namespace
+from datajunction_server.database.namespace import NodeNamespace
+from datajunction_server.database.user import OAuthProvider, PrincipalKind, User
+from datajunction_server.internal.access.authorization import (
+    AuthorizationService,
+)
 from datajunction_server.internal.namespaces import (
     _merge_columns_preserving_comments,
     _merge_list_with_key,
@@ -17,6 +23,8 @@ from datajunction_server.internal.namespaces import (
     _node_spec_to_yaml_dict,
     node_spec_to_yaml,
 )
+from datajunction_server.models import access
+from datajunction_server.models.access import ResourceAction, ResourceType
 from datajunction_server.models.deployment import (
     BulkNamespaceSourcesRequest,
     BulkNamespaceSourcesResponse,
@@ -28,22 +36,14 @@ from datajunction_server.models.deployment import (
     GitDeploymentSource,
     LocalDeploymentSource,
     NamespaceSourcesResponse,
+    PartitionSpec,
     SourceSpec,
     TransformSpec,
-    PartitionSpec,
 )
-from datajunction_server.models.partition import PartitionType, Granularity
-
-import pytest
-from httpx import AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from datajunction_server.database.namespace import NodeNamespace
-from datajunction_server.internal.access.authorization import (
-    AuthorizationService,
-)
-from datajunction_server.models import access
+from datajunction_server.models.namespace import NamespaceProvisionRequest
+from datajunction_server.models.partition import Granularity, PartitionType
 from datajunction_server.utils import get_query_service_client
+from tests.authz import VALIDATOR_AUTH_SERVICE, scoped
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -57,6 +57,43 @@ def patch_effective_writer_concurrency():
         return_value=1,
     ):
         yield
+
+
+async def test_provision_namespace_boundary(
+    session: AsyncSession,
+    current_user: User,
+    mocker,
+):
+    owner_group = User(
+        username="api-namespace-owners",
+        password=None,
+        email=None,
+        name="API namespace owners",
+        oauth_provider=OAuthProvider.BASIC,
+        kind=PrincipalKind.GROUP,
+    )
+    session.add(owner_group)
+    await session.commit()
+    access_checker = mocker.MagicMock()
+    access_checker.check = mocker.AsyncMock()
+
+    result = await provision_node_namespace(
+        "api_governed",
+        NamespaceProvisionRequest(owner_group=owner_group.username),
+        session=session,
+        current_user=current_user,
+        access_checker=access_checker,
+    )
+
+    assert result.namespace == "api_governed"
+    assert result.owner_role == "namespace:api_governed:owners"
+    assert result.deployer_role is None
+    assert access_checker.add_scope.call_args_list == [
+        mocker.call(ResourceType.NAMESPACE, "api_governed", ResourceAction.MANAGE),
+        mocker.call(ResourceType.NAMESPACE, "api_governed.*", ResourceAction.MANAGE),
+        mocker.call(ResourceType.NODE, "api_governed.*", ResourceAction.MANAGE),
+    ]
+    access_checker.check.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -657,8 +694,8 @@ async def test_hard_delete_namespace_with_backfills(
     should succeed without a foreign key violation (regression test).
     """
     client = await client_example_loader(["ROADS"])
-    client.app.dependency_overrides[get_query_service_client] = (
-        lambda: query_service_client
+    client.app.dependency_overrides[get_query_service_client] = lambda: (
+        query_service_client
     )
 
     # Add a temporal partition to hard_hat so we can add a materialization
@@ -698,6 +735,162 @@ async def test_hard_delete_namespace_with_backfills(
         response.json()["message"]
         == "The namespace `default` has been completely removed."
     )
+
+
+async def _create_materialized_cube(client: AsyncClient, cube_name: str) -> str:
+    """
+    Create a cube with a Druid materialization, returning its materialization name.
+    """
+    response = await client.post(
+        "/nodes/default.repair_orders_fact/columns/order_date/attributes/",
+        json=[{"name": "dimension"}],
+    )
+    assert response.status_code in (200, 201), response.json()
+    response = await client.post(
+        "/nodes/cube/",
+        json={
+            "metrics": ["default.num_repair_orders", "default.total_repair_cost"],
+            "dimensions": [
+                "default.repair_orders_fact.order_date",
+                "default.hard_hat.state",
+            ],
+            "description": "Cube of various metrics related to repairs",
+            "mode": "published",
+            "name": cube_name,
+        },
+    )
+    assert response.status_code == 201, response.json()
+    response = await client.post(
+        f"/nodes/{cube_name}/columns/default.repair_orders_fact.order_date/partition",
+        json={"type_": "temporal", "granularity": "day", "format": "yyyyMMdd"},
+    )
+    assert response.status_code in (200, 201), response.json()
+    response = await client.post(
+        f"/nodes/{cube_name}/materialization/",
+        json={"job": "druid_measures_cube", "strategy": "full", "schedule": "@daily"},
+    )
+    assert response.status_code in (200, 201), response.json()
+    return "druid_measures_cube__full__default.repair_orders_fact.order_date"
+
+
+@pytest.mark.asyncio
+async def test_hard_delete_namespace_stops_materialization_workflows(
+    client_example_loader,
+    query_service_client,
+    mocker,
+):
+    """
+    Cascade-deleting a namespace must stop the workflows behind every
+    materialization it takes with it.
+
+    This is the leak that matters most in practice: a branch-namespace reaper
+    hard-deletes namespaces after PRs merge, so every branch deploy that
+    materialized used to leave a daily-firing workflow behind.
+    """
+    client = await client_example_loader(["ROADS"])
+    client.app.dependency_overrides[get_query_service_client] = lambda: (
+        query_service_client
+    )
+    await _create_materialized_cube(client, "default.first_reaped_cube")
+    await _create_materialized_cube(client, "default.second_reaped_cube")
+
+    # A materialized dimension node, whose workflows are named by the node and
+    # materialization name rather than by a cube config
+    response = await client.post(
+        "/nodes/default.hard_hat/columns/birth_date/partition",
+        json={"type_": "temporal", "granularity": "day", "format": "yyyyMMdd"},
+    )
+    assert response.status_code < 400, response.json()
+    response = await client.post(
+        "/nodes/default.hard_hat/materialization/",
+        json={
+            "job": "spark_sql",
+            "strategy": "full",
+            "config": {},
+            "schedule": "@daily",
+        },
+    )
+    assert response.status_code < 400, response.json()
+
+    deactivate_cube_workflow = mocker.patch.object(
+        query_service_client,
+        "deactivate_cube_workflow",
+        return_value={"status": "deactivated"},
+    )
+    deactivate_workflows = mocker.patch.object(
+        query_service_client,
+        "deactivate_workflows",
+        return_value={"status": "deactivated"},
+    )
+    deactivate_materialization = mocker.patch.object(
+        query_service_client,
+        "deactivate_materialization",
+    )
+
+    response = await client.delete("/namespaces/default/hard/?cascade=true")
+    assert response.status_code == 200, response.json()
+    assert response.json()["impact"]["materialization_failures"] == []
+    assert deactivate_cube_workflow.call_args_list == [
+        mocker.call(
+            "default.first_reaped_cube",
+            version="v1.0",
+            request_headers=mocker.ANY,
+        ),
+        mocker.call(
+            "default.second_reaped_cube",
+            version="v1.0",
+            request_headers=mocker.ANY,
+        ),
+    ]
+    assert deactivate_workflows.call_args_list == []
+    assert deactivate_materialization.call_args_list == [
+        mocker.call(
+            "default.hard_hat",
+            "spark_sql__full__birth_date",
+            node_version="v1.1",
+            request_headers=mocker.ANY,
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_hard_delete_namespace_completes_when_query_service_fails(
+    client_example_loader,
+    query_service_client,
+    mocker,
+):
+    """
+    An unreachable query service must not block a namespace deletion, but the
+    failure is reported rather than swallowed into a log line.
+    """
+    client = await client_example_loader(["ROADS"])
+    client.app.dependency_overrides[get_query_service_client] = lambda: (
+        query_service_client
+    )
+    materialization_name = await _create_materialized_cube(
+        client,
+        "default.unstoppable_cube",
+    )
+    mocker.patch.object(
+        query_service_client,
+        "deactivate_cube_workflow",
+        side_effect=Exception("query service unreachable"),
+    )
+
+    response = await client.delete("/namespaces/default/hard/?cascade=true")
+    assert response.status_code == 200, response.json()
+    result = response.json()
+    assert result["message"] == "The namespace `default` has been completely removed."
+    assert result["impact"]["materialization_failures"] == [
+        "Cube `default.unstoppable_cube`: DJ retired the materialization "
+        f"`{materialization_name}` at version v1.0, but the query service did not "
+        "stop its workflow: query service unreachable. The workflow may still be "
+        "running.",
+    ]
+
+    # The namespace really is gone
+    response = await client.get("/namespaces/default/")
+    assert response.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -832,7 +1025,7 @@ async def test_export_namespaces(client_with_roads: AsyncClient):
             },
         ],
         "description": "An example cube so that the export path is tested",
-        "dimensions": ["default.hard_hat.hire_date", "default.hard_hat.city"],
+        "dimensions": ["default.hard_hat.city", "default.hard_hat.hire_date"],
         "directory": "",
         "display_name": "Example Cube",
         "filename": "example_cube.cube.yaml",
@@ -1054,12 +1247,14 @@ async def test_export_namespaces_deployment(client_with_roads: AsyncClient):
             "join_on": "${prefix}repair_orders_fact.municipality_id = "
             "${prefix}municipality_dim.municipality_id",
             "join_type": "inner",
+            "join_cardinality": "many_to_one",
             "type": "join",
         },
         {
             "dimension_node": "${prefix}hard_hat",
             "join_on": "${prefix}repair_orders_fact.hard_hat_id = ${prefix}hard_hat.hard_hat_id",
             "join_type": "inner",
+            "join_cardinality": "many_to_one",
             "type": "join",
         },
         {
@@ -1067,12 +1262,14 @@ async def test_export_namespaces_deployment(client_with_roads: AsyncClient):
             "join_on": "${prefix}repair_orders_fact.hard_hat_id = "
             "${prefix}hard_hat_to_delete.hard_hat_id",
             "join_type": "left",
+            "join_cardinality": "many_to_one",
             "type": "join",
         },
         {
             "dimension_node": "${prefix}dispatcher",
             "join_on": "${prefix}repair_orders_fact.dispatcher_id = ${prefix}dispatcher.dispatcher_id",
             "join_type": "inner",
+            "join_cardinality": "many_to_one",
             "type": "join",
         },
     ]
@@ -1673,8 +1870,8 @@ class TestExportYaml:
     @pytest.mark.asyncio
     async def test_export_yaml_returns_zip(self, client_with_roads):
         """Test that export/yaml returns a valid ZIP file"""
-        import zipfile
         import io
+        import zipfile
 
         response = await client_with_roads.post("/namespaces/default/export/yaml")
         assert response.status_code == 200
@@ -1709,8 +1906,9 @@ class TestExportYaml:
     @pytest.mark.asyncio
     async def test_export_yaml_node_files_structure(self, client_with_roads):
         """Test that exported node files have correct structure"""
-        import zipfile
         import io
+        import zipfile
+
         import yaml
 
         response = await client_with_roads.post("/namespaces/default/export/yaml")
@@ -1823,7 +2021,8 @@ class TestExportYaml:
         """When no existing_zip is uploaded but the namespace has github+branch
         configured, the server fetches existing YAML from the git branch.
         Covers line 556 — the `fetch_existing_yaml_map` call."""
-        from unittest.mock import AsyncMock, patch as mock_patch
+        from unittest.mock import AsyncMock
+        from unittest.mock import patch as mock_patch
 
         # Ensure the namespace is git-configured (idempotent if already set)
         await client_with_roads.patch(
@@ -3014,28 +3213,36 @@ async def test_validate_git_path_allows_valid_relative_paths(
 
 
 @pytest.mark.asyncio
-async def test_validate_git_only_blocked_without_git_config(
+async def test_git_only_allowed_on_flat_namespace(
     module__client_with_all_examples: AsyncClient,
 ) -> None:
-    """Test that git_only=true is blocked when not a branch namespace."""
+    """git_only is a per-namespace lock, valid on a flat namespace with no
+    parent_namespace/git_branch (i.e. not following the <ns>.<branch> pattern)."""
     await module__client_with_all_examples.post("/namespaces/gitonly.test1/")
 
-    # Try to enable git_only without parent_namespace and git_branch
-    git_config = {
-        "git_only": True,
-        # Missing parent_namespace and git_branch (required for branch namespace)
-    }
+    # Enable git_only without parent_namespace or git_branch — previously
+    # rejected, now allowed on any namespace.
     response = await module__client_with_all_examples.patch(
         "/namespaces/gitonly.test1/git",
-        json=git_config,
+        json={"git_only": True},
     )
-    assert response.status_code == 422
-    assert response.json()["message"] == (
-        "git_only is only applicable to branch namespaces that have "
-        "parent_namespace and git_branch configured. "
-        "Git root namespaces are automatically locked when "
-        "github_repo_path is set."
+    assert response.status_code == 200
+    assert response.json()["git_only"] is True
+
+    # It persists on the namespace's git config.
+    fetched = await module__client_with_all_examples.get(
+        "/namespaces/gitonly.test1/git",
     )
+    assert fetched.status_code == 200
+    assert fetched.json()["git_only"] is True
+
+    # The lock can be toggled back off (the escape hatch).
+    reopened = await module__client_with_all_examples.patch(
+        "/namespaces/gitonly.test1/git",
+        json={"git_only": False},
+    )
+    assert reopened.status_code == 200
+    assert reopened.json()["git_only"] is False
 
 
 @pytest.mark.asyncio
@@ -3484,6 +3691,54 @@ async def test_hard_delete_git_default_branch_namespace_blocked(
 
 
 @pytest.mark.asyncio
+async def test_delete_default_branch_owning_repo_blocked(
+    module__client_with_all_examples: AsyncClient,
+) -> None:
+    """
+    A branch namespace that carries its own ``github_repo_path`` -- the shape
+    branch creation writes -- still resolves its repo's default branch from the
+    git root, so both deletes are refused.
+    """
+    root = "ownrepo.root"
+    branch_ns = "ownrepo.root.main"
+
+    await module__client_with_all_examples.post(f"/namespaces/{root}/")
+    await module__client_with_all_examples.post(f"/namespaces/{branch_ns}/")
+    await module__client_with_all_examples.patch(
+        f"/namespaces/{root}/git",
+        json={"github_repo_path": "corp/ownrepo", "default_branch": "main"},
+    )
+
+    # Branch creation copies the repo path onto the branch namespace.
+    await module__client_with_all_examples.patch(
+        f"/namespaces/{branch_ns}/git",
+        json={"github_repo_path": "corp/ownrepo"},
+    )
+    await module__client_with_all_examples.patch(
+        f"/namespaces/{branch_ns}/git",
+        json={"parent_namespace": root, "git_branch": "main"},
+    )
+
+    refusal = (
+        f"Cannot delete namespace `{branch_ns}`: it is the default branch "
+        "of a git-backed namespace (corp/ownrepo). "
+        "Only non-default branch namespaces can be deleted."
+    )
+
+    response = await module__client_with_all_examples.delete(
+        f"/namespaces/{branch_ns}/",
+    )
+    assert response.status_code == 422
+    assert response.json()["message"] == refusal
+
+    response = await module__client_with_all_examples.delete(
+        f"/namespaces/{branch_ns}/hard/",
+    )
+    assert response.status_code == 422
+    assert response.json()["message"] == refusal
+
+
+@pytest.mark.asyncio
 async def test_delete_non_default_git_branch_namespace_allowed(
     module__client_with_all_examples: AsyncClient,
 ) -> None:
@@ -3566,3 +3821,55 @@ async def test_hard_delete_namespace_with_sibling_parent_ref(
     )
     assert config_response.status_code == 200
     assert config_response.json()["parent_namespace"] is None
+
+
+async def test_create_namespace_under_wildcard_scope(client_with_roads, mocker):
+    """
+    A grant scoped to ``finance.*`` must allow creating namespaces beneath it.
+
+    Authorization targets the namespace being created, not its parent: ``finance.*``
+    does not match ``finance``, so checking the parent would reject a caller whose
+    grant only covers what is under it. include_parents skips ancestors that already
+    exist, for the same reason.
+    """
+    await client_with_roads.post("/namespaces/finance/")
+    mocker.patch(
+        VALIDATOR_AUTH_SERVICE,
+        scoped(ResourceAction.WRITE, "finance.*"),
+    )
+
+    created = await client_with_roads.post("/namespaces/finance.sub/")
+    assert created.status_code == 201, created.text
+
+    # `finance` already exists, so it is not created and not authorized against.
+    nested = await client_with_roads.post(
+        "/namespaces/finance.a.b/?include_parents=true",
+    )
+    assert nested.status_code == 201, nested.text
+
+    # A namespace outside the scope stays denied.
+    denied = await client_with_roads.post("/namespaces/marketing.sub/")
+    assert denied.status_code == 403, denied.text
+
+
+async def test_reactivating_namespace_requires_write_on_it(client_with_roads, mocker):
+    """
+    Reactivation is governed by the namespace being reactivated.
+
+    An orphaned namespace (created without its parent, then deactivated) can be
+    reactivated by a create request with include_parents. The missing ancestor is
+    not a substitute for WRITE on the namespace itself.
+    """
+    assert (await client_with_roads.post("/namespaces/orphan.leaf/")).status_code == 201
+    assert (
+        await client_with_roads.delete("/namespaces/orphan.leaf/")
+    ).status_code == 200
+
+    # Granted WRITE on the missing ancestor only, not on the leaf.
+    mocker.patch(VALIDATOR_AUTH_SERVICE, scoped(ResourceAction.WRITE, "orphan"))
+    response = await client_with_roads.post(
+        "/namespaces/orphan.leaf/?include_parents=true",
+    )
+
+    assert response.status_code == 403, response.text
+    assert "orphan.leaf" in response.json()["message"]

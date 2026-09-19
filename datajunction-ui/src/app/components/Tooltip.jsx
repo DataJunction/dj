@@ -46,6 +46,8 @@ export default function Tooltip({
             width: 'max-content',
             textAlign: 'center',
             whiteSpace: 'normal',
+            textTransform: 'none',
+            letterSpacing: 'normal',
             zIndex: 2000,
             pointerEvents: 'none',
           }}

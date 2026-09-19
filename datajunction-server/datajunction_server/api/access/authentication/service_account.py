@@ -2,21 +2,21 @@
 Service Account related API endpoints
 """
 
-from datetime import timedelta
 import logging
 import secrets
 import uuid
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.user import OAuthProvider, PrincipalKind, User
 from datajunction_server.errors import DJAuthenticationException, DJError, ErrorCode
-from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authentication.basic import (
     get_password_hash,
     validate_password_hash,
 )
+from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authentication.tokens import create_token
 from datajunction_server.models.service_account import (
     ServiceAccountCreate,

@@ -6,8 +6,8 @@ Part 2: DAG Depth — topological resolution chain simulating deployment propaga
 """
 
 from datajunction_server.internal.deployment.type_inference import (
-    validate_node_query,
     columns_signature_changed,
+    validate_node_query,
 )
 from datajunction_server.sql.parsing.types import (
     BigIntType,
@@ -19,7 +19,6 @@ from datajunction_server.sql.parsing.types import (
     StringType,
     TimestampType,
 )
-
 
 # =====================================================================
 # Shared source tables for SQL complexity tests

@@ -2,10 +2,10 @@
 Model for history.
 """
 
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any
 
-from pydantic.main import BaseModel
 from pydantic import ConfigDict
+from pydantic.main import BaseModel
 
 from datajunction_server.database.history import History
 from datajunction_server.internal.history import ActivityType, EntityType
@@ -23,14 +23,14 @@ class HistoryOutput(BaseModel):
     """
 
     id: int
-    entity_type: Optional[EntityType]
-    entity_name: Optional[str]
-    node: Optional[str]
-    activity_type: Optional[ActivityType]
-    user: Optional[str]
-    pre: Dict[str, Any]
-    post: Dict[str, Any]
-    details: Dict[str, Any]
+    entity_type: EntityType | None
+    entity_name: str | None
+    node: str | None
+    activity_type: ActivityType | None
+    user: str | None
+    pre: dict[str, Any]
+    post: dict[str, Any]
+    details: dict[str, Any]
     created_at: UTCDatetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -41,7 +41,7 @@ def status_change_history(
     start_status: "NodeStatus",
     end_status: "NodeStatus",
     current_user: "User",
-    parent_node: str = None,
+    parent_node: str | None = None,
 ) -> History:
     """
     Returns a status change history activity entry

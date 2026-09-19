@@ -80,11 +80,11 @@ class TestSetOperationTransforms:
             """
             WITH
             v3_orders_unified AS (
-              SELECT order_id, customer_id, order_date, status
+              SELECT order_id, status
               FROM default.v3.orders
               WHERE status = 'completed'
               UNION ALL
-              SELECT order_id, customer_id, order_date, status
+              SELECT order_id, status
               FROM default.v3.orders
               WHERE status = 'shipped'
             ),
@@ -129,11 +129,11 @@ class TestSetOperationTransforms:
             """
             WITH
             v3_orders_unified AS (
-              SELECT order_id, customer_id, order_date, status
+              SELECT order_id, status
               FROM default.v3.orders
               WHERE status = 'completed' AND status = 'completed'
               UNION ALL
-              SELECT order_id, customer_id, order_date, status
+              SELECT order_id, status
               FROM default.v3.orders
               WHERE status = 'shipped'
             ),

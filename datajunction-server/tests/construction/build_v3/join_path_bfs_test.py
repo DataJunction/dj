@@ -10,6 +10,7 @@ These tests cover:
 import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
+
 from datajunction_server.construction.build_v3.loaders import (
     find_join_paths_batch,
     load_dimension_links_batch,

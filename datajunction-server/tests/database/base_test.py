@@ -1,7 +1,5 @@
 """Tests for database base utilities."""
 
-from typing import Optional
-
 from pydantic import BaseModel
 
 from datajunction_server.database.base import PydanticListType
@@ -12,7 +10,7 @@ class SampleModel(BaseModel):
 
     name: str
     value: int
-    optional_field: Optional[str] = None
+    optional_field: str | None = None
 
 
 class TestPydanticListType:

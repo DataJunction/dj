@@ -13,14 +13,21 @@ Materialization optimization hierarchy:
 3. Compute from source tables (fallback)
 """
 
+from datajunction_server.construction.build_v3.alias_registry import AliasRegistry
 from datajunction_server.construction.build_v3.builder import (
     build_measures_sql,
     build_metrics_sql,
+)
+from datajunction_server.construction.build_v3.combiners import (
+    CombinedGrainGroupResult,
+    build_combiner_sql,
+    validate_grain_groups_compatible,
 )
 from datajunction_server.construction.build_v3.cube_matcher import (
     build_sql_from_cube,
     find_matching_cube,
     resolve_dialect_and_engine_for_metrics,
+    validate_pinned_cube_covers_filters,
 )
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
@@ -29,12 +36,6 @@ from datajunction_server.construction.build_v3.types import (
     GeneratedSQL,
     GrainGroupSQL,
     ResolvedExecutionContext,
-)
-from datajunction_server.construction.build_v3.alias_registry import AliasRegistry
-from datajunction_server.construction.build_v3.combiners import (
-    build_combiner_sql,
-    CombinedGrainGroupResult,
-    validate_grain_groups_compatible,
 )
 
 __all__ = [
@@ -45,6 +46,7 @@ __all__ = [
     "find_matching_cube",
     "build_sql_from_cube",
     "resolve_dialect_and_engine_for_metrics",
+    "validate_pinned_cube_covers_filters",
     # Combiners
     "build_combiner_sql",
     "CombinedGrainGroupResult",

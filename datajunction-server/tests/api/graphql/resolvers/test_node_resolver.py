@@ -1,8 +1,9 @@
 """Tests for the Node and NodeRevision resolvers."""
 
-import pytest
 from unittest import mock
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 def test_columns_resolver_filters_by_attribute():
@@ -10,15 +11,16 @@ def test_columns_resolver_filters_by_attribute():
     Test that the columns resolver filters columns by attribute
     """
     mock_column = mock.MagicMock()
+    import datajunction_server.sql.parsing.types as ct
     from datajunction_server.api.graphql.scalars.node import NodeRevision
     from datajunction_server.database import (
-        NodeRevision as DBNodeRevision,
-        ColumnAttribute,
         AttributeType,
+        ColumnAttribute,
+    )
+    from datajunction_server.database import (
+        NodeRevision as DBNodeRevision,
     )
     from datajunction_server.database.column import Column
-
-    import datajunction_server.sql.parsing.types as ct
     from datajunction_server.models.node_type import NodeType
 
     primary_key_attribute = AttributeType(namespace="system", name="primary_key")

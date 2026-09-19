@@ -2,8 +2,6 @@
 Module related to all things notifications
 """
 
-from typing import List
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -16,7 +14,7 @@ async def get_entity_notification_preferences(
     session: AsyncSession,
     entity_name: str,
     entity_type: EntityType,
-) -> List[NotificationPreference]:
+) -> list[NotificationPreference]:
     """
     Get all user preferences for a specific notification preference
     """

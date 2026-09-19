@@ -1,8 +1,278 @@
 import pytest
+
 from . import assert_sql_equal
 
 
 class TestMetricsSQLBasic:
+    @pytest.mark.asyncio
+    async def test_dimension_only_query_requires_dimensions(self, client_with_build_v3):
+        response = await client_with_build_v3.get("/sql/dimensions/v3/")
+
+        assert response.status_code == 422
+        assert "at least one dimension" in response.json()["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_dimension_only_query(self, client_with_build_v3):
+        """Attributes from one dimension produce their distinct combinations."""
+        response = await client_with_build_v3.get(
+            "/sql/dimensions/v3/",
+            params={
+                "dimensions": ["v3.customer.name", "v3.customer.email"],
+                "filters": ["v3.customer.name != 'Unknown'"],
+                "orderby": ["v3.customer.name"],
+                "limit": 10,
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()
+        assert_sql_equal(
+            result["sql"],
+            """
+            WITH v3_customer AS (
+                SELECT customer_id, name, email, registration_date, location_id
+                FROM default.v3.customers
+            )
+            SELECT DISTINCT name, email
+            FROM v3_customer
+            WHERE name != 'Unknown'
+            ORDER BY name
+            LIMIT 10
+            """,
+        )
+        assert result["columns"] == [
+            {
+                "name": "name",
+                "type": "string",
+                "semantic_entity": "v3.customer.name",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "email",
+                "type": "string",
+                "semantic_entity": "v3.customer.email",
+                "semantic_type": "dimension",
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_cube_scoped_dimension_query(self, client_with_build_v3):
+        """Cube metrics scope values; cube and request filters combine."""
+        create = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.filtered_revenue_cube",
+                "metrics": ["v3.total_revenue"],
+                "dimensions": [
+                    "v3.product.category",
+                    "v3.product.subcategory",
+                ],
+                "filters": ["v3.product.category = 'Electronics'"],
+                "mode": "published",
+                "description": "Filtered cube for dimension value SQL",
+            },
+        )
+        assert create.status_code == 201, create.json()
+
+        response = await client_with_build_v3.get(
+            "/sql/dimensions/v3/",
+            params={
+                "dimensions": ["v3.product.category"],
+                "filters": ["v3.product.subcategory = 'Smartphones'"],
+                "cube": "v3.filtered_revenue_cube",
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            SELECT DISTINCT dimension_values.category
+            FROM (
+              WITH v3_order_details AS (
+                SELECT oi.product_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+              ),
+              v3_product AS (
+                SELECT product_id, category, subcategory
+                FROM default.v3.products
+                WHERE category = 'Electronics' AND subcategory = 'Smartphones'
+              ),
+              order_details_0 AS (
+                SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                WHERE t2.category = 'Electronics'
+                  AND t2.subcategory = 'Smartphones'
+                GROUP BY t2.category
+              )
+              SELECT order_details_0.category AS category,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+              FROM order_details_0
+              WHERE order_details_0.category = 'Electronics'
+              GROUP BY order_details_0.category
+            ) AS dimension_values
+            """,
+        )
+        assert [column["semantic_entity"] for column in response.json()["columns"]] == [
+            "v3.product.category",
+        ]
+
+        availability = await client_with_build_v3.post(
+            "/data/v3.filtered_revenue_cube/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "filtered_revenue_cube",
+                "valid_through_ts": 1010129120,
+            },
+        )
+        assert availability.status_code in (200, 201), availability.json()
+
+        materialized = await client_with_build_v3.get(
+            "/sql/dimensions/v3/",
+            params={
+                "dimensions": ["v3.product.category"],
+                "cube": "v3.filtered_revenue_cube",
+                "dialect": "druid",
+            },
+        )
+        assert materialized.status_code == 200, materialized.json()
+        assert "filtered_revenue_cube" in materialized.json()["sql"]
+        assert "default.v3.products" not in materialized.json()["sql"]
+
+        response = await client_with_build_v3.get(
+            "/sql/dimensions/v3/",
+            params={
+                "dimensions": ["v3.customer.name[customer]"],
+                "cube": "v3.filtered_revenue_cube",
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert "v3_customer" in response.json()["sql"]
+        assert "category = 'Electronics'" in response.json()["sql"]
+        assert "filtered_revenue_cube" not in response.json()["sql"]
+
+    @pytest.mark.asyncio
+    async def test_dimension_only_query_rejects_multiple_nodes(
+        self,
+        client_with_build_v3,
+    ):
+        response = await client_with_build_v3.get(
+            "/sql/dimensions/v3/",
+            params={
+                "dimensions": ["v3.customer.name", "v3.product.category"],
+            },
+        )
+
+        assert response.status_code == 422, response.json()
+        assert "exactly one node" in response.json()["message"]
+
+    @pytest.mark.asyncio
+    async def test_dimension_only_query_ignores_unknown_cube(
+        self,
+        client_with_build_v3,
+    ):
+        response = await client_with_build_v3.get(
+            "/sql/dimensions/v3/",
+            params={
+                "dimensions": ["v3.customer.name"],
+                "cube": "v3.missing_cube",
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        assert "DISTINCT" in response.json()["sql"]
+
+    @pytest.mark.asyncio
+    async def test_dimension_only_query_from_transform(self, client_with_build_v3):
+        response = await client_with_build_v3.get(
+            "/sql/dimensions/v3/",
+            params={"dimensions": ["v3.order_details.status"]},
+        )
+
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH v3_order_details AS (
+                SELECT o.order_id, oi.line_number, o.customer_id, o.order_date,
+                    o.from_location_id, o.to_location_id, o.status, oi.product_id,
+                    oi.quantity, oi.unit_price,
+                    oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT DISTINCT status
+            FROM v3_order_details
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_dimension_only_query_rejects_missing_node_with_explicit_dialect(
+        self,
+        client_with_build_v3,
+    ):
+        response = await client_with_build_v3.get(
+            "/sql/dimensions/v3/",
+            params={
+                "dimensions": ["missing.dimension.attribute"],
+                "dialect": "trino",
+            },
+        )
+
+        assert response.status_code == 422, response.json()
+        assert "does not exist" in response.json()["message"]
+
+    @pytest.mark.asyncio
+    async def test_dimension_only_query_rejects_missing_attribute(
+        self,
+        client_with_build_v3,
+    ):
+        response = await client_with_build_v3.get(
+            "/sql/dimensions/v3/",
+            params={
+                "dimensions": ["v3.customer.missing"],
+                "dialect": "trino",
+            },
+        )
+
+        assert response.status_code == 422, response.json()
+        assert "does not contain columns" in response.json()["message"]
+
+    @pytest.mark.asyncio
+    async def test_dimension_only_query_rejects_metric_node(
+        self,
+        client_with_build_v3,
+    ):
+        response = await client_with_build_v3.get(
+            "/sql/dimensions/v3/",
+            params={
+                "dimensions": ["v3.total_revenue.value"],
+                "dialect": "trino",
+            },
+        )
+
+        assert response.status_code == 422, response.json()
+        assert "cannot select attributes" in response.json()["message"]
+
+    @pytest.mark.asyncio
+    async def test_dimension_only_query_aliases_roles_and_accepts_parameters(
+        self,
+        client_with_build_v3,
+    ):
+        response = await client_with_build_v3.get(
+            "/sql/dimensions/v3/",
+            params={
+                "dimensions": ["v3.customer.name[buyer]"],
+                "query_params": '{"unused": "value"}',
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["columns"][0]["name"] == "name_buyer"
+        assert "name AS name_buyer" in response.json()["sql"]
+
     @pytest.mark.asyncio
     async def test_basic_metrics_sql(self, client_with_build_v3):
         """Test that metrics SQL endpoint returns valid SQL."""
@@ -20,6 +290,25 @@ class TestMetricsSQLBasic:
         assert "sql" in result
         assert result["sql"]
         assert "SELECT" in result["sql"].upper()
+
+    @pytest.mark.asyncio
+    async def test_explicit_dialect_is_honored(self, client_with_build_v3):
+        """
+        An explicit ``dialect`` param bypasses auto-resolution: the shared
+        ``generate_metrics_sql`` helper uses the caller-supplied dialect instead
+        of resolving one from cube availability / the metric's catalog.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.order_details.status"],
+                "dialect": "trino",
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["dialect"] == "trino"
 
     @pytest.mark.asyncio
     async def test_simple_single_metric(self, client_with_build_v3):
@@ -5798,8 +6087,7 @@ class TestMetricsSQLEdgeCases:
             result["sql"],
             """
             WITH v3_order_details AS (
-                SELECT o.customer_id, o.status,
-                       oi.quantity * oi.unit_price AS line_total
+                SELECT o.status, oi.quantity * oi.unit_price AS line_total
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
                 WHERE o.customer_id = 42
@@ -6258,5 +6546,312 @@ class TestMetricsSQLEdgeCases:
               SUM(page_views_enriched_0.is_product_view_sum_eb3a4b41) AS product_view_count
             FROM page_views_enriched_0
             GROUP BY  page_views_enriched_0.category
+            """,
+        )
+
+
+class TestCrossParentDerivedRatio:
+    @pytest.mark.asyncio
+    async def test_derived_ratio_with_dimension_sourced_base_metric(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        A derived ratio whose two base metrics have different parents -- the
+        numerator on a fact/transform, the denominator defined directly on a
+        dimension node -- must build BOTH grain groups and FULL OUTER JOIN them.
+
+        Regression: the dimension-sourced denominator was dropped, so the final
+        SELECT referenced an aggregate that no CTE computed (invalid SQL).
+        """
+        # Denominator base metric defined ON the v3.product dimension node.
+        resp = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.catalog_price_total",
+                "description": "Total catalog price (defined on the product dimension)",
+                "query": "SELECT SUM(price) FROM v3.product",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+
+        # Cross-parent derived ratio: fact-sourced numerator / dimension-sourced denominator.
+        resp = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.revenue_per_catalog_dollar",
+                "description": "Revenue per catalog dollar (cross-parent ratio)",
+                "query": "SELECT v3.total_revenue / NULLIF(v3.catalog_price_total, 0)",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.revenue_per_catalog_dollar"],
+                "dimensions": ["v3.product.category"],
+                "dialect": "trino",
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = response.json()["sql"]
+
+        # Both grain groups are built (order_details_0 for the fact-sourced
+        # numerator, product_0 for the dimension-sourced denominator) and joined
+        # with FULL OUTER JOIN, so the denominator aggregate (price_sum_*) is
+        # actually computed rather than referenced out of thin air.
+        assert_sql_equal(
+            sql,
+            """
+            WITH
+            v3_order_details AS (
+              SELECT oi.product_id, oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+              SELECT product_id, category FROM default.v3.products
+            ),
+            order_details_0 AS (
+              SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
+              FROM v3_order_details t1
+              LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+              GROUP BY t2.category
+            ),
+            product_0 AS (
+              SELECT t1.category, SUM(t1.price) price_sum_78363aa6
+              FROM v3_product t1
+              GROUP BY t1.category
+            )
+            SELECT
+              COALESCE(order_details_0.category, product_0.category) AS category,
+              SUM(order_details_0.line_total_sum_e1f61696)
+                / NULLIF(SUM(product_0.price_sum_78363aa6), 0) AS revenue_per_catalog_dollar
+            FROM order_details_0
+            FULL OUTER JOIN product_0 ON order_details_0.category = product_0.category
+            GROUP BY 1
+            """,
+        )
+
+
+class TestReferenceDimensionResolution:
+    @pytest.mark.asyncio
+    async def test_reference_dimension_resolved_locally(self, client_with_build_v3):
+        """
+        A column tagged with a dimension node (a reference / denormalized dimension)
+        must be groupable by the dimension's canonical name, even though the metric's
+        parent has no *join link* to that dimension node.
+
+        Regression: commonDimensions advertises such an attribute (Column->dimension
+        edge), but the builder raised "Cannot find join path" because it only resolved
+        node-level dimension links. It should read the local tagged column instead.
+        """
+        # A standalone dimension node that nothing links to (no join path exists).
+        resp = await client_with_build_v3.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.plan_src",
+                "description": "Plan catalog",
+                "columns": [
+                    {"name": "plan_key", "type": "string"},
+                    {"name": "plan_label", "type": "string"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "plans",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client_with_build_v3.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.plan_dim",
+                "description": "Plan dimension (unlinked)",
+                "query": "SELECT plan_key, plan_label FROM v3.plan_src",
+                "mode": "published",
+                "primary_key": ["plan_key"],
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # Tag page_views_enriched.page_type as the plan_label attribute of the
+        # unlinked v3.plan_dim -- a reference dimension, with NO node join link.
+        resp = await client_with_build_v3.post(
+            "/nodes/v3.page_views_enriched/columns/page_type/link",
+            params={"dimension_node": "v3.plan_dim", "dimension_column": "plan_label"},
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        # Grouping by the dimension's canonical name resolves to the local column
+        # (page_type) -- no join to v3.plan_dim, which is unreachable.
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.page_view_count"],
+                "dimensions": ["v3.plan_dim.plan_label"],
+                "dialect": "trino",
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = response.json()["sql"]
+
+        # Resolved from the local tagged column (page_type -> plan_label); NO join
+        # to the unreachable v3.plan_dim node.
+        assert "plan_dim" not in sql, sql
+        assert_sql_equal(
+            sql,
+            """
+            WITH
+            v3_page_views_enriched AS (
+              SELECT view_id, page_type FROM default.v3.page_views
+            ),
+            page_views_enriched_0 AS (
+              SELECT t1.page_type plan_label, COUNT(t1.view_id) view_id_count_f41e2db4
+              FROM v3_page_views_enriched t1
+              GROUP BY t1.page_type
+            )
+            SELECT
+              page_views_enriched_0.plan_label AS plan_label,
+              SUM(page_views_enriched_0.view_id_count_f41e2db4) AS page_view_count
+            FROM page_views_enriched_0
+            GROUP BY page_views_enriched_0.plan_label
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_reference_dimension_used_only_as_filter(self, client_with_build_v3):
+        """
+        A reference dimension used purely as a filter (not grouped) also resolves
+        from the local tagged column: the predicate is pushed onto the parent CTE,
+        with no join to the unreachable dimension node. Filter-only dims flow
+        through resolve_dimensions, so the same reference resolution applies.
+        """
+        resp = await client_with_build_v3.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.plan_src",
+                "description": "Plan catalog",
+                "columns": [
+                    {"name": "plan_key", "type": "string"},
+                    {"name": "plan_label", "type": "string"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "plans",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client_with_build_v3.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.plan_dim",
+                "description": "Plan dimension (unlinked)",
+                "query": "SELECT plan_key, plan_label FROM v3.plan_src",
+                "mode": "published",
+                "primary_key": ["plan_key"],
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client_with_build_v3.post(
+            "/nodes/v3.page_views_enriched/columns/page_type/link",
+            params={"dimension_node": "v3.plan_dim", "dimension_column": "plan_label"},
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.page_view_count"],
+                "filters": ["v3.plan_dim.plan_label = 'checkout'"],
+                "dialect": "trino",
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = response.json()["sql"]
+        assert "plan_dim" not in sql, sql
+        assert_sql_equal(
+            sql,
+            """
+            WITH
+            v3_page_views_enriched AS (
+              SELECT view_id
+              FROM default.v3.page_views
+              WHERE page_type = 'checkout'
+            ),
+            page_views_enriched_0 AS (
+              SELECT COUNT(t1.view_id) view_id_count_f41e2db4
+              FROM v3_page_views_enriched t1
+            )
+            SELECT SUM(page_views_enriched_0.view_id_count_f41e2db4) AS page_view_count
+            FROM page_views_enriched_0
+            """,
+        )
+
+
+class TestMetricOnDimensionNode:
+    @pytest.mark.asyncio
+    async def test_metric_on_dimension_node_groups_and_filters_by_its_columns(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        A metric declared on a dimension node can group by / filter on any other
+        column of that same dimension node -- they're local to the metric's parent,
+        so no join is needed.
+        """
+        # Metric whose parent IS the v3.product dimension node.
+        resp = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.avg_product_price",
+                "description": "Average product price (defined on the product dimension)",
+                "query": "SELECT AVG(price) FROM v3.product",
+                "mode": "published",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.avg_product_price"],
+                "dimensions": ["v3.product.category"],
+                "filters": ["v3.product.subcategory = 'phones'"],
+                "dialect": "trino",
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = response.json()["sql"]
+
+        # Both the group-by (category) and the filter (subcategory) are served
+        # from the dimension node's own columns, locally -- no self-join.
+        assert_sql_equal(
+            sql,
+            """
+            WITH
+            v3_product AS (
+              SELECT category, price
+              FROM default.v3.products
+              WHERE subcategory = 'phones'
+            ),
+            product_0 AS (
+              SELECT
+                t1.category,
+                COUNT(t1.price) price_count_78363aa6,
+                SUM(t1.price) price_sum_78363aa6
+              FROM v3_product t1
+              GROUP BY t1.category
+            )
+            SELECT
+              product_0.category AS category,
+              SUM(product_0.price_sum_78363aa6)
+                / NULLIF(SUM(product_0.price_count_78363aa6), 0) AS avg_product_price
+            FROM product_0
+            GROUP BY product_0.category
             """,
         )

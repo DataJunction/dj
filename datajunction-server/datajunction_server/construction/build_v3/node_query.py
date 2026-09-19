@@ -13,6 +13,7 @@ dim-link resolution.
 """
 
 import logging
+from copy import deepcopy
 from typing import Any, cast
 
 from sqlalchemy import select
@@ -24,11 +25,6 @@ from datajunction_server.construction.build_v3.builder import (
     build_metrics_sql,
     substitute_query_params,
 )
-from datajunction_server.internal.access.authorization import (
-    AccessChecker,
-    AccessDenialMode,
-)
-from datajunction_server.models import access
 from datajunction_server.construction.build_v3.cte import (
     _fk_key_column_names,
     collect_node_ctes,
@@ -36,6 +32,9 @@ from datajunction_server.construction.build_v3.cte import (
 from datajunction_server.construction.build_v3.dimensions import (
     parse_dimension_ref,
     resolve_dimensions,
+)
+from datajunction_server.construction.build_v3.filters import (
+    parse_and_resolve_filters,
 )
 from datajunction_server.construction.build_v3.loaders import (
     batch_load_nodes_with_dependencies,
@@ -48,8 +47,11 @@ from datajunction_server.construction.build_v3.measures import (
     build_dimension_joins,
     build_filter_column_aliases,
     build_outer_where,
-    collect_cte_nodes_and_needed_columns,
+    collect_cte_nodes,
     outer_only_filter_refs,
+)
+from datajunction_server.construction.build_v3.materialization import (
+    get_table_reference_parts_with_materialization,
 )
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
@@ -60,17 +62,159 @@ from datajunction_server.construction.build_v3.types import (
 )
 from datajunction_server.construction.build_v3.utils import (
     add_dimensions_from_filters,
+    get_column_type,
     get_cte_name,
 )
 from datajunction_server.database.column import Column as DBColumn
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.errors import DJInvalidInputException, DJNodeNotFound
+from datajunction_server.internal.access.authorization import (
+    AccessChecker,
+    AccessDenialMode,
+)
+from datajunction_server.models import access
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing import ast
 
-
 logger = logging.getLogger(__name__)
+
+
+def project_dimension_values_sql(
+    generated: GeneratedSQL,
+    dimensions: list[str],
+    orderby: list[str] | None = None,
+    limit: int | None = None,
+) -> GeneratedSQL:
+    """Project distinct dimensions from a fact-scoped metrics query."""
+    columns_by_name = {column.semantic_name: column for column in generated.columns}
+    columns = [columns_by_name[dimension] for dimension in dimensions]
+
+    inner = deepcopy(generated.query)
+    inner.parenthesized = True
+    inner.alias = ast.Name("dimension_values")
+    inner.as_ = True
+    query = ast.Query(
+        select=ast.Select(
+            projection=[
+                ast.Column(
+                    name=ast.Name(column.name),
+                    _table=ast.Table(ast.Name("dimension_values")),
+                )
+                for column in columns
+            ],
+            from_=ast.From(relations=[ast.Relation(primary=inner)]),
+            quantifier="DISTINCT",
+        ),
+    )
+    return apply_orderby_limit(
+        GeneratedSQL(
+            query=query,
+            columns=columns,
+            dialect=generated.dialect,
+            cube_name=generated.cube_name,
+            scan_estimate=generated.scan_estimate,
+            warnings=generated.warnings,
+        ),
+        orderby,
+        limit,
+    )
+
+
+def build_dimension_sql_v3(
+    ctx: BuildContext,
+    orderby: list[str] | None = None,
+    limit: int | None = None,
+    query_parameters: dict[str, Any] | None = None,
+) -> GeneratedSQL:
+    """Build ``SELECT DISTINCT`` for attributes from one dimension node."""
+    requested = [dim for dim in ctx.dimensions if dim not in ctx.filter_dimensions]
+    refs = [parse_dimension_ref(dim) for dim in ctx.dimensions]
+    node_names = {ref.node_name for ref in refs}
+    if not requested or len(node_names) != 1:
+        raise DJInvalidInputException(
+            "Metricless queries require dimension attributes from exactly one node",
+        )
+
+    node_name = refs[0].node_name
+    dimension_node = ctx.nodes.get(node_name)
+    if dimension_node is None:
+        raise DJInvalidInputException(f"Dimension node `{node_name}` does not exist")
+    # Direct-domain queries need a relational node. Metrics are aggregate
+    # expressions, while unmaterialized cubes have no query body of their own.
+    if dimension_node.type not in {
+        NodeType.SOURCE,
+        NodeType.TRANSFORM,
+        NodeType.DIMENSION,
+    }:
+        raise DJInvalidInputException(
+            f"Metricless queries cannot select attributes from `{node_name}`",
+        )
+
+    requested_refs = [parse_dimension_ref(dim) for dim in requested]
+    available = {column.name for column in dimension_node.current.columns}  # type: ignore[union-attr]
+    missing = [ref.column_name for ref in refs if ref.column_name not in available]
+    if missing:
+        raise DJInvalidInputException(
+            f"Dimension `{node_name}` does not contain columns: {missing}",
+        )
+
+    cte_pairs, _, _ = collect_node_ctes(ctx, [dimension_node])
+    table_parts, _ = get_table_reference_parts_with_materialization(
+        ctx,
+        dimension_node,
+    )
+    dimension_table = ".".join(table_parts)
+    aliases = {dim: parse_dimension_ref(dim).column_name for dim in ctx.dimensions}
+    output_aliases = [ctx.alias_registry.register(dim) for dim in requested]
+    projection: list[Any] = []
+    for ref, output_alias in zip(requested_refs, output_aliases):
+        column = ast.Column(name=ast.Name(ref.column_name))
+        if output_alias != ref.column_name:
+            column.set_alias(ast.Name(output_alias))
+            column.set_as(True)
+        projection.append(column)
+    query = ast.Query(
+        select=ast.Select(
+            projection=projection,
+            from_=ast.From.Table(dimension_table),
+            where=parse_and_resolve_filters(
+                ctx.filters,
+                aliases,
+                nodes=ctx.nodes,
+            )
+            if ctx.filters
+            else None,
+            quantifier="DISTINCT",
+        ),
+    )
+    for cte_name, cte_body in cte_pairs:
+        cte_body.to_cte(ast.Name(cte_name), query)
+    query.ctes = [cte_body for _, cte_body in cte_pairs]
+
+    if query_parameters:
+        substitute_query_params(query, query_parameters)
+    return apply_orderby_limit(
+        GeneratedSQL(
+            query=query,
+            columns=[
+                ColumnMetadata(
+                    name=output_alias,
+                    semantic_name=dim,
+                    type=get_column_type(dimension_node, ref.column_name),
+                    semantic_type="dimension",
+                )
+                for dim, ref, output_alias in zip(
+                    requested,
+                    requested_refs,
+                    output_aliases,
+                )
+            ],
+            dialect=ctx.dialect,
+        ),
+        orderby,
+        limit,
+    )
 
 
 async def build_node_sql_v3(
@@ -405,19 +549,12 @@ def _build_with_dimensions(
     those CTEs via ``PushdownFilters`` (handled inside ``collect_node_ctes``);
     everything else is applied at the outer ``WHERE``.
     """
-    # ``collect_cte_nodes_and_needed_columns`` walks every link in every
-    # resolved dim's ``join_path`` and adds each intermediate hop's
-    # dimension to the CTE list — exactly what we need for multi-hop
-    # chains where a dim link routes through an intermediate transform/dim.
-    # Reused from measures.py so we don't drift.  We pass empty grain /
-    # metric args because non-metric nodes don't decompose into components.
-    nodes_for_ctes, _needed_columns = collect_cte_nodes_and_needed_columns(
-        ctx,
-        starting,
-        resolved_dims,
-        grain_col_specs=[],
-        metric_expressions=[],
-    )
+    # ``collect_cte_nodes`` walks every link in every resolved dim's
+    # ``join_path`` and adds each intermediate hop's dimension to the CTE
+    # list — exactly what we need for multi-hop chains where a dim link
+    # routes through an intermediate transform/dim.  Reused from measures.py
+    # so we don't drift.
+    nodes_for_ctes = collect_cte_nodes(ctx, starting, resolved_dims)
 
     # Build the filter-column-alias map up front so ``PushdownFilters``
     # can resolve user filter refs to the right CTE columns.
@@ -431,10 +568,10 @@ def _build_with_dimensions(
     )
 
     # ``collect_node_ctes`` skips sources (they get inlined as physical refs)
-    # and produces bodies in dep order. We deliberately don't pass
-    # ``needed_columns_by_node`` — the v3 metric path uses it for column
-    # trimming, but for ``/sql/{node}`` we want each node's full projection
-    # in the CTE so the user gets every column the node defines.
+    # and produces bodies in dep order. We deliberately don't prune the
+    # projections afterwards — the v3 metric path trims columns, but for
+    # ``/sql/{node}`` we want each node's full projection in the CTE so the
+    # user gets every column the node defines.
     cte_pairs, _, _ = collect_node_ctes(
         ctx,
         nodes_for_ctes,

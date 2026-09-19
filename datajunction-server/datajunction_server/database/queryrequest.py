@@ -1,9 +1,8 @@
 """Query request schema."""
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import partial
-from typing import List, Optional
 
 from sqlalchemy import (
     JSON,
@@ -22,9 +21,9 @@ from datajunction_server.database.base import Base
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.enum import StrEnum
 from datajunction_server.sql.parsing import ast
-from datajunction_server.utils import SEPARATOR
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.typing import UTCDatetime
+from datajunction_server.utils import SEPARATOR
 
 
 class QueryBuildType(StrEnum):
@@ -82,46 +81,46 @@ class QueryRequest(Base):  # type: ignore
     # A list of the nodes that SQL is being requested for, with node versions. This may
     # be a list of metrics or a single transform, metric, or dimension node, depending
     # on the query type.
-    nodes: Mapped[List[str]] = mapped_column(
+    nodes: Mapped[list[str]] = mapped_column(
         JSONB,
         nullable=False,
         server_default=text("'[]'::jsonb"),
     )
 
     # A list of all the parents of the nodes above, with node versions
-    parents: Mapped[List[str]] = mapped_column(
+    parents: Mapped[list[str]] = mapped_column(
         JSONB,
         nullable=False,
         server_default=text("'[]'::jsonb"),
     )
 
     # A list of dimension attributes requested, with node versions
-    dimensions: Mapped[List[str]] = mapped_column(
+    dimensions: Mapped[list[str]] = mapped_column(
         JSONB,
         nullable=False,
         server_default=text("'[]'::jsonb"),
     )
 
     # A list of filters requested, with node versions
-    filters: Mapped[List[str]] = mapped_column(
+    filters: Mapped[list[str]] = mapped_column(
         JSONB,
         nullable=False,
         server_default=text("'[]'::jsonb"),
     )
 
     # Limit set for the query (note: some query types don't have limit)
-    limit: Mapped[Optional[int]]
+    limit: Mapped[int | None]
 
     # The ORDER BY clause requested, if any
-    orderby: Mapped[List[str]] = mapped_column(
+    orderby: Mapped[list[str]] = mapped_column(
         JSONB,
         nullable=False,
         server_default=text("'[]'::jsonb"),
     )
 
     # The engine this query was built for (if any was set)
-    engine_name: Mapped[Optional[str]]
-    engine_version: Mapped[Optional[str]]
+    engine_name: Mapped[str | None]
+    engine_version: Mapped[str | None]
 
     # Additional input args
     other_args: Mapped[JSON] = mapped_column(
@@ -147,14 +146,14 @@ class QueryRequest(Base):  # type: ignore
     # ---------- #
     created_at: Mapped[UTCDatetime] = mapped_column(
         DateTime(timezone=True),
-        default=partial(datetime.now, timezone.utc),
+        default=partial(datetime.now, UTC),
     )
     updated_at: Mapped[UTCDatetime] = mapped_column(
         DateTime(timezone=True),
-        default=partial(datetime.now, timezone.utc),
+        default=partial(datetime.now, UTC),
     )
     # External identifier for the query
-    query_id: Mapped[Optional[str]]
+    query_id: Mapped[str | None]
 
 
 @dataclass(order=True)
@@ -300,7 +299,7 @@ class VersionedQueryKey:
             VersionedNodeKey(
                 dim,
                 dimension_nodes[name].current_version
-                if name in dimension_nodes and dimension_nodes[name]
+                if dimension_nodes.get(name)
                 else current_node.version
                 if current_node
                 else None,

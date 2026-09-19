@@ -9,8 +9,6 @@ Key concepts:
 - DecomposedMetric: A metric broken into components + combiner expression
 """
 
-from typing import List
-
 from pydantic import BaseModel
 
 from datajunction_server.enum import StrEnum
@@ -99,6 +97,17 @@ class MetricComponent(BaseModel):
     # valid and consistent with what decompose.py computed.
     grain_alias: str | None = None
 
+    @property
+    def normalized_aggregation(self) -> str:
+        """
+        Phase-1 aggregation function, normalized for identity comparison.
+
+        A measure is identified by (expression, aggregation), not expression
+        alone. Matching, column binding and registration all compare this, so
+        normalization lives with the model rather than at each call site.
+        """
+        return (self.aggregation or "").strip().upper()
+
 
 class PreAggMeasure(MetricComponent):
     """
@@ -111,6 +120,9 @@ class PreAggMeasure(MetricComponent):
 
     expr_hash: str | None = None  # Hash of expression for identity matching
     used_by_metrics: list[MetricRef] | None = None  # Metrics that use this measure
+    # Physical column holding this measure in an externally-registered pre-agg
+    # table. None for DJ-managed pre-aggs (the component name IS the column).
+    source_column: str | None = None
 
 
 class DecomposedMetric(BaseModel):
@@ -139,6 +151,6 @@ class DecomposedMetric(BaseModel):
             combiner: "hll_sketch_estimate(hll_union(user_hll))"
     """
 
-    components: List[MetricComponent]
+    components: list[MetricComponent]
     combiner: str  # Expression combining merged components into final value
     derived_query: str | None = None  # The full derived query as string

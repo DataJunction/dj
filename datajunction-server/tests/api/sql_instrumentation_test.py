@@ -71,7 +71,8 @@ async def test_v3_metrics_endpoint_emits_structured_log(
     caplog,
 ):
     """`/sql/metrics/v3/` should emit a structured log with extra={...}."""
-    caplog.set_level(logging.INFO, logger="datajunction_server.api.sql")
+    # Logged by generate_metrics_sql, which lives in internal.sql.
+    caplog.set_level(logging.INFO, logger="datajunction_server.internal.sql")
     response = await client_with_build_v3.get(
         "/sql/metrics/v3/",
         params={

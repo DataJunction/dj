@@ -62,7 +62,30 @@ primary_key:
 | Field | Required? | Description |
 | ---- | ---- | ---- |
 | `namespace` | Yes | The DJ namespace for this YAML project |
-| `tags` | No | Used to define any tags that are used by nodes in the project |
+| `tags` | No | Used to define any tags that are used by nodes in the project. See [details](#tag-yaml). |
+
+##### Tag YAML
+| Field | Required? | Description |
+| ---- | ---- | ---- |
+| `name` | Yes | The tag name |
+| `display_name` | No | The display name of the tag, derived from the name if not provided |
+| `description` | No | Description of the tag |
+| `tag_type` | No | The type of the tag (e.g. `Maintenance`, `group`) |
+| `tag_metadata` | No | A free-form object for any extra information you want to attach to the tag. DJ does not interpret its contents. Also accepted as `metadata` or `custom_metadata`. Deployments are declarative, so this replaces the stored metadata: removing a key from the YAML removes it on the server, and omitting the field clears the metadata |
+
+Example:
+```
+namespace: projects.roads
+tags:
+  - name: deprecated
+    display_name: Deprecated
+    description: This node is deprecated
+    tag_type: Maintenance
+    tag_metadata:
+      order: 1
+      display:
+        color: red
+```
 
 
 #### Node YAML Fields Overview
@@ -125,8 +148,8 @@ query: ...
 primary_key: ...
 dimension_links:
   - type: join
-    node_column: state_id
     dimension_node: ${prefix}roads.us_state
+    join_on: ${prefix}roads.local_hard_hats.state_id = ${prefix}roads.us_state.state_id
     default_value: Unknown  # Optional: fallback for NULL values from LEFT JOIN
   - type: reference
     node_column: birth_date
@@ -138,8 +161,7 @@ dimension_links:
 | ---- | ---- | ---- | ---- |
 | `type` | Yes  | Must be `join` |
 | `dimension_node` | Yes | The dimension node being linked to |
-| `node_column` | No  | The column on this node that is being linked from |
-| `join_on` | No | A custom join on SQL clause |
+| `join_on` | Yes, unless `join_type` is `cross` | The join condition, equating this node's foreign key column(s) to the dimension's primary key. There is no inference: a spec says nothing about which column is the foreign key, so the clause must be written out. |
 | `join_type` | No | The type of join (one of `left`, `right`, `inner`, `full`, `cross`). Defaults to `left`. |
 | `role` | No | The role this dimension represents |
 | `default_value` | No | A fallback value for NULL results from LEFT/RIGHT joins. When set, dimension columns are wrapped in `COALESCE(column, 'default_value')`. |

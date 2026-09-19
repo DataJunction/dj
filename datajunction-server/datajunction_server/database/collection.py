@@ -1,12 +1,14 @@
 """Collection database schema."""
 
-from datetime import datetime, timezone
+from __future__ import annotations
+
+from datetime import UTC, datetime
 from functools import partial
-from typing import List, Optional
 
 from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, String, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql.base import ExecutableOption
 
 from datajunction_server.database.base import Base
 from datajunction_server.database.node import Node
@@ -23,8 +25,8 @@ class Collection(Base):
     __tablename__ = "collection"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[Optional[str]] = mapped_column(String, default=None, unique=True)
-    description: Mapped[Optional[str]] = mapped_column(String, default=None)
+    name: Mapped[str | None] = mapped_column(String, default=None, unique=True)
+    description: Mapped[str | None] = mapped_column(String, default=None)
     created_by_id: Mapped[int] = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_by: Mapped[User] = relationship(
         "User",
@@ -32,7 +34,7 @@ class Collection(Base):
         foreign_keys=[created_by_id],
         lazy="selectin",
     )
-    nodes: Mapped[List[Node]] = relationship(
+    nodes: Mapped[list[Node]] = relationship(
         secondary="collectionnodes",
         primaryjoin="Collection.id==CollectionNodes.collection_id",
         secondaryjoin="Node.id==CollectionNodes.node_id",
@@ -40,7 +42,7 @@ class Collection(Base):
     )
     created_at: Mapped[UTCDatetime] = mapped_column(
         DateTime(timezone=True),
-        insert_default=partial(datetime.now, timezone.utc),
+        insert_default=partial(datetime.now, UTC),
     )
     deactivated_at: Mapped[UTCDatetime] = mapped_column(
         DateTime(timezone=True),
@@ -57,11 +59,14 @@ class Collection(Base):
         session: AsyncSession,
         name: str,
         raise_if_not_exists: bool = False,
-    ) -> Optional["Collection"]:
+        options: list[ExecutableOption] | None = None,
+    ) -> Collection | None:
         """
         Get a collection by name
         """
         statement = select(Collection).where(Collection.name == name)
+        if options:
+            statement = statement.options(*options)
         collection = (await session.execute(statement)).scalar()
         if not collection and raise_if_not_exists:
             raise DJDoesNotExistException(

@@ -1,10 +1,11 @@
 """Pre-aggregation database schema."""
 
+from __future__ import annotations
+
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import partial
-from typing import List, Optional, Set
 
 import sqlalchemy as sa
 from sqlalchemy import (
@@ -27,7 +28,6 @@ from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.models.preaggregation import WorkflowUrl
 from datajunction_server.models.query import V3ColumnMetadata
 from datajunction_server.typing import UTCDatetime
-
 
 # Valid materialization strategies for pre-aggregations
 # (subset of MaterializationStrategy)
@@ -57,7 +57,7 @@ def compute_expression_hash(expression: str) -> str:
 
 def compute_grain_group_hash(
     node_revision_id: int,
-    grain_columns: List[str],
+    grain_columns: list[str],
 ) -> str:
     """
     Compute the grain group hash for a pre-aggregation.
@@ -80,36 +80,58 @@ def compute_grain_group_hash(
     return hashlib.md5(content.encode()).hexdigest()
 
 
-def get_measure_expr_hashes(measures: List[PreAggMeasure]) -> Set[str]:
+def measure_identity_token(expr_hash: str, aggregation: str | None) -> str:
     """
-    Extract expression hashes from a list of measures.
+    Canonical token identifying one measure: expression hash plus Phase-1
+    aggregation.
+
+    The hash alone is not an identity -- ``SUM(x)`` and ``MAX(x)`` hash alike --
+    and a partial is reusable only by a metric that accumulates the same way.
+    Everything comparing or hashing measures goes through this.
+    """
+    return f"{expr_hash}:{(aggregation or '').strip().upper()}"
+
+
+def get_measure_identities(measures: list[PreAggMeasure]) -> set[str]:
+    """
+    Identity tokens for a list of measures (see ``measure_identity_token``).
 
     Args:
         measures: List of PreAggMeasure objects
 
     Returns:
-        Set of expression hashes
+        Set of identity tokens
     """
-    return {m.expr_hash for m in measures if m.expr_hash}
+    return {
+        measure_identity_token(m.expr_hash, m.aggregation)
+        for m in measures
+        if m.expr_hash
+    }
 
 
 def compute_preagg_hash_from_hashes(
     node_revision_id: int,
-    grain_columns: List[str],
-    measure_hashes: List[str],
+    grain_columns: list[str],
+    measure_identities: list[str],
 ) -> str:
     """
-    Compute a unique hash for a pre-aggregation from expression hashes.
+    Compute a unique hash for a pre-aggregation from measure identity tokens.
 
     This hash uniquely identifies a pre-aggregation by combining:
     - node_revision_id: Which node version
     - grain_columns: What dimensions we're grouping by
-    - measure_hashes: Expression hashes for the measures
+    - measure_identities: Identity tokens for the measures (expression hash plus
+      Phase-1 aggregation -- see ``measure_identity_token``)
+
+    The aggregation matters here because this hash is UNIQUE-constrained: without
+    it, SUM- and MAX-backed pre-aggs over the same expression and grain collide.
+    Computed only at insert -- existing rows keep their stored value, and so keep
+    their materialization table names.
 
     Args:
         node_revision_id: The ID of the node revision
         grain_columns: Fully qualified dimension/column references
-        measure_hashes: List of expression hashes
+        measure_identities: List of measure identity tokens
 
     Returns:
         MD5 hash string (8 chars) uniquely identifying this pre-agg
@@ -117,15 +139,15 @@ def compute_preagg_hash_from_hashes(
     content = (
         f"{node_revision_id}:"
         f"{json.dumps(sorted(grain_columns))}:"
-        f"{json.dumps(sorted(measure_hashes))}"
+        f"{json.dumps(sorted(measure_identities))}"
     )
     return hashlib.md5(content.encode()).hexdigest()[:8]
 
 
 def compute_preagg_hash(
     node_revision_id: int,
-    grain_columns: List[str],
-    measures: List[PreAggMeasure],
+    grain_columns: list[str],
+    measures: list[PreAggMeasure],
 ) -> str:
     """
     Compute a unique hash for a pre-aggregation.
@@ -133,7 +155,7 @@ def compute_preagg_hash(
     This hash uniquely identifies a pre-aggregation by combining:
     - node_revision_id: Which node version
     - grain_columns: What dimensions we're grouping by
-    - measure expr_hashes: What aggregations we're computing
+    - measure identities: What we're computing, and how we aggregate it
 
     Args:
         node_revision_id: The ID of the node revision
@@ -143,11 +165,10 @@ def compute_preagg_hash(
     Returns:
         MD5 hash string (8 chars) uniquely identifying this pre-agg
     """
-    measure_hashes = [m.expr_hash for m in measures if m.expr_hash]
     return compute_preagg_hash_from_hashes(
         node_revision_id,
         grain_columns,
-        measure_hashes,
+        sorted(get_measure_identities(measures)),
     )
 
 
@@ -205,11 +226,11 @@ class PreAggregation(Base):
     # Grain columns are fully qualified dimension/column references:
     # - Linked dimensions: "namespace.dim_node.column" (e.g., "default.date_dim.date_id")
     # - Direct columns on node: "namespace.node.column" (e.g., "default.orders.order_status")
-    grain_columns: Mapped[List[str]] = mapped_column(JSON, nullable=False)
+    grain_columns: Mapped[list[str]] = mapped_column(JSON, nullable=False)
 
     # Measures with full MetricComponent info for matching and re-aggregation
     # Stored as PreAggMeasure which extends MetricComponent with expr_hash
-    measures: Mapped[List[PreAggMeasure]] = mapped_column(
+    measures: Mapped[list[PreAggMeasure]] = mapped_column(
         PydanticListType(PreAggMeasure),
         nullable=False,
     )
@@ -218,7 +239,7 @@ class PreAggregation(Base):
     # This stores the schema of the materialized table for:
     # - Table creation with correct types
     # - Validation of materialized data
-    columns: Mapped[Optional[List[V3ColumnMetadata]]] = mapped_column(
+    columns: Mapped[list[V3ColumnMetadata] | None] = mapped_column(
         PydanticListType(V3ColumnMetadata),
         nullable=True,
     )
@@ -243,38 +264,42 @@ class PreAggregation(Base):
         unique=True,
     )
 
+    # Optional stable, human-supplied handle for externally-registered pre-aggs.
+    # Used by YAML deploy reconciliation and availability-by-name callbacks.
+    name: Mapped[str | None] = mapped_column(String, nullable=True)
+
     # === Materialization Config ===
-    strategy: Mapped[Optional[MaterializationStrategy]] = mapped_column(
+    strategy: Mapped[MaterializationStrategy | None] = mapped_column(
         Enum(MaterializationStrategy),
         nullable=True,
     )
 
     # Cron expression for scheduled materialization
-    schedule: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    schedule: Mapped[str | None] = mapped_column(String, nullable=True)
 
     # Lookback window for incremental materialization (e.g., "3 days")
-    lookback_window: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    lookback_window: Mapped[str | None] = mapped_column(String, nullable=True)
 
     # === Workflow State ===
     # Labeled workflow URLs: [WorkflowUrl(label="scheduled", url="..."), ...]
     # Scheduler-agnostic: DJ Server stores what Query Service returns
-    workflow_urls: Mapped[Optional[List[WorkflowUrl]]] = mapped_column(
+    workflow_urls: Mapped[list[WorkflowUrl] | None] = mapped_column(
         PydanticListType(WorkflowUrl),
         nullable=True,
     )
 
     # Workflow status: "active" | "paused" | None (no workflow)
-    workflow_status: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    workflow_status: Mapped[str | None] = mapped_column(String, nullable=True)
 
     # Workflow names returned by the query service (used for deactivation)
-    workflow_names: Mapped[Optional[List[str]]] = mapped_column(
+    workflow_names: Mapped[list[str] | None] = mapped_column(
         JSON,
         nullable=True,
         default=None,
     )
 
     # === Availability ===
-    availability_id: Mapped[Optional[int]] = mapped_column(
+    availability_id: Mapped[int | None] = mapped_column(
         ForeignKey(
             "availabilitystate.id",
             name="fk_pre_aggregation_availability_id_availabilitystate",
@@ -285,26 +310,26 @@ class PreAggregation(Base):
     # === Metadata ===
     created_at: Mapped[UTCDatetime] = mapped_column(
         DateTime(timezone=True),
-        default=partial(datetime.now, timezone.utc),
+        default=partial(datetime.now, UTC),
         nullable=False,
     )
-    updated_at: Mapped[Optional[UTCDatetime]] = mapped_column(
+    updated_at: Mapped[UTCDatetime | None] = mapped_column(
         DateTime(timezone=True),
-        onupdate=partial(datetime.now, timezone.utc),
+        onupdate=partial(datetime.now, UTC),
         nullable=True,
     )
 
     # === Relationships ===
-    node_revision: Mapped["NodeRevision"] = relationship(
+    node_revision: Mapped[NodeRevision] = relationship(
         "NodeRevision",
         passive_deletes=True,
     )
-    availability: Mapped[Optional["AvailabilityState"]] = relationship(
+    availability: Mapped[AvailabilityState | None] = relationship(
         "AvailabilityState",
     )
 
     @property
-    def materialized_table_ref(self) -> Optional[str]:
+    def materialized_table_ref(self) -> str | None:
         """Full table reference for SQL substitution. Derived from availability."""
         if not self.availability:
             return None
@@ -327,7 +352,7 @@ class PreAggregation(Base):
         return "active"
 
     @property
-    def max_partition(self) -> Optional[List[str]]:
+    def max_partition(self) -> list[str] | None:
         """High-water mark - data is available up to this partition."""
         if not self.availability:
             return None
@@ -338,7 +363,7 @@ class PreAggregation(Base):
         cls,
         session: AsyncSession,
         grain_group_hash: str,
-    ) -> List["PreAggregation"]:
+    ) -> list[PreAggregation]:
         """
         Get all pre-aggregations with the given grain group hash.
         """
@@ -367,25 +392,78 @@ class PreAggregation(Base):
         cls,
         session: AsyncSession,
         pre_agg_id: int,
-    ) -> Optional["PreAggregation"]:
+    ) -> PreAggregation | None:
         """Get a pre-aggregation by ID."""
         statement = select(cls).where(cls.id == pre_agg_id)
         result = await session.execute(statement)
         return result.scalar_one_or_none()
 
     @classmethod
+    async def get_external_by_namespace(
+        cls,
+        session: AsyncSession,
+        namespace: str,
+    ) -> list[PreAggregation]:
+        """
+        Get all EXTERNAL-strategy pre-aggregations whose node lives in the given
+        namespace. Used by deploy-time reconciliation to diff against the spec.
+        """
+        from sqlalchemy.orm import joinedload
+
+        from datajunction_server.database.node import Node
+
+        statement = (
+            select(cls)
+            .join(NodeRevision, cls.node_revision_id == NodeRevision.id)
+            .join(Node, NodeRevision.node_id == Node.id)
+            .options(
+                joinedload(cls.node_revision),
+                joinedload(cls.availability),
+            )
+            .where(
+                # The deployment namespace is a prefix: nodes live in it or in a
+                # sub-namespace (e.g. "ns" and "ns.default").
+                sa.or_(
+                    Node.namespace == namespace,
+                    Node.namespace.like(f"{namespace}.%"),
+                ),
+                cls.strategy == MaterializationStrategy.EXTERNAL,
+            )
+        )
+        result = await session.execute(statement)
+        return list(result.scalars().unique().all())
+
+    @classmethod
     async def find_matching(
         cls,
         session: AsyncSession,
         node_revision_id: int,
-        grain_columns: List[str],
-        measure_expr_hashes: Set[str],
-    ) -> Optional["PreAggregation"]:
+        grain_columns: list[str],
+        measure_identities: set[str],
+    ) -> PreAggregation | None:
         """
-        Find an existing pre-agg that covers the requested measures.
+        Find the row this exact declaration already occupies, if any.
 
-        Looks up by grain_group_hash, then checks if any candidate
-        has a superset of the required measures (by expr_hash).
+        This is the upsert's identity check -- "is this the same declaration I am
+        about to write?" -- so it matches the uniqueness key exactly: same
+        revision and grain (via ``grain_group_hash``) and the SAME set of measure
+        identities, not merely a covering one.
+
+        Covering was wrong here, in two compounding ways. Callers replace the
+        matched row's contents wholesale, so a narrow declaration could match a
+        wider pre-agg and silently strip measures off it, breaking routing for
+        whatever metric depended on the dropped ones. And ``preagg_hash`` is
+        UNIQUE over exactly ``(node_revision_id, grain_columns,
+        measure_identities)`` and frozen at insert, so a covering match could
+        hand back a row whose stored hash no longer described its own contents.
+        A declaration that genuinely differs now gets its own row instead.
+
+        Identity tokens rather than bare expression hashes, because the latter
+        made SUM- and MAX-backed pre-aggs look like one row, so registering
+        either silently overwrote the other.
+
+        Contrast ``find_latest_for_node``, which asks the other question -- "what
+        did this declaration look like before?" -- and does want covering.
 
         Returns:
             Matching PreAggregation if found, None otherwise
@@ -394,10 +472,63 @@ class PreAggregation(Base):
         candidates = await cls.get_by_grain_group_hash(session, grain_group_hash)
 
         for candidate in candidates:
-            existing_hashes = get_measure_expr_hashes(candidate.measures)
-            if measure_expr_hashes <= existing_hashes:
+            if measure_identities == get_measure_identities(candidate.measures):
                 return candidate
 
+        return None
+
+    @classmethod
+    async def find_latest_for_node(
+        cls,
+        session: AsyncSession,
+        node_name: str,
+        grain_columns: list[str],
+        measure_identities: set[str],
+    ) -> PreAggregation | None:
+        """
+        Find the most recent pre-agg for the same declaration on ANY revision of
+        the node, i.e. the predecessor of the one about to be inserted.
+
+        There are two lookups because there are two different questions, and
+        they deliberately match differently.
+
+        ``find_matching`` is revision-scoped and asks "is this the same
+        declaration I am upserting?". It decides whether to overwrite a row, so
+        it has to be exact: same ``grain_group_hash`` (which embeds
+        ``node_revision_id``) and the same set of measure identities.
+
+        This one is node-scoped and asks "what did this declaration look like
+        before?". The answer has to survive a new revision, so it cannot use
+        that hash at all and instead joins through ``NodeRevision`` to ``Node``
+        to match on node name. It also wants COVERING rather than exact
+        measures: the point is to recognise the earlier incarnation of a
+        declaration whose measures may have shifted, and it only reads the
+        predecessor -- the caller re-checks the physical table coordinates
+        before inheriting anything, which is what keeps a merely-similar
+        pre-agg from being mistaken for the same one.
+
+        Returns:
+            The newest matching PreAggregation, or None
+        """
+        from sqlalchemy.orm import joinedload
+
+        from datajunction_server.database.node import Node
+
+        statement = (
+            select(cls)
+            .join(NodeRevision, cls.node_revision_id == NodeRevision.id)
+            .join(Node, NodeRevision.node_id == Node.id)
+            .options(joinedload(cls.availability))
+            .where(Node.name == node_name)
+            .order_by(cls.id.desc())
+        )
+        result = await session.execute(statement)
+        wanted_grain = sorted(grain_columns)
+        for candidate in result.scalars().unique().all():
+            if sorted(candidate.grain_columns) != wanted_grain:
+                continue
+            if measure_identities <= get_measure_identities(candidate.measures):
+                return candidate
         return None
 
     # TODO: Remove this once we have a way to test pre-aggregations

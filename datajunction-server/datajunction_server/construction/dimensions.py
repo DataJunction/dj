@@ -2,16 +2,14 @@
 Dimensions-related query building
 """
 
-from typing import List, Optional
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import get_catalog_by_name
-from datajunction_server.internal.sql import get_measures_query
 from datajunction_server.database.node import NodeRevision
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.access.authorization import AccessChecker
+from datajunction_server.internal.sql import get_measures_query
 from datajunction_server.models.column import SemanticType
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.query import ColumnMetadata
@@ -19,17 +17,16 @@ from datajunction_server.naming import amenable_name, from_amenable_name
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.types import IntegerType
-from datajunction_server.utils import SEPARATOR
 
 
 async def build_dimensions_from_cube_query(
     session: AsyncSession,
     cube: NodeRevision,
-    dimensions: List[str],
+    dimensions: list[str],
     current_user: User,
     access_checker: AccessChecker,
-    filters: Optional[str] = None,
-    limit: Optional[int] = 50000,
+    filters: str | None = None,
+    limit: int | None = 50000,
     include_counts: bool = False,
 ) -> TranslatedSQL:
     """
@@ -109,9 +106,11 @@ async def build_dimensions_from_cube_query(
         query_ast.select.from_.relations.append(  # type: ignore
             ast.Relation(primary=measures_query_ast),
         )
+    # Cube columns, unlike the deduplicated cube_elements relationship, retain
+    # one entry per role. Keying types from cube_elements makes a projection
+    # such as ``date.date_id[ship]`` miss its type entirely.
     types_lookup = {
-        amenable_name(elem.node_revision.name + SEPARATOR + elem.name): elem.type  # type: ignore
-        for elem in cube.cube_elements
+        amenable_name(column.cube_element_name): column.type for column in cube.columns
     }
     return TranslatedSQL.create(
         sql=str(query_ast),

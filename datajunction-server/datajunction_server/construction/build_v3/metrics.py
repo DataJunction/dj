@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from datajunction_server.construction.build_v3.cte import (
     build_alias_to_dimension_node,
@@ -19,6 +19,7 @@ from datajunction_server.construction.build_v3.cte import (
     has_window_function,
     inject_partition_by_into_windows,
     process_metric_combiner_expression,
+    references_filter_only_dimension,
     replace_component_refs_in_ast,
     replace_dimension_refs_in_ast,
     replace_metric_refs_in_ast,
@@ -28,11 +29,6 @@ from datajunction_server.construction.build_v3.filters import (
     get_filter_column_references,
     parse_and_resolve_filters,
     parse_filter,
-)
-from datajunction_server.construction.build_v3.utils import (
-    build_join_from_clause,
-    get_short_name,
-    make_column_ref,
 )
 from datajunction_server.construction.build_v3.types import (
     BaseMetricsResult,
@@ -46,6 +42,11 @@ from datajunction_server.construction.build_v3.types import (
     GeneratedSQL,
     GrainGroupSQL,
     MetricExprInfo,
+)
+from datajunction_server.construction.build_v3.utils import (
+    build_join_from_clause,
+    get_short_name,
+    make_column_ref,
 )
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.decompose import Aggregability
@@ -1251,7 +1252,7 @@ def build_window_agg_cte_from_grain_group(
     def get_metric_aggregation_expr(
         metric_name: str,
         visited: set[str],
-    ) -> Optional[ast.Expression]:
+    ) -> ast.Expression | None:
         """
         Build aggregation expression for a metric that can be computed from
         component columns in the source CTE.
@@ -1967,7 +1968,7 @@ def generate_metrics_sql(
             # Find the base grain group CTE alias for this window grain group
             # For single-fact: use the matching base grain group CTE
             # For cross-fact: use base_metrics CTE
-            base_grain_group: Optional[GrainGroupSQL] = None
+            base_grain_group: GrainGroupSQL | None = None
             if is_cross_fact:
                 # Cross-fact: use base_metrics CTE (already has FULL OUTER JOIN)
                 source_cte_alias = window_metrics_cte_alias  # pragma: no cover
@@ -2103,7 +2104,7 @@ def generate_metrics_sql(
 
     # Build WHERE clause from dimension filters
     # Skip filters that reference filter-only dimensions (not available in final SELECT)
-    where_clause: Optional[ast.Expression] = None
+    where_clause: ast.Expression | None = None
     if dimension_filters_raw:
         # Use base_metrics CTE for window function queries, otherwise first grain group CTE
         filter_cte = (
@@ -2112,34 +2113,14 @@ def generate_metrics_sql(
 
         # Filter out filters that reference filter-only dimensions
         # Those filters are already applied in the grain group CTEs
-        applicable_dimension_filters = []
-        for f in dimension_filters_raw:
-            filter_ast = parse_filter(f)
-            # Check if any column ref in this filter is a filter-only dimension.
-            # Must handle both plain column refs and role-qualified subscript refs
-            # (e.g., "v3.location.country[customer->home]"), because find_all(ast.Column)
-            # returns only the base Column inside the Subscript, not the full role string.
-            refs_filter_only = False
-            for subscript in filter_ast.find_all(ast.Subscript):
-                if not isinstance(subscript.expr, ast.Column):
-                    continue  # pragma: no cover
-                base_ref = get_column_full_name(subscript.expr)
-                if base_ref:  # pragma: no branch
-                    for fd in ctx.filter_dimensions:
-                        fd_base = fd.split("[")[0] if "[" in fd else fd
-                        if fd_base == base_ref:  # pragma: no branch
-                            refs_filter_only = True
-                            break
-                if refs_filter_only:
-                    break
-            if not refs_filter_only:
-                for col in filter_ast.find_all(ast.Column):
-                    full_name = get_column_full_name(col)
-                    if full_name and full_name in ctx.filter_dimensions:
-                        refs_filter_only = True
-                        break
-            if not refs_filter_only:
-                applicable_dimension_filters.append(f)
+        applicable_dimension_filters = [
+            f
+            for f in dimension_filters_raw
+            if not references_filter_only_dimension(
+                parse_filter(f),
+                ctx.filter_dimensions,
+            )
+        ]
 
         if applicable_dimension_filters:
             where_clause = parse_and_resolve_filters(
@@ -2156,7 +2137,7 @@ def generate_metrics_sql(
     # ``add_dimensions_from_filters`` + ``resolve_dimensions`` — by the time
     # we reach this block, every Column is either a known metric (replaced
     # below) or a known dimension (passes through to engine-side resolution).
-    having_clause: Optional[ast.Expression] = None
+    having_clause: ast.Expression | None = None
     if metric_filters_raw:
         parsed_metric_filters = []
         for f in metric_filters_raw:

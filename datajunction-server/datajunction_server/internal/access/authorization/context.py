@@ -2,21 +2,18 @@
 Authorization context for a user, pre-loaded with all roles.
 """
 
-from fastapi import Depends
-from dataclasses import dataclass
-from typing import List, Optional
+from dataclasses import dataclass, field
 
+from fastapi import Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-
+from datajunction_server.database.rbac import Role, RoleAssignment, RoleScope
+from datajunction_server.database.user import User
 from datajunction_server.internal.access.group_membership import (
     get_group_membership_service,
 )
-from datajunction_server.database.rbac import RoleAssignment, Role
-from datajunction_server.database.user import User
-
 from datajunction_server.utils import (
     get_current_user,
     get_session,
@@ -44,9 +41,12 @@ class AuthContext:
 
     user_id: int
     username: str
-    oauth_provider: Optional[str]
-    role_assignments: List[RoleAssignment]  # Direct + groups, flattened
+    oauth_provider: str | None
+    role_assignments: list[RoleAssignment]  # Direct + groups, flattened
     is_admin: bool = False
+    # Scopes from the configured default-access role, evaluated as a fallback
+    # alongside the user's own grants.
+    default_scopes: list[RoleScope] = field(default_factory=list)
 
     @classmethod
     async def from_user(
@@ -71,6 +71,7 @@ class AuthContext:
             session=session,
             user=user,
         )
+        default_scopes = await cls.get_default_scopes(session=session)
 
         return cls(
             user_id=user.id,
@@ -78,14 +79,33 @@ class AuthContext:
             oauth_provider=user.oauth_provider,
             role_assignments=assignments,
             is_admin=bool(user.is_admin),
+            default_scopes=default_scopes,
         )
+
+    @classmethod
+    async def get_default_scopes(
+        cls,
+        session: AsyncSession,
+    ) -> list[RoleScope]:
+        """
+        Load the scopes of the configured default-access role, if any.
+
+        Returns an empty list when no default role is configured or the named
+        role does not exist, so authorization simply falls through to the
+        default_access_policy.
+        """
+        role_name = settings.default_access_role
+        if not role_name:
+            return []
+        default_role = await Role.get_by_name(session, role_name)
+        return list(default_role.scopes) if default_role else []
 
     @classmethod
     async def get_effective_assignments(
         cls,
         session: AsyncSession,
         user: User,
-    ) -> List[RoleAssignment]:
+    ) -> list[RoleAssignment]:
         """
         Get all effective role assignments for a user (direct + group-based).
 

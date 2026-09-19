@@ -4,7 +4,7 @@ A DB engine spec for Superset.
 
 import re
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, List, Optional, Set, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import requests
 from sqlalchemy.engine.reflection import Inspector
@@ -36,12 +36,12 @@ class MetricType(TypedDict, total=False):
 
     metric_name: str
     expression: str
-    verbose_name: Optional[str]
-    metric_type: Optional[str]
-    description: Optional[str]
-    d3format: Optional[str]
-    warning_text: Optional[str]
-    extra: Optional[str]
+    verbose_name: str | None
+    metric_type: str | None
+    description: str | None
+    d3format: str | None
+    warning_text: str | None
+    extra: str | None
 
 
 class DJEngineSpec(BaseEngineSpec):
@@ -88,8 +88,8 @@ class DJEngineSpec(BaseEngineSpec):
         database: "Database",
         inspector: Inspector,
         table_name: str,
-        schema: Optional[str],
-    ) -> List[MetricType]:
+        schema: str | None,
+    ) -> list[MetricType]:
         """
         Get all metrics from a given schema and table.
         """
@@ -129,8 +129,8 @@ class DJEngineSpec(BaseEngineSpec):
         cls,
         database: "Database",
         inspector: Inspector,
-        schema: Optional[str],
-    ) -> Set[str]:
+        schema: str | None,
+    ) -> set[str]:
         """
         Return all views.
         """

@@ -1,13 +1,20 @@
-import { Component, useContext, useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import ValidIcon from '../../icons/ValidIcon';
 import InvalidIcon from '../../icons/InvalidIcon';
 import DJClientContext from '../../providers/djclient';
 import * as React from 'react';
-import { AlertMessage } from '../AddEditNodePage/AlertMessage';
-import AlertIcon from '../../icons/AlertIcon';
 import { labelize } from '../../../utils/form';
+import Tooltip from '../../components/Tooltip';
 
-export default function NodeStatus({ node, revalidate = true }) {
+export default function NodeStatus({
+  node,
+  revalidate = true,
+  showLabel = false,
+  validLabel = 'Valid',
+  invalidLabel = 'Invalid',
+  validTooltip = 'This node validates successfully.',
+  invalidTooltip = 'This node has validation errors. Open it to see what needs to be fixed.',
+}) {
   const MAX_ERROR_LENGTH = 200;
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [validation, setValidation] = useState([]);
@@ -72,26 +79,57 @@ export default function NodeStatus({ node, revalidate = true }) {
       <></>
     );
 
+  const isValid =
+    validation?.status === 'valid' ||
+    node?.status === 'valid' ||
+    node?.current?.status === 'VALID';
+
+  const badge = isValid ? (
+    <span
+      className="status__valid status"
+      style={{
+        alignContent: 'center',
+        display: showLabel ? 'inline-flex' : undefined,
+        alignItems: showLabel ? 'center' : undefined,
+        gap: showLabel ? '6px' : undefined,
+        fontWeight: showLabel ? 600 : undefined,
+      }}
+    >
+      <ValidIcon
+        width={showLabel ? '16px' : '25px'}
+        height={showLabel ? '16px' : '25px'}
+      />
+      {showLabel ? validLabel : null}
+    </span>
+  ) : (
+    <span
+      className="status__invalid status"
+      style={{
+        alignContent: 'center',
+        display: showLabel ? 'inline-flex' : undefined,
+        alignItems: showLabel ? 'center' : undefined,
+        gap: showLabel ? '6px' : undefined,
+        fontWeight: showLabel ? 600 : undefined,
+      }}
+    >
+      <InvalidIcon
+        width={showLabel ? '16px' : '25px'}
+        height={showLabel ? '16px' : '25px'}
+      />
+      {showLabel ? invalidLabel : null}
+    </span>
+  );
+
   return (
     <>
       {revalidate && validation?.errors?.length > 0 ? (
         displayValidation
-      ) : validation?.status === 'valid' ||
-        node?.status === 'valid' ||
-        node?.current?.status === 'VALID' ? (
-        <span
-          className="status__valid status"
-          style={{ alignContent: 'center' }}
-        >
-          <ValidIcon />
-        </span>
+      ) : showLabel ? (
+        <Tooltip content={isValid ? validTooltip : invalidTooltip}>
+          {badge}
+        </Tooltip>
       ) : (
-        <span
-          className="status__invalid status"
-          style={{ alignContent: 'center' }}
-        >
-          <InvalidIcon />
-        </span>
+        badge
       )}
     </>
   );

@@ -3,9 +3,9 @@ Tests for the metrics API.
 """
 
 from unittest.mock import patch
+
 import pytest
 import pytest_asyncio
-
 from httpx import AsyncClient
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,7 +14,7 @@ from datajunction_server.database.attributetype import AttributeType, ColumnAttr
 from datajunction_server.database.column import Column
 from datajunction_server.database.database import Database
 from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.database.user import User, OAuthProvider
+from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing.types import FloatType, IntegerType, StringType
 
@@ -451,11 +451,13 @@ async def test_read_metrics(module__client_with_roads: AsyncClient) -> None:
     assert data["upstream_node"] == "default.repair_orders_fact"
     assert data["expression"] == "count(repair_order_id)"
     assert data["custom_metadata"] == {"foo": "bar"}
+    assert data["is_measure"] is True  # single COUNT aggregation
 
     response = await module__client_with_roads.get(
         "/metrics/default.discounted_orders_rate",
     )
     data = response.json()
+    assert data["is_measure"] is False  # ratio: sum(...) / count(*)
     assert data["incompatible_druid_functions"] == ["IF"]
     assert data["measures"] == [
         {

@@ -336,12 +336,61 @@ WHERE order_date = CAST(DATE_FORMAT(CAST('2024-01-15T00:00:00' AS TIMESTAMP), 'y
 WHERE order_date = 20240115
 ```
 
+### Authoring Form: DJ_LOGICAL_TIMESTAMP()
+
+The placeholder has an authoring counterpart. In a node's query you write it as a
+function call, `DJ_LOGICAL_TIMESTAMP()`, and DJ compiles that to the placeholder string
+configured by [`dj_logical_timestamp_format`](../../deploying-dj/running-a-dj-server)
+(default `${dj_logical_timestamp}`), which is what you see in generated SQL:
+
+```sql
+-- What you author, in a node query
+SELECT ... FROM orders
+WHERE order_date = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
+
+-- What DJ returns
+WHERE order_date = CAST(DATE_FORMAT(CAST(${dj_logical_timestamp} AS TIMESTAMP), 'yyyyMMdd') AS INT)
+```
+
+They are the same value at different stages: authored as a function, rendered as a
+placeholder, substituted at run time. `DJ_LOGICAL_TIMESTAMP()` is not evaluated by a query
+engine — it never survives into executable SQL as a function call.
+
+This means the placeholder can reach your SQL two different ways:
+
+- **From temporal partition config**, generated for you when `include_temporal_filters=true`
+  (the setup described above); or
+- **From a `DJ_LOGICAL_TIMESTAMP()` call in the node's own query**, if an author wrote one.
+
+### Querying a Node That Uses DJ_LOGICAL_TIMESTAMP()
+
+Because the placeholder is only ever resolved at substitution time, a node whose query calls
+`DJ_LOGICAL_TIMESTAMP()` can't be queried ad hoc. Every route to its data has to go through
+something that supplies the timestamp:
+
+- **DJ-managed materialization** — DJ substitutes the value on each scheduled refresh, and
+  you query the materialized output.
+- **Your own orchestration** — you take the generated SQL, substitute the target partition
+  timestamp yourself, then execute it.
+
+Requesting SQL or data for such a node directly returns the placeholder unresolved, and no
+query engine can execute that. Note also that DJ's query parameters (`:param_name`) are a
+separate mechanism and cannot supply a logical timestamp — there is no query-time equivalent.
+
+If you need a node that *is* directly queryable, keep `DJ_LOGICAL_TIMESTAMP()` out of its
+query and express the time window another way — for example as a filter supplied by the
+caller, or a window function over a date dimension.
+
 ### When Temporal Filters Are Applied
 
 Temporal filters are **only applied when**:
 1. `include_temporal_filters=true` is set
 2. The requested metrics + dimensions resolve to a cube
 3. That cube has temporal partition columns configured
+
+All three are required. In particular, requesting dimensions that don't resolve to a
+temporally-partitioned cube produces SQL with no temporal filter at all, even with
+`include_temporal_filters=true`.
 
 If no matching cube exists, the parameter is ignored and no filters are added.
 

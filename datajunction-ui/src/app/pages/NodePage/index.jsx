@@ -17,6 +17,7 @@ import WatchButton from './WatchNodeButton';
 import NodesWithDimension from './NodesWithDimension';
 import NodeColumnLineage from './NodeLineageTab';
 import EditIcon from '../../icons/EditIcon';
+import DeleteIcon from '../../icons/DeleteIcon';
 import ChartIcon from '../../icons/ChartIcon';
 import AlertIcon from '../../icons/AlertIcon';
 import LoadingIcon from '../../icons/LoadingIcon';
@@ -34,8 +35,10 @@ export function NodePage() {
   });
 
   const [node, setNode] = useState(null);
-  // Use undefined to indicate "not yet loaded", null means "loaded but no config"
-  const [gitConfig, setGitConfig] = useState(undefined);
+  // undefined = not yet known; NamespaceHeader reports the read-only verdict
+  // (git_only, flat/root shape, or git-deployed) once its config + sources load.
+  const [isReadOnly, setIsReadOnly] = useState(undefined);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const onClickTab = id => () => {
     // Preview tab redirects to Query Planner instead of showing content
@@ -140,7 +143,7 @@ export function NodePage() {
         <NodeColumnTab
           node={node}
           djClient={djClient}
-          readOnly={!!gitConfig?.git_only}
+          readOnly={!!isReadOnly}
         />
       );
       break;
@@ -177,8 +180,6 @@ export function NodePage() {
       tabToDisplay = <NodeInfoTab node={node} />;
   }
 
-  const isGitOnly = gitConfig?.git_only;
-
   const buttonStyle = {
     height: '28px',
     padding: '0 10px',
@@ -194,13 +195,40 @@ export function NodePage() {
     whiteSpace: 'nowrap',
   };
 
-  // Don't show buttons until git config has loaded (undefined = not loaded yet)
-  const gitConfigLoaded = gitConfig !== undefined;
+  const deleteButtonStyle = {
+    ...buttonStyle,
+    color: '#b91c1c',
+    borderColor: '#fecaca',
+    cursor: isDeleting ? 'not-allowed' : 'pointer',
+    opacity: isDeleting ? 0.6 : 1,
+  };
+
+  const onDelete = async () => {
+    if (!window.confirm(`Deleting node ${node?.name}. Are you sure?`)) {
+      return;
+    }
+    setIsDeleting(true);
+    try {
+      const { status, json } = await djClient.deactivate(node?.name);
+      if (status === 200 || status === 201 || status === 204) {
+        // Nodes always live under a namespace, but fall back to the root
+        // listing rather than routing to a nameless /namespaces/ URL.
+        const parentNamespace = node?.name?.split('.').slice(0, -1).join('.');
+        navigate(parentNamespace ? `/namespaces/${parentNamespace}` : '/');
+      } else {
+        window.alert(`Unable to delete node ${node?.name}: ${json?.message}`);
+      }
+    } catch (error) {
+      window.alert(`Unable to delete node ${node?.name}: ${error.message}`);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const NodeButtons = () => {
     return (
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        {gitConfigLoaded && !isGitOnly && (
+        {isReadOnly === false && (
           <button
             style={buttonStyle}
             onClick={() => navigate(`/nodes/${node?.name}/edit`)}
@@ -215,6 +243,17 @@ export function NodePage() {
         {node?.type === 'cube' && (
           <NotebookDownload node={node} buttonStyle={buttonStyle} />
         )}
+
+        {isReadOnly === false && (
+          <button
+            style={deleteButtonStyle}
+            aria-label={`Delete ${node?.name}`}
+            onClick={onDelete}
+            disabled={isDeleting}
+          >
+            <DeleteIcon /> {isDeleting ? 'Deleting…' : 'Delete'}
+          </button>
+        )}
       </div>
     );
   };
@@ -224,7 +263,7 @@ export function NodePage() {
     <div className="node__header">
       <NamespaceHeader
         namespace={name.split('.').slice(0, -1).join('.')}
-        onGitConfigLoaded={setGitConfig}
+        onReadOnlyChange={setIsReadOnly}
       />
       <div className="card">
         {node === undefined ? (
@@ -259,7 +298,7 @@ export function NodePage() {
                   >
                     {node?.type}
                   </span>
-                  {gitConfigLoaded && isGitOnly && (
+                  {isReadOnly === true && (
                     <span
                       style={{
                         display: 'inline-flex',

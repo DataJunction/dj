@@ -3,9 +3,9 @@
 import strawberry
 
 from datajunction_server.models.catalog import CatalogInfo
-from datajunction_server.models.engine import EngineInfo
 from datajunction_server.models.dialect import Dialect as Dialect_
 from datajunction_server.models.dialect import DialectInfo as DialectInfo_
+from datajunction_server.models.engine import EngineInfo
 
 Dialect = strawberry.enum(Dialect_)
 

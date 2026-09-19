@@ -7,10 +7,10 @@ from datajunction_server.models.query import QueryWithResults
 from datajunction_server.sql.parsing.types import (
     BinaryType,
     BooleanType,
+    FloatType,
     IntegerType,
     StringType,
     TimestampType,
-    FloatType,
 )
 from datajunction_server.typing import QueryState
 
@@ -3907,54 +3907,52 @@ QUERY_DATA_MAPPINGS = {
     .replace("\n", "")
     .replace("\t", "")
     .replace(" ", ""): QueryWithResults(
-        **{
-            "id": "bd98d6be-e2d2-413e-94c7-96d9411ddee2",
-            "submitted_query": (
-                "SELECT  avg(repair_order_details.price) AS "
-                "default_DOT_avg_repair_price,\\n\\tdispatcher.company_name,"
-                "\\n\\tcount(repair_orders.repair_order_id) AS default_DOT_num_repair_orders"
-                "default_DOT_num_repair_orders \\n FROM roads.repair_order_details AS "
-                "repair_order_details LEFT OUTER JOIN (SELECT  "
-                "repair_orders.dispatcher_id,\\n\\trepair_orders.hard_hat_id,\\n\\t"
-                "repair_orders.municipality_id,\\n\\trepair_orders.repair_order_id "
-                "\\n FROM roads.repair_orders AS repair_orders) AS repair_order ON "
-                "repair_order_details.repair_order_id = repair_order.repair_order_id\\nLEFT "
-                "OUTER JOIN (SELECT  dispatchers.company_name,\\n\\tdispatchers.dispatcher_id "
-                "\\n FROM roads.dispatchers AS dispatchers) AS dispatcher ON "
-                "repair_order.dispatcher_id = dispatcher.dispatcher_id \\n GROUP BY  "
-                "dispatcher.company_name\\nLIMIT 10"
-            ),
-            "state": QueryState.FINISHED,
-            "results": [
-                {
-                    "columns": [
-                        {
-                            "name": "default_DOT_num_repair_orders",
-                            "type": "int",
-                            "semantic_entity": "default.num_repair_orders",
-                            "semantic_type": "metric",
-                        },
-                        {
-                            "name": "default_DOT_avg_repair_price",
-                            "type": "float",
-                            "semantic_entity": "default.avg_repair_price",
-                            "semantic_type": "metric",
-                        },
-                        {
-                            "name": "company_name",
-                            "type": "str",
-                            "semantic_entity": "default.dispatcher.company_name",
-                            "semantic_type": "dimension",
-                        },
-                    ],
-                    "rows": [
-                        (1.0, "Foo", 100),
-                        (2.0, "Bar", 200),
-                    ],
-                    "sql": "",
-                },
-            ],
-            "errors": [],
-        },
+        id="bd98d6be-e2d2-413e-94c7-96d9411ddee2",
+        submitted_query=(
+            "SELECT  avg(repair_order_details.price) AS "
+            "default_DOT_avg_repair_price,\\n\\tdispatcher.company_name,"
+            "\\n\\tcount(repair_orders.repair_order_id) AS default_DOT_num_repair_orders"
+            "default_DOT_num_repair_orders \\n FROM roads.repair_order_details AS "
+            "repair_order_details LEFT OUTER JOIN (SELECT  "
+            "repair_orders.dispatcher_id,\\n\\trepair_orders.hard_hat_id,\\n\\t"
+            "repair_orders.municipality_id,\\n\\trepair_orders.repair_order_id "
+            "\\n FROM roads.repair_orders AS repair_orders) AS repair_order ON "
+            "repair_order_details.repair_order_id = repair_order.repair_order_id\\nLEFT "
+            "OUTER JOIN (SELECT  dispatchers.company_name,\\n\\tdispatchers.dispatcher_id "
+            "\\n FROM roads.dispatchers AS dispatchers) AS dispatcher ON "
+            "repair_order.dispatcher_id = dispatcher.dispatcher_id \\n GROUP BY  "
+            "dispatcher.company_name\\nLIMIT 10"
+        ),
+        state=QueryState.FINISHED,
+        results=[
+            {
+                "columns": [
+                    {
+                        "name": "default_DOT_num_repair_orders",
+                        "type": "int",
+                        "semantic_entity": "default.num_repair_orders",
+                        "semantic_type": "metric",
+                    },
+                    {
+                        "name": "default_DOT_avg_repair_price",
+                        "type": "float",
+                        "semantic_entity": "default.avg_repair_price",
+                        "semantic_type": "metric",
+                    },
+                    {
+                        "name": "company_name",
+                        "type": "str",
+                        "semantic_entity": "default.dispatcher.company_name",
+                        "semantic_type": "dimension",
+                    },
+                ],
+                "rows": [
+                    (1.0, "Foo", 100),
+                    (2.0, "Bar", 200),
+                ],
+                "sql": "",
+            },
+        ],
+        errors=[],
     ),
 }

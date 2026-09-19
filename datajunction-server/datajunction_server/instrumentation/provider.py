@@ -20,7 +20,8 @@ import functools
 import inspect
 import time
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Union
+from collections.abc import Callable
+from typing import Any
 
 
 class MetricsProvider(ABC):
@@ -102,7 +103,7 @@ def set_metrics_provider(provider: MetricsProvider) -> None:
 
 def timed(
     name: str,
-    tags: Union[dict[str, Any], Callable[..., dict[str, Any]], None] = None,
+    tags: dict[str, Any] | Callable[..., dict[str, Any]] | None = None,
 ):
     """
     Decorator that times a function and emits a timer metric on exit.

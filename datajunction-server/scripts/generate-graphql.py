@@ -1,10 +1,11 @@
 import argparse
 import os
-from datajunction_server.api.main import graphql_schema
+
+from datajunction_server.api.graphql.main import schema
 
 
 def save_graphql_schema(output_dir: str):
-    schema_sdl = graphql_schema.as_str()
+    schema_sdl = schema.as_str()
     with open(os.path.join(output_dir, "schema.graphql"), "w") as f:
         f.write(schema_sdl)
     print("Schema generated successfully.")

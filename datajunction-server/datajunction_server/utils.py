@@ -3,15 +3,16 @@ Utility functions.
 """
 
 import asyncio
-from contextlib import asynccontextmanager
+import copy
 import json
 import logging
 import os
 import re
-from functools import lru_cache
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from functools import cache, lru_cache
 from http import HTTPStatus
-
-from typing import AsyncIterator, List, Optional
+from typing import Any
 
 from dotenv import load_dotenv
 from fastapi import Depends
@@ -25,13 +26,11 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.sql import Select
-
 from starlette.requests import Request
 from yarl import URL
 
 from datajunction_server.config import DatabaseConfig, QueryClientConfig, Settings
-from datajunction_server.instrumentation.provider import get_metrics_provider
-from datajunction_server.database.user import User, PrincipalKind, OAuthProvider
+from datajunction_server.database.user import OAuthProvider, PrincipalKind, User
 from datajunction_server.enum import StrEnum
 from datajunction_server.errors import (
     DJAuthenticationException,
@@ -40,6 +39,7 @@ from datajunction_server.errors import (
     DJInvalidInputException,
     DJUninitializedResourceException,
 )
+from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.internal.access.group_membership import (
     get_group_membership_service,
 )
@@ -199,7 +199,7 @@ class DatabaseSessionManager:
             await self._writer_engine.dispose()  # pragma: no cover
 
 
-@lru_cache(maxsize=None)
+@cache
 def get_session_manager() -> DatabaseSessionManager:
     """
     Get session manager
@@ -226,7 +226,7 @@ async def is_graphql_query(request: Request) -> bool:
 
 async def get_session(
     request: Request = None,
-    session_label: str = None,
+    session_label: str | None = None,
 ) -> AsyncIterator[AsyncSession]:
     """
     Async database session.
@@ -279,7 +279,7 @@ async def get_session(
 @asynccontextmanager
 async def session_context(
     request: Request = None,
-    session_label: str = None,
+    session_label: str | None = None,
 ) -> AsyncIterator[AsyncSession]:
     """
     Create a session context, using a test session if available.
@@ -434,7 +434,7 @@ def _create_configured_query_client(
 def get_legacy_query_service_client(
     settings: Settings = Depends(get_settings),
     request: Request = None,
-) -> Optional[QueryServiceClient]:
+) -> QueryServiceClient | None:
     """
     Return HTTP query service client for backward compatibility.
 
@@ -449,9 +449,9 @@ def get_legacy_query_service_client(
 
 def get_issue_url(
     baseurl: URL = URL("https://github.com/DataJunction/dj/issues/new"),
-    title: Optional[str] = None,
-    body: Optional[str] = None,
-    labels: Optional[List[str]] = None,
+    title: str | None = None,
+    body: str | None = None,
+    labels: list[str] | None = None,
 ) -> URL:
     """
     Return the URL to file an issue on GitHub.
@@ -588,6 +588,25 @@ async def sync_user_groups(
 
     await session.commit()
     return group_names
+
+
+def deep_merge(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
+    """
+    Merge `overrides` into `base`, recursing into nested mappings.
+
+    A leaf in `overrides` replaces the leaf at the same path and leaves its
+    siblings alone. Neither input is modified.
+
+        >>> deep_merge({"a": 1, "b": {"c": 2, "d": 3}}, {"b": {"c": 10, "e": 5}})
+        {'a': 1, 'b': {'c': 10, 'd': 3, 'e': 5}}
+    """
+    merged = copy.deepcopy(base)
+    for key, value in overrides.items():
+        if isinstance(merged.get(key), dict) and isinstance(value, dict):
+            merged[key] = deep_merge(merged[key], value)
+        else:
+            merged[key] = copy.deepcopy(value)
+    return merged
 
 
 SEPARATOR = "."

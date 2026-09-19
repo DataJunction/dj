@@ -3,8 +3,8 @@
 from unittest import mock
 
 import pytest
-from httpx import AsyncClient
 import pytest_asyncio
+from httpx import AsyncClient
 
 from datajunction_server.models.node import NodeStatus
 

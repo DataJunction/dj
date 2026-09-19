@@ -3,7 +3,7 @@ Errors and warnings.
 """
 
 from http import HTTPStatus
-from typing import Any, Dict, List, Literal, Optional, TypedDict
+from typing import Any, Literal, TypedDict
 
 from pydantic import field_serializer
 from pydantic.main import BaseModel
@@ -36,6 +36,7 @@ class ErrorCode(IntEnum):
     INVALID_COLUMN = 206
     QUERY_SERVICE_ERROR = 207
     INVALID_ORDER_BY = 208
+    FANOUT_RISK = 209
 
     # SQL Build Error
     COMPOUND_BUILD_EXCEPTION = 300
@@ -78,7 +79,7 @@ class DebugType(TypedDict, total=False):
     documentation: str
 
     # any additional context
-    context: Dict[str, Any]
+    context: dict[str, Any]
 
 
 class DJErrorType(TypedDict):
@@ -88,7 +89,7 @@ class DJErrorType(TypedDict):
 
     code: str
     message: str
-    debug: Optional[DebugType]
+    debug: DebugType | None
 
 
 class DJError(BaseModel):
@@ -98,7 +99,7 @@ class DJError(BaseModel):
 
     code: ErrorCode
     message: str
-    debug: Optional[Dict[str, Any]] = None
+    debug: dict[str, Any] | None = None
     context: str = ""
 
     @field_serializer("code")
@@ -130,9 +131,12 @@ class DJWarningType(TypedDict):
     Type for serialized warnings.
     """
 
-    code: Optional[int]
+    # Serialized as the symbolic ErrorCode name (e.g. "FANOUT_RISK"), matching
+    # DJWarning.serialize_code and DJErrorType.code. Optional because a warning's
+    # code may be unset.
+    code: str | None
     message: str
-    debug: Optional[DebugType]
+    debug: DebugType | None
 
 
 class DJWarning(BaseModel):
@@ -140,9 +144,15 @@ class DJWarning(BaseModel):
     A warning.
     """
 
-    code: Optional[ErrorCode] = None
+    code: ErrorCode | None = None
     message: str
-    debug: Optional[Dict[str, Any]] = None
+    debug: dict[str, Any] | None = None
+
+    @field_serializer("code")
+    def serialize_code(self, code: ErrorCode | None) -> str | None:
+        # Mirror DJError: serialize the symbolic name (e.g. "FANOUT_RISK") rather
+        # than the integer value, so UI/CLI consumers get a stable string.
+        return code.name if code is not None else None
 
 
 DBAPIExceptions = Literal[
@@ -164,9 +174,9 @@ class DJExceptionType(TypedDict):
     Type for serialized exceptions.
     """
 
-    message: Optional[str]
-    errors: List[DJErrorType]
-    warnings: List[DJWarningType]
+    message: str | None
+    errors: list[DJErrorType]
+    warnings: list[DJWarningType]
 
 
 class DJException(Exception):
@@ -175,8 +185,8 @@ class DJException(Exception):
     """
 
     message: str
-    errors: List[DJError]
-    warnings: List[DJWarning]
+    errors: list[DJError]
+    warnings: list[DJWarning]
 
     # exception that should be raised when ``DJException`` is caught by the DB API cursor
     dbapi_exception: DBAPIExceptions = "Error"
@@ -186,11 +196,11 @@ class DJException(Exception):
 
     def __init__(
         self,
-        message: Optional[str] = None,
-        errors: Optional[List[DJError]] = None,
-        warnings: Optional[List[DJWarning]] = None,
-        dbapi_exception: Optional[DBAPIExceptions] = None,
-        http_status_code: Optional[int] = None,
+        message: str | None = None,
+        errors: list[DJError] | None = None,
+        warnings: list[DJWarning] | None = None,
+        dbapi_exception: DBAPIExceptions | None = None,
+        http_status_code: int | None = None,
     ):
         self.errors = errors or []
         self.warnings = warnings or []
@@ -266,6 +276,16 @@ class DJInvalidDeploymentConfig(DJInvalidInputException):
     """
     Exception raised when the deployment configuration is incorrect.
     """
+
+
+class DJClientUpgradeRequiredException(DJException):
+    """
+    Exception raised when a client's request is missing a capability that a
+    now-required API change depends on, and the client needs to be upgraded.
+    """
+
+    dbapi_exception: DBAPIExceptions = "ProgrammingError"
+    http_status_code: int = HTTPStatus.UPGRADE_REQUIRED
 
 
 class DJNotImplementedException(DJException):

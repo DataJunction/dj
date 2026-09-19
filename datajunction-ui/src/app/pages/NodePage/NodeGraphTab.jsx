@@ -5,6 +5,7 @@ import '../../../styles/dag.css';
 import 'reactflow/dist/style.css';
 import DJClientContext from '../../providers/djclient';
 import LayoutFlow from '../../components/djgraph/LayoutFlow';
+import { getColumnIdentifier } from '../../utils/column';
 
 const NodeGraphTab = djNode => {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
@@ -23,7 +24,7 @@ const NodeGraphTab = djNode => {
     const column_names = node.columns
       .map(col => {
         return {
-          name: col.name,
+          name: getColumnIdentifier(node, col),
           type: col.type,
           dimension: col.dimension !== null ? col.dimension.name : null,
           order: primary_key.includes(col.name)

@@ -7,12 +7,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
 from datajunction_server.construction.build_v3.preagg_matcher import (
+    is_join_back_safe,
+    join_back_coverage,
+    match_temporal_columns_to_grain,
+    temporal_output_name,
     find_matching_preagg,
+    get_preagg_dimension_column,
     get_preagg_measure_column,
-    get_required_measure_hashes,
+    get_required_measure_identities,
     get_temporal_partitions,
 )
-from datajunction_server.construction.build_v3.types import BuildContext, GrainGroup
+from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
+from datajunction_server.construction.build_v3.types import (
+    BuildContext,
+    GrainGroup,
+    JoinPath,
+    ResolvedDimension,
+)
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.column import Column
 from datajunction_server.database.dimensionlink import DimensionLink
@@ -23,6 +34,7 @@ from datajunction_server.database.preaggregation import (
     compute_expression_hash,
 )
 from datajunction_server.database.user import User
+from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.decompose import (
     Aggregability,
     AggregationRule,
@@ -32,6 +44,7 @@ from datajunction_server.models.decompose import (
 from datajunction_server.models.dimensionlink import JoinType
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import Granularity, PartitionType
+from datajunction_server.models.query import V3ColumnMetadata
 from datajunction_server.models.user import OAuthProvider
 from datajunction_server.sql.parsing.types import IntegerType, StringType
 
@@ -66,6 +79,49 @@ def make_preagg_measure(
         merge=merge,
         rule=AggregationRule(type=Aggregability.FULL),
         expr_hash=compute_expression_hash(expression),
+    )
+
+
+def test_get_preagg_dimension_column():
+    """Returns the mapped physical column when present, else the DJ column name."""
+    preagg = PreAggregation(
+        columns=[
+            V3ColumnMetadata(
+                name="status",
+                type="string",
+                semantic_name="v3.order_details.status",
+                semantic_type="dimension",
+                source_column="order_status",
+            ),
+        ],
+    )
+    ctx = BuildContext(session=None, metrics=[], dimensions=[])
+    # Mapped dimension -> its physical source column.
+    assert (
+        get_preagg_dimension_column(
+            ctx,
+            1,
+            preagg,
+            "v3.order_details.status",
+            "status",
+        )
+        == "order_status"
+    )
+    # A dimension not in the pre-agg's columns falls back to the DJ column name.
+    assert (
+        get_preagg_dimension_column(ctx, 1, preagg, "v3.order_details.other", "other")
+        == "other"
+    )
+    # No columns at all also falls back.
+    assert (
+        get_preagg_dimension_column(
+            ctx,
+            1,
+            PreAggregation(columns=None),
+            "v3.order_details.status",
+            "status",
+        )
+        == "status"
     )
 
 
@@ -154,28 +210,29 @@ def make_grain_group(
     )
 
 
-class TestGetRequiredMeasureHashes:
-    """Tests for get_required_measure_hashes function."""
+class TestGetRequiredMeasureIdentities:
+    """Tests for get_required_measure_identities function."""
 
     @pytest.mark.asyncio
-    async def test_returns_hashes_for_all_components(
+    async def test_returns_identities_for_all_components(
         self,
         session: AsyncSession,
         parent_node: Node,
         metric_node: Node,
     ):
-        """Should return a hash for each component in the grain group."""
+        """Should return an (expression hash, aggregation) pair per component."""
         components = [
             (metric_node, make_component("sum_revenue", "price * quantity")),
             (metric_node, make_component("sum_quantity", "quantity")),
         ]
         grain_group = make_grain_group(parent_node, components)
 
-        hashes = get_required_measure_hashes(grain_group)
+        identities = get_required_measure_identities(grain_group)
 
-        assert len(hashes) == 2
-        assert compute_expression_hash("price * quantity") in hashes
-        assert compute_expression_hash("quantity") in hashes
+        assert identities == {
+            (compute_expression_hash("price * quantity"), "SUM"),
+            (compute_expression_hash("quantity"), "SUM"),
+        }
 
     @pytest.mark.asyncio
     async def test_empty_components_returns_empty_set(
@@ -186,18 +243,18 @@ class TestGetRequiredMeasureHashes:
         """Should return empty set when grain group has no components."""
         grain_group = make_grain_group(parent_node, [])
 
-        hashes = get_required_measure_hashes(grain_group)
+        identities = get_required_measure_identities(grain_group)
 
-        assert hashes == set()
+        assert identities == set()
 
     @pytest.mark.asyncio
-    async def test_deduplicates_same_expression(
+    async def test_deduplicates_same_expression_and_aggregation(
         self,
         session: AsyncSession,
         parent_node: Node,
         metric_node: Node,
     ):
-        """Components with same expression should result in single hash."""
+        """Components with same expression AND aggregation collapse to one."""
         # Same expression, different component names
         components = [
             (metric_node, make_component("sum_rev_1", "price * quantity")),
@@ -205,9 +262,41 @@ class TestGetRequiredMeasureHashes:
         ]
         grain_group = make_grain_group(parent_node, components)
 
-        hashes = get_required_measure_hashes(grain_group)
+        identities = get_required_measure_identities(grain_group)
 
-        assert len(hashes) == 1
+        assert identities == {(compute_expression_hash("price * quantity"), "SUM")}
+
+    @pytest.mark.asyncio
+    async def test_same_expression_different_aggregation_are_distinct(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+        metric_node: Node,
+    ):
+        """The aggregation is part of the identity: SUM(x) and MAX(x) differ.
+
+        This is what stops a MAX metric from binding a SUM-built pre-agg column.
+        """
+        components = [
+            (metric_node, make_component("sum_price", "unit_price")),
+            (
+                metric_node,
+                make_component(
+                    "max_price",
+                    "unit_price",
+                    aggregation="MAX",
+                    merge="MAX",
+                ),
+            ),
+        ]
+        grain_group = make_grain_group(parent_node, components)
+
+        identities = get_required_measure_identities(grain_group)
+
+        assert identities == {
+            (compute_expression_hash("unit_price"), "SUM"),
+            (compute_expression_hash("unit_price"), "MAX"),
+        }
 
 
 class TestFindMatchingPreagg:
@@ -228,7 +317,12 @@ class TestFindMatchingPreagg:
         )
         grain_group = make_grain_group(parent_node, [])
 
-        result = find_matching_preagg(ctx, parent_node, ["dim1"], grain_group)
+        result = find_matching_preagg(
+            ctx,
+            parent_node,
+            _resolved_grain(ctx, ["dim1"]),
+            grain_group,
+        )
 
         assert result is None
 
@@ -259,7 +353,12 @@ class TestFindMatchingPreagg:
         )
         grain_group = make_grain_group(node, [])
 
-        result = find_matching_preagg(ctx, node, ["dim1"], grain_group)
+        result = find_matching_preagg(
+            ctx,
+            node,
+            _resolved_grain(ctx, ["dim1"]),
+            grain_group,
+        )
 
         assert result is None
 
@@ -282,7 +381,12 @@ class TestFindMatchingPreagg:
         components = [(metric_node, make_component("sum_x", "x"))]
         grain_group = make_grain_group(parent_node, components)
 
-        result = find_matching_preagg(ctx, parent_node, ["dim1"], grain_group)
+        result = find_matching_preagg(
+            ctx,
+            parent_node,
+            _resolved_grain(ctx, ["dim1"]),
+            grain_group,
+        )
 
         assert result is None
 
@@ -325,7 +429,12 @@ class TestFindMatchingPreagg:
 
         grain_group = make_grain_group(parent_node, [])  # No components
 
-        result = find_matching_preagg(ctx, parent_node, ["dim1"], grain_group)
+        result = find_matching_preagg(
+            ctx,
+            parent_node,
+            _resolved_grain(ctx, ["dim1"]),
+            grain_group,
+        )
 
         assert result is None
 
@@ -373,7 +482,7 @@ class TestFindMatchingPreagg:
         result = find_matching_preagg(
             ctx,
             parent_node,
-            ["dim1", "dim2"],  # Requested grain requires dim2
+            _resolved_grain(ctx, ["dim1", "dim2"]),  # Requested grain requires dim2
             grain_group,
         )
 
@@ -420,7 +529,12 @@ class TestFindMatchingPreagg:
         components = [(metric_node, make_component("sum_y", "y"))]  # Different expr
         grain_group = make_grain_group(parent_node, components)
 
-        result = find_matching_preagg(ctx, parent_node, ["dim1"], grain_group)
+        result = find_matching_preagg(
+            ctx,
+            parent_node,
+            _resolved_grain(ctx, ["dim1"]),
+            grain_group,
+        )
 
         assert result is None
 
@@ -467,10 +581,15 @@ class TestFindMatchingPreagg:
         components = [(metric_node, make_component("sum_x", "x"))]
         grain_group = make_grain_group(parent_node, components)
 
-        result = find_matching_preagg(ctx, parent_node, ["dim1"], grain_group)
+        result = find_matching_preagg(
+            ctx,
+            parent_node,
+            _resolved_grain(ctx, ["dim1"]),
+            grain_group,
+        )
 
         assert result is not None
-        assert result.id == preagg.id
+        assert result.preagg.id == preagg.id
 
     @pytest.mark.asyncio
     async def test_prefers_smaller_grain(
@@ -529,10 +648,15 @@ class TestFindMatchingPreagg:
         components = [(metric_node, make_component("sum_x", "x"))]
         grain_group = make_grain_group(parent_node, components)
 
-        result = find_matching_preagg(ctx, parent_node, ["dim1"], grain_group)
+        result = find_matching_preagg(
+            ctx,
+            parent_node,
+            _resolved_grain(ctx, ["dim1"]),
+            grain_group,
+        )
 
         assert result is not None
-        assert result.id == preagg_fine.id  # Fine grain preferred
+        assert result.preagg.id == preagg_fine.id  # Fine grain preferred
 
     @pytest.mark.asyncio
     async def test_exact_grain_match(
@@ -574,10 +698,15 @@ class TestFindMatchingPreagg:
         components = [(metric_node, make_component("sum_x", "x"))]
         grain_group = make_grain_group(parent_node, components)
 
-        result = find_matching_preagg(ctx, parent_node, ["dim1", "dim2"], grain_group)
+        result = find_matching_preagg(
+            ctx,
+            parent_node,
+            _resolved_grain(ctx, ["dim1", "dim2"]),
+            grain_group,
+        )
 
         assert result is not None
-        assert result.id == preagg.id
+        assert result.preagg.id == preagg.id
 
     @pytest.mark.asyncio
     async def test_superset_grain_match(
@@ -621,10 +750,143 @@ class TestFindMatchingPreagg:
         grain_group = make_grain_group(parent_node, components)
 
         # Requesting only dim1 - preagg can roll up
-        result = find_matching_preagg(ctx, parent_node, ["dim1"], grain_group)
+        result = find_matching_preagg(
+            ctx,
+            parent_node,
+            _resolved_grain(ctx, ["dim1"]),
+            grain_group,
+        )
 
         assert result is not None
-        assert result.id == preagg.id
+        assert result.preagg.id == preagg.id
+
+    @pytest.mark.asyncio
+    async def test_non_additive_measure_requires_exact_grain(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+        metric_node: Node,
+    ):
+        """A non-additive (LIMITED) measure must NOT be rolled up to a coarser
+        grain: a finer-grain pre-agg cannot satisfy a coarser-grain query
+        because re-aggregating a distinct count double-counts."""
+        avail = AvailabilityState(
+            catalog="test",
+            schema_="test",
+            table="preagg",
+            valid_through_ts=9999999999,
+        )
+        session.add(avail)
+        await session.flush()
+
+        preagg = PreAggregation(
+            node_revision_id=parent_node.current.id,
+            grain_columns=["dim1", "dim2"],
+            measures=[
+                make_preagg_measure(
+                    "num_users",
+                    "DISTINCT user_id",
+                    aggregation="COUNT",
+                ),
+            ],
+            sql="SELECT ...",
+            grain_group_hash="hash_na1",
+            preagg_hash="naex1",
+            availability_id=avail.id,
+        )
+        session.add(preagg)
+        await session.flush()
+
+        ctx = BuildContext(
+            session=session,
+            metrics=["test.metric"],
+            dimensions=["test.dim"],
+            use_materialized=True,
+            available_preaggs={parent_node.current.id: [preagg]},
+        )
+
+        component = MetricComponent(
+            name="num_users",
+            expression="DISTINCT user_id",
+            aggregation="COUNT",
+            merge="SUM",
+            rule=AggregationRule(type=Aggregability.LIMITED, level=["user_id"]),
+        )
+        grain_group = make_grain_group(parent_node, [(metric_node, component)])
+
+        # Requesting a coarser grain than the pre-agg: must NOT match.
+        result = find_matching_preagg(
+            ctx,
+            parent_node,
+            _resolved_grain(ctx, ["dim1"]),
+            grain_group,
+        )
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_non_additive_measure_matches_exact_grain(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+        metric_node: Node,
+    ):
+        """A non-additive measure still matches when the pre-agg grain is exactly
+        the requested grain (no roll-up needed, so the value is correct)."""
+        avail = AvailabilityState(
+            catalog="test",
+            schema_="test",
+            table="preagg",
+            valid_through_ts=9999999999,
+        )
+        session.add(avail)
+        await session.flush()
+
+        preagg = PreAggregation(
+            node_revision_id=parent_node.current.id,
+            grain_columns=["dim1", "dim2"],
+            measures=[
+                make_preagg_measure(
+                    "num_users",
+                    "DISTINCT user_id",
+                    aggregation="COUNT",
+                ),
+            ],
+            sql="SELECT ...",
+            grain_group_hash="hash_na2",
+            preagg_hash="naex2",
+            availability_id=avail.id,
+        )
+        session.add(preagg)
+        await session.flush()
+
+        ctx = BuildContext(
+            session=session,
+            metrics=["test.metric"],
+            dimensions=["test.dim"],
+            use_materialized=True,
+            available_preaggs={parent_node.current.id: [preagg]},
+        )
+
+        component = MetricComponent(
+            name="num_users",
+            expression="DISTINCT user_id",
+            aggregation="COUNT",
+            merge="SUM",
+            rule=AggregationRule(type=Aggregability.LIMITED, level=["user_id"]),
+        )
+        grain_group = make_grain_group(parent_node, [(metric_node, component)])
+
+        # Requesting exactly the pre-agg grain: no roll-up, so this is valid.
+        result = find_matching_preagg(
+            ctx,
+            parent_node,
+            _resolved_grain(ctx, ["dim1", "dim2"]),
+            grain_group,
+        )
+
+        assert result is not None
+        assert result.preagg.id == preagg.id
 
 
 class TestGetPreaggMeasureColumn:
@@ -666,6 +928,47 @@ class TestGetPreaggMeasureColumn:
         result = get_preagg_measure_column(preagg, component)
 
         assert result == "total_revenue"
+
+    @pytest.mark.asyncio
+    async def test_prefers_source_column(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """Externally-registered measures resolve to their physical source_column."""
+        avail = AvailabilityState(
+            catalog="test",
+            schema_="test",
+            table="preagg",
+            valid_through_ts=9999999999,
+        )
+        session.add(avail)
+        await session.flush()
+
+        measure = PreAggMeasure(
+            name="total_revenue",
+            expression="price * quantity",
+            aggregation="SUM",
+            merge="SUM",
+            rule=AggregationRule(type=Aggregability.FULL),
+            expr_hash=compute_expression_hash("price * quantity"),
+            source_column="revenue_physical",
+        )
+        preagg = PreAggregation(
+            node_revision_id=parent_node.current.id,
+            grain_columns=["dim1"],
+            measures=[measure],
+            sql="SELECT ...",
+            grain_group_hash="hash_sc",
+            preagg_hash="srccol1",
+            availability_id=avail.id,
+        )
+        session.add(preagg)
+        await session.flush()
+
+        component = make_component("sum_revenue", "price * quantity")
+
+        assert get_preagg_measure_column(preagg, component) == "revenue_physical"
 
     @pytest.mark.asyncio
     async def test_returns_none_when_no_match(
@@ -1000,3 +1303,523 @@ class TestGetTemporalPartitionsMultipleDimLinks:
 
         assert len(partitions) == 1
         assert partitions[0].column_name == "dateint"
+
+
+def _temporal_column(name: str, format_: str = "yyyyMMdd") -> Column:
+    """A temporal partition column, detached from any session."""
+    column = Column(name=name, type=IntegerType(), order=0)
+    column.partition = Partition(
+        type_=PartitionType.TEMPORAL,
+        granularity=Granularity.DAY,
+        format=format_,
+    )
+    return column
+
+
+def _preagg_with(columns: list[Column], grain_columns: list[str]) -> PreAggregation:
+    """A pre-agg over a detached parent revision carrying the given columns."""
+    preagg = PreAggregation(grain_columns=grain_columns)
+    preagg.node_revision = NodeRevision(
+        name="v3.order_details",
+        type=NodeType.TRANSFORM,
+        version="v1.0",
+        columns=columns,
+    )
+    return preagg
+
+
+class TestMatchTemporalColumnsToGrain:
+    """Pairing a parent's temporal partition columns with the grain entries they reach."""
+
+    def test_no_node_revision(self):
+        assert match_temporal_columns_to_grain(PreAggregation(grain_columns=[])) == []
+
+    def test_no_temporal_columns(self):
+        preagg = _preagg_with(
+            [Column(name="order_date", type=IntegerType(), order=0)],
+            ["v3.order_details.order_date"],
+        )
+        assert match_temporal_columns_to_grain(preagg) == []
+
+    def test_matched_via_the_columns_own_dimension_reference(self):
+        """Strategy 3: the column carries a dimension reference of its own."""
+        column = _temporal_column("date_int")
+        column.dimension = Node(name="v3.date", type=NodeType.DIMENSION)
+        preagg = _preagg_with([column], ["v3.date.week[order]"])
+        assert match_temporal_columns_to_grain(preagg) == [
+            (column, "v3.date.week[order]"),
+        ]
+
+    def test_dimension_reference_not_in_grain(self):
+        column = _temporal_column("date_int")
+        column.dimension = Node(name="v3.date", type=NodeType.DIMENSION)
+        preagg = _preagg_with([column], ["v3.order_details.status"])
+        assert match_temporal_columns_to_grain(preagg) == [(column, None)]
+
+    def test_second_column_reuses_the_link_map(self):
+        """The dimension-link map is built once, not per temporal column."""
+        first = _temporal_column("date_int")
+        second = _temporal_column("hour_int")
+        preagg = _preagg_with([first, second], ["v3.order_details.status"])
+        assert match_temporal_columns_to_grain(preagg) == [
+            (first, None),
+            (second, None),
+        ]
+
+
+class TestTemporalOutputName:
+    """Naming the output column from the grain entry a temporal column matched."""
+
+    def test_falls_back_to_the_source_name(self):
+        assert (
+            temporal_output_name(_temporal_column("order_date"), None) == "order_date"
+        )
+
+    def test_plain_grain_reference(self):
+        column = _temporal_column("order_date")
+        assert (
+            temporal_output_name(column, "v3.order_details.order_date") == "order_date"
+        )
+
+    def test_role_qualified_grain_reference(self):
+        column = _temporal_column("date_int")
+        assert temporal_output_name(column, "v3.date.week[order]") == "week_order"
+
+
+def _dimension_node(name: str, columns: list[str], primary_key: list[str]) -> Node:
+    """A dimension node whose current revision declares a primary key."""
+    from datajunction_server.database.attributetype import (
+        AttributeType,
+        ColumnAttribute,
+    )
+
+    pk_attr = AttributeType(namespace="system", name="primary_key")
+    cols = []
+    for order, col_name in enumerate(columns):
+        col = Column(name=col_name, type=IntegerType(), order=order)
+        if col_name in primary_key:
+            col.attributes = [ColumnAttribute(attribute_type=pk_attr)]
+        cols.append(col)
+    node = Node(name=name, type=NodeType.DIMENSION, current_version="v1.0")
+    node.current = NodeRevision(
+        name=name,
+        type=NodeType.DIMENSION,
+        version="v1.0",
+        columns=cols,
+    )
+    return node
+
+
+def _ctx_with(dimension: Node, role: str = "customer") -> BuildContext:
+    """A build context knowing one dimension, reachable at ``role``.
+
+    ``join_paths`` still backs reference canonicalization; the hop count that
+    decides join-back safety now travels on the ResolvedDimension instead.
+    """
+    ctx = BuildContext(session=None, metrics=[], dimensions=[])
+    ctx.nodes[dimension.name] = dimension
+    ctx.join_paths[(1, dimension.name, role)] = [DimensionLink(join_sql="a = b")]
+    return ctx
+
+
+def _resolved_grain(
+    ctx: BuildContext,
+    refs: list[str],
+    hops: int = 1,
+) -> list[ResolvedDimension]:
+    """Resolve dimension references the way the dimension resolver would.
+
+    A reference naming a dimension the context knows gets a join path of ``hops``
+    links; anything else is treated as locally owned.
+    """
+    resolved: list[ResolvedDimension] = []
+    for ref in refs:
+        try:
+            parsed = parse_dimension_ref(ref)
+            node_name, column_name, role = (
+                parsed.node_name,
+                parsed.column_name,
+                parsed.role,
+            )
+        except DJInvalidInputException:
+            node_name, column_name, role = "", ref, None
+        dim_node = ctx.nodes.get(node_name)
+        join_path = (
+            JoinPath(
+                links=[DimensionLink(join_sql="a = b") for _ in range(hops)],
+                target_dimension=dim_node,
+                role=role,
+            )
+            if dim_node
+            else None
+        )
+        resolved.append(
+            ResolvedDimension(
+                original_ref=ref,
+                node_name=node_name,
+                column_name=column_name,
+                role=role,
+                join_path=join_path,
+                is_local=join_path is None,
+            ),
+        )
+    return resolved
+
+
+class TestJoinBackCoverage:
+    """Deciding whether a requested attribute is one join off a retained key."""
+
+    def test_attribute_of_a_dimension_whose_key_is_retained(self):
+        ctx = _ctx_with(
+            _dimension_node("v3.customer", ["customer_id", "name"], ["customer_id"]),
+        )
+        resolved = _resolved_grain(
+            ctx,
+            ["v3.customer.name[customer]", "v3.order_details.status"],
+        )
+        coverage = join_back_coverage(
+            ctx,
+            1,
+            resolved,
+            {"v3.customer.customer_id[customer]", "v3.order_details.status"},
+        )
+        assert coverage is not None
+        assert len(coverage) == 1
+        assert coverage[0].dimension == resolved[0]
+        assert coverage[0].key_refs == ("v3.customer.customer_id[customer]",)
+        assert coverage[0].link is resolved[0].join_path.links[0]
+
+    def test_retained_column_is_not_the_key(self):
+        """Joining on a non-key column can match many rows and multiply measures."""
+        ctx = _ctx_with(
+            _dimension_node(
+                "v3.customer",
+                ["customer_id", "name", "location_id"],
+                ["customer_id"],
+            ),
+        )
+        assert (
+            join_back_coverage(
+                ctx,
+                1,
+                _resolved_grain(ctx, ["v3.customer.name[customer]"]),
+                {"v3.customer.location_id[customer]"},
+            )
+            is None
+        )
+
+    def test_composite_key_only_partly_retained(self):
+        ctx = _ctx_with(
+            _dimension_node(
+                "v3.customer",
+                ["customer_id", "region", "name"],
+                ["customer_id", "region"],
+            ),
+        )
+        assert (
+            join_back_coverage(
+                ctx,
+                1,
+                _resolved_grain(ctx, ["v3.customer.name[customer]"]),
+                {"v3.customer.customer_id[customer]"},
+            )
+            is None
+        )
+
+    def test_composite_key_fully_retained(self):
+        ctx = _ctx_with(
+            _dimension_node(
+                "v3.customer",
+                ["customer_id", "region", "name"],
+                ["customer_id", "region"],
+            ),
+        )
+        coverage = join_back_coverage(
+            ctx,
+            1,
+            _resolved_grain(ctx, ["v3.customer.name[customer]"]),
+            {"v3.customer.customer_id[customer]", "v3.customer.region[customer]"},
+        )
+        assert coverage is not None
+        assert coverage[0].key_refs == (
+            "v3.customer.customer_id[customer]",
+            "v3.customer.region[customer]",
+        )
+
+    def test_role_must_match(self):
+        """Same dimension at another role is a different join path."""
+        ctx = _ctx_with(
+            _dimension_node("v3.customer", ["customer_id", "name"], ["customer_id"]),
+            role="billing",
+        )
+        assert (
+            join_back_coverage(
+                ctx,
+                1,
+                _resolved_grain(ctx, ["v3.customer.name[billing]"]),
+                {"v3.customer.customer_id[customer]"},
+            )
+            is None
+        )
+
+    def test_two_dimensions_each_joined_back(self):
+        ctx = BuildContext(session=None, metrics=[], dimensions=[])
+        for name, cols in (
+            ("v3.customer", ["customer_id", "name"]),
+            ("v3.product", ["product_id", "category"]),
+        ):
+            node = _dimension_node(name, cols, [cols[0]])
+            ctx.nodes[name] = node
+            ctx.join_paths[(1, name, "")] = [DimensionLink(join_sql="a = b")]
+        coverage = join_back_coverage(
+            ctx,
+            1,
+            _resolved_grain(ctx, ["v3.customer.name", "v3.product.category"]),
+            {"v3.customer.customer_id", "v3.product.product_id"},
+        )
+        assert coverage is not None
+        assert [c.dimension.original_ref for c in coverage] == [
+            "v3.customer.name",
+            "v3.product.category",
+        ]
+
+    def test_dimension_not_loaded(self):
+        """Nothing to read a primary key from, so nothing can be joined back."""
+        ctx = _ctx_with(
+            _dimension_node("v3.customer", ["customer_id", "name"], ["customer_id"]),
+        )
+        del ctx.nodes["v3.customer"]
+        assert (
+            join_back_coverage(
+                ctx,
+                1,
+                _resolved_grain(ctx, ["v3.customer.name"]),
+                {"v3.customer.customer_id"},
+            )
+            is None
+        )
+
+    def test_dimension_without_a_primary_key(self):
+        ctx = _ctx_with(_dimension_node("v3.customer", ["customer_id", "name"], []))
+        assert (
+            join_back_coverage(
+                ctx,
+                1,
+                _resolved_grain(ctx, ["v3.customer.name[customer]"]),
+                {"v3.customer.customer_id[customer]"},
+            )
+            is None
+        )
+
+    def test_locally_owned_column(self):
+        """A bare column names no dimension node, so there is nothing to join."""
+        ctx = _ctx_with(
+            _dimension_node("v3.customer", ["customer_id", "name"], ["customer_id"]),
+        )
+        assert (
+            join_back_coverage(ctx, 1, _resolved_grain(ctx, ["status"]), set()) is None
+        )
+
+    def test_multi_hop_dimension_is_not_covered(self):
+        """The seam refuses chains, so a two-link path can't be joined back."""
+        ctx = _ctx_with(
+            _dimension_node("v3.customer", ["customer_id", "name"], ["customer_id"]),
+        )
+        assert (
+            join_back_coverage(
+                ctx,
+                1,
+                _resolved_grain(ctx, ["v3.customer.name[customer]"], hops=2),
+                {"v3.customer.customer_id[customer]"},
+            )
+            is None
+        )
+
+    def test_requested_column_is_itself_the_key(self):
+        """A key request would have matched directly; reaching here means it's absent."""
+        ctx = _ctx_with(
+            _dimension_node("v3.customer", ["customer_id", "name"], ["customer_id"]),
+        )
+        assert (
+            join_back_coverage(
+                ctx,
+                1,
+                _resolved_grain(ctx, ["v3.customer.customer_id[customer]"]),
+                set(),
+            )
+            is None
+        )
+
+
+class TestIsJoinBackSafe:
+    """The seam that a declared join cardinality will one day replace."""
+
+    def test_single_hop_is_safe(self):
+        ctx = _ctx_with(
+            _dimension_node("v3.customer", ["customer_id", "name"], ["customer_id"]),
+        )
+        resolved = _resolved_grain(ctx, ["v3.customer.name[customer]"])
+        assert is_join_back_safe(resolved[0].join_path) is True
+
+    def test_multi_hop_is_refused_for_now(self):
+        ctx = _ctx_with(
+            _dimension_node("v3.customer", ["customer_id", "name"], ["customer_id"]),
+        )
+        resolved = _resolved_grain(ctx, ["v3.customer.name[customer]"], hops=2)
+        assert is_join_back_safe(resolved[0].join_path) is False
+
+    def test_no_path_is_not_safe(self):
+        assert is_join_back_safe(None) is False
+
+
+class TestFindMatchingPreaggJoinBack:
+    """find_matching_preagg reaching a request by joining a retained key."""
+
+    def _setup(self, session, parent_node, metric_node, grain_columns, preagg_hash):
+        avail = AvailabilityState(
+            catalog="test",
+            schema_="test",
+            table="preagg",
+            valid_through_ts=9999999999,
+        )
+        session.add(avail)
+        return avail, PreAggregation(
+            node_revision_id=parent_node.current.id,
+            grain_columns=grain_columns,
+            measures=[make_preagg_measure("sum_x", "x")],
+            sql="SELECT ...",
+            grain_group_hash=preagg_hash,
+            preagg_hash=preagg_hash,
+        )
+
+    def _customer_ctx(self, session, parent_node, preaggs):
+        ctx = BuildContext(
+            session=session,
+            metrics=["test.metric"],
+            dimensions=["test.dim"],
+            use_materialized=True,
+            available_preaggs={parent_node.current.id: preaggs},
+        )
+        customer = _dimension_node(
+            "v3.customer",
+            ["customer_id", "name"],
+            ["customer_id"],
+        )
+        ctx.nodes["v3.customer"] = customer
+        ctx.join_paths[(parent_node.current.id, "v3.customer", "")] = [
+            DimensionLink(join_sql="a = b"),
+        ]
+        return ctx
+
+    @pytest.mark.asyncio
+    async def test_matches_by_joining_back_to_a_retained_key(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+        metric_node: Node,
+    ):
+        """An attribute absent from the grain is reachable via the retained key."""
+        avail, preagg = self._setup(
+            session,
+            parent_node,
+            metric_node,
+            ["v3.customer.customer_id"],
+            "jb01",
+        )
+        await session.flush()
+        preagg.availability_id = avail.id
+        session.add(preagg)
+        await session.flush()
+
+        ctx = self._customer_ctx(session, parent_node, [preagg])
+        grain_group = make_grain_group(
+            parent_node,
+            [(metric_node, make_component("sum_x", "x"))],
+        )
+        result = find_matching_preagg(
+            ctx,
+            parent_node,
+            _resolved_grain(ctx, ["v3.customer.name"]),
+            grain_group,
+        )
+        assert result is not None
+        assert result.preagg.id == preagg.id
+
+    @pytest.mark.asyncio
+    async def test_direct_match_beats_a_join_back_at_finer_grain(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+        metric_node: Node,
+    ):
+        """Joins rank ahead of grain size, so a direct scan always wins."""
+        # The joining candidate has the smaller grain, so grain size alone would
+        # pick it over the one that covers the request outright.
+        avail_a, joining = self._setup(
+            session,
+            parent_node,
+            metric_node,
+            ["v3.customer.customer_id"],
+            "jb03a",
+        )
+        avail_b, direct = self._setup(
+            session,
+            parent_node,
+            metric_node,
+            ["v3.customer.name", "dim2", "dim3"],
+            "jb03b",
+        )
+        await session.flush()
+        joining.availability_id = avail_a.id
+        direct.availability_id = avail_b.id
+        session.add_all([joining, direct])
+        await session.flush()
+
+        ctx = self._customer_ctx(session, parent_node, [joining, direct])
+        grain_group = make_grain_group(
+            parent_node,
+            [(metric_node, make_component("sum_x", "x"))],
+        )
+        result = find_matching_preagg(
+            ctx,
+            parent_node,
+            _resolved_grain(ctx, ["v3.customer.name"]),
+            grain_group,
+        )
+        assert result is not None
+        assert result.preagg.id == direct.id
+        assert result.join_back == ()
+
+    @pytest.mark.asyncio
+    async def test_non_additive_measure_never_joins_back(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+        metric_node: Node,
+    ):
+        """Exact-grain demands set equality, which a join back can never satisfy."""
+        avail, preagg = self._setup(
+            session,
+            parent_node,
+            metric_node,
+            ["v3.customer.customer_id"],
+            "jb04",
+        )
+        await session.flush()
+        preagg.availability_id = avail.id
+        session.add(preagg)
+        await session.flush()
+
+        ctx = self._customer_ctx(session, parent_node, [preagg])
+        limited = make_component("count_distinct_x", "x")
+        limited.rule = AggregationRule(type=Aggregability.LIMITED, level=["x"])
+        grain_group = make_grain_group(parent_node, [(metric_node, limited)])
+        assert (
+            find_matching_preagg(
+                ctx,
+                parent_node,
+                _resolved_grain(ctx, ["v3.customer.name"]),
+                grain_group,
+            )
+            is None
+        )

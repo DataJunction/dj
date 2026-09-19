@@ -4,6 +4,7 @@ import DJClientContext from '../../providers/djclient';
 import { Form, Formik } from 'formik';
 import EditIcon from '../../icons/EditIcon';
 import { displayMessageAfterSubmit } from '../../../utils/form';
+import { getColumnIdentifier } from '../../utils/column';
 
 export default function EditColumnDescriptionPopover({
   column,
@@ -11,6 +12,7 @@ export default function EditColumnDescriptionPopover({
   onSubmit,
 }) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
+  const columnIdentifier = getColumnIdentifier(node, column);
   const [popoverAnchor, setPopoverAnchor] = useState(false);
   const ref = useRef(null);
 
@@ -67,7 +69,7 @@ export default function EditColumnDescriptionPopover({
       >
         <Formik
           initialValues={{
-            column: column.name,
+            column: columnIdentifier,
             node: node.name,
             description: column.description || '',
           }}
@@ -90,7 +92,7 @@ export default function EditColumnDescriptionPopover({
                 <input
                   hidden={true}
                   name="column"
-                  value={column.name}
+                  value={columnIdentifier}
                   readOnly={true}
                 />
                 <input

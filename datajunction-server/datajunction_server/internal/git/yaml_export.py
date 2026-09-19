@@ -15,7 +15,7 @@ import logging
 import tarfile
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,16 +34,25 @@ _logger = logging.getLogger(__name__)
 async def fetch_existing_yaml_map(
     github_repo_path: str,
     git_branch: str,
-    git_path: Optional[str],
-) -> Dict[str, str]:
+    git_path: str | None,
+    *,
+    raise_on_error: bool = False,
+) -> dict[str, str]:
     """
     Download the configured git branch as a tarball and return a mapping of
     `<git_path>/<file>.yaml` -> file contents for every YAML in the repo
     (or under git_path if configured).
 
-    Returns an empty dict if the archive cannot be fetched or extracted.
+    When ``raise_on_error`` is False (default) this returns an empty dict if the
+    archive cannot be fetched — appropriate for best-effort comment preservation.
+
+    When ``raise_on_error`` is True the underlying ``GitHubServiceError`` is
+    re-raised instead. Callers that use this map as the *baseline* for a commit
+    (e.g. sync-to-git, which computes orphan deletions from it) must pass True:
+    silently treating an unreadable branch as empty would let the commit clobber
+    or mis-diff the branch — a silent failure with real data consequences.
     """
-    existing_files_map: Dict[str, str] = {}
+    existing_files_map: dict[str, str] = {}
 
     try:
         github = GitHubService()
@@ -53,6 +62,8 @@ async def fetch_existing_yaml_map(
             format="tarball",
         )
     except GitHubServiceError as e:
+        if raise_on_error:
+            raise
         _logger.warning(
             "Failed to download git archive for namespace export merge: %s",
             e,
@@ -88,7 +99,7 @@ async def fetch_existing_yaml_map(
     return existing_files_map
 
 
-def _node_spec_to_file_path(spec_name: str, git_path: Optional[str]) -> str:
+def _node_spec_to_file_path(spec_name: str, git_path: str | None) -> str:
     """
     Convert a node spec name (with `${prefix}` injected) into the YAML
     file path within the git repository.
@@ -110,9 +121,9 @@ def _node_spec_to_file_path(spec_name: str, git_path: Optional[str]) -> str:
 async def generate_namespace_yaml_files(
     session: AsyncSession,
     namespace: str,
-    existing_files_map: Dict[str, str],
-    git_path: Optional[str] = None,
-) -> List[Dict[str, Any]]:
+    existing_files_map: dict[str, str],
+    git_path: str | None = None,
+) -> list[dict[str, Any]]:
     """
     Generate YAML files for every node in a namespace.
 
@@ -130,7 +141,7 @@ async def generate_namespace_yaml_files(
     """
     node_specs = await get_node_specs_for_export(session, namespace)
 
-    files: List[Dict[str, Any]] = []
+    files: list[dict[str, Any]] = []
     for node_spec in node_specs:
         file_path = _node_spec_to_file_path(node_spec.name, git_path)
         existing_yaml = existing_files_map.get(file_path)

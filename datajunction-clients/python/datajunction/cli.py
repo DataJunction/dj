@@ -5,7 +5,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from rich import box
 from rich.console import Console, Group
@@ -46,6 +46,8 @@ class DJCLI:
         namespace: str | None = None,
         verbose: bool = False,
         force: bool = False,
+        allow_empty: bool = False,
+        format: str = "text",
     ):
         """
         Alias for deploy without dryrun.
@@ -55,6 +57,8 @@ class DJCLI:
             namespace=namespace,
             verbose=verbose,
             force=force,
+            allow_empty=allow_empty,
+            format=format,
         )
 
     def dryrun(
@@ -141,7 +145,16 @@ class DJCLI:
                     "display_name": getattr(node, "display_name", None),
                     "query": getattr(node, "query", None),
                     "columns": [
-                        {"name": col.name, "type": col.type} for col in node.columns
+                        {
+                            "name": col.name
+                            + (
+                                (col.dimension_column or "")
+                                if node.type == "cube"
+                                else ""
+                            ),
+                            "type": col.type,
+                        }
+                        for col in node.columns
                     ]
                     if hasattr(node, "columns") and node.columns
                     else [],
@@ -196,7 +209,7 @@ class DJCLI:
     def list_objects(
         self,
         object_type: str,
-        namespace: Optional[str] = None,
+        namespace: str | None = None,
         format: str = "text",
     ):
         """
@@ -244,15 +257,15 @@ class DJCLI:
 
     def get_sql(
         self,
-        node_name: Optional[str] = None,
-        metrics: Optional[list[str]] = None,
-        dimensions: Optional[list[str]] = None,
-        filters: Optional[list[str]] = None,
-        orderby: Optional[list[str]] = None,
-        limit: Optional[int] = None,
-        dialect: Optional[str] = None,
-        engine_name: Optional[str] = None,
-        engine_version: Optional[str] = None,
+        node_name: str | None = None,
+        metrics: list[str] | None = None,
+        dimensions: list[str] | None = None,
+        filters: list[str] | None = None,
+        orderby: list[str] | None = None,
+        limit: int | None = None,
+        dialect: str | None = None,
+        engine_name: str | None = None,
+        engine_version: str | None = None,
     ):
         """
         Generate SQL for a node or metrics.
@@ -304,9 +317,9 @@ class DJCLI:
     def show_plan(
         self,
         metrics: list[str],
-        dimensions: Optional[list[str]] = None,
-        filters: Optional[list[str]] = None,
-        dialect: Optional[str] = None,
+        dimensions: list[str] | None = None,
+        filters: list[str] | None = None,
+        dialect: str | None = None,
         format: str = "text",
     ):
         """
@@ -476,8 +489,8 @@ class DJCLI:
         try:
             node = self.builder_client.node(node_name)
 
-            upstreams = []
-            downstreams = []
+            upstreams: list[Any] = []
+            downstreams: list[Any] = []
 
             if direction in ["upstream", "both"]:
                 upstreams = node.get_upstreams() if node.type != "source" else []
@@ -559,13 +572,13 @@ class DJCLI:
 
     def get_data(
         self,
-        node_name: Optional[str] = None,
-        metrics: Optional[list[str]] = None,
-        dimensions: Optional[list[str]] = None,
-        filters: Optional[list[str]] = None,
-        engine_name: Optional[str] = None,
-        engine_version: Optional[str] = None,
-        limit: Optional[int] = None,
+        node_name: str | None = None,
+        metrics: list[str] | None = None,
+        dimensions: list[str] | None = None,
+        filters: list[str] | None = None,
+        engine_name: str | None = None,
+        engine_version: str | None = None,
+        limit: int | None = None,
         format: str = "table",
     ):
         """
@@ -657,7 +670,7 @@ class DJCLI:
         namespace: str,
         repo: str,
         default_branch: str,
-        git_path: Optional[str] = None,
+        git_path: str | None = None,
         git_only: bool = False,
     ):
         """Initialize git configuration on a namespace."""
@@ -892,11 +905,20 @@ class DJCLI:
             help="Force update all nodes even if they are unchanged",
         )
         push_parser.add_argument(
+            "--allow-empty",
+            action="store_true",
+            help=(
+                "Allow a push with no node files to soft-delete all nodes in the "
+                "target namespace (otherwise refused, to guard against an "
+                "accidental empty or mistyped directory)"
+            ),
+        )
+        push_parser.add_argument(
             "--format",
             type=str,
             default="text",
             choices=["text", "json"],
-            help="Output format for dry run (default: text)",
+            help="Output format for the deployment result (default: text)",
         )
         # Deployment source tracking flags
         push_parser.add_argument(
@@ -1502,12 +1524,18 @@ class DJCLI:
                     namespace=args.namespace,
                     verbose=args.verbose,
                     force=args.force,
+                    allow_empty=args.allow_empty,
+                    format=args.format,
                 )
             except DJDeploymentFailure:
-                # Errors already displayed in the deployment panel
+                # Errors already displayed in the deployment panel (or, in
+                # --format json mode, in the JSON already printed to stdout)
                 raise SystemExit(1)
             except DJClientException as exc:
-                Console().print(f"[red bold]ERROR:[/red bold] {exc}")
+                if args.format == "json":
+                    print(json.dumps({"error": str(exc)}, indent=2))
+                else:
+                    Console().print(f"[red bold]ERROR:[/red bold] {exc}")
                 raise SystemExit(1)
         elif args.command == "generate-codeowners":
             count = DeploymentService.build_codeowners(
@@ -1633,8 +1661,6 @@ class DJCLI:
         agents: bool = True,
     ):
         """Configure Claude Code integration with DJ."""
-        import json
-
         console = Console()
 
         console.print(
@@ -1651,131 +1677,28 @@ class DJCLI:
                     "[bold]📚 Installing DJ skills[/bold]\n",
                 )
 
-                from datajunction import __version__ as dj_version
-                from importlib.resources import files
+                from importlib.resources import files as _res_files
 
-                # All bundled DJ skills. ``datajunction`` is the core concepts
-                # skill (always loaded); the others are audience-specific
-                # extensions that compose on top of it.
-                bundled_skills: list[dict[str, Any]] = [
-                    {
-                        "name": "datajunction",
-                        "filename": "datajunction.md",
-                        "description": "Core DataJunction concepts and vocabulary",
-                        "keywords": [
-                            "DataJunction",
-                            "DJ",
-                            "semantic layer",
-                            "dimension link",
-                            "star schema",
-                            "node types",
-                        ],
-                    },
-                    {
-                        "name": "datajunction-query",
-                        "filename": "datajunction-query.md",
-                        "description": "Querying DJ metrics via MCP tools and APIs",
-                        "keywords": [
-                            "query metric",
-                            "generate SQL",
-                            "get metric data",
-                            "search_nodes",
-                            "build_metric_sql",
-                            "common dimensions",
-                        ],
-                    },
-                    {
-                        "name": "datajunction-semantic-model",
-                        "filename": "datajunction-semantic-model.md",
-                        "description": "DJ semantic modeling: query-to-nodes decomposition, ratio decomposition, naming, ownership",
-                        "keywords": [
-                            "semantic modeling",
-                            "decompose query",
-                            "ratio metric",
-                            "derived metric",
-                            "base metric",
-                            "metric naming",
-                            "namespace organization",
-                            "node ownership",
-                        ],
-                    },
-                    {
-                        "name": "datajunction-repo",
-                        "filename": "datajunction-repo.md",
-                        "description": "Authoring DJ nodes via YAML in a git-backed repository",
-                        "keywords": [
-                            "YAML nodes",
-                            "repo-backed namespace",
-                            "feature branch",
-                            "git workflow",
-                            "cube YAML",
-                            "metric YAML",
-                            "temporal partition",
-                        ],
-                    },
-                    {
-                        "name": "datajunction-api",
-                        "filename": "datajunction-api.md",
-                        "description": "Direct REST API authoring of DJ nodes for exploration / prototyping",
-                        "keywords": [
-                            "DJ API",
-                            "REST API",
-                            "curl",
-                            "POST nodes",
-                            "API authoring",
-                            "prototyping",
-                        ],
-                    },
-                ]
-
-                missing: list[str] = []
-                for skill in bundled_skills:
-                    dir_name = skill["name"]
-                    skill_dir = output_dir / dir_name
-                    skill_file = skill_dir / "SKILL.md"
-
-                    console.print(f"Installing [cyan]{dir_name}[/cyan]...")
-
-                    try:
-                        skill_file_path = files("datajunction").joinpath(
-                            f"skills/{skill['filename']}",
-                        )
-                        bundled_skill = skill_file_path.read_text(encoding="utf-8")
-                    except FileNotFoundError:  # pragma: no cover
-                        missing.append(skill["filename"])
+                skills_src = _res_files("datajunction").joinpath("skills")
+                installed = 0
+                for entry in sorted(skills_src.iterdir(), key=lambda p: p.name):
+                    src_skill = entry.joinpath("SKILL.md")
+                    if not entry.is_dir() or not src_skill.is_file():
                         continue
-
-                    skill_dir.mkdir(parents=True, exist_ok=True)
-
-                    with open(skill_file, "w") as f:
-                        f.write(bundled_skill)
-
-                    metadata_file = skill_dir / "metadata.json"
-                    with open(metadata_file, "w") as f:
-                        metadata = {
-                            "name": skill["name"],
-                            "version": dj_version,
-                            "description": skill["description"],
-                            "keywords": skill["keywords"],
-                            "metadata": {
-                                "source": "bundled",
-                                "dj_version": dj_version,
-                            },
-                        }
-                        json.dump(metadata, f, indent=2)
-
-                    console.print(f"[green]✓ Installed {skill_dir}/[/green]")
-                    console.print(
-                        f"  [dim]├─ SKILL.md ({len(bundled_skill)} chars)[/dim]",
+                    name = entry.name
+                    dest_dir = output_dir / name
+                    dest_dir.mkdir(parents=True, exist_ok=True)
+                    (dest_dir / "SKILL.md").write_text(
+                        src_skill.read_text(encoding="utf-8"),
+                        encoding="utf-8",
                     )
-                    console.print(
-                        f"  [dim]└─ metadata.json (v{dj_version})[/dim]\n",
-                    )
+                    console.print(f"[green]✓ Installed {dest_dir}/[/green]")
+                    installed += 1
 
-                if missing:  # pragma: no cover
+                if not installed:  # pragma: no cover
                     console.print(
-                        f"[red]✗ Bundled skills not found: {', '.join(missing)}. "
-                        f"Please ensure datajunction is properly installed.[/red]",
+                        "[red]✗ No bundled skills found. "
+                        "Please ensure datajunction is properly installed.[/red]",
                     )
                 else:
                     console.print(
@@ -1893,7 +1816,7 @@ model: inherit
         # Load existing config or create new one
         if config_path.exists():
             try:
-                with open(config_path, "r") as f:
+                with open(config_path) as f:
                     config = json.load(f)
             except json.JSONDecodeError:
                 console.print(

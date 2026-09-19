@@ -5,7 +5,11 @@ Tests for groups API endpoints.
 import pytest
 from httpx import AsyncClient
 
-from datajunction_server.internal.access.authorization import AuthorizationService
+from datajunction_server.internal.access.authorization import (
+    AuthorizationService,
+    PassthroughAuthorizationService,
+    RBACAuthorizationService,
+)
 from datajunction_server.models import access
 
 VALIDATOR_AUTH_SERVICE = (
@@ -27,6 +31,18 @@ class DenyManageAuthorizationService(AuthorizationService):
             )
             for request in requests
         ]
+
+    def authorize_explicit_grants(self, auth_context, requests):
+        return self.authorize(auth_context, requests)
+
+
+@pytest.fixture(autouse=True)
+def allow_control_plane_by_default(mocker):
+    """Keep existing endpoint tests focused on group behavior."""
+    mocker.patch(
+        VALIDATOR_AUTH_SERVICE,
+        lambda: PassthroughAuthorizationService(),
+    )
 
 
 # Group Registration Tests
@@ -366,6 +382,23 @@ async def test_group_lifecycle(
 
 
 # MANAGE Enforcement Tests
+
+
+@pytest.mark.asyncio
+async def test_permissive_policy_cannot_authorize_group_administration(
+    module__client: AsyncClient,
+    mocker,
+) -> None:
+    """Group administration requires an explicit global MANAGE grant."""
+    mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: RBACAuthorizationService())
+
+    response = await module__client.post(
+        "/groups/",
+        params={"username": "permissive-blocked-team"},
+    )
+
+    assert response.status_code == 403
+    assert "Access denied" in response.json()["message"]
 
 
 @pytest.mark.asyncio

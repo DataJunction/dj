@@ -1,6 +1,6 @@
 """Tag database schema."""
 
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     JSON,
@@ -54,7 +54,7 @@ class Tag(Base):
     )
     name: Mapped[str] = mapped_column(String, unique=True)
     tag_type: Mapped[str]
-    description: Mapped[Optional[str]]
+    description: Mapped[str | None]
     display_name: Mapped[str] = mapped_column(  # pragma: no cover
         String,
         insert_default=lambda context: labelize(context.current_parameters.get("name")),
@@ -66,9 +66,9 @@ class Tag(Base):
         foreign_keys=[created_by_id],
         lazy="selectin",
     )
-    tag_metadata: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, default={})
+    tag_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSON, default={})
 
-    nodes: Mapped[List["Node"]] = relationship(
+    nodes: Mapped[list["Node"]] = relationship(
         back_populates="tags",
         secondary="tagnoderelationship",
         primaryjoin="TagNodeRelationship.tag_id==Tag.id",
@@ -154,7 +154,7 @@ class Tag(Base):
         cls,
         session: AsyncSession,
         tag_name: str,
-        options: List[ExecutableOption] | None = None,
+        options: list[ExecutableOption] | None = None,
     ) -> list["Node"]:
         """
         Find nodes with the tag.

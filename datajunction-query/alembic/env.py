@@ -7,7 +7,7 @@ from logging.config import fileConfig
 
 from sqlalchemy import create_engine
 
-from alembic import context
+from alembic import context  # type: ignore[attr-defined]
 
 DEFAULT_URI = "postgresql+psycopg://dj:dj@postgres_metadata:5432/dj"
 

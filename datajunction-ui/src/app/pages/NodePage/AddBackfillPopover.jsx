@@ -5,6 +5,7 @@ import { Field, Form, Formik } from 'formik';
 import { displayMessageAfterSubmit } from '../../../utils/form';
 import PartitionValueForm from './PartitionValueForm';
 import LoadingIcon from '../../icons/LoadingIcon';
+import { getColumnIdentifier } from '../../utils/column';
 
 export default function AddBackfillPopover({
   node,
@@ -35,13 +36,14 @@ export default function AddBackfillPopover({
   };
 
   for (const partitionCol of partitionColumns) {
+    const columnIdentifier = getColumnIdentifier(node, partitionCol);
     if (partitionCol.partition.type_ === 'temporal') {
-      initialValues.partitionValues[partitionCol.name] = {
+      initialValues.partitionValues[columnIdentifier] = {
         from: '',
         to: '',
       };
     } else {
-      initialValues.partitionValues[partitionCol.name] = '';
+      initialValues.partitionValues[columnIdentifier] = '';
     }
   }
 
@@ -144,11 +146,12 @@ export default function AddBackfillPopover({
                 {node.columns
                   .filter(col => col.partition !== null)
                   .map(col => {
+                    const columnIdentifier = getColumnIdentifier(node, col);
                     return (
                       <PartitionValueForm
                         col={col}
-                        materialization={materialization}
-                        key={col.name}
+                        columnIdentifier={columnIdentifier}
+                        key={columnIdentifier}
                       />
                     );
                   })}

@@ -1976,15 +1976,25 @@ async def _setup_team_ownership(client: AsyncClient) -> None:
       - default.repair_order_details.owners == ['team-analytics']  (group only)
       - default.repair_orders_fact still has 'dj' as an owner
     """
-    # Register the group and add 'dj' as a member.
-    resp = await client.post("/groups/", params={"username": "team-analytics"})
-    assert resp.status_code == 201, resp.text
-
-    resp = await client.post(
-        "/groups/team-analytics/members/",
-        params={"member_username": "dj"},
+    # Register the group and add 'dj' as a member. Group administration now
+    # requires an explicit MANAGE grant, so authorize this setup as passthrough.
+    from datajunction_server.internal.access.authorization import (
+        PassthroughAuthorizationService,
     )
-    assert resp.status_code == 201, resp.text
+
+    with mock.patch(
+        "datajunction_server.internal.access.authorization."
+        "validator.get_authorization_service",
+        return_value=PassthroughAuthorizationService(),
+    ):
+        resp = await client.post("/groups/", params={"username": "team-analytics"})
+        assert resp.status_code == 201, resp.text
+
+        resp = await client.post(
+            "/groups/team-analytics/members/",
+            params={"member_username": "dj"},
+        )
+        assert resp.status_code == 201, resp.text
 
     # Re-assign a node so the group is the sole owner (dj no longer owns it).
     resp = await client.patch(
@@ -2730,6 +2740,48 @@ async def test_is_derived_metric_field(
     parent_types = [p["type"].lower() for p in node["current"]["parents"]]
     assert "metric" in parent_types
     assert node["current"]["isDerivedMetric"] is True
+
+
+@pytest.mark.asyncio
+async def test_is_measure_field(
+    client_example_loader,
+) -> None:
+    """
+    Test the isMeasure field on NodeRevision.
+    - Non-metric nodes are not measures.
+    - A single-aggregation base metric (SELECT SUM(...)) is a measure.
+    - A derived/ratio metric is not a measure.
+    """
+    client = await client_example_loader(["BUILD_V3"])
+
+    # isMeasure is requested standalone (no parents/query co-selected): the
+    # loader must eager-load the query column and parents on its behalf.
+    query = """
+    {
+        findNodes(names: ["v3.order_details", "v3.total_revenue", "v3.avg_order_value"]) {
+            name
+            type
+            current {
+                isMeasure
+            }
+        }
+    }
+    """
+    response = await client.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    nodes = {n["name"]: n for n in response.json()["data"]["findNodes"]}
+
+    # Transform node - not a measure
+    assert nodes["v3.order_details"]["type"] == "TRANSFORM"
+    assert nodes["v3.order_details"]["current"]["isMeasure"] is False
+
+    # Base metric "SELECT SUM(line_total) FROM v3.order_details" - a measure
+    assert nodes["v3.total_revenue"]["type"] == "METRIC"
+    assert nodes["v3.total_revenue"]["current"]["isMeasure"] is True
+
+    # Derived ratio metric - not a measure
+    assert nodes["v3.avg_order_value"]["type"] == "METRIC"
+    assert nodes["v3.avg_order_value"]["current"]["isMeasure"] is False
 
 
 @pytest.mark.asyncio

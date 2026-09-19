@@ -3,18 +3,18 @@ Models for pre-aggregation API requests and responses.
 """
 
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
 from datajunction_server.enum import StrEnum
+from datajunction_server.errors import DJWarning
+from datajunction_server.models.decompose import PreAggMeasure
 from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.models.node import PartitionAvailability
 from datajunction_server.models.node_type import NodeNameVersion
 from datajunction_server.models.partition import Granularity
-from datajunction_server.models.query import ColumnMetadata
-from datajunction_server.models.decompose import PreAggMeasure
-from datajunction_server.models.query import V3ColumnMetadata
+from datajunction_server.models.query import ColumnMetadata, V3ColumnMetadata
 
 
 class WorkflowStatus(StrEnum):
@@ -53,27 +53,27 @@ class PlanPreAggregationsRequest(BaseModel):
     from the metrics/dimensions and creates PreAggregation records with generated SQL.
     """
 
-    metrics: List[str] = Field(
+    metrics: list[str] = Field(
         description="List of metric node names (e.g., ['default.revenue', 'default.orders'])",
     )
-    dimensions: List[str] = Field(
+    dimensions: list[str] = Field(
         description="List of dimension references (e.g., ['default.date_dim.date_id'])",
     )
-    filters: Optional[List[str]] = Field(
+    filters: list[str] | None = Field(
         default=None,
         description="Optional SQL filters to apply",
     )
 
     # Materialization config (applied to all created pre-aggs)
-    strategy: Optional[MaterializationStrategy] = Field(
+    strategy: MaterializationStrategy | None = Field(
         default=None,
         description="Materialization strategy (FULL or INCREMENTAL_TIME)",
     )
-    schedule: Optional[str] = Field(
+    schedule: str | None = Field(
         default=None,
         description="Cron expression for scheduled materialization",
     )
-    lookback_window: Optional[str] = Field(
+    lookback_window: str | None = Field(
         default=None,
         description="Lookback window for incremental materialization (e.g., '3 days')",
     )
@@ -82,14 +82,80 @@ class PlanPreAggregationsRequest(BaseModel):
 class PlanPreAggregationsResponse(BaseModel):
     """Response model for /preaggs/plan endpoint."""
 
-    preaggs: List["PreAggregationInfo"]
+    preaggs: list["PreAggregationInfo"]
+    warnings: list[DJWarning] = []
+
+
+class ExternalPreAggTable(BaseModel):
+    """An externally-built table backing a registered pre-aggregation."""
+
+    catalog: str = Field(description="Catalog where the external table exists")
+    schema_: str = Field(
+        alias="schema",
+        description="Schema where the external table exists",
+    )
+    table: str = Field(description="Name of the external table")
+    valid_through_ts: int | None = Field(
+        default=None,
+        description=(
+            "Timestamp (epoch) through which the external data is valid. When "
+            "provided, availability is set immediately; otherwise the pre-agg is "
+            "registered as pending until reported via the availability endpoint."
+        ),
+    )
+
+    class Config:
+        populate_by_name = True
+
+
+class RegisterPreAggregationsRequest(BaseModel):
+    """
+    Request model for registering an externally-built pre-aggregation table.
+
+    Unlike /preaggs/plan (where DJ generates and owns the materialization), this
+    adopts a table already built by an external pipeline. DJ decomposes the
+    metrics to determine the required measures, binds each to a physical column
+    via ``measure_columns``, validates them against the table, and records the
+    pre-aggregation so grain resolution can route queries to it.
+    """
+
+    name: str | None = Field(
+        default=None,
+        description=(
+            "Optional stable handle for the pre-aggregation, used by YAML deploy "
+            "reconciliation and availability-by-name callbacks."
+        ),
+    )
+    metrics: list[str] = Field(
+        description="Metric node names the external table should serve",
+    )
+    dimensions: list[str] = Field(
+        description="Dimension references defining the table's grain",
+    )
+    table: ExternalPreAggTable = Field(description="The externally-built table")
+    measure_columns: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Maps each is_measure metric name to the physical column in the "
+            "external table holding its pre-aggregated value. Every component "
+            "measure of the requested metrics must be covered."
+        ),
+    )
+    dimension_columns: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Optional map of dimension reference to the physical column in the "
+            "external table backing it, when the column name differs from the "
+            "dimension's. Unmapped dimensions default to their DJ column name."
+        ),
+    )
 
 
 class UpdatePreAggregationAvailabilityRequest(BaseModel):
     """Request model for updating pre-aggregation availability."""
 
     catalog: str = Field(description="Catalog where materialized table exists")
-    schema_: Optional[str] = Field(
+    schema_: str | None = Field(
         default=None,
         alias="schema",
         description="Schema where materialized table exists",
@@ -98,37 +164,37 @@ class UpdatePreAggregationAvailabilityRequest(BaseModel):
     valid_through_ts: int = Field(
         description="Timestamp (epoch) through which data is valid",
     )
-    url: Optional[str] = Field(
+    url: str | None = Field(
         default=None,
         description="URL to materialization job or dashboard",
     )
-    links: Optional[Dict[str, Any]] = Field(
+    links: dict[str, Any] | None = Field(
         default_factory=dict,
         description="Additional links related to the materialization",
     )
 
     # Partition configuration
-    categorical_partitions: Optional[List[str]] = Field(
+    categorical_partitions: list[str] | None = Field(
         default_factory=list,
         description="Ordered list of categorical partition columns",
     )
-    temporal_partitions: Optional[List[str]] = Field(
+    temporal_partitions: list[str] | None = Field(
         default_factory=list,
         description="Ordered list of temporal partition columns",
     )
 
     # Temporal ranges
-    min_temporal_partition: Optional[List[str]] = Field(
+    min_temporal_partition: list[str] | None = Field(
         default_factory=list,
         description="Minimum temporal partition value",
     )
-    max_temporal_partition: Optional[List[str]] = Field(
+    max_temporal_partition: list[str] | None = Field(
         default_factory=list,
         description="Maximum temporal partition value (high-water mark)",
     )
 
     # Partition-level details
-    partitions: Optional[List[PartitionAvailability]] = Field(
+    partitions: list[PartitionAvailability] | None = Field(
         default_factory=list,
         description="Detailed partition-level availability",
     )
@@ -152,36 +218,37 @@ class PreAggregationInfo(BaseModel):
     node_revision_id: int
     node_name: str  # Derived from node_revision relationship
     node_version: str  # Derived from node_revision relationship
-    grain_columns: List[str]
-    measures: List[PreAggMeasure]  # Full measure info (MetricComponent format)
-    columns: Optional[List[V3ColumnMetadata]] = None  # Output columns with types
+    grain_columns: list[str]
+    measures: list[PreAggMeasure]  # Full measure info (MetricComponent format)
+    columns: list[V3ColumnMetadata] | None = None  # Output columns with types
     sql: str  # The generated SQL for materializing this pre-agg
     grain_group_hash: str
     preagg_hash: str  # Unique hash including measures (used for table/workflow naming)
+    name: str | None = None  # Stable handle for externally-registered pre-aggs
 
     # Materialization config
-    strategy: Optional[MaterializationStrategy] = None
-    schedule: Optional[str] = None
-    lookback_window: Optional[str] = None
+    strategy: MaterializationStrategy | None = None
+    schedule: str | None = None
+    lookback_window: str | None = None
 
     # Workflow state (persisted)
-    workflow_urls: Optional[List[WorkflowUrl]] = None  # Labeled workflow URLs
-    workflow_status: Optional[str] = (
+    workflow_urls: list[WorkflowUrl] | None = None  # Labeled workflow URLs
+    workflow_status: str | None = (
         None  # WorkflowStatus.ACTIVE | WorkflowStatus.PAUSED | None
     )
-    workflow_names: Optional[List[str]] = None  # Workflow names for deactivation
+    workflow_names: list[str] | None = None  # Workflow names for deactivation
 
     # Availability (derived from AvailabilityState)
     status: str = "pending"  # "pending" | "running" | "active"
-    materialized_table_ref: Optional[str] = None
-    max_partition: Optional[List[str]] = None
+    materialized_table_ref: str | None = None
+    max_partition: list[str] | None = None
 
     # Related metrics (computed from FrozenMeasure relationships)
-    related_metrics: Optional[List[str]] = None  # Metric names that use these measures
+    related_metrics: list[str] | None = None  # Metric names that use these measures
 
     # Metadata
     created_at: datetime
-    updated_at: Optional[datetime] = None
+    updated_at: datetime | None = None
 
     class Config:
         from_attributes = True
@@ -190,7 +257,7 @@ class PreAggregationInfo(BaseModel):
 class PreAggregationListResponse(BaseModel):
     """Paginated list of pre-aggregations."""
 
-    items: List[PreAggregationInfo]
+    items: list[PreAggregationInfo]
     total: int
     limit: int
     offset: int
@@ -199,27 +266,27 @@ class PreAggregationListResponse(BaseModel):
 class PreAggregationFilters(BaseModel):
     """Query filters for listing pre-aggregations."""
 
-    node_name: Optional[str] = Field(
+    node_name: str | None = Field(
         default=None,
         description="Filter by node name (latest version if node_version not specified)",
     )
-    node_version: Optional[str] = Field(
+    node_version: str | None = Field(
         default=None,
         description="Filter by node version (requires node_name)",
     )
-    grain: Optional[List[str]] = Field(
+    grain: list[str] | None = Field(
         default=None,
         description="Filter by grain columns (exact match)",
     )
-    grain_group_hash: Optional[str] = Field(
+    grain_group_hash: str | None = Field(
         default=None,
         description="Filter by grain group hash",
     )
-    measures: Optional[List[str]] = Field(
+    measures: list[str] | None = Field(
         default=None,
         description="Filter by measure names (pre-agg must contain ALL specified)",
     )
-    status: Optional[str] = Field(
+    status: str | None = Field(
         default=None,
         description="Filter by status: 'pending' or 'active'",
     )
@@ -237,19 +304,19 @@ class TemporalPartitionColumn(BaseModel):
     """
 
     column_name: str = Field(description="Column name in the output")
-    column_type: Optional[str] = Field(
+    column_type: str | None = Field(
         default="int",
         description="Column data type (e.g., 'int', 'string')",
     )
-    format: Optional[str] = Field(
+    format: str | None = Field(
         default=None,
         description="Format string (e.g., 'yyyyMMdd' for date, None for integer hour)",
     )
-    granularity: Optional[Granularity] = Field(
+    granularity: Granularity | None = Field(
         default=None,
         description="Time granularity this column represents (DAY, HOUR, etc.)",
     )
-    expression: Optional[str] = Field(
+    expression: str | None = Field(
         default=None,
         description="Optional SQL expression for filter generation",
     )
@@ -281,8 +348,8 @@ class PreAggMaterializationInput(BaseModel):
     node: NodeNameVersion = Field(description="Source node name and version")
 
     # Grain and measures
-    grain: List[str] = Field(description="Grain columns (fully qualified)")
-    measures: List[PreAggMeasure] = Field(
+    grain: list[str] = Field(description="Grain columns (fully qualified)")
+    measures: list[PreAggMeasure] = Field(
         description="Measures with MetricComponent info",
     )
 
@@ -290,17 +357,17 @@ class PreAggMaterializationInput(BaseModel):
     query: str = Field(description="SQL query for materialization")
 
     # Output columns metadata
-    columns: List[ColumnMetadata] = Field(description="Output column metadata")
+    columns: list[ColumnMetadata] = Field(description="Output column metadata")
 
     # Upstream tables used in the query (for dependency tracking)
-    upstream_tables: List[str] = Field(
+    upstream_tables: list[str] = Field(
         default_factory=list,
         description="List of upstream tables used in the query (e.g., ['catalog.schema.table'])",
     )
 
     # Partition info (for incremental materialization)
     # Supports multi-column partitions (e.g., dateint + hour for hourly)
-    temporal_partitions: List[TemporalPartitionColumn] = Field(
+    temporal_partitions: list[TemporalPartitionColumn] = Field(
         default_factory=list,
         description="Temporal partition columns for incremental materialization",
     )
@@ -313,15 +380,15 @@ class PreAggMaterializationInput(BaseModel):
         default=DEFAULT_SCHEDULE,
         description="Cron schedule for recurring materialization (default: daily at midnight)",
     )
-    lookback_window: Optional[str] = Field(
+    lookback_window: str | None = Field(
         default=None,
         description="Lookback window for incremental (e.g., '3 days')",
     )
-    timezone: Optional[str] = Field(
+    timezone: str | None = Field(
         default="US/Pacific",
         description="Timezone for scheduling",
     )
-    druid_spec: Optional[Dict[str, Any]] = Field(
+    druid_spec: dict[str, Any] | None = Field(
         default=None,
         description="Druid ingestion spec",
     )
@@ -339,14 +406,14 @@ class PreAggMaterializationInput(BaseModel):
 class WorkflowResponse(BaseModel):
     """Response model for workflow operations."""
 
-    workflow_url: Optional[str] = Field(
+    workflow_url: str | None = Field(
         default=None,
         description="URL to the scheduled workflow definition",
     )
     status: str = Field(
         description="Workflow status: 'active', 'paused', or 'none'",
     )
-    message: Optional[str] = Field(
+    message: str | None = Field(
         default=None,
         description="Additional information about the operation",
     )
@@ -356,7 +423,7 @@ class DeactivatedWorkflowInfo(BaseModel):
     """Info about a single deactivated workflow."""
 
     id: int = Field(description="Pre-aggregation ID")
-    workflow_name: Optional[str] = Field(
+    workflow_name: str | None = Field(
         default=None,
         description="Name of the deactivated workflow",
     )
@@ -368,7 +435,7 @@ class BulkDeactivateWorkflowsResponse(BaseModel):
     deactivated_count: int = Field(
         description="Number of workflows successfully deactivated",
     )
-    deactivated: List[DeactivatedWorkflowInfo] = Field(
+    deactivated: list[DeactivatedWorkflowInfo] = Field(
         default_factory=list,
         description="Details of each deactivated workflow",
     )
@@ -376,7 +443,7 @@ class BulkDeactivateWorkflowsResponse(BaseModel):
         default=0,
         description="Number of pre-aggs skipped (no active workflow)",
     )
-    message: Optional[str] = Field(
+    message: str | None = Field(
         default=None,
         description="Additional information about the operation",
     )
@@ -393,7 +460,7 @@ class BackfillRequest(BaseModel):
     start_date: date = Field(
         description="Start date for backfill (inclusive)",
     )
-    end_date: Optional[date] = Field(
+    end_date: date | None = Field(
         default=None,
         description="End date for backfill (inclusive). Defaults to today.",
     )
@@ -453,7 +520,8 @@ class CubeBackfillInput(BaseModel):
     Input for running a cube backfill in query service.
 
     The cube workflow must already exist (created via POST /cubes/{name}/materialize).
-    Query Service uses cube_name and cube_version to derive workflow names via checksum.
+    Query Service runs `workflow_name` when DJ recorded one, and otherwise derives a
+    name from cube_name and cube_version via checksum.
     """
 
     cube_name: str = Field(description="Cube name (e.g., 'ads.my_cube')")
@@ -462,6 +530,10 @@ class CubeBackfillInput(BaseModel):
     )
     start_date: date = Field(description="Backfill start date")
     end_date: date = Field(description="Backfill end date")
+    workflow_name: str | None = Field(
+        default=None,
+        description="Backfill workflow DJ recorded when the cube was materialized",
+    )
 
 
 # Forward reference update

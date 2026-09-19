@@ -47,10 +47,17 @@ def test_migrations_are_current(connection):
     context.configure(connection=connection)
     context.run_migrations()
 
+    def include_object(object_, name, type_, reflected, compare_to):
+        # test_template_status is test-only infrastructure created via raw
+        # SQL by tests/helpers/template_app.py, not part of the app schema.
+        if type_ == "table" and name == "test_template_status":
+            return False
+        return True
+
     # Don't use compare_type due to false positives.
     migrations_state = MigrationContext.configure(
         connection,
-        opts={"compare_type": False},
+        opts={"compare_type": False, "include_object": include_object},
     )
     diff = compare_metadata(migrations_state, target_metadata)
     assert diff == [], "The alembic migrations do not match the models."

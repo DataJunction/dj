@@ -5,32 +5,44 @@ Dimension + join path resolution and building functions
 from __future__ import annotations
 
 import difflib
-from http import HTTPStatus
 import logging
-from typing import Callable, Optional, cast
+from collections.abc import Callable
+from http import HTTPStatus
+from typing import cast
 
+from datajunction_server.construction.build_v3.materialization import (
+    get_table_reference_parts_with_materialization,
+)
+from datajunction_server.construction.build_v3.decomposition import (
+    get_base_metrics_for_derived,
+    is_derived_metric,
+)
+from datajunction_server.construction.build_v3.types import (
+    BuildContext,
+    DimensionRef,
+    GrainGroup,
+    JoinPath,
+    ResolvedDimension,
+)
 from datajunction_server.construction.build_v3.utils import (
     get_short_name,
     iter_namespaced_columns,
     make_name,
 )
+from datajunction_server.database.dimensionlink import DimensionLink
+from datajunction_server.database.node import Node, NodeType
 from datajunction_server.errors import (
     DJError,
     DJException,
     DJInvalidInputException,
+    DJWarning,
     ErrorCode,
 )
-from datajunction_server.construction.build_v3.materialization import (
-    get_table_reference_parts_with_materialization,
+from datajunction_server.models.dimensionlink import JoinCardinality
+from datajunction_server.sql.decompose import (
+    is_metric_duplication_sensitive,
+    merge_inflates,
 )
-from datajunction_server.construction.build_v3.types import (
-    BuildContext,
-    DimensionRef,
-    JoinPath,
-    ResolvedDimension,
-)
-from datajunction_server.database.dimensionlink import DimensionLink
-from datajunction_server.database.node import Node, NodeType
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.utils import SEPARATOR
@@ -78,8 +90,8 @@ def find_join_path(
     ctx: BuildContext,
     from_node: Node,
     target_dim_name: str,
-    role: Optional[str] = None,
-) -> Optional[JoinPath]:
+    role: str | None = None,
+) -> JoinPath | None:
     """
     Find the join path from a node to a target dimension.
 
@@ -151,11 +163,27 @@ def find_join_path(
     return None  # pragma: no cover
 
 
+def roles_reaching_dimension(
+    ctx: BuildContext,
+    node_rev_id: int,
+    dim_node_name: str,
+) -> set[str]:
+    """
+    Role paths from a node revision to a dimension node, ``""`` for a role-free
+    link. Read from the join paths preloaded for this build.
+    """
+    return {
+        stored_role
+        for (src_id, dim_name, stored_role) in ctx.join_paths
+        if src_id == node_rev_id and dim_name == dim_node_name
+    }
+
+
 def can_skip_join_for_dimension(
     dim_ref: DimensionRef,
-    join_path: Optional[JoinPath],
+    join_path: JoinPath | None,
     parent_node: Node,
-) -> tuple[bool, Optional[str], int]:
+) -> tuple[bool, str | None, int]:
     """
     Check whether the trailing hops of a join path can be skipped because the
     requested column is foreign-key-aligned with a column on a closer node.
@@ -252,7 +280,7 @@ def _resolve_filter_only_dim(
     parent_node: Node,
     dim_ref: DimensionRef,
     original_ref: str,
-) -> Optional[str]:
+) -> str | None:
     """
     Resolve a filter-only dim ref via the parent's upstream lineage in a
     single BFS walk over ``ctx.parent_map``. Returns one of:
@@ -283,18 +311,8 @@ def _resolve_filter_only_dim(
     parent_cols = {col.name for col in parent_node.current.columns}
     target_fqn = f"{dim_ref.node_name}{SEPARATOR}{dim_ref.column_name}"
 
-    # Cheap parent-side check: column annotation pointing at this dim col.
-    # In practice the simple-dimension-link API also creates a dim link, so
-    # `find_join_path` resolves first and this branch only fires when the
-    # annotation exists without a corresponding link (e.g., partial state
-    # from a non-API deserialize).
-    for col in parent_node.current.columns:
-        if col.dimension is None or col.dimension.name != dim_ref.node_name:
-            continue
-        if (
-            col.dimension_column or col.name
-        ) == dim_ref.column_name:  # pragma: no cover
-            return col.name
+    # (Reference/denormalized dimensions are resolved earlier in resolve_dimensions
+    # via _local_reference_dimension_column, so they never reach this function.)
 
     # BFS up parent_map in sorted order so resolution is deterministic across
     # processes (never set/hash order). Passthrough is only valid for DIRECT
@@ -364,11 +382,11 @@ def _register_pushdown_into_upstream(
     transform, the filter goes into that transform's own CTE on the bare
     FK column.
     """
-    from datajunction_server.construction.build_v3.filters import parse_filter
     from datajunction_server.construction.build_v3.cte import (
         get_column_full_name,
         inject_filter_into_select,
     )
+    from datajunction_server.construction.build_v3.filters import parse_filter
 
     # Find filter strings that reference this dim ref. Parse each once.
     base_ref = original_ref.split("[")[0]
@@ -443,7 +461,7 @@ def _resolve_pushdown_targets(
     linked_node: Node,
     fk_col: str,
     children_of: Callable[[str], list[str]],
-) -> list[tuple[str, Optional[str], Optional["ast.Select"]]]:
+) -> list[tuple[str, str | None, ast.Select | None]]:
     """
     Return one ``(target_cte_name, qualifier, arm_select)`` triple per
     Table reference to the linked source in the child transform's query.
@@ -459,7 +477,7 @@ def _resolve_pushdown_targets(
     """
     if linked_node.type != NodeType.SOURCE:
         return [(linked_node.name, None, None)]
-    all_targets: list[tuple[str, Optional[str], Optional["ast.Select"]]] = []
+    all_targets: list[tuple[str, str | None, ast.Select | None]] = []
     for child_name in children_of(linked_node.name):
         child = ctx.nodes.get(child_name)
         if (
@@ -480,7 +498,7 @@ def _resolve_pushdown_targets(
         # CTE bodies, subqueries inside WHERE/HAVING.  Collect every
         # match so a self-join (two refs to the same source) produces
         # two filter injections, one per alias.
-        matches: list[tuple[str, "ast.Select"]] = []
+        matches: list[tuple[str, ast.Select]] = []
         for tbl in child_query.find_all(ast.Table):
             try:
                 tbl_name = tbl.name.identifier(quotes=False)
@@ -509,14 +527,14 @@ def _resolve_pushdown_targets(
     return all_targets
 
 
-def _enclosing_select(node: ast.Node) -> Optional["ast.Select"]:
+def _enclosing_select(node: ast.Node) -> ast.Select | None:
     """Walk up ``node.parent`` until a :class:`ast.Select` is reached.
 
     Returns the nearest enclosing Select, or ``None`` if none is found.
     Used to figure out which subquery's WHERE clause a filter must be
     injected into for a deeply nested Table reference to be addressable.
     """
-    cur: Optional[ast.Node] = getattr(node, "parent", None)
+    cur: ast.Node | None = getattr(node, "parent", None)
     while cur is not None:
         if isinstance(cur, ast.Select):
             return cur
@@ -528,15 +546,15 @@ def _rewrite_filter_col_refs(
     filter_str: str,
     base_ref: str,
     fk_col: str,
-    qualifier: Optional[str],
-) -> Optional[ast.Expression]:
+    qualifier: str | None,
+) -> ast.Expression | None:
     """
     Parse ``filter_str`` and replace every column ref matching ``base_ref``
     (a dim FQN sans role) with ``[qualifier.]fk_col``. Returns the
     rewritten AST or ``None`` on parse failure.
     """
-    from datajunction_server.construction.build_v3.filters import parse_filter
     from datajunction_server.construction.build_v3.cte import get_column_full_name
+    from datajunction_server.construction.build_v3.filters import parse_filter
 
     try:
         rewritten = parse_filter(filter_str)
@@ -554,6 +572,39 @@ def _rewrite_filter_col_refs(
         if col.parent is not None:  # pragma: no branch
             col.parent.replace(col, ast.Column(name=new_name), copy=False)
     return rewritten
+
+
+def _local_reference_dimension_column(
+    ctx: BuildContext,
+    parent_node: Node,
+    dim_ref: DimensionRef,
+) -> str | None:
+    """
+    Return the parent column that supplies dim_ref via a column-level dimension
+    annotation (a reference / denormalized dimension), or None.
+
+    A column tagged with a dimension node carries that dimension's attribute
+    directly on the parent, so it needs no join. This mirrors the column-to-dimension
+    edge that commonDimensions traverses, so discovery and the builder agree.
+    Resolution uses the reliably-loaded dimension_id / dimension_column scalars plus
+    the ctx id-to-name map, since the Column.dimension relationship doesn't reliably
+    eager-load in this build.
+    """
+    from datajunction_server.construction.build_v3.cte import strip_role_suffix
+
+    if not parent_node.current or not parent_node.current.columns:  # pragma: no cover
+        return None
+    for col in parent_node.current.columns:
+        if col.dimension_id is None:
+            continue
+        if ctx.reference_dimension_names.get(col.dimension_id) != dim_ref.node_name:
+            continue
+        # dimension_column may carry a "[role]" suffix; fall back to the column's
+        # own name when unset.
+        target = strip_role_suffix(col.dimension_column or col.name)
+        if target == dim_ref.column_name:
+            return col.name
+    return None
 
 
 def resolve_dimensions(
@@ -629,6 +680,24 @@ def resolve_dimensions(
 
             # Validate that we found a join path
             if not join_path:
+                # Reference (denormalized) dimension: the parent may carry the
+                # attribute directly on a column tagged with the dimension node, so
+                # no join is needed. commonDimensions advertises these, so the
+                # builder must serve them too.
+                ref_col = _local_reference_dimension_column(ctx, parent_node, dim_ref)
+                if ref_col is not None:
+                    resolved.append(
+                        ResolvedDimension(
+                            original_ref=dim,
+                            node_name=parent_node.name,
+                            column_name=ref_col,
+                            role=dim_ref.role,
+                            join_path=None,
+                            is_local=True,
+                        ),
+                    )
+                    continue
+
                 # Upstream filter-only resolution: the fact may not link to
                 # this dim, but an upstream of the fact might — and if the
                 # upstream's FK is preserved on the parent's projection, the
@@ -982,3 +1051,141 @@ def build_join_clause(
     )
 
     return join
+
+
+# Fan-out cardinalities (default MANY_TO_ONE is safe). See check_fanout_safety.
+UNSAFE_JOIN_CARDINALITIES = frozenset(
+    {JoinCardinality.ONE_TO_MANY, JoinCardinality.MANY_TO_MANY},
+)
+
+
+def find_unsafe_cardinality_links(
+    resolved_dimensions: list[ResolvedDimension],
+) -> list[DimensionLink]:
+    """Return the emitted join-path links whose cardinality can fan out."""
+    unsafe: list[DimensionLink] = []
+    for resolved_dim in resolved_dimensions:
+        if resolved_dim.is_local or not resolved_dim.join_path:
+            continue
+        for link in resolved_dim.join_path.links:
+            if link.join_cardinality in UNSAFE_JOIN_CARDINALITIES:
+                unsafe.append(link)
+    return unsafe
+
+
+def requested_metrics_for(ctx: BuildContext, metric_names: set[str]) -> list[str]:
+    """
+    Map metric names found in a grain group back to the metrics the caller asked for.
+
+    A derived metric is decomposed into its base metrics before grain grouping, so a
+    grain group holds base metric nodes the caller never named. Report the requested
+    metric instead. A requested base metric maps to itself, and anything that can't be
+    traced back to a request is kept as-is rather than dropped.
+    """
+    requested: set[str] = set()
+    covered: set[str] = set()
+    for requested_name in ctx.metrics:
+        metric_node = ctx.get_metric_node(requested_name)
+        names = {requested_name}
+        if is_derived_metric(ctx, metric_node):
+            names.update(
+                base.name for base in get_base_metrics_for_derived(ctx, metric_node)
+            )
+        covered.update(names)
+        if names & metric_names:
+            requested.add(requested_name)
+    return sorted(requested | (metric_names - covered))
+
+
+def check_fanout_safety(
+    ctx: BuildContext,
+    grain_group: GrainGroup,
+    unsafe_links: list[DimensionLink],
+) -> DJWarning | None:
+    """
+    Return a fan-out warning if this grain group aggregates a metric that row
+    duplication would inflate across a fanning join.
+
+    A ONE_TO_MANY/MANY_TO_MANY link duplicates fact rows; whether that inflates a
+    given metric is decided per aggregation (see is_duplication_invariant). We warn
+    rather than error: the user may know the data does not fan out.
+    """
+    if not unsafe_links:
+        return None
+
+    inflated_metrics: set[str] = {
+        metric_node.name
+        for metric_node, component in grain_group.components
+        if merge_inflates(component.merge)
+    }
+
+    # Non-decomposable metrics have no component merge to read; their derived_ast is
+    # the untouched metric query, so inspect its aggregations directly.
+    inflated_metrics.update(
+        info.metric_node.name
+        for info in grain_group.non_decomposable_metrics
+        if is_metric_duplication_sensitive(info.derived_ast)
+    )
+
+    if not inflated_metrics:
+        return None
+
+    base_metric_names = sorted(inflated_metrics)
+    # Name what the caller asked for; the base metrics stay in debug for detail.
+    metric_names = requested_metrics_for(ctx, inflated_metrics)
+    unsafe_link_keys = sorted(
+        {
+            (
+                link.node_revision.name,
+                link.dimension.name,
+                # Role disambiguates two links to the same dimension, which would
+                # otherwise collapse into one entry here.
+                link.role or "",
+                JoinCardinality(link.join_cardinality).value,
+            )
+            for link in unsafe_links
+        },
+    )
+    link_details = [
+        {
+            "node": node_name,
+            "dimension": dimension_name,
+            "role": role or None,
+            "join_cardinality": cardinality,
+        }
+        for node_name, dimension_name, role, cardinality in unsafe_link_keys
+    ]
+    link_descriptions = [
+        f"{node_name} -> {dimension_name}"
+        f"{'[' + role + ']' if role else ''} "
+        f"({cardinality})"
+        for node_name, dimension_name, role, cardinality in unsafe_link_keys
+    ]
+    metrics_str = ", ".join(metric_names)
+    links_str = "; ".join(link_descriptions)
+    # The join isn't necessarily one the caller asked for -- a filter or the metric
+    # expression itself can pull it in -- so name the link rather than blaming the
+    # requested dimensions.
+    message = (
+        f"Possible fan-out: metric(s) {metrics_str} aggregate across a fan-out "
+        f"link [{links_str}]. One {grain_group.parent_node.name} row matches many "
+        f"dimension rows, so the result may be inflated by duplicated fact rows. "
+        f"The join may come from a requested dimension, a filter, or the metric "
+        f"expression itself. If a filter constrains the relationship to be "
+        f"effectively one-to-one this result is correct; otherwise drop the "
+        f"reference to the offending dimension(s), or correct the link's "
+        f"cardinality if the relationship is not actually one-to-many or "
+        f"many-to-many."
+    )
+    return DJWarning(
+        code=ErrorCode.FANOUT_RISK,
+        message=message,
+        debug={
+            # Requested metrics; base_metrics names the aggregations that actually
+            # inflate, which differs from metrics for a derived metric.
+            "metrics": metric_names,
+            "base_metrics": base_metric_names,
+            "links": link_details,
+            "parent": grain_group.parent_node.name,
+        },
+    )

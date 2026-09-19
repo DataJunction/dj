@@ -1,6 +1,6 @@
 """Backfill database schema."""
 
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING
 
 from sqlalchemy import JSON, BigInteger, ForeignKey, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -39,12 +39,12 @@ class Backfill(Base):  # type: ignore
     )
 
     # Backfilled values and range
-    spec: Mapped[List[PartitionBackfill]] = mapped_column(
+    spec: Mapped[list[PartitionBackfill]] = mapped_column(
         JSON,
         default=[],
     )
 
-    urls: Mapped[Optional[List[str]]] = mapped_column(
+    urls: Mapped[list[str] | None] = mapped_column(
         JSON,
         default=[],
     )

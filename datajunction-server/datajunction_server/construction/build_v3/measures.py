@@ -10,41 +10,48 @@ from __future__ import annotations
 import logging
 import re
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from datajunction_server.database.preaggregation import PreAggregation
 
+from datajunction_server.construction.build_v3.alias_registry import AliasRegistry
 from datajunction_server.construction.build_v3.cte import (
     _fk_key_column_names,
     collect_node_ctes,
     extract_dimension_node,
     inject_filter_into_select,
+    prune_cte_projections,
+    references_filter_only_dimension,
     strip_role_suffix,
 )
 from datajunction_server.construction.build_v3.decomposition import (
+    analyze_grain_groups,
     build_component_expression,
+    merge_grain_groups,
 )
 from datajunction_server.construction.build_v3.dimensions import (
     build_join_clause,
+    check_fanout_safety,
+    find_unsafe_cardinality_links,
+    parse_dimension_ref,
+    resolve_dimensions,
+    resolve_metric_expression_dimensions,
 )
 from datajunction_server.construction.build_v3.filters import (
     parse_and_resolve_filters,
+    parse_filter,
+    resolve_filter_references,
 )
-from datajunction_server.construction.build_v3.utils import (
-    extract_columns_from_expression,
-    extract_columns_referenced_from_node,
-    get_column_type,
-    get_cte_name,
-    get_short_name,
-    iter_namespaced_columns,
-    make_column_ref,
-    make_name,
-)
-from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.construction.build_v3.materialization import (
     get_table_reference_parts_with_materialization,
     should_use_materialized_table,
+)
+from datajunction_server.construction.build_v3.preagg_matcher import (
+    JoinBackCoverage,
+    find_matching_preagg,
+    get_preagg_dimension_column,
+    get_preagg_measure_column,
 )
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
@@ -52,37 +59,28 @@ from datajunction_server.construction.build_v3.types import (
     DecomposedMetricInfo,
     GrainGroup,
     GrainGroupSQL,
+    MetricGroup,
     PushdownFilters,
     ResolvedDimension,
 )
+from datajunction_server.construction.build_v3.utils import (
+    column_table_name,
+    get_column_type,
+    get_cte_name,
+    get_short_name,
+    iter_namespaced_columns,
+    make_column_ref,
+    make_name,
+)
 from datajunction_server.database.node import Node
+from datajunction_server.internal.scan_estimation import calculate_scan_estimate
 from datajunction_server.models.decompose import Aggregability, MetricComponent
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.sql.parsing import ast
-from datajunction_server.utils import SEPARATOR
-from datajunction_server.construction.build_v3.alias_registry import AliasRegistry
-from datajunction_server.construction.build_v3.decomposition import (
-    analyze_grain_groups,
-    merge_grain_groups,
-)
-from datajunction_server.construction.build_v3.dimensions import (
-    parse_dimension_ref,
-    resolve_dimensions,
-    resolve_metric_expression_dimensions,
-)
-from datajunction_server.construction.build_v3.preagg_matcher import (
-    find_matching_preagg,
-    get_preagg_measure_column,
-)
-from datajunction_server.internal.scan_estimation import calculate_scan_estimate
-from datajunction_server.construction.build_v3.types import (
-    BuildContext,
-    GrainGroupSQL,
-    MetricGroup,
-)
 from datajunction_server.sql.functions import function_registry
+from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing import types as ct
-
+from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.utils import SEPARATOR
 
 _logger = logging.getLogger(__name__)
 
@@ -102,31 +100,23 @@ def _rewrite_col_refs(expr: Any, table_alias: str) -> None:
 def _resolve_dim_namespace_refs(
     expressions: list[ast.Expression],
     dim_node_to_alias: dict[str, str],
-) -> dict[str, set[str]]:
+) -> None:
     """Resolve dim-namespaced column refs in metric/grain expressions.
 
     A metric or grain expression may contain a fully-qualified column like
     ``v3.customer.tier`` referring to a column on a dimension node that the
-    parent fact joins to. In one walk per expression, this function:
-
-    1. Rewrites the namespace from the dim node name to the dim's joined
-       table alias (so the renderer emits ``t2.tier`` instead of the literal
-       node name, which is not a valid table reference).
-    2. Returns ``{dim_node_name: {col, ...}}`` so the caller can keep those
-       columns in the dim's CTE projection (otherwise filter_cte_projection
-       drops them as unused).
+    parent fact joins to. Rewrites the namespace from the dim node name to the
+    dim's joined table alias, so the renderer emits ``t2.tier`` instead of the
+    literal node name, which is not a valid table reference.
     """
-    dim_cols: dict[str, set[str]] = {}
     for expr in expressions:
         for nc in iter_namespaced_columns(expr):
             if nc.node not in dim_node_to_alias:
                 continue
-            dim_cols.setdefault(nc.node, set()).add(nc.name)
             nc.column.name = ast.Name(
                 nc.name,
                 namespace=ast.Name(dim_node_to_alias[nc.node]),
             )
-    return dim_cols
 
 
 # Mapping from type string to ColumnType instance
@@ -268,7 +258,7 @@ def _add_table_prefixes_to_filter(
     filter_ast: ast.Expression,
     resolved_dimensions: list[ResolvedDimension],
     main_alias: str,
-    dim_aliases: dict[tuple[str, Optional[str]], str],
+    dim_aliases: dict[tuple[str, str | None], str],
     parent_node: Node,
 ) -> None:
     """
@@ -329,41 +319,10 @@ def _add_table_prefixes_to_filter(
     add_prefixes(filter_ast)
 
 
-def extract_join_columns_for_node(join_sql: str, node_name: str) -> set[str]:
-    """
-    Extract column names from join SQL that belong to a specific node.
-
-    Parses the join_sql (e.g., "v3.order_details.customer_id = v3.customer.customer_id")
-    and returns the short column names for columns belonging to the given node.
-
-    Args:
-        join_sql: The join condition SQL string
-        node_name: The fully qualified node name to filter by
-
-    Returns:
-        Set of short column names (e.g., {"customer_id"})
-
-    Examples:
-        extract_join_columns_for_node(
-            "v3.order_details.customer_id = v3.customer.customer_id",
-            "v3.order_details"
-        ) -> {"customer_id"}
-    """
-    result: set[str] = set()
-    join_expr = parse(f"SELECT 1 WHERE {join_sql}").select.where
-    if join_expr:  # pragma: no branch
-        prefix = node_name + SEPARATOR
-        for col in join_expr.find_all(ast.Column):
-            col_id = col.identifier()
-            if col_id.startswith(prefix):
-                result.add(get_short_name(col_id))
-    return result
-
-
 def get_dimension_table_alias(
     resolved_dim: ResolvedDimension,
     main_alias: str,
-    dim_aliases: dict[tuple[str, Optional[str]], str],
+    dim_aliases: dict[tuple[str, str | None], str],
 ) -> str:
     """
     Get the table alias for a resolved dimension's column.
@@ -394,77 +353,26 @@ def get_dimension_table_alias(
     return main_alias  # pragma: no cover
 
 
-def collect_cte_nodes_and_needed_columns(
+def collect_cte_nodes(
     ctx: BuildContext,
     parent_node: Node,
     resolved_dimensions: list[ResolvedDimension],
-    grain_col_specs: list[tuple[ast.Expression, str]],
-    metric_expressions: list[tuple[str, ast.Expression]],
-) -> tuple[list[Node], dict[str, set[str]]]:
+) -> list[Node]:
     """
-    Determine which nodes need CTEs and the minimal set of columns each must project.
+    Determine which nodes need CTEs.
 
-    Returns a tuple of:
-    - nodes_for_ctes: ordered list of non-source nodes that require CTEs
-    - needed_columns_by_node: mapping of node name -> set of column names that
-      must remain in that node's CTE projection after filter_cte_projection runs
+    Returns the ordered list of non-source nodes that require CTEs: the parent
+    node, plus every dimension node sitting on a resolved dimension's join path
+    (including intermediate hops, which a multi-hop chain routes through).
 
-    The needed columns for each node are gathered from:
-    - For parent_node: local dimension columns, grain columns, metric expression
-      columns, join key columns, and temporal partition columns
-    - For each dimension node: the requested dimension attribute, join key columns,
-      and any columns referenced from that node in parent_node's or other dimension
-      nodes' SQL (including aliased references like CROSS JOIN node AS alias)
+    What each CTE has to project is settled later, by
+    :func:`prune_cte_projections` on the assembled query.
     """
     nodes_for_ctes: list[Node] = []
-    needed_columns_by_node: dict[str, set[str]] = {}
-
-    # Collect columns needed from parent node
-    parent_needed_cols: set[str] = set()
-
-    # Add local dimension columns
-    for resolved_dim in resolved_dimensions:
-        if resolved_dim.is_local:
-            parent_needed_cols.add(resolved_dim.column_name)
-
-    # Add grain columns for LIMITED aggregability.
-    # For complex expressions, extract the actual leaf columns they reference.
-    for gc_expr, _ in grain_col_specs:
-        if isinstance(gc_expr, ast.Column):
-            parent_needed_cols.add(gc_expr.name.name)
-        else:
-            parent_needed_cols.update(extract_columns_from_expression(gc_expr))
-
-    # Add columns from metric expressions
-    for _, expr in metric_expressions:
-        parent_needed_cols.update(extract_columns_from_expression(expr))
-
-    # Add join key columns (from the left side of joins)
-    for resolved_dim in resolved_dimensions:
-        if resolved_dim.join_path:
-            for link in resolved_dim.join_path.links:
-                if link.join_sql:  # pragma: no branch
-                    parent_needed_cols.update(
-                        extract_join_columns_for_node(link.join_sql, parent_node.name),
-                    )
-
-    # Add temporal partition columns from cube if linked to this parent
-    # This ensures the columns are available in the CTE for the WHERE clause
-    if ctx.temporal_partition_columns and parent_node.current:
-        for partition_col_ref in ctx.temporal_partition_columns:
-            dimension_ref = parse_dimension_ref(partition_col_ref)
-
-            # Check if this parent has a dimension link to the partition column's node
-            if parent_node.current.dimension_links:  # pragma: no branch
-                for link in parent_node.current.dimension_links:  # pragma: no branch
-                    if link.dimension.name == dimension_ref.node_name:
-                        parent_needed_cols.add(dimension_ref.column_name)
-                        break
 
     # Parent node needs CTE if it's not a source
     if parent_node.type != NodeType.SOURCE:  # pragma: no branch
         nodes_for_ctes.append(parent_node)
-        needed_columns_by_node[parent_node.name] = parent_needed_cols
 
     # Dimension nodes from joins need CTEs
     for resolved_dim in resolved_dimensions:
@@ -476,92 +384,14 @@ def collect_cte_nodes_and_needed_columns(
                     if dim_node not in nodes_for_ctes:
                         nodes_for_ctes.append(dim_node)
 
-                    # Collect needed columns for this dimension
-                    dim_cols: set[str] = set()
-
-                    # Add the dimension column being selected
-                    if resolved_dim.join_path.target_node_name == dim_node.name:
-                        dim_cols.add(resolved_dim.column_name)
-
-                    # Add join key columns from this dimension (right side of this link)
-                    if link.join_sql:  # pragma: no branch
-                        dim_cols.update(
-                            extract_join_columns_for_node(link.join_sql, dim_node.name),
-                        )
-
-                    # Case 1: parent_node's query directly selects from dim_node
-                    nodes_to_scan: list[Node] = []
-                    if parent_node.current and parent_node.current.query:
-                        nodes_to_scan.append(parent_node)
-                    # Case 2: another dimension node's query references dim_node
-                    for other_rdim in resolved_dimensions:
-                        if other_rdim.join_path:
-                            for other_link in other_rdim.join_path.links:
-                                other_dim = ctx.nodes.get(
-                                    other_link.dimension.name,
-                                    other_link.dimension,
-                                )
-                                if (
-                                    other_dim
-                                    and other_dim.name != dim_node.name
-                                    and other_dim.type != NodeType.SOURCE
-                                    and other_dim.current
-                                    and other_dim.current.query
-                                    and other_dim not in nodes_to_scan
-                                ):
-                                    nodes_to_scan.append(other_dim)
-                    for referencing_node in nodes_to_scan:
-                        rq = ctx.get_parsed_query(referencing_node)
-                        found = extract_columns_referenced_from_node(rq, dim_node.name)
-                        if found:
-                            _logger.info(
-                                "filter_cte_projection: %s references cols %s from %s",
-                                referencing_node.name,
-                                sorted(found),
-                                dim_node.name,
-                            )
-                        dim_cols.update(found)
-
-                    # Merge with existing if any
-                    if dim_node.name in needed_columns_by_node:
-                        needed_columns_by_node[dim_node.name].update(dim_cols)
-                    else:
-                        needed_columns_by_node[dim_node.name] = dim_cols
-                    _logger.info(
-                        "filter_cte_projection: keeping cols %s for %s",
-                        sorted(dim_cols),
-                        dim_node.name,
-                    )
-
-                # For multi-hop joins: the left side of this link is an intermediate
-                # dimension node that also needs the left-side join key columns.
-                # (For the first link, the left side is parent_node, already handled
-                # above in parent_needed_cols.)
-                left_node_name = link.node_revision.name
-                if left_node_name != parent_node.name and link.join_sql:
-                    left_node = ctx.nodes.get(left_node_name)
-                    if (
-                        left_node and left_node.type != NodeType.SOURCE
-                    ):  # pragma: no branch
-                        left_join_cols = extract_join_columns_for_node(
-                            link.join_sql,
-                            left_node_name,
-                        )
-                        if left_node_name in needed_columns_by_node:
-                            needed_columns_by_node[left_node_name].update(
-                                left_join_cols,
-                            )
-                        else:  # pragma: no cover
-                            needed_columns_by_node[left_node_name] = left_join_cols
-
-    return nodes_for_ctes, needed_columns_by_node
+    return nodes_for_ctes
 
 
 def _build_temporal_pushdown(
     ctx: BuildContext,
     parent_node: Node,
     main_alias: str,
-) -> tuple[Optional[ast.Expression], dict[str, ast.Expression]]:
+) -> tuple[ast.Expression | None, dict[str, ast.Expression]]:
     """Build temporal filter and push it into the most upstream applicable CTE.
 
     Tries the date-spine upstream first (so the filter applies before any
@@ -680,10 +510,10 @@ def build_outer_where(
     filter_column_aliases: dict[str, str],
     resolved_dimensions: list[ResolvedDimension],
     main_alias: str,
-    dim_aliases: dict[tuple[str, Optional[str]], str],
+    dim_aliases: dict[tuple[str, str | None], str],
     parent_node: Node,
-    nodes: Optional[dict[str, Node]] = None,
-) -> Optional[ast.Expression]:
+    nodes: dict[str, Node] | None = None,
+) -> ast.Expression | None:
     """Parse user filters and resolve column references for the outer WHERE clause.
 
     Returns the combined WHERE expression with table-qualified column names,
@@ -708,7 +538,7 @@ def build_outer_where(
 
 def _apply_outer_where_atoms(
     select: ast.Select,
-    where_clause: Optional[ast.Expression],
+    where_clause: ast.Expression | None,
     main_alias: str,
     parent_pushdown_active: bool = False,
 ) -> None:
@@ -757,26 +587,6 @@ def _apply_outer_where_atoms(
             select.where = atom
 
 
-def _col_table_name(col: ast.Column) -> Optional[str]:
-    """Return the table-qualifier short name for a column, or None.
-
-    Handles both qualification styles:
-    - ``_table`` (set by :func:`make_column_ref`) — projection / GROUP BY.
-    - ``name.namespace`` (set by ``_add_table_prefixes_to_filter``) —
-      filter atoms.
-    """
-    tbl = col._table
-    if tbl is not None:
-        tname = getattr(tbl, "name", None)
-        if tname is None:  # pragma: no cover
-            return None
-        return tname.name if hasattr(tname, "name") else str(tname)
-    if col.name and col.name.namespace:
-        ns = col.name.namespace
-        return ns.name if hasattr(ns, "name") else str(ns)
-    return None  # pragma: no cover
-
-
 def _set_col_table_alias(col: ast.Column, new_alias: str) -> None:
     """Rewrite the table-qualifier on a column to ``new_alias``,
     matching the qualification style already on the column.
@@ -787,10 +597,10 @@ def _set_col_table_alias(col: ast.Column, new_alias: str) -> None:
         col.name = ast.Name(col.name.name, namespace=ast.Name(new_alias))
 
 
-def _and_atoms(atoms: list[ast.Expression]) -> Optional[ast.Expression]:
+def _and_atoms(atoms: list[ast.Expression]) -> ast.Expression | None:
     """Fold a list of atoms into a left-associative AND, or ``None``
     for an empty list."""
-    result: Optional[ast.Expression] = None
+    result: ast.Expression | None = None
     for atom in atoms:
         result = atom if result is None else ast.BinaryOp.And(result, atom)
     return result
@@ -799,9 +609,9 @@ def _and_atoms(atoms: list[ast.Expression]) -> Optional[ast.Expression]:
 def _maybe_coalesce_with_sibling(
     col_ref: ast.Column,
     resolved_dim: ResolvedDimension,
-    resolved_dimensions: Optional[list[ResolvedDimension]],
-    dim_aliases: dict[tuple[str, Optional[str]], str],
-    parent_node_name: Optional[str],
+    resolved_dimensions: list[ResolvedDimension] | None,
+    dim_aliases: dict[tuple[str, str | None], str],
+    parent_node_name: str | None,
 ) -> ast.Expression:
     """Return ``COALESCE(col_ref, sibling_col)`` when the dim was
     full-skipped to a parent FK and another joined dim shares the same
@@ -825,12 +635,12 @@ def _maybe_coalesce_with_sibling(
 
 def _absorb_filtered_joins_for_outer_safety(
     select: ast.Select,
-    where_clause: Optional[ast.Expression],
+    where_clause: ast.Expression | None,
     main_alias: str,
-    dim_aliases: dict[tuple[str, Optional[str]], str],
+    dim_aliases: dict[tuple[str, str | None], str],
     parent_cte_name: str,
     group_by: list[ast.Expression],
-) -> tuple[Optional[ast.Expression], Optional[tuple[str, ast.Query]]]:
+) -> tuple[ast.Expression | None, tuple[str, ast.Query] | None]:
     """Absorb LEFT/INNER joins whose dim-alias filter would defeat a
     downstream RIGHT/FULL OUTER JOIN into a subquery on the parent
     side.
@@ -911,7 +721,7 @@ def _absorb_filtered_joins_for_outer_safety(
 
     def _process(node: ast.Node) -> None:
         for col in node.find_all(ast.Column):
-            tname_str = _col_table_name(col)
+            tname_str = column_table_name(col)
             if tname_str is not None and tname_str in absorbed_aliases:
                 absorbed_cols[tname_str].add(col.name.name)
                 _set_col_table_alias(col, main_alias)
@@ -979,9 +789,9 @@ def _absorb_filtered_joins_for_outer_safety(
 def _coalesce_partner_for_full_skipped_fk(
     resolved_dim: ResolvedDimension,
     resolved_dimensions: list[ResolvedDimension],
-    dim_aliases: dict[tuple[str, Optional[str]], str],
+    dim_aliases: dict[tuple[str, str | None], str],
     parent_node_name: str,
-) -> Optional[ast.Column]:
+) -> ast.Column | None:
     """Find a joined dim whose first link is FK-aligned with the fact FK
     column we just full-skip-resolved, and return a column reference to
     that dim's equivalent column.
@@ -1023,11 +833,11 @@ def _coalesce_partner_for_full_skipped_fk(
 def build_dimension_col_expr(
     resolved_dim: ResolvedDimension,
     main_alias: str,
-    dim_aliases: dict[tuple[str, Optional[str]], str],
+    dim_aliases: dict[tuple[str, str | None], str],
     clean_alias: str,
-    ctx: Optional[BuildContext] = None,
-    resolved_dimensions: Optional[list[ResolvedDimension]] = None,
-    parent_node_name: Optional[str] = None,
+    ctx: BuildContext | None = None,
+    resolved_dimensions: list[ResolvedDimension] | None = None,
+    parent_node_name: str | None = None,
 ) -> Any:
     """Build a SELECT expression for a single resolved dimension.
 
@@ -1095,12 +905,12 @@ def _build_metric_col_expr(
 
 def _build_group_by(
     resolved_dimensions: list[ResolvedDimension],
-    dim_aliases: dict[tuple[str, Optional[str]], str],
+    dim_aliases: dict[tuple[str, str | None], str],
     main_alias: str,
     grain_col_specs: list[tuple[ast.Expression, str]],
     projected_dim_col_names: set[str],
     filter_dimensions: set[str],
-    parent_node_name: Optional[str] = None,
+    parent_node_name: str | None = None,
 ) -> list[ast.Expression]:
     """Build the GROUP BY clause from dimensions and grain columns.
 
@@ -1168,7 +978,7 @@ def _parse_grain_col_specs(
 
 def _collect_spark_hints(
     resolved_dimensions: list[ResolvedDimension],
-    dim_aliases: dict[tuple[str, Optional[str]], str],
+    dim_aliases: dict[tuple[str, str | None], str],
 ) -> list[ast.Hint]:
     """Collect Spark join hints (e.g. BROADCAST) from dimension links."""
     hints: list[ast.Hint] = []
@@ -1199,7 +1009,7 @@ def build_dimension_joins(
     ctx: BuildContext,
     resolved_dimensions: list[ResolvedDimension],
     main_alias: str,
-) -> tuple[dict[tuple[str, Optional[str]], str], list[ast.Join]]:
+) -> tuple[dict[tuple[str, str | None], str], list[ast.Join]]:
     """Build JOIN clauses for non-local dimensions.
 
     Chains whose first link is a null-padding join (RIGHT / FULL OUTER) are
@@ -1224,7 +1034,7 @@ def build_dimension_joins(
 
     ordered_dimensions = sorted(resolved_dimensions, key=_chain_bucket)
 
-    dim_aliases: dict[tuple[str, Optional[str]], str] = {}
+    dim_aliases: dict[tuple[str, str | None], str] = {}
     joins: list[ast.Join] = []
 
     for resolved_dim in ordered_dimensions:
@@ -1337,18 +1147,24 @@ def build_select_ast(
     #
     # Skip adding to projection if the column was already projected as a dimension
     # (e.g., order_id requested as both a dimension and a COUNT DISTINCT level).
-    projected_dim_col_names = {
-        rd.column_name
-        for rd in resolved_dimensions
-        if rd.original_ref not in ctx.filter_dimensions
-    }
+    # Two dedup sets: the projection emits a grain column bare, so it collides on
+    # output aliases, while GROUP BY groups dimensions by their source column.
+    # Using source names for the projection drops the grain column whenever its
+    # dimension is aliased differently (e.g. a role-qualified ref to the same
+    # column), leaving a LIMITED wrapper referencing a column the CTE never emitted.
+    projected_dim_col_names: set[str] = set()
+    projected_dim_aliases: set[str] = set()
+    for rd in resolved_dimensions:
+        if rd.original_ref not in ctx.filter_dimensions:
+            projected_dim_col_names.add(rd.column_name)
+            projected_dim_aliases.add(ctx.alias_registry.register(rd.original_ref))
     grain_col_refs: list[ast.Column] = []
     for gc_expr, gc_alias in grain_col_specs:
         if isinstance(gc_expr, ast.Column):
             col_name = gc_expr.name.name
             col_ref = make_column_ref(col_name, main_alias)
             grain_col_refs.append(col_ref)
-            if col_name not in projected_dim_col_names:
+            if col_name not in projected_dim_aliases:
                 projection.append(col_ref)
         else:
             _rewrite_col_refs(gc_expr, main_alias)
@@ -1356,9 +1172,8 @@ def build_select_ast(
             grain_col_refs.append(ast.Column(name=ast.Name(gc_alias)))
 
     # Resolve dim-namespaced refs in metric expressions (e.g. ``v3.customer.tier``)
-    # to the dim's joined table alias, and remember which columns each dim
-    # CTE must keep. Done up-front so the rewrite is visible to both the
-    # projection loop below and CTE pruning.
+    # to the dim's joined table alias. Done up-front so the rewrite is visible
+    # to both the projection loop below and CTE pruning.
     dim_node_to_alias: dict[str, str] = {}
     for (dim_node_name, role), alias in dim_aliases.items():
         if dim_node_name not in dim_node_to_alias or not role:
@@ -1367,7 +1182,7 @@ def build_select_ast(
     # (COUNT DISTINCT level) expressions. The grain specs hold the same AST
     # objects already placed in the projection above, so rewriting them here is
     # reflected in the emitted SQL.
-    metric_dim_cols = _resolve_dim_namespace_refs(
+    _resolve_dim_namespace_refs(
         [expr for _, expr in metric_expressions]
         + [expr for expr, _ in grain_col_specs],
         dim_node_to_alias,
@@ -1388,16 +1203,8 @@ def build_select_ast(
         parent_node_name=parent_node.name,
     )
 
-    # Collect all nodes that need CTEs and the minimal columns each must project.
-    nodes_for_ctes, needed_columns_by_node = collect_cte_nodes_and_needed_columns(
-        ctx,
-        parent_node,
-        resolved_dimensions,
-        grain_col_specs,
-        metric_expressions,
-    )
-    for dim_name, cols in metric_dim_cols.items():
-        needed_columns_by_node.setdefault(dim_name, set()).update(cols)
+    # Collect all nodes that need CTEs.
+    nodes_for_ctes = collect_cte_nodes(ctx, parent_node, resolved_dimensions)
 
     temporal_filter_ast, injected_cte_filters = _build_temporal_pushdown(
         ctx,
@@ -1415,7 +1222,7 @@ def build_select_ast(
         combined: ast.Expression = exprs[0]
         for extra in exprs[1:]:
             anded = ast.BinaryOp.And(combined, extra)
-            assert anded is not None  # noqa: S101  # both args non-None
+            assert anded is not None  # both args non-None
             combined = anded
         # Temporal pushdown landing on the same node as an upstream-link
         # pushdown is a rare overlap (typically temporal targets a
@@ -1426,7 +1233,7 @@ def build_select_ast(
                 injected_cte_filters[tgt_name],
                 combined,
             )
-            assert merged is not None  # noqa: S101  # both args non-None
+            assert merged is not None  # both args non-None
             injected_cte_filters[tgt_name] = merged
         else:
             injected_cte_filters[tgt_name] = combined
@@ -1456,7 +1263,7 @@ def build_select_ast(
     all_filters = [f for f in (filters or []) if f not in ctx.pushdown_consumed_filters]
 
     # Build outer WHERE clause from filters
-    where_clause: Optional[ast.Expression] = None
+    where_clause: ast.Expression | None = None
     filter_column_aliases: dict[str, str] = {}
     pushdown_outer_only_refs: set[str] = set()
     pushdown_fk_collision_cols: set[str] = set()
@@ -1487,7 +1294,6 @@ def build_select_ast(
     ctes, scanned_sources, consumed_by_node = collect_node_ctes(
         ctx,
         nodes_for_ctes,
-        needed_columns_by_node,
         injected_filters=injected_cte_filters or None,
         pushdown=PushdownFilters(
             filters=all_filters,
@@ -1587,14 +1393,17 @@ def build_select_ast(
             cte_list.append(cte_query)
         query.ctes = cte_list
 
+    # Now that every reader exists, each CTE can be trimmed to what they read.
+    prune_cte_projections(query)
+
     return query, scanned_sources
 
 
 def build_lookback_filter(
     col_ref: ast.Expression,
-    low_expr: Optional[ast.Expression],
-    high_expr: Optional[ast.Expression],
-) -> Optional[ast.Expression]:
+    low_expr: ast.Expression | None,
+    high_expr: ast.Expression | None,
+) -> ast.Expression | None:
     """
     Build a temporal scan filter from generic bounds.
 
@@ -1615,8 +1424,8 @@ def build_lookback_filter(
 def build_temporal_filter(
     ctx: BuildContext,
     parent_node: Node,
-    table_alias: Optional[str],
-) -> tuple[Optional[ast.Expression], Optional[str]]:
+    table_alias: str | None,
+) -> tuple[ast.Expression | None, str | None]:
     """
     Build temporal filter expression based on cube's temporal partition columns.
 
@@ -1636,12 +1445,17 @@ def build_temporal_filter(
         # Parse "v3.date.date_id" -> dimension node and column
         parsed = parse_dimension_ref(partition_col_ref)
 
-        # Check if this parent has a dimension link to the partition column's node
+        # Check if this parent has the exact dimension link named by the
+        # partition reference. A bare ref matches only a bare link; a
+        # role-qualified ref matches only that role.
         if not parent_node.current.dimension_links:
             continue  # pragma: no cover
 
         for link in parent_node.current.dimension_links:  # pragma: no branch
-            if link.dimension.name == parsed.node_name:
+            if (
+                link.dimension.name == parsed.node_name
+                and (link.role or None) == parsed.role
+            ):
                 # Found a dimension link to the temporal partition dimension
                 # Find the column on the dimension (cube already declared this as temporal)
                 temporal_col = None
@@ -1683,7 +1497,7 @@ def find_upstream_temporal_source_node(
     ctx: BuildContext,
     parent_node: Node,
     fk_col_name: str,
-) -> Optional[Node]:
+) -> Node | None:
     """
     Find the upstream node that directly provides the temporal FK column to parent_node.
 
@@ -1740,12 +1554,91 @@ def find_upstream_temporal_source_node(
     return None
 
 
+def _preagg_column(
+    name: str,
+    table: str | None,
+    alias: str | None = None,
+) -> ast.Column:
+    """A pre-agg column reference, table-qualified when the scan became a CTE."""
+    col = make_column_ref(name, table)
+    if alias is not None and alias != name:
+        col.alias = ast.Name(alias)
+    return col
+
+
+def _unique_name(base: str, taken: dict[str, str]) -> str:
+    """``base``, numerically suffixed until it collides with nothing in ``taken``."""
+    name = base
+    suffix = 0
+    while name in taken:
+        suffix += 1
+        name = f"{base}_{suffix}"
+    return name
+
+
+def _preagg_join_key_projection(
+    ctx: BuildContext,
+    preagg: PreAggregation,
+    join_back: tuple[JoinBackCoverage, ...],
+) -> dict[str, str]:
+    """
+    Names the pre-agg scan must expose for the joins, and the column each reads.
+
+    Each retained key is projected under the *parent's* foreign key column name,
+    which is what the dimension link's join SQL refers to. Shaping the scan like
+    the parent fact this way is what lets the ordinary dimension-join machinery
+    join onto it unchanged.
+    """
+    projection: dict[str, str] = {}
+    for coverage in join_back:
+        link = coverage.link
+        # Already computed: resolve_dimensions touches this on every non-local
+        # dimension's links, and a join-back dimension is non-local by construction.
+        fk_by_pk = {
+            get_short_name(pk): get_short_name(fk)
+            for pk, fk in link.foreign_keys_reversed.items()
+        }
+        for key_ref in coverage.key_refs:
+            key_col = parse_dimension_ref(key_ref).column_name
+            projection.setdefault(
+                fk_by_pk.get(key_col, key_col),
+                get_preagg_dimension_column(
+                    ctx,
+                    preagg.node_revision_id,
+                    preagg,
+                    key_ref,
+                    key_col,
+                ),
+            )
+    return projection
+
+
+def _preagg_dimension_ctes(
+    ctx: BuildContext,
+    join_back: tuple[JoinBackCoverage, ...],
+) -> tuple[list[tuple[str, ast.Query]], list[str]]:
+    """
+    CTEs for the dimensions joined onto the pre-agg scan, and the sources they read.
+
+    A materialized dimension contributes no CTE -- ``build_join_clause`` points
+    the join straight at its table instead.
+    """
+    dim_nodes: list[Node] = []
+    for coverage in join_back:
+        dim_node = ctx.nodes.get(coverage.link.dimension.name, coverage.link.dimension)
+        if dim_node not in dim_nodes:
+            dim_nodes.append(dim_node)
+    ctes, scanned_sources, _ = collect_node_ctes(ctx, dim_nodes)
+    return ctes, scanned_sources
+
+
 def build_grain_group_from_preagg(
     ctx: BuildContext,
     grain_group: GrainGroup,
-    preagg: "PreAggregation",
+    preagg: PreAggregation,
     resolved_dimensions: list[ResolvedDimension],
     components_per_metric: dict[str, int],
+    join_back: tuple[JoinBackCoverage, ...] = (),
 ) -> GrainGroupSQL:
     """
     Build SQL for a grain group using a pre-aggregation table.
@@ -1758,12 +1651,27 @@ def build_grain_group_from_preagg(
         FROM catalog.schema.preagg_table
         GROUP BY dim1, dim2
 
+    When ``join_back`` is non-empty the pre-agg holds a dimension's key rather
+    than the attribute asked for. The scan then becomes a CTE shaped like the
+    parent fact -- retained keys projected under the parent's foreign key column
+    names -- and the dimension is joined onto it:
+
+        WITH v3_customer AS (...),
+             order_details_preagg AS (
+               SELECT cust_key AS customer_id, revenue FROM catalog.schema.table
+             )
+        SELECT t2.name, SUM(t1.revenue)
+        FROM order_details_preagg t1
+        LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
+        GROUP BY t2.name
+
     Args:
         ctx: Build context
         grain_group: The grain group to generate SQL for
         preagg: The pre-aggregation to use
         resolved_dimensions: Pre-resolved dimensions with join paths
         components_per_metric: Metric name -> component count mapping
+        join_back: Requested dimensions reachable only by joining a retained key
 
     Returns:
         GrainGroupSQL with SQL and metadata for this grain group
@@ -1776,6 +1684,7 @@ def build_grain_group_from_preagg(
 
     # Build table reference
     table_parts = [p for p in [avail.catalog, avail.schema_, avail.table] if p]
+    preagg_table = SEPARATOR.join(table_parts)
 
     # Build SELECT columns
     select_items: list[ast.Aliasable | ast.Expression | ast.Column] = []
@@ -1785,20 +1694,93 @@ def build_grain_group_from_preagg(
     unique_components: list[MetricComponent] = []
     seen_components: set[str] = set()
 
-    # Add dimension columns (grain columns)
+    # Join layer. Set up only when a join is actually needed, so the far more
+    # common covering pre-agg still reads as a bare table scan.
+    joined_refs = {coverage.dimension.original_ref for coverage in join_back}
+    scan_alias: str | None = None
+    dim_aliases: dict[tuple[str, str | None], str] = {}
+    joins: list[ast.Join] = []
+    ctes: list[tuple[str, ast.Query]] = []
+    scanned_sources = [preagg_table]
+    spark_hints: list[ast.Hint] = []
+    # Scan CTE projection: output name -> the pre-agg column it reads.
+    scan_projection: dict[str, str] = {}
+    if join_back:
+        scan_alias = ctx.next_table_alias(parent_node.name)
+        scan_projection = _preagg_join_key_projection(ctx, preagg, join_back)
+        dim_aliases, joins = build_dimension_joins(
+            ctx,
+            [coverage.dimension for coverage in join_back],
+            scan_alias,
+        )
+        # Same hints the source-built path attaches, so routing to a pre-agg
+        # doesn't silently change the plan for the same query.
+        spark_hints = _collect_spark_hints(
+            [coverage.dimension for coverage in join_back],
+            dim_aliases,
+        )
+        ctes, dim_sources = _preagg_dimension_ctes(ctx, join_back)
+        scanned_sources.extend(dim_sources)
+
+    # Dimension (grain) columns.
     grain_col_names: list[str] = []
+    group_by: list[ast.Expression] = []
+    # Dimension ref -> (column, table alias) backing it, for the filter pushdown.
+    ref_columns: dict[str, tuple[str, str | None]] = {}
     for dim in resolved_dimensions:
-        col_name = dim.column_name
-        grain_col_names.append(col_name)
+        # Output name, via the alias registry so it matches what the source-built
+        # path emits -- the metrics layer references grain columns by that alias.
+        # dim.column_name is wrong whenever the two differ, e.g. a joined key
+        # satisfied by a differently-named FK (order_details.order_date =
+        # date.date_id[order]): the CTE would expose order_date while the outer
+        # query selects date_id_order.
+        output_alias = ctx.alias_registry.register(dim.original_ref)
+        grain_col_names.append(output_alias)
 
-        col_ref = ast.Column(name=ast.Name(col_name))
-        select_items.append(col_ref)
+        if dim.original_ref in joined_refs:
+            # Read off the joined dimension: the scan has no such column.
+            dim_table = get_dimension_table_alias(
+                dim,
+                cast(str, scan_alias),
+                dim_aliases,
+            )
+            col_type = get_column_type(ctx.nodes[dim.node_name], dim.column_name)
+            select_items.append(
+                build_dimension_col_expr(
+                    dim,
+                    cast(str, scan_alias),
+                    dim_aliases,
+                    output_alias,
+                ),
+            )
+            group_by.append(make_column_ref(dim.column_name, dim_table))
+            ref_columns[dim.original_ref] = (dim.column_name, dim_table)
+        else:
+            # Physical column read from the table, remapped via dimension_columns
+            # if present. Independent of the output alias above.
+            physical_col = get_preagg_dimension_column(
+                ctx,
+                preagg.node_revision_id,
+                preagg,
+                dim.original_ref,
+                dim.column_name,
+            )
+            # Type metadata is keyed by the output (DJ) name, not the physical column.
+            col_type = preagg.get_column_type(output_alias, default="string")
+            if scan_alias is None:
+                scan_name = physical_col
+            else:
+                # Names inside the scan CTE are private to it, so they yield to
+                # the foreign key names the joins need rather than colliding.
+                scan_name = _unique_name(output_alias, scan_projection)
+                scan_projection[scan_name] = physical_col
+            select_items.append(_preagg_column(scan_name, scan_alias, output_alias))
+            group_by.append(_preagg_column(scan_name, scan_alias))
+            ref_columns[dim.original_ref] = (scan_name, scan_alias)
 
-        # Get type from pre-agg columns if available
-        col_type = preagg.get_column_type(col_name, default="string")
         columns.append(
             ColumnMetadata(
-                name=col_name,
+                name=output_alias,
                 semantic_name=dim.original_ref,
                 type=col_type,
                 semantic_type="dimension",
@@ -1828,23 +1810,26 @@ def build_grain_group_from_preagg(
 
         component_aliases[component.name] = output_alias
 
-        col_ref = ast.Column(name=ast.Name(measure_col))
+        if scan_alias is None:
+            scan_name = measure_col
+        else:
+            scan_name = _unique_name(measure_col, scan_projection)
+            scan_projection[scan_name] = measure_col
 
         # If no merge function, output column directly (e.g., grain column for LIMITED)
         # Otherwise, apply the merge function for re-aggregation
         if component.merge:
             agg_expr = ast.Function(
                 name=ast.Name(component.merge),
-                args=[col_ref],
+                args=[_preagg_column(scan_name, scan_alias)],
             )
             aliased = ast.Alias(child=agg_expr, alias=ast.Name(output_alias))
             select_items.append(aliased)
         else:
             # No merge - output grain column directly, add to GROUP BY
-            select_items.append(col_ref)
+            select_items.append(_preagg_column(scan_name, scan_alias, measure_col))
             grain_col_names.append(measure_col)
-            output_alias = measure_col
-            component_aliases[component.name] = output_alias
+            group_by.append(_preagg_column(scan_name, scan_alias))
 
         # Get type from pre-agg columns
         col_type = preagg.get_column_type(measure_col, default="double")
@@ -1857,26 +1842,102 @@ def build_grain_group_from_preagg(
             ),
         )
 
-    # Build GROUP BY clause (list of column references)
-    group_by: list[ast.Expression] = []
-    if grain_col_names:
-        group_by = [ast.Column(name=ast.Name(col)) for col in grain_col_names]
-
-    # Build FROM clause using the helper method
-    preagg_table = SEPARATOR.join(table_parts)
-    from_clause = ast.From.Table(preagg_table)
+    # Build FROM clause: the table itself, or the scan CTE plus its dim joins.
+    if scan_alias is None:
+        from_clause = ast.From.Table(preagg_table)
+    else:
+        scan_cte_name = f"{get_cte_name(parent_node.name)}_preagg"
+        ctes.append(
+            (
+                scan_cte_name,
+                ast.Query(
+                    select=ast.Select(
+                        projection=[
+                            _preagg_column(source_col, None, name)
+                            for name, source_col in scan_projection.items()
+                        ],
+                        from_=ast.From.Table(preagg_table),
+                    ),
+                ),
+            ),
+        )
+        from_clause = ast.From(
+            relations=[
+                ast.Relation(
+                    primary=cast(
+                        ast.Expression,
+                        ast.Alias(
+                            child=ast.Table(name=make_name(scan_cte_name)),
+                            alias=ast.Name(scan_alias),
+                        ),
+                    ),
+                    extensions=joins,
+                ),
+            ],
+        )
 
     # Build SELECT statement
     select = ast.Select(
         projection=select_items,
         from_=from_clause,
         group_by=group_by,
+        hints=spark_hints if spark_hints else None,
     )
+
+    # Push filter-only dimension filters into the scan, on the physical column and
+    # before the roll-up. The outer query skips these (the grain group is expected
+    # to apply them), so without this the predicate lands nowhere and the result
+    # over-counts. A predicate on a joined-back attribute lands on the joined
+    # dimension instead -- after the join, since the scan has no such column.
+    # Projected-dimension filters are left to the outer query. Guarded on
+    # filter_dimensions: when empty -- the common case -- nothing can qualify and
+    # the ANTLR parse below would be wasted.
+    if ctx.filter_dimensions:
+        for filter_str in ctx.dimension_filters or []:
+            filter_ast = parse_filter(filter_str)
+            if not references_filter_only_dimension(
+                filter_ast,
+                ctx.filter_dimensions,
+            ):
+                continue
+            # Qualified per reference: a joined attribute can share a name with
+            # a pre-agg column, so the table has to travel with the column.
+            resolve_filter_references(
+                filter_ast,
+                {
+                    ref: (
+                        ast.Name(col, namespace=ast.Name(table))
+                        if table
+                        else ast.Name(col)
+                    )
+                    for ref, (col, table) in ref_columns.items()
+                },
+                cte_alias=None,
+            )
+            # ANDed straight into the WHERE rather than pushed onto a joined
+            # dimension's side of its LEFT JOIN: excluding the fact rows that
+            # don't match is the whole point of the predicate, and it matches
+            # where the source-built path puts the same filter.
+            select.where = (
+                cast(ast.Expression, ast.BinaryOp.And(select.where, filter_ast))
+                if select.where
+                else filter_ast
+            )
 
     # Build the query
     query = ast.Query(select=select)
+    if ctes:
+        cte_list = []
+        for cte_name, cte_query in ctes:
+            cte_query.to_cte(ast.Name(cte_name), query)
+            cte_list.append(cte_query)
+        query.ctes = cte_list
 
-    # Pre-aggregation path: no raw sources scanned (uses materialized table)
+    # Now that every reader exists, each CTE can be trimmed to what they read.
+    prune_cte_projections(query)
+
+    # Pre-aggregation path: the only raw sources scanned are those behind the
+    # dimensions joined back onto the pre-agg.
     # TODO: Consider tracking the pre-agg table itself as a "materialized source"
     return GrainGroupSQL(
         query=query,
@@ -1890,7 +1951,7 @@ def build_grain_group_from_preagg(
         component_aggregabilities=grain_group.component_aggregabilities,
         components=unique_components,
         dialect=ctx.dialect,
-        scanned_sources=[preagg_table],
+        scanned_sources=scanned_sources,
     )
 
 
@@ -1919,20 +1980,20 @@ def build_grain_group_sql(
 
     # Check for matching pre-aggregation
     if ctx.use_materialized and ctx.available_preaggs:
-        requested_grain = [dim.original_ref for dim in resolved_dimensions]
-        matching_preagg = find_matching_preagg(
+        match = find_matching_preagg(
             ctx,
             parent_node,
-            requested_grain,
+            resolved_dimensions,
             grain_group,
         )
-        if matching_preagg:
+        if match:
             return build_grain_group_from_preagg(
                 ctx,
                 grain_group,
-                matching_preagg,
+                match.preagg,
                 resolved_dimensions,
                 components_per_metric,
+                match.join_back,
             )
 
     # Build list of component expressions with their aliases
@@ -2093,6 +2154,16 @@ def build_grain_group_sql(
     )
     effective_resolved_dimensions = resolved_dimensions + extra_dimensions
 
+    # Judge fan-out risk over the dimensions actually emitted — including join-only
+    # dims pulled in by metric expressions, which aren't in the requested set.
+    ctx.add_warning(
+        check_fanout_safety(
+            ctx,
+            grain_group,
+            find_unsafe_cardinality_links(effective_resolved_dimensions),
+        ),
+    )
+
     # Build AST
     # For non-decomposable metrics (NONE aggregability with no components),
     # we pass through raw rows without aggregation
@@ -2173,8 +2244,9 @@ def build_grain_group_sql(
     # Skip plain grain columns that are already represented as a requested dimension
     # to avoid duplicate entries (e.g., order_id requested as both a dimension and
     # the COUNT DISTINCT level column).
-    projected_dim_col_names_meta = {
-        rd.column_name
+    # Compare output names, matching the projection's dedup.
+    projected_dim_aliases_meta = {
+        ctx.alias_registry.register(rd.original_ref)
         for rd in resolved_dimensions
         if rd.original_ref not in ctx.filter_dimensions
     }
@@ -2184,7 +2256,7 @@ def build_grain_group_sql(
     ]
 
     for gc, gc_alias in zip(effective_grain_columns, effective_grain_aliases):
-        if gc in projected_dim_col_names_meta:
+        if gc_alias in projected_dim_aliases_meta:
             continue
         col_type = get_column_type(parent_node, gc_alias)
         columns_metadata.append(
@@ -2315,7 +2387,8 @@ def process_metric_group(
     # Resolve dimensions (find join paths) - shared across grain groups
     resolved_dimensions = resolve_dimensions(ctx, parent_node)
 
-    # Build SQL for each grain group
+    # Build SQL for each grain group. Fan-out risk is flagged inside
+    # build_grain_group_sql, where the full set of emitted join paths is known.
     grain_group_sqls: list[GrainGroupSQL] = []
     for grain_group in grain_groups:
         # Reset alias registry for each grain group to avoid conflicts
@@ -2403,7 +2476,7 @@ def build_window_metric_grain_groups(
 
     def find_parent_for_window_metric(
         metric_name: str,
-    ) -> tuple[Optional[str], set[str]]:
+    ) -> tuple[str | None, set[str]]:
         """
         Find the parent fact name and base metrics for a window metric.
 
@@ -2483,7 +2556,7 @@ def build_window_metric_grain_groups(
         # Find the components for these base metrics from existing grain groups
         # Also identify the parent node for the grain group
         components_for_grain: list[tuple[Node, MetricComponent]] = []
-        parent_node: Optional[Node] = None
+        parent_node: Node | None = None
         component_aggregabilities: dict[str, Aggregability] = {}
         is_cross_fact = parent_key == "cross_fact"
 

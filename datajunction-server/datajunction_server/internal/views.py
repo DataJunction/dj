@@ -7,7 +7,6 @@ via the query service client (dj-query).
 
 import logging
 import time
-from typing import Dict, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -92,7 +91,7 @@ async def _build_view_body(
 async def create_cube_views(
     cube_name: str,
     query_service_client: QueryServiceClient,
-    request_headers: Optional[Dict[str, str]] = None,
+    request_headers: dict[str, str] | None = None,
 ) -> None:
     """
     Generate and submit view DDL for a cube.

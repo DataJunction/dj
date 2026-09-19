@@ -1,14 +1,19 @@
 """Models for materialization"""
 
 import enum
-from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Union
+import re
+from collections.abc import Callable
+from datetime import date, timedelta
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import (
     BaseModel,
-    field_validator,
-    RootModel,
     ConfigDict,
     Field,
+    RootModel,
+    field_validator,
+    model_serializer,
+    model_validator,
 )
 
 from datajunction_server.enum import StrEnum
@@ -52,6 +57,131 @@ DRUID_AGG_MAPPING = {
 # Aggregation types that need special handling (extra config parameters)
 DRUID_SKETCH_TYPES = {"HLLSketchMerge"}
 
+# How long ingested cube data is kept in Druid. Without an explicit rule a datasource
+# inherits the cluster default, which is unrelated to the span the cube holds, so an
+# ingest reaching further back fails at load time with a retention rule violation.
+# 400 days covers a full year of history plus room for late-arriving restatements.
+DEFAULT_CUBE_RETENTION = "400 DAYS"
+
+# Rolling window units DJ can count in days.
+WINDOW_UNIT_DAYS = {"DAY": 1, "WEEK": 7}
+
+
+class CoverageSpec(BaseModel):
+    """
+    The span a cube's materialization should serve.
+
+    Either a fixed span or a rolling one, never both:
+
+      coverage: {from: 2024-01-01, to: 2024-06-30}
+      coverage: {window: 800 DAYS}
+
+    Omitting `to` leaves the span ongoing.
+    """
+
+    # Inclusive, matching FROM_PARTITION and TO_PARTITION.
+    # `from` is a keyword, so alias it.
+    from_: date | None = Field(default=None, alias="from")
+    to: date | None = None
+
+    # Free-form, like `lookback_window`. `span` reads days and weeks.
+    window: str | None = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    @model_validator(mode="after")
+    def check_form(self) -> "CoverageSpec":
+        """
+        Enforce that either a fixed span is declared or a rolling window is
+        declared, but not both.
+        """
+        # Collapse whitespace so equal spans compare equal.
+        if self.window is not None:
+            self.window = " ".join(self.window.split())
+        if self.window and (self.from_ or self.to):
+            raise DJInvalidInputException(
+                message="Declare a fixed span or a window, not both.",
+            )
+        if self.to and not self.from_:
+            raise DJInvalidInputException(
+                message="Coverage needs a `from` to go with `to`.",
+            )
+        if self.from_ and self.to and self.to < self.from_:
+            raise DJInvalidInputException(
+                message=(
+                    f"Coverage ends before it starts: {self.to.isoformat()} "
+                    f"precedes {self.from_.isoformat()}."
+                ),
+            )
+        return self
+
+    def span(self, today: date) -> tuple[date, date] | None:
+        """
+        The first and last date this coverage asks a backfill to run.
+
+        An ongoing fixed span ends yesterday, the last full day. `None` when a
+        rolling window names a unit `WINDOW_UNIT_DAYS` cannot count.
+        """
+        end = self.to or today - timedelta(days=1)
+        if self.from_:
+            return self.from_, end
+        match = re.fullmatch(r"(\d+)\s+([A-Za-z]+)", self.window or "")
+        if not match:
+            return None
+        unit = WINDOW_UNIT_DAYS.get(match.group(2).upper().rstrip("S"))
+        if not unit:
+            return None
+        return end - timedelta(days=int(match.group(1)) * unit - 1), end
+
+    @model_serializer(mode="wrap")
+    def serialize(self, handler: Callable[["CoverageSpec"], dict[str, Any]]) -> dict:
+        """Emit `from`, and dates as strings, for JSON and YAML."""
+        return {
+            ("from" if key == "from_" else key): (
+                value.isoformat() if isinstance(value, date) else value
+            )
+            for key, value in handler(self).items()
+        }
+
+
+class SparkSpec(BaseModel):
+    """
+    Spark config for the stages a cube materialization runs.
+
+    A measures job scans one parent's fact table; the combine job reads what those
+    jobs already aggregated. One conf cannot size both, so each stage gets its own:
+
+      spark:
+        default: {spark.executor.memory: 8g}
+        combiner: {spark.sql.shuffle.partitions: "200"}
+        measures:
+          default.thumb_rating: {spark.executor.memory: 32g}
+
+    Every level merges over the one above, so an override states only what differs.
+    """
+
+    default: dict[str, str] | None = None
+    combiner: dict[str, str] | None = None
+
+    # Keyed by parent node name. A parent with measures jobs at several grains
+    # gets the same conf on all of them.
+    measures: dict[str, dict[str, str]] | None = None
+
+    def combiner_conf(self) -> dict[str, str]:
+        """Spark conf for the combine stage."""
+        from datajunction_server.utils import deep_merge
+
+        return deep_merge(self.default or {}, self.combiner or {})
+
+    def measures_conf(self, parent: str) -> dict[str, str]:
+        """Spark conf for one parent's measures jobs."""
+        from datajunction_server.utils import deep_merge
+
+        return deep_merge(
+            self.default or {},
+            (self.measures or {}).get(parent) or {},
+        )
+
 
 class MaterializationStrategy(StrEnum):
     """
@@ -86,6 +216,11 @@ class MaterializationStrategy(StrEnum):
     # -> Availability state: single view
     VIEW = "view"
 
+    # An externally-built pre-aggregation table adopted via /preaggs/register.
+    # DJ does not generate, run, or refresh it; it only routes queries to it.
+    # -> Availability state: single table, reported by the external pipeline
+    EXTERNAL = "external"
+
 
 class GenericMaterializationInput(BaseModel):
     """
@@ -101,11 +236,11 @@ class GenericMaterializationInput(BaseModel):
     strategy: MaterializationStrategy
     schedule: str
     query: str
-    upstream_tables: List[str]
-    spark_conf: Optional[Dict] = None
-    partitions: Optional[List[PartitionColumnOutput]] = None
-    columns: List[ColumnMetadata]
-    lookback_window: Optional[str] = "1 DAY"
+    upstream_tables: list[str]
+    spark_conf: dict | None = None
+    partitions: list[PartitionColumnOutput] | None = None
+    columns: list[ColumnMetadata]
+    lookback_window: str | None = "1 DAY"
 
 
 class DruidMaterializationInput(GenericMaterializationInput):
@@ -114,7 +249,7 @@ class DruidMaterializationInput(GenericMaterializationInput):
     API endpoint for a cube node.
     """
 
-    druid_spec: Dict
+    druid_spec: dict
 
 
 class MaterializationInfo(BaseModel):
@@ -123,9 +258,9 @@ class MaterializationInfo(BaseModel):
     API endpoint for a cube node.
     """
 
-    output_tables: List[str]
-    urls: List[str]
-    workflow_names: List[str] = []
+    output_tables: list[str]
+    urls: list[str]
+    workflow_names: list[str] = []
 
 
 class MaterializationConfigOutput(BaseModel):
@@ -134,12 +269,12 @@ class MaterializationConfigOutput(BaseModel):
     """
 
     node_revision_id: int
-    name: Optional[str]
-    config: Dict
+    name: str | None
+    config: dict
     schedule: str
-    job: Optional[str]
-    backfills: List[BackfillOutput]
-    strategy: Optional[str]
+    job: str | None
+    backfills: list[BackfillOutput]
+    strategy: str | None
     deactivated_at: UTCDatetime | None
 
     model_config = ConfigDict(from_attributes=True)
@@ -153,11 +288,17 @@ class MaterializationConfigInfoUnified(
     Materialization config + info
     """
 
+    # The node revision's own version string, not derivable from `config` for every
+    # job type (e.g. DruidCubeMaterializationJob's config has no `cube` field), so a
+    # caller listing materializations `include_all_revisions=True` can tell which
+    # revision each one belongs to without a separate lookup.
+    node_version: str
+
 
 class SparkConf(RootModel):
     """Spark configuration"""
 
-    root: Dict[str, str] = {}
+    root: dict[str, str] = {}
 
 
 class GenericMaterializationConfigInput(BaseModel):
@@ -166,12 +307,12 @@ class GenericMaterializationConfigInput(BaseModel):
     """
 
     # Spark config
-    spark: Optional[SparkConf] = Field(default_factory=dict)
+    spark: SparkConf | None = Field(default_factory=dict)
 
     # The time window to lookback when overwriting materialized datasets
     # This will only be used if a time partition was set on the node and
     # the materialization strategy is INCREMENTAL_TIME
-    lookback_window: Optional[str] = None
+    lookback_window: str | None = None
 
 
 class GenericMaterializationConfig(GenericMaterializationConfigInput):
@@ -180,14 +321,14 @@ class GenericMaterializationConfig(GenericMaterializationConfigInput):
     and engine combinations
     """
 
-    query: Optional[str] = None
-    columns: Optional[List[ColumnMetadata]] = None
-    upstream_tables: Optional[List[str]] = None
+    query: str | None = None
+    columns: list[ColumnMetadata] | None = None
+    upstream_tables: list[str] | None = None
 
     def temporal_partition(
         self,
         node_revision: "NodeRevision",
-    ) -> List[PartitionColumnOutput]:
+    ) -> list[PartitionColumnOutput]:
         """
         The temporal partition column names on the intermediate measures table
         """
@@ -195,6 +336,11 @@ class GenericMaterializationConfig(GenericMaterializationConfigInput):
         if not user_defined_temporal_columns:
             return []
         user_defined_temporal_column = user_defined_temporal_columns[0]
+        partition_ref = (
+            user_defined_temporal_column.cube_element_name
+            if node_revision.type == NodeType.CUBE
+            else user_defined_temporal_column.name
+        )
         return [
             PartitionColumnOutput(
                 name=col.name,
@@ -205,18 +351,19 @@ class GenericMaterializationConfig(GenericMaterializationConfigInput):
                 ),
             )
             for col in self.columns  # type: ignore
-            if user_defined_temporal_column.name in (col.semantic_entity, col.name)
+            if partition_ref in (col.semantic_entity, col.name)
         ]
 
     def categorical_partitions(
         self,
         node_revision: "NodeRevision",
-    ) -> List[PartitionColumnOutput]:
+    ) -> list[PartitionColumnOutput]:
         """
         The categorical partition column names on the intermediate measures table
         """
         user_defined_categorical_columns = {
-            col.name for col in node_revision.categorical_partition_columns()
+            col.cube_element_name if node_revision.type == NodeType.CUBE else col.name
+            for col in node_revision.categorical_partition_columns()
         }
         return [
             PartitionColumnOutput(
@@ -231,11 +378,11 @@ class GenericMaterializationConfig(GenericMaterializationConfigInput):
 class DruidConf(BaseModel):
     """Druid configuration"""
 
-    granularity: Optional[str] = None
-    intervals: Optional[List[str]] = None
-    timestamp_column: Optional[str] = None
-    timestamp_format: Optional[str] = None
-    parse_spec_format: Optional[str] = None
+    granularity: str | None = None
+    intervals: list[str] | None = None
+    timestamp_column: str | None = None
+    timestamp_format: str | None = None
+    parse_spec_format: str | None = None
 
 
 class Measure(BaseModel):
@@ -264,7 +411,7 @@ class MetricMeasures(BaseModel):
     """
 
     metric: str
-    measures: List[Measure]  #
+    measures: list[Measure]
     combiner: str
 
 
@@ -273,9 +420,9 @@ class GenericCubeConfigInput(GenericMaterializationConfigInput):
     Generic cube materialization config fields that require user input
     """
 
-    dimensions: Optional[List[str]] = None
-    measures: Optional[Dict[str, MetricMeasures]] = None
-    metrics: Optional[List[ColumnMetadata]] = None
+    dimensions: list[str] | None = None
+    measures: dict[str, MetricMeasures] | None = None
+    metrics: list[ColumnMetadata] | None = None
 
 
 class GenericCubeConfig(GenericCubeConfigInput, GenericMaterializationConfig):
@@ -290,9 +437,9 @@ class DruidCubeConfigInput(GenericCubeConfigInput):
     Specific Druid cube materialization fields that require user input
     """
 
-    prefix: Optional[str] = ""
-    suffix: Optional[str] = ""
-    druid: Optional[DruidConf] = None
+    prefix: str | None = ""
+    suffix: str | None = ""
+    druid: DruidConf | None = None
 
 
 class DruidMeasuresCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
@@ -301,7 +448,7 @@ class DruidMeasuresCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
     optional prefix and/or suffix to include with the materialized entity's name.
     """
 
-    def metrics_spec(self) -> Dict:
+    def metrics_spec(self) -> dict:
         """
         Returns the Druid metrics spec for ingestion
         """
@@ -343,9 +490,7 @@ class DruidMeasuresCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
         # The cube column stores the role separately in ``dimension_column`` as
         # ``[role]``. Reconstruct the role-qualified form to match the v3
         # measures-query ``semantic_entity`` (e.g. ``node.col[role]``).
-        partition_ref = user_defined_temporal_partition.name + (
-            user_defined_temporal_partition.dimension_column or ""
-        )
+        partition_ref = user_defined_temporal_partition.cube_element_name
         timestamp_column = [
             col.name
             for col in self.columns  # type: ignore
@@ -359,7 +504,7 @@ class DruidMeasuresCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
         )
         # if there are categorical partitions, we can additionally include one of them
         # in the partitionDimension field under partitionsSpec
-        druid_spec: Dict = {
+        druid_spec: dict = {
             "dataSchema": {
                 "dataSource": druid_datasource_name,
                 "parser": {
@@ -409,7 +554,7 @@ class DruidMetricsCubeConfig(DruidMeasuresCubeConfig):
     optional prefix and/or suffix to include with the materialized entity's name.
     """
 
-    def metrics_spec(self) -> Dict:
+    def metrics_spec(self) -> dict:
         """
         Returns the Druid metrics spec for ingestion
         """
@@ -435,7 +580,7 @@ class MaterializationJobType(BaseModel):
     description: str
 
     # Node types that can be materialized with this job type
-    allowed_node_types: List[NodeType]
+    allowed_node_types: list[NodeType]
 
     # The class that implements this job type, must subclass `MaterializationJob`
     job_class: str
@@ -501,18 +646,16 @@ class UpsertMaterialization(BaseModel):
     An upsert object for materialization configs
     """
 
-    name: Optional[str] = None
+    name: str | None = None
     job: Literal[
         "spark_sql",
         "druid_measures_cube",
         "druid_metrics_cube",
     ]
     config: (
-        Union[
-            DruidCubeConfigInput,
-            GenericCubeConfigInput,
-            GenericMaterializationConfigInput,
-        ]
+        DruidCubeConfigInput
+        | GenericCubeConfigInput
+        | GenericMaterializationConfigInput
         | None
     ) = None
     schedule: str
@@ -521,7 +664,7 @@ class UpsertMaterialization(BaseModel):
     @field_validator("job")
     def validate_job(
         cls,
-        job: Union[str, MaterializationJobTypeEnum],
+        job: str | MaterializationJobTypeEnum,
     ) -> MaterializationJobTypeEnum:
         """
         Validates the `job` field. Converts to an enum if `job` is a string.

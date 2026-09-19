@@ -14,6 +14,10 @@ include = ["alembic/**", "alembic.ini"]
 [tool.hatch.metadata]
 allow-direct-references = true
 
+[[tool.mypy.overrides]]
+module = "datajunction_server.sql.parsing.backends.grammar.generated.*"
+ignore_errors = true
+
 [project]
 name = "datajunction-server"
 dynamic = ["version"]
@@ -59,6 +63,16 @@ dependencies = [
     # Query parsing
     "antlr4-python3-runtime==4.13.1",
 
+    # SQL transpilation — required: DJ transpiles generated SQL per dialect and
+    # has no fallback (see datajunction_server/transpilation.py).
+    "sqlglot>=18.0.1",
+
+    # CEL expression evaluation — required: DJ evaluates CEL expressions and has
+    # no pure-Python fallback. Wheel-only (no sdist), so an unsupported platform
+    # is a hard install failure rather than a slow source build; the Linux wheels
+    # are manylinux_2_28, i.e. a glibc >= 2.28 floor.
+    "cel-expr-python>=0.1.3",
+
     # Model Context Protocol (powers /mcp endpoint)
     "mcp>=1.0.0",
     # Terminal-friendly charts for the MCP visualize_metrics tool
@@ -82,6 +96,7 @@ dependencies = [
     # Data validation
     "pydantic<2.11,>=2.0",
     "pydantic-settings>=2.10.1",
+    "jsonschema>=4.0.0",
 
     # HTTP client for GitHub API
     "httpx>=0.27.0",
@@ -104,9 +119,6 @@ classifiers = [
 uvicorn = [
     "uvicorn[standard]>=0.21.1",
 ]
-transpilation = [
-    "sqlglot>=18.0.1",
-]
 
 # Query client dependencies for different data warehouse vendors
 snowflake = [
@@ -115,7 +127,6 @@ snowflake = [
 
 bigquery = [
     "google-cloud-bigquery>=3.0.0",
-    "sqlglot>=18.0.1",
 ]
 
 all = [
@@ -137,6 +148,11 @@ Repository = "https://github.com/DataJunction/dj"
 [tool.coverage.run]
 source = ['datajunction_server/']
 concurrency = ["thread,greenlet"]
+# Record paths relative to the project root. Coverage data produced by
+# different CI shards is combined later, and each runner has its own absolute
+# checkout path -- without this, combine treats the same file from two shards
+# as two files and the merged total is quietly wrong rather than failing.
+relative_files = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -7,14 +7,14 @@ import pytest_asyncio
 from httpx import AsyncClient
 
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(scope="module")
 async def client_with_tags(
-    client_with_roads: AsyncClient,
+    module__client_with_roads: AsyncClient,
 ) -> AsyncClient:
     """
     Provides a DJ client fixture seeded with tags
     """
-    await client_with_roads.post(
+    await module__client_with_roads.post(
         "/tags/",
         json={
             "name": "sales_report",
@@ -24,7 +24,7 @@ async def client_with_tags(
             "tag_metadata": {},
         },
     )
-    await client_with_roads.post(
+    await module__client_with_roads.post(
         "/tags/",
         json={
             "name": "other_report",
@@ -34,7 +34,7 @@ async def client_with_tags(
             "tag_metadata": {},
         },
     )
-    await client_with_roads.post(
+    await module__client_with_roads.post(
         "/tags/",
         json={
             "name": "coffee",
@@ -44,7 +44,7 @@ async def client_with_tags(
             "tag_metadata": {},
         },
     )
-    await client_with_roads.post(
+    await module__client_with_roads.post(
         "/tags/",
         json={
             "name": "tea",
@@ -55,16 +55,16 @@ async def client_with_tags(
         },
     )
 
-    await client_with_roads.post(
+    await module__client_with_roads.post(
         "/nodes/default.total_repair_cost/tags/?tag_names=sales_report",
     )
-    await client_with_roads.post(
+    await module__client_with_roads.post(
         "/nodes/default.avg_repair_price/tags/?tag_names=sales_report",
     )
-    await client_with_roads.post(
+    await module__client_with_roads.post(
         "/nodes/default.num_repair_orders/tags/?tag_names=other_report",
     )
-    return client_with_roads
+    return module__client_with_roads
 
 
 @pytest.mark.asyncio

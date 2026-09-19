@@ -60,7 +60,7 @@ public class DJClientTest {
                 .thenCompose(response -> dj.createNamespace("integration.tests.trino"))
                 .thenCompose(response -> dj.createSource(new Source(
                         "integration.tests.source1",
-                        "unknown",
+                        "tpch",
                         "db",
                         "tbl",
                         "Test Source with Columns",

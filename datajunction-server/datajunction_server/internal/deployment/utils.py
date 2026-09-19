@@ -1,26 +1,28 @@
-from fastapi import Request, BackgroundTasks
-
+import logging
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
-from datajunction_server.internal.caching.interface import Cache
-from datajunction_server.service_clients import QueryServiceClient
-from datajunction_server.database.user import User
+
+from fastapi import BackgroundTasks, Request
+
 from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.user import User
+from datajunction_server.errors import DJGraphCycleException
+from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.models.deployment import (
-    NodeSpec,
     CubeSpec,
     DimensionSpec,
     MetricSpec,
+    NodeSpec,
     TransformSpec,
 )
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.utils import SEPARATOR
+from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import fast_parse_mode
 from datajunction_server.sql.parsing.backends.antlr4 import parse
-from datajunction_server.errors import DJGraphCycleException
-import logging
+from datajunction_server.sql.parsing.backends.exceptions import DJParseException
+from datajunction_server.utils import SEPARATOR
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +59,26 @@ def extract_upstream_candidates(
                     tables.add(parent_path)
 
     return tables
+
+
+def extract_dimension_refs_from_filters(
+    filters: list[str],
+) -> list[tuple[str, str]]:
+    """Extract namespaced dimension columns referenced by filter expressions."""
+    if not filters:
+        return []
+    combined = " AND ".join(f"({filter_})" for filter_ in filters)
+    try:
+        tree = parse(f"SELECT 1 WHERE {combined}")
+    except DJParseException:
+        return []
+    refs = []
+    for column in tree.find_all(ast.Column):
+        if column.namespace:
+            node_name = SEPARATOR.join(name.name for name in column.namespace)
+            if SEPARATOR in node_name:
+                refs.append((node_name, column.name.name))
+    return refs
 
 
 def classify_parents(
@@ -134,6 +156,23 @@ def _find_upstreams_for_node(node: NodeSpec) -> tuple[str, list[str], ast.Query 
         dimension_nodes = [dim.rsplit(".", 1)[0] for dim in node.rendered_dimensions]
         return node.rendered_name, node.rendered_metrics + dimension_nodes, None
     return node.rendered_name, [], None
+
+
+def creates_cycle(graph: dict[str, list[str]], source: str, target: str) -> bool:
+    """
+    Whether adding ``source -> target`` to ``graph`` would close a cycle.
+
+    True when ``source`` is already reachable from ``target``, which includes
+    a self-edge. Assumes ``graph`` is currently acyclic.
+    """
+    seen: set[str] = set()
+    frontier = {target}
+    while frontier:
+        if source in frontier:
+            return True
+        seen |= frontier
+        frontier = {dep for node in frontier for dep in graph.get(node, [])} - seen
+    return False
 
 
 def topological_levels(

@@ -1,5 +1,5 @@
 import React from 'react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { screen, waitFor } from '@testing-library/react';
 import { render } from '../../../../setupTests';
 import fetchMock from 'mocks/fetchMock';
@@ -207,6 +207,48 @@ describe('AddEditNodePage', () => {
       expect(screen.getByText('(repair_order_id)')).toBeInTheDocument();
     });
   });
+
+  it('redirects the edit route to the node view for a read-only (git-backed) node', async () => {
+    const mockDjClient = initializeMockDJClient();
+    mockDjClient.DataJunctionAPI.namespaceSources = vi
+      .fn()
+      .mockResolvedValue(null);
+    mockDjClient.DataJunctionAPI.listDeployments = vi
+      .fn()
+      .mockResolvedValue([]);
+    // magnesium.tech is a flat git-backed namespace → read-only via shape.
+    mockDjClient.DataJunctionAPI.getNamespaceGitConfig = vi
+      .fn()
+      .mockResolvedValue({
+        github_repo_path: 'corp/tech-realtime-guardrails',
+        git_branch: 'main',
+        git_root_namespace: 'magnesium.tech',
+      });
+
+    const LocationDisplay = () => (
+      <div data-testid="loc">{useLocation().pathname}</div>
+    );
+    render(
+      <MemoryRouter
+        initialEntries={['/nodes/magnesium.tech.withinapp_ttr_log/edit']}
+      >
+        <LocationDisplay />
+        <Routes>
+          <Route path="nodes/:name/edit" element={testElement(mockDjClient)} />
+          <Route path="nodes/:name" element={<div>node view</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    // Redirected away from the edit route to the node view...
+    await waitFor(() =>
+      expect(screen.getByTestId('loc').textContent).toBe(
+        '/nodes/magnesium.tech.withinapp_ttr_log',
+      ),
+    );
+    // ...and the editor form ("Edit" heading) never rendered.
+    expect(screen.queryByText('Edit')).not.toBeInTheDocument();
+  }, 60000);
 
   it('Verify edit page node not found', async () => {
     const mockDjClient = initializeMockDJClient();

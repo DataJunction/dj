@@ -5,26 +5,65 @@ from unittest.mock import Mock
 
 import pytest
 
+from datajunction_server.database.column import Column
+from datajunction_server.database.partition import Partition
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.materialization.jobs.cube_materialization import (
     DruidCubeMaterializationJob,
 )
 from datajunction_server.models.cube_materialization import (
+    CombineMaterialization,
     DruidCubeConfig,
     DruidCubeMaterializationInput,
     DruidCubeV3Config,
     MeasuresMaterialization,
     PreAggTableInfo,
+    UpsertCubeMaterialization,
+    materialized_table_name,
+    version_from_materialized_table,
+)
+from datajunction_server.models.decompose import (
+    Aggregability,
+    AggregationRule,
+    MetricComponent,
 )
 from datajunction_server.models.materialization import MaterializationStrategy
 from datajunction_server.models.node_type import NodeNameVersion
-from datajunction_server.models.partition import Granularity
-from datajunction_server.models.decompose import (
-    AggregationRule,
-    Aggregability,
-    MetricComponent,
-)
+from datajunction_server.models.partition import Granularity, PartitionType
+from datajunction_server.database.user import PrincipalKind
+from datajunction_server.models.cube_materialization import PrincipalRef
 from datajunction_server.models.query import ColumnMetadata
+from datajunction_server.utils import get_settings
+
+
+def _temporal_partition(name: str, dimension_column: str | None) -> Column:
+    column = Column(name=name, dimension_column=dimension_column)
+    column.partition = Partition(
+        type_=PartitionType.TEMPORAL,
+        format="yyyyMMdd",
+        granularity=Granularity.DAY,
+    )
+    return column
+
+
+def _fake_revision(
+    owners: list[tuple[str, PrincipalKind]] | None = None,
+    custom_metadata: dict | None = None,
+) -> SimpleNamespace:
+    """
+    The slice of a cube's revision that `schedule()` reads: who owns the node and what
+    kind of principal each owner is, plus whatever opaque metadata is hanging off the
+    revision.
+    """
+    return SimpleNamespace(
+        node=SimpleNamespace(
+            owners=[
+                SimpleNamespace(username=username, kind=kind)
+                for username, kind in owners or []
+            ],
+        ),
+        custom_metadata=custom_metadata,
+    )
 
 
 def test_druid_cube_materialization_job_passes_lookback_window():
@@ -46,6 +85,7 @@ def test_druid_cube_materialization_job_passes_lookback_window():
         strategy=MaterializationStrategy.INCREMENTAL_TIME,
         schedule="@daily",
         job="DruidCubeMaterializationJob",
+        node_revision=_fake_revision(),
     )
     query_service_client = Mock()
 
@@ -56,6 +96,344 @@ def test_druid_cube_materialization_job_passes_lookback_window():
     ]
     assert isinstance(materialization_input, DruidCubeMaterializationInput)
     assert materialization_input.lookback_window == "7 DAY"
+
+
+def test_druid_cube_materialization_job_defaults_retention():
+    """
+    A config with no retention -- including one persisted before the field existed --
+    still hands the query service the default, which is what keeps Druid from
+    rejecting an ingest that reaches further back than the cluster default allows.
+    """
+    cube = NodeNameVersion(name="default.repairs_cube", version="v1.0")
+    config = DruidCubeConfig(
+        cube=cube,
+        dimensions=[],
+        metrics=[],
+        measures_materializations=[],
+        combiners=[],
+    ).model_dump()
+    del config["retention"]
+    materialization = SimpleNamespace(
+        name="druid_cube__full",
+        config=config,
+        strategy=MaterializationStrategy.FULL,
+        schedule="@daily",
+        job="DruidCubeMaterializationJob",
+        node_revision=_fake_revision(),
+    )
+    query_service_client = Mock()
+
+    DruidCubeMaterializationJob().schedule(materialization, query_service_client)
+
+    assert query_service_client.materialize_cube.call_args.kwargs[
+        "materialization_input"
+    ] == DruidCubeMaterializationInput(
+        name="druid_cube__full",
+        cube=cube,
+        dimensions=[],
+        metrics=[],
+        strategy=MaterializationStrategy.FULL,
+        schedule="@daily",
+        job="DruidCubeMaterializationJob",
+        lookback_window="1 DAY",
+        retention="400 DAYS",
+        measures_materializations=[],
+        combiners=[],
+    )
+
+
+def _cube_materialization_input(**overrides) -> DruidCubeMaterializationInput:
+    """The payload for a minimal cube, with the fields under test overridden."""
+    return DruidCubeMaterializationInput(
+        name="druid_cube__full",
+        cube=NodeNameVersion(name="default.repairs_cube", version="v1.0"),
+        dimensions=[],
+        metrics=[],
+        strategy=MaterializationStrategy.FULL,
+        schedule="@daily",
+        job="DruidCubeMaterializationJob",
+        lookback_window="1 DAY",
+        retention="400 DAYS",
+        measures_materializations=[],
+        combiners=[],
+        **overrides,
+    )
+
+
+def _schedule_minimal_cube(
+    revision: SimpleNamespace,
+    **config_overrides,
+) -> DruidCubeMaterializationInput:
+    """Schedule a minimal cube materialization off the given revision."""
+    config = DruidCubeConfig(
+        cube=NodeNameVersion(name="default.repairs_cube", version="v1.0"),
+        dimensions=[],
+        metrics=[],
+        measures_materializations=[],
+        combiners=[],
+        **config_overrides,
+    )
+    materialization = SimpleNamespace(
+        name="druid_cube__full",
+        config=config.model_dump(),
+        strategy=MaterializationStrategy.FULL,
+        schedule="@daily",
+        job="DruidCubeMaterializationJob",
+        node_revision=revision,
+    )
+    query_service_client = Mock()
+    DruidCubeMaterializationJob().schedule(materialization, query_service_client)  # type: ignore[arg-type]
+    return query_service_client.materialize_cube.call_args.kwargs[
+        "materialization_input"
+    ]
+
+
+def test_druid_cube_materialization_job_passes_owners_and_custom_metadata():
+    """
+    The query service is told who owns the cube, so the workflow it creates can be
+    attributed to someone -- a scheduled build has no caller to attribute it to. The
+    revision's `custom_metadata` rides along untouched, which is what lets a
+    deployment-specific consumer read something out of it without a change here.
+    """
+    assert _schedule_minimal_cube(
+        _fake_revision(
+            # Deliberately out of order: the payload sorts, so the same set of owners
+            # always serializes the same way.
+            owners=[
+                ("dj@example.com", PrincipalKind.USER),
+                ("anaghshineh@example.com", PrincipalKind.USER),
+            ],
+            custom_metadata={
+                "ownership_override": {"team": "metrics"},
+                "nested": [1, {"two": None}],
+            },
+        ),
+    ) == _cube_materialization_input(
+        owners=[
+            PrincipalRef(username="anaghshineh@example.com", kind=PrincipalKind.USER),
+            PrincipalRef(username="dj@example.com", kind=PrincipalKind.USER),
+        ],
+        custom_metadata={
+            "ownership_override": {"team": "metrics"},
+            "nested": [1, {"two": None}],
+        },
+    )
+
+
+def test_druid_cube_materialization_job_says_what_kind_each_owner_is():
+    """
+    An owner reaches the query service as a name *and* a kind.
+
+    The consumer routes on the kind: a group and an individual are handed to different
+    destinations downstream, and the one for individuals checks that what it was given
+    is email-shaped, which a group handle is not. Flattening owners to bare names would
+    leave it guessing from the string.
+    """
+    assert _schedule_minimal_cube(
+        _fake_revision(
+            owners=[
+                ("data-eng-team", PrincipalKind.GROUP),
+                ("anaghshineh@example.com", PrincipalKind.USER),
+            ],
+        ),
+    ).owners == [
+        PrincipalRef(username="anaghshineh@example.com", kind=PrincipalKind.USER),
+        PrincipalRef(username="data-eng-team", kind=PrincipalKind.GROUP),
+    ]
+
+
+def test_druid_cube_materialization_job_carries_a_service_account_owner():
+    """
+    A service account owns nodes the way a person does, and is neither a person nor a
+    group to the consumer, so it travels as itself.
+    """
+    assert _schedule_minimal_cube(
+        _fake_revision(owners=[("etl-bot", PrincipalKind.SERVICE_ACCOUNT)]),
+    ).owners == [PrincipalRef(username="etl-bot", kind=PrincipalKind.SERVICE_ACCOUNT)]
+
+
+def test_druid_cube_materialization_job_orders_owners_by_username():
+    """
+    Owners come off a relationship, which has no promised order, so the payload sorts
+    them. Two builds of an unchanged cube then produce byte-identical attribution
+    rather than a list that shuffles with whatever the database returned.
+
+    Username is the sort key and nothing else: it is unique across principals, so the
+    order is total, and it does not group by kind, which would make adding one group
+    owner reshuffle everyone.
+    """
+    assert _schedule_minimal_cube(
+        _fake_revision(
+            owners=[
+                ("zoe@example.com", PrincipalKind.USER),
+                ("data-eng-team", PrincipalKind.GROUP),
+                ("etl-bot", PrincipalKind.SERVICE_ACCOUNT),
+                ("adrian@example.com", PrincipalKind.USER),
+            ],
+        ),
+    ).owners == [
+        PrincipalRef(username="adrian@example.com", kind=PrincipalKind.USER),
+        PrincipalRef(username="data-eng-team", kind=PrincipalKind.GROUP),
+        PrincipalRef(username="etl-bot", kind=PrincipalKind.SERVICE_ACCOUNT),
+        PrincipalRef(username="zoe@example.com", kind=PrincipalKind.USER),
+    ]
+
+
+def test_druid_cube_materialization_job_without_owners_or_custom_metadata():
+    """
+    An unowned cube with nothing in `custom_metadata` still materializes: the payload
+    carries an empty list and a null rather than refusing to build.
+    """
+    assert _schedule_minimal_cube(
+        _fake_revision(),
+    ) == _cube_materialization_input(owners=[], custom_metadata=None)
+
+
+def test_attribution_fields_stay_off_the_persisted_config():
+    """
+    Owners and `custom_metadata` belong to the payload and to nothing else.
+
+    Whether a materialization needs re-pushing is decided by diffing the persisted
+    config -- `reconcile_declared_materialization` compares it field for field, and so
+    does `POST /nodes/{name}/materialization/` -- so every field on the config feeds
+    rebuild decisions. Correct for `retention`, whose change really does have to reach
+    Druid; wrong for attribution, where an owner rename would tear down a live
+    workflow and re-create an identical one.
+    """
+    attribution = {"owners", "custom_metadata"}
+    assert attribution & set(DruidCubeMaterializationInput.model_fields) == attribution
+    assert attribution & set(DruidCubeConfig.model_fields) == set()
+    assert attribution & set(UpsertCubeMaterialization.model_fields) == set()
+
+
+def test_druid_cube_materialization_job_passes_platform_settings():
+    """
+    `platform` reaches the query service word for word, including nested values
+    and nulls, so a consumer reads settings DJ knows nothing about.
+    """
+    assert _schedule_minimal_cube(
+        _fake_revision(),
+        platform={"wait_for_vtts": False, "nested": {"pool": None}},
+    ) == _cube_materialization_input(
+        owners=[],
+        platform={"wait_for_vtts": False, "nested": {"pool": None}},
+    )
+
+
+def test_druid_cube_materialization_job_without_platform_settings():
+    """A config with no `platform` -- including an older one -- hands over a null."""
+    config = DruidCubeConfig(
+        cube=NodeNameVersion(name="default.repairs_cube", version="v1.0"),
+        dimensions=[],
+        metrics=[],
+        measures_materializations=[],
+        combiners=[],
+    ).model_dump()
+    del config["platform"]
+    materialization = SimpleNamespace(
+        name="druid_cube__full",
+        config=config,
+        strategy=MaterializationStrategy.FULL,
+        schedule="@daily",
+        job="DruidCubeMaterializationJob",
+        node_revision=_fake_revision(),
+    )
+    query_service_client = Mock()
+
+    DruidCubeMaterializationJob().schedule(materialization, query_service_client)
+
+    assert query_service_client.materialize_cube.call_args.kwargs[
+        "materialization_input"
+    ] == _cube_materialization_input(owners=[])
+
+
+def _combiner(**overrides) -> CombineMaterialization:
+    """A combiner stage that can build a Druid spec, with fields overridden."""
+    return CombineMaterialization(
+        node=NodeNameVersion(name="default.repairs_cube", version="v1.0"),
+        columns=[ColumnMetadata(name="order_date", type="int")],
+        grain=["order_date"],
+        dimensions=["order_date"],
+        measures=[],
+        timestamp_column="order_date",
+        timestamp_format="yyyyMMdd",
+        granularity=Granularity.DAY,
+        **overrides,
+    )
+
+
+def test_combiner_merges_druid_overrides():
+    """
+    An override lands on the leaf it names and leaves the generated spec's other
+    settings standing, and a new branch is added whole.
+    """
+    combiner = _combiner(
+        druid_overrides={
+            "dataSchema": {"granularitySpec": {"segmentGranularity": "HOUR"}},
+            "tuningConfig": {"partitionsSpec": {"targetRowsPerSegment": 1000000}},
+            "ioConfig": {"appendToExisting": True},
+        },
+    )
+    prefix = get_settings().druid_datasource_prefix
+    generated = {
+        "dataSchema": {
+            "dataSource": f"{prefix}{combiner.output_table_name}",
+            "parser": {
+                "parseSpec": {
+                    "format": "parquet",
+                    "dimensionsSpec": {"dimensions": ["order_date"]},
+                    "timestampSpec": {"column": "order_date", "format": "yyyyMMdd"},
+                },
+            },
+            "metricsSpec": [],
+            "granularitySpec": {
+                "type": "uniform",
+                "segmentGranularity": "DAY",
+                "intervals": [],
+            },
+        },
+        "tuningConfig": {
+            "partitionsSpec": {"targetPartitionSize": 5000000, "type": "hashed"},
+            "useCombiner": True,
+            "type": "hadoop",
+        },
+    }
+    assert (
+        combiner.model_copy(
+            update={"druid_overrides": None},
+        ).build_druid_spec()
+        == generated
+    )
+
+    merged = combiner.build_druid_spec()
+    assert merged == {
+        "dataSchema": {
+            "dataSource": f"{prefix}{combiner.output_table_name}",
+            "parser": {
+                "parseSpec": {
+                    "format": "parquet",
+                    "dimensionsSpec": {"dimensions": ["order_date"]},
+                    "timestampSpec": {"column": "order_date", "format": "yyyyMMdd"},
+                },
+            },
+            "metricsSpec": [],
+            "granularitySpec": {
+                "type": "uniform",
+                "segmentGranularity": "HOUR",
+                "intervals": [],
+            },
+        },
+        "tuningConfig": {
+            "partitionsSpec": {
+                "targetPartitionSize": 5000000,
+                "type": "hashed",
+                "targetRowsPerSegment": 1000000,
+            },
+            "useCombiner": True,
+            "type": "hadoop",
+        },
+        "ioConfig": {"appendToExisting": True},
+    }
 
 
 class TestDruidCubeV3ConfigDruidCubeConfigCompatibility:
@@ -296,12 +674,9 @@ class TestFromMeasuresQueryRoleResolution:
     def test_role_qualified_partition_resolves(self, measures_query):
         """Cube column with ``dimension_column='[reporting_date]'`` must
         match the role-qualified ``semantic_entity`` in the measures query."""
-        # Mimics a database Column for a role-qualified temporal partition.
-        # Cube columns store the role separately in ``dimension_column``.
-        temporal_partition = SimpleNamespace(
-            name="default.date.dateint",
-            dimension_column="[reporting_date]",
-            partition=SimpleNamespace(format="yyyyMMdd", granularity=Granularity.DAY),
+        temporal_partition = _temporal_partition(
+            "default.date.dateint",
+            "[reporting_date]",
         )
 
         result = MeasuresMaterialization.from_measures_query(
@@ -316,11 +691,7 @@ class TestFromMeasuresQueryRoleResolution:
     def test_unqualified_partition_still_resolves(self, measures_query):
         """A cube without a role on its temporal partition must still match."""
         measures_query.columns[0].semantic_entity = "default.date.dateint"
-        temporal_partition = SimpleNamespace(
-            name="default.date.dateint",
-            dimension_column=None,
-            partition=SimpleNamespace(format="yyyyMMdd", granularity=Granularity.DAY),
-        )
+        temporal_partition = _temporal_partition("default.date.dateint", None)
 
         result = MeasuresMaterialization.from_measures_query(
             measures_query,
@@ -332,14 +703,75 @@ class TestFromMeasuresQueryRoleResolution:
     def test_missing_partition_raises_clear_error(self, measures_query):
         """If no measures column matches the partition, raise a clear error
         instead of an opaque ``IndexError``."""
-        temporal_partition = SimpleNamespace(
-            name="default.unrelated.column",
-            dimension_column=None,
-            partition=SimpleNamespace(format="yyyyMMdd", granularity=Granularity.DAY),
-        )
+        temporal_partition = _temporal_partition("default.unrelated.column", None)
 
         with pytest.raises(DJInvalidInputException, match="Could not find timestamp"):
             MeasuresMaterialization.from_measures_query(
                 measures_query,
                 temporal_partition,
             )
+
+
+class TestMaterializedTableNameRoundTrip:
+    """`materialized_table_name` and `version_from_materialized_table` must stay
+    inverses — the availability endpoint derives the node version from the table
+    name, so a drift between the two would silently misroute availability."""
+
+    def test_round_trip_unprefixed(self):
+        table = materialized_table_name("foo.bar.baz", "v2.1", "abc123def4560000")
+        assert table == "foo_bar_baz_v2_1_abc123def4560000"
+        assert version_from_materialized_table(table, "foo.bar.baz") == "v2.1"
+
+    def test_round_trip_with_druid_prefix(self):
+        prefix = get_settings().druid_datasource_prefix
+        table = prefix + materialized_table_name(
+            "cs.main.perf",
+            "v1.0",
+            "deadbeefdeadbeef",
+        )
+        assert version_from_materialized_table(table, "cs.main.perf") == "v1.0"
+
+    def test_non_materialized_names_return_none(self):
+        # A bare source table.
+        assert version_from_materialized_table("pmts", "default.revenue") is None
+        # A datasource for a different node.
+        assert (
+            version_from_materialized_table(
+                "dj__other_v1_0_abcd1234",
+                "default.revenue",
+            )
+            is None
+        )
+        # Matches the node stem but has no <version>_<hash> suffix.
+        assert (
+            version_from_materialized_table("dj__default_revenue_v1", "default.revenue")
+            is None
+        )
+
+    def test_round_trip_multi_digit_versions(self):
+        # Only the trailing hash token is peeled off, never a version digit.
+        for version in ("v1.10", "v10.2", "v10.10"):
+            table = materialized_table_name("a.b", version, "0011223344556677")
+            assert version_from_materialized_table(table, "a.b") == version
+            prefixed = get_settings().druid_datasource_prefix + table
+            assert version_from_materialized_table(prefixed, "a.b") == version
+
+    def test_round_trip_node_name_with_version_like_suffix(self):
+        # Anchoring on the full node stem handles node names that themselves
+        # look version-ish or contain underscores.
+        node_name = "default.foo_v2"
+        table = get_settings().druid_datasource_prefix + materialized_table_name(
+            node_name,
+            "v1.0",
+            "abcd1234abcd1234",
+        )
+        assert version_from_materialized_table(table, node_name) == "v1.0"
+
+    def test_boundary_inputs_return_none(self):
+        prefix = get_settings().druid_datasource_prefix
+        # Just the prefix, nothing else.
+        assert version_from_materialized_table(prefix, "default.x") is None
+        # Node stem present but nothing after it.
+        assert (
+            version_from_materialized_table(f"{prefix}default_x_", "default.x") is None
+        )

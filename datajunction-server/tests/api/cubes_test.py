@@ -2,26 +2,157 @@
 Tests for the cubes API.
 """
 
-from typing import Dict, Iterator
+from collections.abc import Iterator
+from datetime import UTC
 from unittest import mock
 
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from datajunction_server.errors import DJQueryServiceClientException
+from datajunction_server.api.cubes import _resolve_cube_partition_output_column
 from datajunction_server.construction.build_v3.combiners import (
     PreAggSourceInfo,
     TemporalPartitionInfo,
 )
+from datajunction_server.database.materialization import Materialization
+from datajunction_server.database.node import NodeRevision
+from datajunction_server.errors import (
+    DJInvalidInputException,
+    DJQueryServiceClientException,
+    DJWarning,
+    ErrorCode,
+)
 from datajunction_server.models.cube import CubeElementMetadata
+from datajunction_server.models.materialization import (
+    MaterializationInfo,
+    MaterializationStrategy,
+)
 from datajunction_server.models.node import ColumnOutput
 from datajunction_server.models.query import ColumnMetadata, V3ColumnMetadata
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.utils import get_query_service_client
-from tests.sql.utils import compare_query_strings
 from tests.construction.build_v3 import assert_sql_equal
+from tests.sql.utils import compare_query_strings
+
+
+def test_cube_partition_output_prefers_exact_unqualified_match():
+    """An exact bare semantic match wins even when a role appears first."""
+    role_column = V3ColumnMetadata(
+        name="date_id_ship",
+        type="int",
+        semantic_name="common.date.date_id[ship_date]",
+        semantic_type="dimension",
+    )
+    exact_column = V3ColumnMetadata(
+        name="date_id",
+        type="int",
+        semantic_name="common.date.date_id",
+        semantic_type="dimension",
+    )
+
+    result = _resolve_cube_partition_output_column(
+        [role_column, exact_column],
+        "common.date.date_id",
+        allow_role_fallback=True,
+    )
+
+    assert result is exact_column
+
+
+def test_cube_partition_output_rejects_duplicate_exact_matches():
+    """Multiple exact semantic matches cannot be resolved deterministically."""
+    columns = [
+        V3ColumnMetadata(
+            name="date_id_two",
+            type="int",
+            semantic_name="common.date.date_id",
+            semantic_type="dimension",
+        ),
+        V3ColumnMetadata(
+            name="date_id_one",
+            type="int",
+            semantic_name="common.date.date_id",
+            semantic_type="dimension",
+        ),
+    ]
+
+    with pytest.raises(
+        DJInvalidInputException,
+        match=(
+            "matches multiple combined query output columns: "
+            r"\['date_id_one', 'date_id_two'\]"
+        ),
+    ):
+        _resolve_cube_partition_output_column(
+            columns,
+            "common.date.date_id",
+            allow_role_fallback=True,
+        )
+
+
+def test_cube_partition_output_disallows_fallback_for_role_qualified_partition():
+    """A role-qualified partition cannot fall back to a different role."""
+    order_date_column = V3ColumnMetadata(
+        name="date_id_order",
+        type="int",
+        semantic_name="common.date.date_id[order_date]",
+        semantic_type="dimension",
+    )
+
+    result = _resolve_cube_partition_output_column(
+        [order_date_column],
+        "common.date.date_id[ship_date]",
+        allow_role_fallback=False,
+    )
+
+    assert result is None
+
+
+def test_cube_partition_output_allows_unique_role_fallback():
+    """A single role match remains valid for legacy bare partitions."""
+    role_column = V3ColumnMetadata(
+        name="date_id_order",
+        type="int",
+        semantic_name="common.date.date_id[order_date]",
+        semantic_type="dimension",
+    )
+
+    result = _resolve_cube_partition_output_column(
+        [role_column],
+        "common.date.date_id",
+        allow_role_fallback=True,
+    )
+
+    assert result is role_column
+
+
+def test_cube_partition_output_rejects_ambiguous_role_fallback():
+    """A bare partition cannot silently choose between multiple roles."""
+    columns = [
+        V3ColumnMetadata(
+            name="date_id_ship",
+            type="int",
+            semantic_name="common.date.date_id[ship_date]",
+            semantic_type="dimension",
+        ),
+        V3ColumnMetadata(
+            name="date_id_order",
+            type="int",
+            semantic_name="common.date.date_id[order_date]",
+            semantic_type="dimension",
+        ),
+    ]
+
+    with pytest.raises(DJInvalidInputException, match="ambiguous"):
+        _resolve_cube_partition_output_column(
+            columns,
+            "common.date.date_id",
+            allow_role_fallback=True,
+        )
 
 
 async def make_a_test_cube(
@@ -332,7 +463,7 @@ async def client_with_repairs_cube(
 
 
 @pytest.fixture
-def repair_orders_cube_measures() -> Dict:
+def repair_orders_cube_measures() -> dict:
     """
     Fixture for repair orders cube metrics to measures mapping.
     """
@@ -374,62 +505,6 @@ def repairs_cube_elements():
             "type": "metric",
         },
         {
-            "display_name": "Company Name",
-            "name": "company_name",
-            "node_name": "default.dispatcher",
-            "partition": None,
-            "role": None,
-            "type": "dimension",
-        },
-        {
-            "display_name": "Local Region",
-            "name": "local_region",
-            "node_name": "default.municipality_dim",
-            "partition": None,
-            "role": None,
-            "type": "dimension",
-        },
-        {
-            "display_name": "Hire Date",
-            "name": "hire_date",
-            "node_name": "default.hard_hat",
-            "partition": None,
-            "role": None,
-            "type": "dimension",
-        },
-        {
-            "display_name": "City",
-            "name": "city",
-            "node_name": "default.hard_hat",
-            "partition": None,
-            "role": None,
-            "type": "dimension",
-        },
-        {
-            "display_name": "State",
-            "name": "state",
-            "node_name": "default.hard_hat",
-            "partition": None,
-            "role": None,
-            "type": "dimension",
-        },
-        {
-            "display_name": "Postal Code",
-            "name": "postal_code",
-            "node_name": "default.hard_hat",
-            "partition": None,
-            "role": None,
-            "type": "dimension",
-        },
-        {
-            "display_name": "Country",
-            "name": "country",
-            "node_name": "default.hard_hat",
-            "partition": None,
-            "role": None,
-            "type": "dimension",
-        },
-        {
             "display_name": "Num Repair Orders",
             "name": "default_DOT_num_repair_orders",
             "node_name": "default.num_repair_orders",
@@ -468,6 +543,62 @@ def repairs_cube_elements():
             "partition": None,
             "role": None,
             "type": "metric",
+        },
+        {
+            "display_name": "Country",
+            "name": "country",
+            "node_name": "default.hard_hat",
+            "partition": None,
+            "role": None,
+            "type": "dimension",
+        },
+        {
+            "display_name": "Postal Code",
+            "name": "postal_code",
+            "node_name": "default.hard_hat",
+            "partition": None,
+            "role": None,
+            "type": "dimension",
+        },
+        {
+            "display_name": "City",
+            "name": "city",
+            "node_name": "default.hard_hat",
+            "partition": None,
+            "role": None,
+            "type": "dimension",
+        },
+        {
+            "display_name": "Hire Date",
+            "name": "hire_date",
+            "node_name": "default.hard_hat",
+            "partition": None,
+            "role": None,
+            "type": "dimension",
+        },
+        {
+            "display_name": "State",
+            "name": "state",
+            "node_name": "default.hard_hat",
+            "partition": None,
+            "role": None,
+            "type": "dimension",
+        },
+        {
+            "display_name": "Company Name",
+            "name": "company_name",
+            "node_name": "default.dispatcher",
+            "partition": None,
+            "role": None,
+            "type": "dimension",
+        },
+        {
+            "display_name": "Local Region",
+            "name": "local_region",
+            "node_name": "default.municipality_dim",
+            "partition": None,
+            "role": None,
+            "type": "dimension",
         },
     ]
 
@@ -2171,16 +2302,16 @@ async def test_changing_node_upstream_from_cube(
             "role": None,
         },
         {
-            "name": "municipality_id",
-            "display_name": "Municipality Id",
+            "name": "hard_hat_id",
+            "display_name": "Hard Hat Id",
             "node_name": "default.repair_order_dim__one",
             "type": "dimension",
             "partition": None,
             "role": None,
         },
         {
-            "name": "hard_hat_id",
-            "display_name": "Hard Hat Id",
+            "name": "municipality_id",
+            "display_name": "Municipality Id",
             "node_name": "default.repair_order_dim__one",
             "type": "dimension",
             "partition": None,
@@ -2414,12 +2545,137 @@ async def test_updating_cube(
 
 
 @pytest.mark.asyncio
+async def test_reordering_cube_dimensions(
+    client_with_repairs_cube: AsyncClient,
+):
+    """
+    Reordering a cube's dimensions without adding or removing any is a minor
+    version bump — the ordering determines the cube's column order, so it is a real
+    change, but no value moves. Crucially the reorder must actually persist: the
+    dimension set is compared as a set to decide "major", so if nothing checked the
+    ordering the PATCH would report success and quietly discard the edit.
+    """
+    cube_name = "default.repairs_cube_dimension_reorder"
+    await make_a_test_cube(client_with_repairs_cube, cube_name)
+
+    original = (await client_with_repairs_cube.get(f"/cubes/{cube_name}/")).json()
+    dimensions = original["cube_node_dimensions"]
+    reordered = list(reversed(dimensions))
+    assert reordered != dimensions
+
+    response = await client_with_repairs_cube.patch(
+        f"/nodes/{cube_name}",
+        json={"dimensions": reordered},
+    )
+    assert response.status_code == 200, response.json()
+    assert response.json()["version"] == "v1.1"
+
+    updated = (await client_with_repairs_cube.get(f"/cubes/{cube_name}/")).json()
+    assert updated["version"] == "v1.1"
+    assert updated["cube_node_dimensions"] == reordered
+
+
+@pytest.mark.asyncio
+async def test_reordering_cube_metrics(
+    client_with_repairs_cube: AsyncClient,
+):
+    """
+    Reordering a cube's metrics is a minor version bump, and the new order has to
+    persist — the same trap as the dimension reorder above.
+    """
+    cube_name = "default.repairs_cube_metric_reorder"
+    await make_a_test_cube(client_with_repairs_cube, cube_name)
+
+    original = (await client_with_repairs_cube.get(f"/cubes/{cube_name}/")).json()
+    metrics = original["cube_node_metrics"]
+    reordered = list(reversed(metrics))
+    assert reordered != metrics
+
+    response = await client_with_repairs_cube.patch(
+        f"/nodes/{cube_name}",
+        json={"metrics": reordered},
+    )
+    assert response.status_code == 200, response.json()
+    assert response.json()["version"] == "v1.1"
+
+    updated = (await client_with_repairs_cube.get(f"/cubes/{cube_name}/")).json()
+    assert updated["version"] == "v1.1"
+    assert updated["cube_node_metrics"] == reordered
+
+
+@pytest.mark.asyncio
+async def test_reordering_cube_filters_is_not_a_change(
+    client_with_repairs_cube: AsyncClient,
+):
+    """
+    Filters are ANDed together, so their ordering carries no meaning: reordering
+    them is not a change at all and earns no new revision.
+    """
+    cube_name = "default.repairs_cube_filter_reorder"
+    await make_a_test_cube(client_with_repairs_cube, cube_name)
+
+    filters = ["default.hard_hat.state='AZ'", "default.hard_hat.city='Phoenix'"]
+    response = await client_with_repairs_cube.patch(
+        f"/nodes/{cube_name}",
+        json={"filters": filters},
+    )
+    assert response.status_code == 200, response.json()
+    assert response.json()["version"] == "v2.0"
+
+    response = await client_with_repairs_cube.patch(
+        f"/nodes/{cube_name}",
+        json={"filters": list(reversed(filters))},
+    )
+    assert response.status_code == 200, response.json()
+    assert response.json()["version"] == "v2.0"
+
+    revisions = (
+        await client_with_repairs_cube.get(f"/nodes/{cube_name}/revisions/")
+    ).json()
+    assert [revision["version"] for revision in revisions] == ["v1.0", "v2.0"]
+
+
+@pytest.mark.asyncio
+async def test_updating_cube_display_name_and_mode_are_minor(
+    client_with_repairs_cube: AsyncClient,
+):
+    """
+    Display name and mode are metadata: they leave the cube's metrics, dimensions
+    and filters alone, so each earns a minor version rather than a major one.
+    """
+    cube_name = "default.repairs_cube_metadata_update"
+    await make_a_test_cube(client_with_repairs_cube, cube_name)
+
+    response = await client_with_repairs_cube.patch(
+        f"/nodes/{cube_name}",
+        json={"display_name": "Repairs Cube, Renamed"},
+    )
+    assert response.status_code == 200, response.json()
+    assert response.json()["version"] == "v1.1"
+    assert response.json()["display_name"] == "Repairs Cube, Renamed"
+
+    response = await client_with_repairs_cube.patch(
+        f"/nodes/{cube_name}",
+        json={"mode": "draft"},
+    )
+    assert response.status_code == 200, response.json()
+    assert response.json()["version"] == "v1.2"
+    assert response.json()["mode"] == "draft"
+
+    revisions = (
+        await client_with_repairs_cube.get(f"/nodes/{cube_name}/revisions/")
+    ).json()
+    assert [revision["version"] for revision in revisions] == ["v1.0", "v1.1", "v1.2"]
+
+
+@pytest.mark.asyncio
 async def test_updating_cube_filters(
     client_with_repairs_cube: AsyncClient,
 ):
     """
-    Verify that cube filters can be updated via the PATCH endpoint and
-    that the change is detected as a minor version bump.
+    Verify that cube filters can be updated via the PATCH endpoint and that the
+    change is detected as a major version bump: filters decide which rows the cube
+    contains, so changing them changes the cube's data.
     """
     cube_name = "default.repairs_cube_filters_update"
     await make_a_test_cube(
@@ -2439,7 +2695,7 @@ async def test_updating_cube_filters(
         },
     )
     data = response.json()
-    assert data["version"] == "v1.1"
+    assert data["version"] == "v2.0"
 
     # Verify the updated filters are returned from the /cubes/ endpoint
     response = await client_with_repairs_cube.get(f"/cubes/{cube_name}/")
@@ -2453,7 +2709,7 @@ async def test_updating_cube_filters(
         },
     )
     data = response.json()
-    assert data["version"] == "v1.2"
+    assert data["version"] == "v3.0"
 
     response = await client_with_repairs_cube.get(f"/cubes/{cube_name}/")
     assert response.json()["cube_filters"] is None
@@ -2501,10 +2757,28 @@ async def test_updating_cube_with_existing_cube_materialization(
     result = response.json()
     assert result["version"] == "v2.0"
 
-    # Check that there is no longer a materialization configured
+    # Both of the previous revision's materializations are rebuilt against v2.0.
     response = await client_with_repairs_cube.get(f"/cubes/{cube_name}/")
     data = response.json()
-    assert len(data["materializations"]) == 0
+    assert [
+        (mat["name"], mat["job"], mat["config"].get("cube"))
+        for mat in data["materializations"]
+    ] == [
+        (
+            "druid_cube__incremental_time__default.hard_hat.hire_date",
+            "DruidCubeMaterializationJob",
+            {
+                "name": cube_name,
+                "version": "v2.0",
+                "display_name": "Repairs Cube  Default Incremental 11",
+            },
+        ),
+        (
+            "druid_metrics_cube__incremental_time__default.hard_hat.hire_date",
+            "DruidMetricsCubeMaterializationJob",
+            None,
+        ),
+    ]
 
 
 @pytest.mark.asyncio
@@ -2562,10 +2836,20 @@ async def test_updating_cube_with_existing_materialization(
     result = response.json()
     assert result["version"] == "v2.0"
 
-    # Check that the cube was updated
+    # The materialization is rebuilt against the new revision, carrying the
+    # schedule and spark config the user set on the previous one.
     response = await client_with_repairs_cube.get("/cubes/default.repairs_cube_2/")
     data = response.json()
-    assert len(data["materializations"]) == 0
+    assert [
+        (mat["name"], mat["schedule"], mat["config"]["spark"])
+        for mat in data["materializations"]
+    ] == [
+        (
+            "druid_measures_cube__incremental_time__default.hard_hat.hire_date",
+            "@daily",
+            {"spark.executor.memory": "6g"},
+        ),
+    ]
     assert_updated_repairs_cube(data)
 
 
@@ -2947,6 +3231,25 @@ async def test_derive_sql_column():
     assert sql_column.name == expected_sql_column.name
     assert sql_column.display_name == expected_sql_column.display_name
     assert sql_column.type == expected_sql_column.type
+
+    # Role-qualified dimensions include the role, so two roles on the same
+    # column produce distinct SQL column names.
+    from_col = CubeElementMetadata(
+        name="dateint",
+        display_name="Date",
+        node_name="foo.dates",
+        type="dimension",
+        role="start",
+    ).derive_sql_column()
+    to_col = CubeElementMetadata(
+        name="dateint",
+        display_name="Date",
+        node_name="foo.dates",
+        type="dimension",
+        role="end",
+    ).derive_sql_column()
+    assert from_col.name != to_col.name
+    assert "start" in from_col.name and "end" in to_col.name
 
 
 @pytest.mark.asyncio
@@ -3785,6 +4088,8 @@ async def test_cube_materialization_metadata(
             "timestamp_format": "yyyyMMdd",
             "granularity": "day",
             "upstream_tables": [],
+            "spark_conf": None,
+            "druid_overrides": None,
             "druid_spec": {
                 "dataSchema": {
                     "dataSource": mock.ANY,
@@ -3971,6 +4276,356 @@ class TestCubeMaterializeV2Endpoint:
         assert "not found" in response.json()["message"].lower()
 
 
+class TestCubeRoleQualifiedDimensions:
+    """A cube may reference the same dimension attribute under two roles (e.g.
+    `v3.location.country[from]` and `[to]`) — regression for pk_cube."""
+
+    @pytest.mark.asyncio
+    async def test_create_cube_same_column_two_roles(
+        self,
+        module__client_with_build_v3: AsyncClient,
+    ):
+        """One column under two roles must not raise pk_cube; both survive on load."""
+        response = await module__client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.two_role_country_cube",
+                "metrics": ["v3.total_revenue"],
+                # Same column under two roles, plus a plain (roleless) dimension.
+                "dimensions": [
+                    "v3.location.country[from]",
+                    "v3.location.country[to]",
+                    "v3.product.category",
+                ],
+                "mode": "published",
+                "description": "Same location.country column under from/to roles",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        response = await module__client_with_build_v3.get(
+            "/cubes/v3.two_role_country_cube/",
+        )
+        assert response.status_code == 200, response.json()
+        cube = response.json()
+
+        # Both role-qualified dimensions survive — not collapsed to one — and the
+        # plain dimension is unaffected.
+        assert cube["cube_node_dimensions"] == [
+            "v3.location.country[from]",
+            "v3.location.country[to]",
+            "v3.product.category",
+        ]
+
+        # cube_node_dimensions above is the authoritative ordered list; cube_elements
+        # is a secondary view whose ordering across distinct source columns is
+        # pre-existing, so assert its contents as a set.
+        dimension_elements = {
+            (elem["node_name"], elem["name"], elem["role"])
+            for elem in cube["cube_elements"]
+            if elem["type"] == "dimension"
+        }
+        assert dimension_elements == {
+            ("v3.location", "country", "from"),
+            ("v3.location", "country", "to"),
+            ("v3.product", "category", None),
+        }
+
+        # SQL column names stay distinct (would collide if role were dropped).
+        sql_column_names = [col["name"] for col in cube["sql_columns"]]
+        assert len(sql_column_names) == len(set(sql_column_names))
+
+    @pytest.mark.asyncio
+    async def test_partition_targets_role_qualified_column(
+        self,
+        module__client_with_build_v3: AsyncClient,
+    ):
+        """
+        The column-scoped partition endpoints resolve a role-qualified column
+        identity, so a partition can be pinned to one role-played dimension
+        without touching the other. A bare (ambiguous) name is rejected rather
+        than silently binding the last-iterated column (Defects A and B).
+        """
+        cube_name = "v3.partition_role_cube"
+        response = await module__client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": cube_name,
+                "metrics": ["v3.total_revenue"],
+                "dimensions": [
+                    "v3.location.country[from]",
+                    "v3.location.country[to]",
+                    "v3.product.category",
+                ],
+                "mode": "published",
+                "description": "Role-playing country dim for partition targeting",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        async def country_columns_by_role():
+            """Map role suffix -> column dict for the collided `country` columns."""
+            cube = (
+                await module__client_with_build_v3.get(f"/cubes/{cube_name}/")
+            ).json()
+            return {
+                col["dimension_column"]: col
+                for col in cube["columns"]
+                if col["name"] == "v3.location.country"
+            }
+
+        # Role-qualified POST targets exactly the [from] role column.
+        response = await module__client_with_build_v3.post(
+            f"/nodes/{cube_name}/columns/v3.location.country[from]/partition",
+            json={"type_": "categorical"},
+        )
+        assert response.status_code == 201, response.json()
+        body = response.json()
+        assert body["name"] == "v3.location.country"
+        assert body["dimension_column"] == "[from]"
+        assert body["partition"]["type_"] == "categorical"
+
+        # The [to] role column is untouched.
+        country_cols = await country_columns_by_role()
+        assert country_cols["[from]"]["partition"] is not None
+        assert country_cols["[to]"]["partition"] is None
+
+        # Bare (ambiguous) name refuses to silently pick a winner.
+        response = await module__client_with_build_v3.post(
+            f"/nodes/{cube_name}/columns/v3.location.country/partition",
+            json={"type_": "categorical"},
+        )
+        assert response.status_code == 422, response.json()
+        message = response.json()["message"]
+        assert "ambiguous" in message
+        assert "v3.location.country[from]" in message
+        assert "v3.location.country[to]" in message
+
+        # ...and the ambiguous attempt didn't set a partition on either column.
+        country_cols = await country_columns_by_role()
+        assert country_cols["[from]"]["partition"] is not None
+        assert country_cols["[to]"]["partition"] is None
+
+        # Role-qualified DELETE removes the partition from [from] only.
+        response = await module__client_with_build_v3.delete(
+            f"/nodes/{cube_name}/columns/v3.location.country[from]/partition",
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["partition"] is None
+
+        country_cols = await country_columns_by_role()
+        assert country_cols["[from]"]["partition"] is None
+        assert country_cols["[to]"]["partition"] is None
+
+    @pytest.mark.asyncio
+    async def test_partition_history_uses_resolved_cube_column_identity(
+        self,
+        module__client_with_build_v3: AsyncClient,
+    ):
+        """Legacy bare lookups must not erase the resolved role from history."""
+        cube_name = "v3.single_role_partition_history_cube"
+        response = await module__client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": cube_name,
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.location.country[from]"],
+                "mode": "published",
+                "description": "Role-aware partition history regression",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        # A unique bare name remains supported for compatibility, but the
+        # resulting audit record must retain the resolved role.
+        response = await module__client_with_build_v3.post(
+            f"/nodes/{cube_name}/columns/v3.location.country/partition",
+            json={"type_": "categorical"},
+        )
+        assert response.status_code == 201, response.json()
+        response = await module__client_with_build_v3.delete(
+            f"/nodes/{cube_name}/columns/v3.location.country/partition",
+        )
+        assert response.status_code == 200, response.json()
+
+        response = await module__client_with_build_v3.get(
+            f"/history?node={cube_name}",
+        )
+        assert response.status_code == 200, response.json()
+        partition_events = [
+            event for event in response.json() if event["entity_type"] == "partition"
+        ]
+        assert [event["details"]["column"] for event in partition_events] == [
+            "v3.location.country[from]",
+            "v3.location.country[from]",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_update_and_exports_keep_role_played_partitions_distinct(
+        self,
+        module__client_with_build_v3: AsyncClient,
+    ):
+        """A cube update must preserve metadata by role-qualified identity.
+
+        The reordered dimensions deliberately put another dimension between two
+        roles of the same column. This catches both last-wins partition copying
+        and read/export paths that reconstruct roles from a bare-name map.
+        """
+        cube_name = "v3.role_partition_update_cube"
+        response = await module__client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": cube_name,
+                "metrics": ["v3.total_revenue"],
+                "dimensions": [
+                    "v3.location.country[from]",
+                    "v3.location.country[to]",
+                    "v3.product.category",
+                ],
+                "mode": "published",
+                "description": "Role-aware cube update regression",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        for role in ("from", "to"):
+            response = await module__client_with_build_v3.post(
+                f"/nodes/{cube_name}/columns/v3.location.country[{role}]/partition",
+                json={"type_": "categorical"},
+            )
+            assert response.status_code == 201, response.json()
+
+        response = await module__client_with_build_v3.patch(
+            f"/nodes/{cube_name}",
+            json={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": [
+                    "v3.location.country[from]",
+                    "v3.product.category",
+                    "v3.location.country[to]",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        for role, description in (
+            ("from", "Country of origin"),
+            ("to", "Destination country"),
+        ):
+            response = await module__client_with_build_v3.patch(
+                f"/nodes/{cube_name}/columns/v3.location.country[{role}]/description",
+                params={"description": description},
+            )
+            assert response.status_code == 201, response.json()
+
+        response = await module__client_with_build_v3.get(f"/cubes/{cube_name}/")
+        assert response.status_code == 200, response.json()
+        cube = response.json()
+        assert cube["cube_node_dimensions"] == [
+            "v3.location.country[from]",
+            "v3.product.category",
+            "v3.location.country[to]",
+        ]
+        dimension_elements = [
+            (element["node_name"], element["name"], element["role"])
+            for element in cube["cube_elements"]
+            if element["type"] == "dimension"
+        ]
+        assert dimension_elements == [
+            ("v3.location", "country", "from"),
+            ("v3.product", "category", None),
+            ("v3.location", "country", "to"),
+        ]
+        by_role = {
+            col["dimension_column"]: col
+            for col in cube["columns"]
+            if col["name"] == "v3.location.country"
+        }
+        assert by_role["[from]"]["partition"]["type_"] == "categorical"
+        assert by_role["[to]"]["partition"]["type_"] == "categorical"
+        assert by_role["[from]"]["description"] == "Country of origin"
+        assert by_role["[to]"]["description"] == "Destination country"
+
+        response = await module__client_with_build_v3.post(
+            f"/data/{cube_name}/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "roads",
+                "table": "role_partition_update_cube",
+                "valid_through_ts": 1010129120,
+            },
+        )
+        assert response.status_code == 200, response.json()
+        response = await module__client_with_build_v3.get(
+            f"/cubes/{cube_name}/dimensions/sql",
+            params=[
+                ("dimensions", "v3.location.country[from]"),
+                ("dimensions", "v3.location.country[to]"),
+            ],
+        )
+        assert response.status_code == 200, response.json()
+        assert [
+            (column["semantic_entity"], column["type"])
+            for column in response.json()["columns"]
+        ] == [
+            ("v3.location.country[from]", "string"),
+            ("v3.location.country[to]", "string"),
+        ]
+
+        # Requesting `attribute` forces the full ORM cube-elements GraphQL path.
+        response = await module__client_with_build_v3.post(
+            "/graphql",
+            json={
+                "query": """
+                {
+                  findNodes(names: ["v3.role_partition_update_cube"]) {
+                    current {
+                      cubeDimensions { name role attribute }
+                    }
+                  }
+                }
+                """,
+            },
+        )
+        assert response.status_code == 200, response.json()
+        graphql_data = response.json()
+        assert "errors" not in graphql_data, graphql_data
+        graphql_dims = graphql_data["data"]["findNodes"][0]["current"]["cubeDimensions"]
+        assert [(dim["name"], dim["role"]) for dim in graphql_dims] == [
+            ("v3.location.country[from]", "[from]"),
+            ("v3.product.category", ""),
+            ("v3.location.country[to]", "[to]"),
+        ]
+
+        response = await module__client_with_build_v3.get(
+            "/namespaces/v3/export/spec",
+        )
+        assert response.status_code == 200, response.json()
+        exported_cube = next(
+            node
+            for node in response.json()["nodes"]
+            if node["name"] == "${prefix}role_partition_update_cube"
+        )
+        assert {
+            col["name"] for col in exported_cube["columns"] if col.get("partition")
+        } == {
+            "${prefix}location.country[from]",
+            "${prefix}location.country[to]",
+        }
+
+        response = await module__client_with_build_v3.get("/namespaces/v3/export/")
+        assert response.status_code == 200, response.json()
+        project_cube = next(
+            node
+            for node in response.json()
+            if node["build_name"] == "role_partition_update_cube"
+        )
+        assert {col["name"] for col in project_cube["columns"]} == {
+            "v3.location.country[from]",
+            "v3.location.country[to]",
+        }
+
+
 class TestCubeDeactivateEndpoint:
     """Tests for DELETE /cubes/{name}/materialize endpoint."""
 
@@ -4137,6 +4792,7 @@ def _create_mock_combined_result(
     mock_result.measure_components = measure_components or []
     mock_result.component_aliases = component_aliases or {}
     mock_result.metric_combiners = metric_combiners or {}
+    mock_result.warnings = []
     return mock_result
 
 
@@ -4236,6 +4892,101 @@ class TestCubeMaterializeV2SuccessPaths:
         assert data["schedule"] == "0 0 * * *"
         assert "workflow_urls" in data
         assert len(data["workflow_urls"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_materialize_cube_surfaces_fanout_warning(
+        self,
+        client_with_repairs_cube: AsyncClient,
+        mocker,
+    ):
+        """
+        A fan-out risk detected while building the combined SQL from pre-agg
+        tables must be surfaced on the materialize response — this is when the
+        inflation gets baked into the cube, so it is the right moment to flag it.
+        """
+        cube_name = "default.test_materialize_fanout_cube"
+        await make_a_test_cube(
+            client_with_repairs_cube,
+            cube_name,
+            with_materialization=False,
+        )
+
+        mock_columns = [
+            V3ColumnMetadata(
+                name="state",
+                type="string",
+                semantic_name="default.hard_hat.state",
+                semantic_type="dimension",
+            ),
+            V3ColumnMetadata(
+                name="date_id",
+                type="int",
+                semantic_name="default.hard_hat.hire_date",
+                semantic_type="dimension",
+            ),
+            V3ColumnMetadata(
+                name="total_repair_cost",
+                type="double",
+                semantic_name="default.total_repair_cost",
+                semantic_type="measure",
+            ),
+        ]
+        mock_combined_result = _create_mock_combined_result(
+            mocker,
+            columns=mock_columns,
+            shared_dimensions=["default.hard_hat.state", "default.hard_hat.hire_date"],
+            sql_string="SELECT state, date_id, SUM(cost) AS total_repair_cost FROM preagg GROUP BY state, date_id",
+        )
+        # The combined build detected a fan-out risk.
+        mock_combined_result.warnings = [
+            DJWarning(
+                code=ErrorCode.FANOUT_RISK,
+                message="Possible fan-out: metric(s) default.total_repair_cost ...",
+                debug={"metrics": ["default.total_repair_cost"]},
+            ),
+        ]
+
+        mock_temporal_info = TemporalPartitionInfo(
+            column_name="date_id",
+            format="yyyyMMdd",
+            granularity="day",
+        )
+        mocker.patch(
+            "datajunction_server.api.cubes.build_combiner_sql_from_preaggs",
+            return_value=(
+                mock_combined_result,
+                [
+                    PreAggSourceInfo(
+                        table_ref="catalog.schema.preagg_table1",
+                        parent_name="default.repair_orders",
+                        strategy=None,
+                    ),
+                ],
+                mock_temporal_info,
+            ),
+        )
+        mocker.patch(
+            "datajunction_server.api.cubes._reorder_partition_column_last",
+            side_effect=lambda result, _col: result,
+        )
+        qs_client = client_with_repairs_cube.app.dependency_overrides[
+            get_query_service_client
+        ]()
+        mocker.patch.object(
+            qs_client,
+            "materialize_cube_v2",
+            return_value=mocker.MagicMock(urls=["http://workflow/cube-workflow"]),
+        )
+
+        response = await client_with_repairs_cube.post(
+            f"/cubes/{cube_name}/materialize",
+            json={"strategy": "full", "schedule": "0 0 * * *"},
+        )
+
+        assert response.status_code == 200, response.json()
+        warnings = response.json()["warnings"]
+        assert len(warnings) == 1
+        assert warnings[0]["code"] == "FANOUT_RISK"
 
     @pytest.mark.asyncio
     async def test_materialize_cube_full_uses_cube_partition_with_role(
@@ -4845,8 +5596,8 @@ class TestCubeMaterializeV2SuccessPaths:
         mock_qs_client.materialize_cube_v2.return_value = mocker.MagicMock(
             urls=["http://workflow/test-cube"],
         )
-        client.app.dependency_overrides[get_query_service_client] = (
-            lambda: mock_qs_client
+        client.app.dependency_overrides[get_query_service_client] = lambda: (
+            mock_qs_client
         )
 
         try:
@@ -5269,8 +6020,8 @@ class TestCubeDeactivateWithStoredWorkflowNames:
             urls=["http://workflow/cube-workflow"],
             workflow_names=["cube_wf_name_1"],
         )
-        client.app.dependency_overrides[get_query_service_client] = (
-            lambda: mock_qs_client
+        client.app.dependency_overrides[get_query_service_client] = lambda: (
+            mock_qs_client
         )
 
         try:
@@ -5587,7 +6338,7 @@ class TestCubeRefreshMaterialization:
 
         # Add a deactivated materialization to the node revision so the
         # re-activation logic gets exercised
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         from sqlalchemy import select
 
@@ -5605,7 +6356,7 @@ class TestCubeRefreshMaterialization:
             schedule="",
             config={"cube": {"version": initial_version}},
             job="DruidCubeMaterializationJob",
-            deactivated_at=datetime.now(timezone.utc),
+            deactivated_at=datetime.now(UTC),
         )
         module__session.add(deactivated_mat)
         await module__session.commit()
@@ -5636,10 +6387,759 @@ class TestCubeRefreshMaterialization:
         mat_names = [m["name"] for m in call_kwargs["materializations"]]
         assert "deactivated_mat" in mat_names
 
-        # Verify the materialization was re-activated in the DB
-        await module__session.refresh(deactivated_mat)
-        assert deactivated_mat.deactivated_at is None
+        # Verify the materialization was re-activated in the DB. Re-select it
+        # rather than refreshing the instance built above: the request cleared
+        # the identity map, as it does in production, so that instance is no
+        # longer attached to this session.
+        reactivated_mat = (
+            (
+                await module__session.execute(
+                    select(Materialization).where(
+                        Materialization.id == deactivated_mat.id,
+                    ),
+                )
+            )
+            .scalars()
+            .one()
+        )
+        assert reactivated_mat.deactivated_at is None
 
         # Verify version didn't change
         response = await client_with_repairs_cube.get(f"/nodes/{cube_name}/")
         assert response.json()["version"] == initial_version
+
+    @pytest.mark.asyncio
+    async def test_refresh_materialization_carries_attribution(
+        self,
+        client_with_repairs_cube: AsyncClient,
+        mocker,
+    ):
+        """
+        A refreshed materialization carries the same owners and custom metadata the
+        normal scheduling path sends, so the query service can work out who owns the
+        resulting workflow and which data project it belongs to.
+        """
+        cube_name = "default.test_refresh_attribution_cube"
+        mock_qs_client = mocker.MagicMock()
+        mock_qs_client.materialize.return_value = mocker.MagicMock(
+            urls=["http://workflow/setup"],
+        )
+        client_with_repairs_cube.app.dependency_overrides[get_query_service_client] = (
+            lambda: mock_qs_client
+        )
+        await make_a_test_cube(
+            client_with_repairs_cube,
+            cube_name,
+            with_materialization=True,
+        )
+
+        # Give the cube the metadata the query service routes on
+        response = await client_with_repairs_cube.patch(
+            f"/nodes/{cube_name}/",
+            json={"custom_metadata": {"project": "repairs"}},
+        )
+        assert response.status_code == 200, response.json()
+
+        mock_refresh = mocker.patch.object(
+            mock_qs_client,
+            "refresh_cube_materialization",
+            return_value=mocker.MagicMock(urls=["http://workflow/refreshed"]),
+        )
+        response = await client_with_repairs_cube.patch(
+            f"/nodes/{cube_name}/?refresh_materialization=true",
+            json={},
+        )
+        assert response.status_code == 200
+
+        materializations = mock_refresh.call_args[1]["materializations"]
+        assert [
+            (mat["owners"], mat["custom_metadata"]) for mat in materializations
+        ] == [
+            (
+                [{"username": "dj", "kind": "user"}],
+                {"project": "repairs"},
+            ),
+        ]
+
+
+class TestStopStaleCubeMaterializationWorkflows:
+    """
+    Every new cube revision swaps its materializations: they are rebuilt against the
+    new revision and the superseded revision's workflows are stopped.
+
+    Materializations belong to a single revision and availability is scoped to the
+    revision encoded in the materialized table name, so a new revision that is not
+    rebuilt has neither -- the cube silently falls back to live queries while the old
+    revision's workflow keeps posting availability for a table built from the old
+    definition, which is then used to route queries against the new revision.
+    """
+
+    METRICS = ["default.num_repair_orders", "default.avg_repair_price"]
+    DIMENSIONS = ["default.hard_hat.city", "default.hard_hat.hire_date"]
+    MATERIALIZATION_NAME = (
+        "druid_metrics_cube__incremental_time__default.hard_hat.hire_date"
+    )
+
+    @classmethod
+    async def _make_materialized_cube(
+        cls,
+        client: AsyncClient,
+        cube_name: str,
+        *,
+        filters: list[str] | None = None,
+    ) -> None:
+        """
+        Build a cube with a single active materialization on it.
+        """
+        payload = {
+            "metrics": list(cls.METRICS),
+            "dimensions": list(cls.DIMENSIONS),
+            "description": "Cube of repair metrics",
+            "mode": "published",
+            "name": cube_name,
+        }
+        if filters is not None:
+            payload["filters"] = filters
+        response = await client.post("/nodes/cube/", json=payload)
+        assert response.status_code < 400, response.json()
+
+        response = await client.post(
+            f"/nodes/{cube_name}/columns/default.hard_hat.hire_date/partition",
+            json={"type_": "temporal", "granularity": "day", "format": "yyyyMMdd"},
+        )
+        assert response.status_code < 400, response.json()
+
+        response = await client.post(
+            f"/nodes/{cube_name}/materialization/",
+            json={
+                "job": "druid_metrics_cube",
+                "strategy": "incremental_time",
+                "config": {"spark": {}},
+                "schedule": "",
+            },
+        )
+        assert response.status_code < 400, response.json()
+
+    @staticmethod
+    async def _materialization_states(
+        session: AsyncSession,
+        cube_name: str,
+    ) -> list[tuple[str, str, bool]]:
+        """
+        (revision version, materialization name, is deactivated) for every revision
+        of the cube.
+        """
+        statement = (
+            select(
+                NodeRevision.version,
+                Materialization.name,
+                Materialization.deactivated_at,
+            )
+            .join(NodeRevision, NodeRevision.id == Materialization.node_revision_id)
+            .where(NodeRevision.name == cube_name)
+            .order_by(NodeRevision.version, Materialization.name)
+        )
+        return [
+            (version, name, deactivated_at is not None)
+            for version, name, deactivated_at in (
+                await session.execute(statement)
+            ).all()
+        ]
+
+    @staticmethod
+    async def _materialization_history(
+        client: AsyncClient,
+        cube_name: str,
+    ) -> list[dict]:
+        """
+        Materialization status-change history entries recorded for the cube.
+        """
+        response = await client.get(f"/history?node={cube_name}")
+        assert response.status_code == 200, response.json()
+        return [
+            entry["details"]
+            for entry in response.json()
+            if entry["entity_type"] == "materialization"
+            and entry["activity_type"] == "status_change"
+        ]
+
+    @pytest.mark.asyncio
+    async def test_dimension_change_stops_previous_workflows(
+        self,
+        client_with_repairs_cube: AsyncClient,
+        module__session: AsyncSession,
+        mocker,
+    ):
+        """
+        A swapped dimension invalidates the previous materialized table: the
+        materialization is rebuilt against the new revision and the previous
+        revision's workflow is stopped in the query service and marked deactivated
+        in DJ.
+        """
+        cube_name = "default.stop_workflows_dimension_change"
+        await self._make_materialized_cube(
+            client_with_repairs_cube,
+            cube_name,
+            filters=["default.hard_hat.state='AZ'"],
+        )
+        qs_client = client_with_repairs_cube.app.dependency_overrides[
+            get_query_service_client
+        ]()
+        mock_deactivate_cube_workflow = mocker.patch.object(
+            qs_client,
+            "deactivate_cube_workflow",
+            return_value={"status": "deactivated"},
+        )
+        mock_deactivate_workflows = mocker.patch.object(
+            qs_client,
+            "deactivate_workflows",
+            return_value={"status": "deactivated"},
+        )
+
+        response = await client_with_repairs_cube.patch(
+            f"/nodes/{cube_name}",
+            json={
+                "dimensions": [
+                    "default.hard_hat.state",
+                    "default.hard_hat.hire_date",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v2.0"
+
+        # The legacy materialization config carries no workflow names, so the
+        # cube-name + version endpoint is used, targeting the *previous* version.
+        mock_deactivate_cube_workflow.assert_called_once_with(
+            cube_name,
+            version="v1.0",
+            request_headers=mock.ANY,
+        )
+        mock_deactivate_workflows.assert_not_called()
+
+        assert await self._materialization_states(module__session, cube_name) == [
+            ("v1.0", self.MATERIALIZATION_NAME, True),
+            ("v2.0", self.MATERIALIZATION_NAME, False),
+        ]
+        assert await self._materialization_history(
+            client_with_repairs_cube,
+            cube_name,
+        ) == [
+            {
+                "message": (
+                    "Cube updated to v2.0. Materializations were rebuilt against "
+                    "the new version and the previous version's workflows were "
+                    "stopped."
+                ),
+                "previous_version": "v1.0",
+                "new_version": "v2.0",
+                "stopped_materializations": [self.MATERIALIZATION_NAME],
+                "rebuilt_materializations": [self.MATERIALIZATION_NAME],
+                "previous_table_usable": False,
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_filters_change_stops_previous_workflows(
+        self,
+        client_with_repairs_cube: AsyncClient,
+        module__session: AsyncSession,
+        mocker,
+    ):
+        """
+        A filters-only change is a major version bump — it changes which rows the
+        cube contains — so the previous version's workflows are stopped and the
+        materialization is rebuilt against the new revision.
+        """
+        cube_name = "default.stop_workflows_filters_change"
+        await self._make_materialized_cube(
+            client_with_repairs_cube,
+            cube_name,
+            filters=["default.hard_hat.state='AZ'"],
+        )
+        qs_client = client_with_repairs_cube.app.dependency_overrides[
+            get_query_service_client
+        ]()
+        mock_deactivate_cube_workflow = mocker.patch.object(
+            qs_client,
+            "deactivate_cube_workflow",
+            return_value={"status": "deactivated"},
+        )
+
+        response = await client_with_repairs_cube.patch(
+            f"/nodes/{cube_name}",
+            json={"filters": ["default.hard_hat.state='CA'"]},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v2.0"
+
+        mock_deactivate_cube_workflow.assert_called_once_with(
+            cube_name,
+            version="v1.0",
+            request_headers=mock.ANY,
+        )
+        assert await self._materialization_states(module__session, cube_name) == [
+            ("v1.0", self.MATERIALIZATION_NAME, True),
+            ("v2.0", self.MATERIALIZATION_NAME, False),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_trivial_change_also_swaps_workflows(
+        self,
+        client_with_repairs_cube: AsyncClient,
+        module__session: AsyncSession,
+        mocker,
+    ):
+        """
+        A description-only change earns only a minor bump and leaves the previously
+        materialized table valid, but it is still a new revision, and a revision
+        carries neither its predecessor's materialization nor its availability. So
+        the materialization is rebuilt against v1.1 and v1.0's workflow is stopped:
+        leaving v1.0's workflow running would mean the current revision has no
+        materialization at all while a superseded one keeps posting availability.
+
+        `previous_table_usable` records that this rebuild can adopt the existing
+        data rather than needing a fresh build.
+        """
+        cube_name = "default.swap_workflows_trivial_change"
+        await self._make_materialized_cube(client_with_repairs_cube, cube_name)
+        qs_client = client_with_repairs_cube.app.dependency_overrides[
+            get_query_service_client
+        ]()
+        mock_deactivate_cube_workflow = mocker.patch.object(
+            qs_client,
+            "deactivate_cube_workflow",
+            return_value={"status": "deactivated"},
+        )
+
+        response = await client_with_repairs_cube.patch(
+            f"/nodes/{cube_name}",
+            json={"description": "Cube of repair metrics, revisited"},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v1.1"
+
+        mock_deactivate_cube_workflow.assert_called_once_with(
+            cube_name,
+            version="v1.0",
+            request_headers=mock.ANY,
+        )
+        assert await self._materialization_states(module__session, cube_name) == [
+            ("v1.0", self.MATERIALIZATION_NAME, True),
+            ("v1.1", self.MATERIALIZATION_NAME, False),
+        ]
+        assert await self._materialization_history(
+            client_with_repairs_cube,
+            cube_name,
+        ) == [
+            {
+                "message": (
+                    "Cube updated to v1.1. Materializations were rebuilt against "
+                    "the new version and the previous version's workflows were "
+                    "stopped."
+                ),
+                "previous_version": "v1.0",
+                "new_version": "v1.1",
+                "stopped_materializations": [self.MATERIALIZATION_NAME],
+                "rebuilt_materializations": [self.MATERIALIZATION_NAME],
+                "previous_table_usable": True,
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_metric_component_change_stops_previous_workflows(
+        self,
+        client_with_repairs_cube: AsyncClient,
+        module__session: AsyncSession,
+        mocker,
+    ):
+        """
+        Swapping a metric changes the cube's component set even though dimensions
+        and filters are untouched.
+        """
+        cube_name = "default.stop_workflows_metric_change"
+        await self._make_materialized_cube(
+            client_with_repairs_cube,
+            cube_name,
+            filters=["default.hard_hat.state='AZ'"],
+        )
+        qs_client = client_with_repairs_cube.app.dependency_overrides[
+            get_query_service_client
+        ]()
+        mock_deactivate_cube_workflow = mocker.patch.object(
+            qs_client,
+            "deactivate_cube_workflow",
+            return_value={"status": "deactivated"},
+        )
+
+        response = await client_with_repairs_cube.patch(
+            f"/nodes/{cube_name}",
+            json={
+                "metrics": [
+                    "default.num_repair_orders",
+                    "default.total_repair_cost",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v2.0"
+
+        mock_deactivate_cube_workflow.assert_called_once_with(
+            cube_name,
+            version="v1.0",
+            request_headers=mock.ANY,
+        )
+        assert await self._materialization_states(module__session, cube_name) == [
+            ("v1.0", self.MATERIALIZATION_NAME, True),
+            ("v2.0", self.MATERIALIZATION_NAME, False),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_refresh_does_not_revive_stopped_workflows(
+        self,
+        client_with_repairs_cube: AsyncClient,
+        module__session: AsyncSession,
+        mocker,
+    ):
+        """
+        Asking for a materialization refresh after a non-trivial update refreshes the
+        rebuilt materialization on the new revision, and must not re-activate the
+        previous revision's stopped ones.
+        """
+        cube_name = "default.stop_workflows_then_refresh"
+        await self._make_materialized_cube(
+            client_with_repairs_cube,
+            cube_name,
+            filters=["default.hard_hat.state='AZ'"],
+        )
+        qs_client = client_with_repairs_cube.app.dependency_overrides[
+            get_query_service_client
+        ]()
+        mocker.patch.object(
+            qs_client,
+            "deactivate_cube_workflow",
+            return_value={"status": "deactivated"},
+        )
+        mock_refresh = mocker.patch.object(
+            qs_client,
+            "refresh_cube_materialization",
+            return_value={"status": "refreshed"},
+        )
+
+        response = await client_with_repairs_cube.patch(
+            f"/nodes/{cube_name}",
+            json={"dimensions": ["default.hard_hat.hire_date"]},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v2.0"
+
+        response = await client_with_repairs_cube.patch(
+            f"/nodes/{cube_name}/?refresh_materialization=true",
+            json={},
+        )
+        assert response.status_code == 200, response.json()
+
+        # The refresh sees exactly the materialization rebuilt on v2.0, and nothing
+        # is revived on the previous revision.
+        assert mock_refresh.call_count == 1
+        _, kwargs = mock_refresh.call_args
+        assert kwargs["cube_name"] == cube_name
+        assert kwargs["cube_version"] == "v2.0"
+        assert [
+            (mat["name"], mat["job"], mat["strategy"], mat["cube"])
+            for mat in kwargs["materializations"]
+        ] == [
+            (
+                self.MATERIALIZATION_NAME,
+                "DruidMetricsCubeMaterializationJob",
+                "incremental_time",
+                {"name": cube_name, "version": "v2.0"},
+            ),
+        ]
+        assert await self._materialization_states(module__session, cube_name) == [
+            ("v1.0", self.MATERIALIZATION_NAME, True),
+            ("v2.0", self.MATERIALIZATION_NAME, False),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_no_query_service_still_deactivates_in_dj(
+        self,
+        client_with_repairs_cube: AsyncClient,
+        module__session: AsyncSession,
+    ):
+        """
+        With no query service configured there is no workflow to stop or schedule
+        remotely, but DJ-side state still swaps: the materialization is rebuilt on the
+        new revision and the previous revision's is no longer active.
+        """
+        cube_name = "default.stop_workflows_without_query_service"
+        await self._make_materialized_cube(
+            client_with_repairs_cube,
+            cube_name,
+            filters=["default.hard_hat.state='AZ'"],
+        )
+        app = client_with_repairs_cube.app
+        original_override = app.dependency_overrides[get_query_service_client]
+        app.dependency_overrides[get_query_service_client] = lambda: None
+        try:
+            response = await client_with_repairs_cube.patch(
+                f"/nodes/{cube_name}",
+                json={"dimensions": ["default.hard_hat.hire_date"]},
+            )
+        finally:
+            app.dependency_overrides[get_query_service_client] = original_override
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v2.0"
+        assert await self._materialization_states(module__session, cube_name) == [
+            ("v1.0", self.MATERIALIZATION_NAME, True),
+            ("v2.0", self.MATERIALIZATION_NAME, False),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_rebuild_that_cannot_be_built_still_stops_previous_workflows(
+        self,
+        client_with_repairs_cube: AsyncClient,
+        module__session: AsyncSession,
+        mocker,
+    ):
+        """
+        Dropping the only temporally partitioned dimension leaves a revision a cube
+        materialization cannot be built against at all. The edit still succeeds and
+        the superseded workflow is still stopped -- leaving it running would keep
+        posting availability for a table the new revision cannot use -- but there is
+        nothing to schedule in its place, and the history event says so.
+        """
+        cube_name = "default.stop_workflows_unbuildable_rebuild"
+        await self._make_materialized_cube(client_with_repairs_cube, cube_name)
+        qs_client = client_with_repairs_cube.app.dependency_overrides[
+            get_query_service_client
+        ]()
+        mock_materialize = mocker.patch.object(qs_client, "materialize")
+        mock_deactivate_cube_workflow = mocker.patch.object(
+            qs_client,
+            "deactivate_cube_workflow",
+            return_value={"status": "deactivated"},
+        )
+
+        response = await client_with_repairs_cube.patch(
+            f"/nodes/{cube_name}",
+            json={"dimensions": ["default.hard_hat.city"]},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v2.0"
+
+        mock_materialize.assert_not_called()
+        mock_deactivate_cube_workflow.assert_called_once_with(
+            cube_name,
+            version="v1.0",
+            request_headers=mock.ANY,
+        )
+        assert await self._materialization_states(module__session, cube_name) == [
+            ("v1.0", self.MATERIALIZATION_NAME, True),
+        ]
+        assert await self._materialization_history(
+            client_with_repairs_cube,
+            cube_name,
+        ) == [
+            {
+                "message": (
+                    "Cube updated to v2.0. Materializations were rebuilt against "
+                    "the new version and the previous version's workflows were "
+                    "stopped."
+                ),
+                "previous_version": "v1.0",
+                "new_version": "v2.0",
+                "stopped_materializations": [self.MATERIALIZATION_NAME],
+                "rebuilt_materializations": [],
+                "previous_table_usable": False,
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_scheduling_failure_does_not_fail_the_edit(
+        self,
+        client_with_repairs_cube: AsyncClient,
+        module__session: AsyncSession,
+        mocker,
+    ):
+        """
+        A query service that cannot schedule the rebuilt materialization must not
+        abort the cube edit that triggered the swap. DJ keeps the rebuilt
+        materialization on the new revision -- that is what was asked for, and it is
+        what a later refresh will re-submit -- and still stops the old workflow.
+        """
+        cube_name = "default.stop_workflows_schedule_failure"
+        await self._make_materialized_cube(client_with_repairs_cube, cube_name)
+        qs_client = client_with_repairs_cube.app.dependency_overrides[
+            get_query_service_client
+        ]()
+        mock_materialize = mocker.patch.object(
+            qs_client,
+            "materialize",
+            side_effect=RuntimeError("query service unreachable"),
+        )
+        mock_deactivate_cube_workflow = mocker.patch.object(
+            qs_client,
+            "deactivate_cube_workflow",
+            return_value={"status": "deactivated"},
+        )
+
+        response = await client_with_repairs_cube.patch(
+            f"/nodes/{cube_name}",
+            json={"description": "Cube of repair metrics, revised"},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v1.1"
+
+        assert mock_materialize.call_count == 1
+        mock_deactivate_cube_workflow.assert_called_once_with(
+            cube_name,
+            version="v1.0",
+            request_headers=mock.ANY,
+        )
+        assert await self._materialization_states(module__session, cube_name) == [
+            ("v1.0", self.MATERIALIZATION_NAME, True),
+            ("v1.1", self.MATERIALIZATION_NAME, False),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_cube_planner_materialization_is_not_swapped(
+        self,
+        client_with_repairs_cube: AsyncClient,
+        module__session: AsyncSession,
+        mocker,
+    ):
+        """
+        A cube planner materialization is not carried onto the new revision.
+
+        The two cube dialects are indistinguishable by job -- `POST
+        /cubes/{name}/materialize` stores the same `DruidCubeMaterializationJob` the
+        fused path derives -- so a planner row read as intent to rebuild recovers as
+        a fused materialization. On a cube that has both, the two rebuilds derive one
+        name and the edit dies on `name_node_revision_uniq`, after the new revision
+        has already been committed. The planner's row is left where it is instead,
+        still active, and the fused one swaps as it always did.
+        """
+        cube_name = "default.stop_workflows_cube_planner"
+        response = await client_with_repairs_cube.post(
+            "/nodes/cube/",
+            json={
+                "metrics": list(self.METRICS),
+                "dimensions": list(self.DIMENSIONS),
+                "description": "Cube of repair metrics",
+                "mode": "published",
+                "name": cube_name,
+            },
+        )
+        assert response.status_code < 400, response.json()
+        response = await client_with_repairs_cube.post(
+            f"/nodes/{cube_name}/columns/default.hard_hat.hire_date/partition",
+            json={"type_": "temporal", "granularity": "day", "format": "yyyyMMdd"},
+        )
+        assert response.status_code < 400, response.json()
+
+        qs_client = client_with_repairs_cube.app.dependency_overrides[
+            get_query_service_client
+        ]()
+        mocker.patch.object(
+            qs_client,
+            "materialize_cube",
+            return_value=MaterializationInfo(
+                urls=["http://fake.url/job"],
+                output_tables=[],
+            ),
+        )
+        response = await client_with_repairs_cube.post(
+            f"/nodes/{cube_name}/materialization/",
+            json={
+                "job": "druid_cube",
+                "strategy": "incremental_time",
+                "schedule": "@daily",
+                "lookback_window": "1 DAY",
+            },
+        )
+        assert response.status_code < 400, response.json()
+
+        # The planner's row is written directly: its own endpoint needs pre-agg
+        # tables that this fixture's cube does not have.
+        revision_id = (
+            await module__session.execute(
+                select(NodeRevision.id).where(NodeRevision.name == cube_name),
+            )
+        ).scalar_one()
+        module__session.add(
+            Materialization(
+                node_revision_id=revision_id,
+                name="druid_cube_v3",
+                strategy=MaterializationStrategy.INCREMENTAL_TIME,
+                schedule="@daily",
+                config={"version": "v3", "workflow_names": ["planner-workflow"]},
+                job="DruidCubeMaterializationJob",
+            ),
+        )
+        await module__session.commit()
+
+        mock_deactivate_cube_workflow = mocker.patch.object(
+            qs_client,
+            "deactivate_cube_workflow",
+            return_value={"status": "deactivated"},
+        )
+        mock_deactivate_workflows = mocker.patch.object(
+            qs_client,
+            "deactivate_workflows",
+            return_value={"status": "deactivated"},
+        )
+
+        response = await client_with_repairs_cube.patch(
+            f"/nodes/{cube_name}",
+            json={
+                "dimensions": [
+                    "default.hard_hat.state",
+                    "default.hard_hat.hire_date",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["version"] == "v2.0"
+
+        fused_name = "druid_cube__incremental_time__default.hard_hat.hire_date"
+        assert await self._materialization_states(module__session, cube_name) == [
+            ("v1.0", fused_name, True),
+            ("v1.0", "druid_cube_v3", False),
+            ("v2.0", fused_name, False),
+        ]
+        # The planner's workflow is not among those stopped: only the fused row is
+        # superseded, and it carries no workflow names of its own.
+        assert mock_deactivate_workflows.call_args_list == []
+        mock_deactivate_cube_workflow.assert_called_once_with(
+            cube_name,
+            version="v1.0",
+            request_headers=mock.ANY,
+        )
+
+
+@pytest.mark.asyncio
+async def test_updating_cube_to_no_dimensions(
+    client_with_repairs_cube: AsyncClient,
+):
+    """
+    Verify removing every dimension from a cube
+    """
+    await make_a_test_cube(
+        client_with_repairs_cube,
+        "default.repairs_cube_no_dims",
+    )
+    response = await client_with_repairs_cube.patch(
+        "/nodes/default.repairs_cube_no_dims",
+        json={"dimensions": []},
+    )
+    assert response.status_code in (200, 201)
+    assert response.json()["version"] == "v2.0"
+
+    response = await client_with_repairs_cube.get(
+        "/cubes/default.repairs_cube_no_dims",
+    )
+    elements = response.json()["cube_elements"]
+    assert [
+        element["type"] for element in elements if element["type"] != "metric"
+    ] == []

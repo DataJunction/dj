@@ -187,4 +187,41 @@ describe('<NodeMaterializationTab />', () => {
       expect(link).toHaveAttribute('href', `https://www.foobar.com/dashboard`);
     });
   });
+
+  it('groups a materialization by its own node_version, not the current node version', async () => {
+    // DruidCubeMaterializationJob configs (and most other job types) have no
+    // `config.cube`, so grouping must key off `node_version` from the API.
+    mockDjClient.materializations.mockReturnValue([
+      {
+        name: 'druid_cube_v3',
+        config: {},
+        schedule: '@daily',
+        job: 'DruidCubeMaterializationJob',
+        backfills: [],
+        strategy: 'incremental_time',
+        output_tables: ['table1'],
+        urls: ['https://example.com/'],
+        deactivated_at: null,
+        node_version: 'v1.0',
+      },
+    ]);
+    mockDjClient.availabilityStates.mockReturnValue([]);
+    mockDjClient.materializationInfo.mockReturnValue({
+      job_types: [],
+      strategies: [],
+    });
+
+    render(
+      <NodeMaterializationTab
+        node={{ ...mockNode, version: 'v2.0' }}
+        djClient={mockDjClient}
+      />,
+    );
+    await waitFor(() => {
+      // Belongs to v1.0, not the node's current version (v2.0).
+      expect(screen.getByText('v1.0')).toBeInTheDocument();
+      expect(screen.queryByText('v2.0 (latest)')).not.toBeInTheDocument();
+      expect(screen.getByText('Druid Cube')).toBeInTheDocument();
+    });
+  });
 });

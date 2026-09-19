@@ -3,19 +3,20 @@ from types import SimpleNamespace
 from unittest import mock
 from unittest.mock import patch
 
-from httpx import AsyncClient
 import pytest
 from fastapi import BackgroundTasks
-from starlette.datastructures import Headers
+from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.datastructures import Headers
+
+from datajunction_server.database.queryrequest import QueryBuildType
+from datajunction_server.database.user import OAuthProvider, User
+from datajunction_server.internal.access.authorization import AccessChecker
 from datajunction_server.internal.caching.cachelib_cache import CachelibCache
 from datajunction_server.internal.caching.query_cache_manager import (
     QueryCacheManager,
     QueryRequestParams,
 )
-from datajunction_server.database.queryrequest import QueryBuildType
-from datajunction_server.database.user import User, OAuthProvider
-from datajunction_server.internal.access.authorization import AccessChecker
 
 
 class DummyRequest:

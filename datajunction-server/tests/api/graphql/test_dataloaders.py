@@ -1,7 +1,11 @@
 """Tests for GraphQL DataLoaders."""
 
-import pytest
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+from sqlalchemy.exc import MissingGreenlet
+from sqlalchemy.orm import load_only as sqlalchemy_load_only
 
 from datajunction_server.api.graphql.dataloaders import (
     InstrumentedDataLoader,
@@ -12,6 +16,7 @@ from datajunction_server.api.graphql.dataloaders import (
     create_git_info_loader,
     create_node_by_name_loader,
 )
+from datajunction_server.database.node import NodeRevision as DBNodeRevision
 from datajunction_server.instrumentation.provider import (
     MetricsProvider,
     get_metrics_provider,
@@ -434,6 +439,105 @@ async def test_batch_load_extracted_measures_missing_ids(
     assert result == [None]
     # Only the nr_stmt query ran; the bulk Node load was skipped.
     assert mock_session.execute.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Cold-session extraction: the loader must not silently null out a metric
+# whose attributes were deferred because `load_only` forgot to name them.
+#
+# Under `client`/`client_with_roads`, `session_context` returns
+# `request.state.test_session` -- the *same* session that created the nodes,
+# whose identity map already holds fully-loaded revisions. Nothing is ever
+# deferred on that session, so it can't exercise `load_only` gaps. These
+# tests patch `session_context` to hand back a genuinely fresh session from
+# `session_factory` instead, matching production.
+# ---------------------------------------------------------------------------
+
+
+@asynccontextmanager
+async def _cold_session_context(session_factory, request=None, session_label=None):
+    session = await session_factory()
+    try:
+        yield session
+    finally:
+        await session.close()
+
+
+async def _regional_repair_efficiency_nr_id(client_with_roads) -> int:
+    response = await client_with_roads.post(
+        "/graphql",
+        json={
+            "query": """
+            {
+                findNodes(names: ["default.regional_repair_efficiency"]) {
+                    current { id }
+                }
+            }
+            """,
+        },
+    )
+    assert response.status_code == 200
+    return int(response.json()["data"]["findNodes"][0]["current"]["id"])
+
+
+@pytest.mark.asyncio
+async def test_extraction_survives_a_cold_session(client_with_roads, session_factory):
+    """
+    With `load_only` naming every attribute `extract()` needs, a genuinely
+    cold session still produces real components -- not a null caused by an
+    attribute that was deferred and never read.
+    """
+    nr_id = await _regional_repair_efficiency_nr_id(client_with_roads)
+
+    with patch(
+        "datajunction_server.api.graphql.dataloaders.session_context",
+        lambda request=None, session_label=None: _cold_session_context(
+            session_factory,
+        ),
+    ):
+        results = await batch_load_extracted_measures([nr_id], MagicMock())
+
+    assert results[0] is not None
+    components, _derived_ast = results[0]
+    assert components
+
+
+@pytest.mark.asyncio
+async def test_missing_greenlet_propagates_instead_of_becoming_null(
+    client_with_roads,
+    session_factory,
+):
+    """
+    If `load_only` is ever missing a column `extract()` reads, a cold
+    session raises the real `MissingGreenlet` from the deferred-attribute
+    access. That must propagate out of the batch loader, not become a
+    silent `None` for the affected key.
+
+    This forces the real hazard (a real deferred column, on a real cold
+    session) by deliberately narrowing the loader's own `load_only` call for
+    `NodeRevision.query` -- the exact gap the original incident hid.
+    """
+    nr_id = await _regional_repair_efficiency_nr_id(client_with_roads)
+
+    real_load_only = sqlalchemy_load_only
+
+    def _load_only_without_query(*cols):
+        return real_load_only(*(c for c in cols if c is not DBNodeRevision.query))
+
+    with (
+        patch(
+            "datajunction_server.api.graphql.dataloaders.session_context",
+            lambda request=None, session_label=None: _cold_session_context(
+                session_factory,
+            ),
+        ),
+        patch(
+            "datajunction_server.api.graphql.dataloaders.load_only",
+            _load_only_without_query,
+        ),
+    ):
+        with pytest.raises(MissingGreenlet):
+            await batch_load_extracted_measures([nr_id], MagicMock())
 
 
 # ---------------------------------------------------------------------------

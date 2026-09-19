@@ -23,6 +23,7 @@ jobs:
       djqs: ${{ steps.filter.outputs.djqs }}
       djrs: ${{ steps.filter.outputs.djrs }}
       ui: ${{ steps.filter.outputs.ui }}
+      workflow: ${{ steps.filter.outputs.workflow }}
 
     steps:
       - uses: actions/checkout@v4
@@ -46,11 +47,32 @@ jobs:
             ui:
               - datajunction-ui/**
               - '!datajunction-ui/package.json'
+            workflow:
+              - .github/workflows/test.yml
           predicate-quantifier: every
 
   build:
     needs: changes
     runs-on: ubuntu-latest
+
+    # One Postgres for the whole job. Without it each xdist worker starts its
+    # own container and rebuilds the same template, N times over, all at
+    # startup. Services cannot be conditional, so the non-server legs get one
+    # too; it costs a couple of seconds to start and nothing to ignore.
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_USER: dj
+          POSTGRES_PASSWORD: dj
+          POSTGRES_DB: dj
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dj"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     strategy:
       fail-fast: false
@@ -71,11 +93,15 @@ jobs:
         run: uv python install ${{ matrix.python-version }}
 
       - name: Run Tests
+        # Editing this workflow has to exercise this workflow. Without the
+        # `workflow` clause a change to test.yml matches no filter, every test
+        # step is skipped, and the PR goes green having run nothing -- so a
+        # broken workflow reaches main and surfaces on somebody else's PR.
         if: |
-          (matrix.library == 'client' && (needs.changes.outputs.client == 'true' || needs.changes.outputs.server == 'true')) ||
-          (matrix.library == 'server' && needs.changes.outputs.server == 'true') ||
-          (matrix.library == 'djqs' && needs.changes.outputs.djqs == 'true') ||
-          (matrix.library == 'djrs' && needs.changes.outputs.djrs == 'true')
+          (matrix.library == 'client' && (needs.changes.outputs.client == 'true' || needs.changes.outputs.server == 'true' || needs.changes.outputs.workflow == 'true')) ||
+          (matrix.library == 'server' && (needs.changes.outputs.server == 'true' || needs.changes.outputs.workflow == 'true')) ||
+          (matrix.library == 'djqs' && (needs.changes.outputs.djqs == 'true' || needs.changes.outputs.workflow == 'true')) ||
+          (matrix.library == 'djrs' && (needs.changes.outputs.djrs == 'true' || needs.changes.outputs.workflow == 'true'))
         run: |
           echo "Testing ${{ matrix.library }} ..."
           export TEST_DIR=${{ matrix.library == 'server' && './datajunction-server' || matrix.library == 'client' && './datajunction-clients/python' || matrix.library == 'djqs' && './datajunction-query' || matrix.library == 'djrs' && './datajunction-reflection'}}
@@ -84,7 +110,7 @@ jobs:
 
           # Install dependencies (each package has different extras)
           if [ "${{ matrix.library }}" = "server" ]; then
-            uv sync --group test --extra transpilation --python ${{ matrix.python-version }}
+            uv sync --group test --python ${{ matrix.python-version }}
           elif [ "${{ matrix.library }}" = "client" ]; then
             uv sync --group test --extra mcp --python ${{ matrix.python-version }}
           else
@@ -94,9 +120,190 @@ jobs:
           # Run linters
           uv run pre-commit run --all-files
 
+          # Build the template databases once for the whole job. Each xdist
+          # worker then clones them (~90ms) instead of building its own.
+          if [ "${{ matrix.library }}" = "server" ]; then
+            PG="postgresql://dj:dj@localhost:5432"
+            PGX="postgresql+psycopg://dj:dj@localhost:5432"
+            export DJ_TEST_POSTGRES_URL="$PGX/dj"
+
+            # The suite creates this role for containers it starts itself; on a
+            # server it does not own, it cannot.
+            psql "$PG/dj" -c "CREATE ROLE readonly_user WITH LOGIN PASSWORD 'readonly'"
+
+            psql "$PG/dj" -c "CREATE DATABASE template_all_examples"
+            uv run python tests/helpers/populate_template.py "$PGX/template_all_examples"
+
+            psql "$PG/dj" -c "CREATE DATABASE template_preaggs TEMPLATE template_all_examples"
+            uv run python tests/helpers/populate_preaggs_template.py "$PGX/template_preaggs"
+
+            psql "$PG/dj" -c "CREATE DATABASE template_dimension_links"
+            uv run python tests/helpers/populate_template.py \
+              "$PGX/template_dimension_links" COMPLEX_DIMENSION_LINK
+          fi
+
           # Run tests
           export MODULE=${{ matrix.library == 'server' && 'datajunction_server' || matrix.library == 'client' && 'datajunction' || matrix.library == 'djqs' && 'djqs' || matrix.library == 'djrs' && 'datajunction_reflection'}}
-          uv run pytest ${{ (matrix.library == 'server' || matrix.library == 'client') && '-n auto --dist=loadscope' || '' }} --cov-fail-under=100 --cov=$MODULE --cov-report term-missing -vv tests/ --doctest-modules $MODULE --without-integration --without-slow-integration --ignore=datajunction_server/alembic/env.py
+
+          # Only the server skips coverage here. It is the expensive one --
+          # 28.8min instrumented against ~15min not -- so the `coverage-shard`
+          # matrix below measures it in parallel pieces and the `coverage` job
+          # enforces its threshold.
+          #
+          # The other three are instrumented in place. Their suites are small
+          # enough that it costs the gate nothing, and they have nowhere else
+          # to be measured, because the shards are server-only. An earlier
+          # version of this workflow moved coverage off every leg at once,
+          # which silently took client, djqs and djrs from a 100% gate to no
+          # gate at all.
+          COV_ARGS=""
+          if [ "${{ matrix.library }}" != "server" ]; then
+            COV_ARGS="--cov-fail-under=100 --cov-report=term-missing --cov=$MODULE"
+          fi
+
+          uv run pytest ${{ (matrix.library == 'server' || matrix.library == 'client') && '-n auto --dist=loadscope' || '' }} $COV_ARGS -vv tests/ --doctest-modules $MODULE --without-integration --without-slow-integration --ignore=datajunction_server/alembic/env.py
+
+  # Coverage roughly doubles the suite, so measure it across shards in parallel
+  # rather than serially inside a build leg. Each shard only produces data; the
+  # `coverage` job below combines them and enforces the threshold.
+  coverage-shard:
+    needs: changes
+    runs-on: ubuntu-latest
+
+    # Same shared Postgres as the build job. This matters more here: without it
+    # every one of the five shards starts its own containers and rebuilds every
+    # template, so the duplicated startup cost is paid five times over.
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_USER: dj
+          POSTGRES_PASSWORD: dj
+          POSTGRES_DB: dj
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dj"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    if: needs.changes.outputs.server == 'true' || needs.changes.outputs.workflow == 'true'
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # The last shard is a catch-all: `tests/` minus the others. Listing
+        # every directory explicitly means a newly added one belongs to no
+        # shard, and the only symptom is combined coverage quietly dropping
+        # below the threshold.
+        include:
+          - shard: 1
+            paths: "tests/api"
+          - shard: 2
+            paths: "tests/construction"
+          - shard: 3
+            paths: "tests/sql"
+          - shard: 4
+            paths: "tests/internal"
+          # Also carries --doctest-modules. The build legs pass it, and it is
+          # what imports every module in the package -- without it the
+          # import-time lines of modules no test imports directly (models/
+          # table.py, __about__.py, a couple of __init__.py) are never
+          # executed, and the combined total lands just under the threshold.
+          - shard: 5
+            paths: >-
+              tests
+              --ignore=tests/api
+              --ignore=tests/construction
+              --ignore=tests/sql
+              --ignore=tests/internal
+              --doctest-modules datajunction_server
+              --ignore=datajunction_server/alembic/env.py
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Run shard ${{ matrix.shard }}
+        working-directory: ./datajunction-server
+        # Write to a name coverage's own erase() will not match. On startup
+        # pytest-cov erases every `.coverage.*` file in the directory, not just
+        # its own, so a fragment named that way can be destroyed by another
+        # shard sharing the workspace -- or, worse on a reused runner, a stale
+        # one can survive and skew the combined total.
+        env:
+          COVERAGE_FILE: .cov-shard${{ matrix.shard }}
+        run: |
+          uv sync --group test --python 3.13
+
+          PG="postgresql://dj:dj@localhost:5432"
+          PGX="postgresql+psycopg://dj:dj@localhost:5432"
+          export DJ_TEST_POSTGRES_URL="$PGX/dj"
+
+          # The suite creates this role for containers it starts itself; on a
+          # server it does not own, it cannot.
+          psql "$PG/dj" -c "CREATE ROLE readonly_user WITH LOGIN PASSWORD 'readonly'"
+
+          psql "$PG/dj" -c "CREATE DATABASE template_all_examples"
+          uv run python tests/helpers/populate_template.py "$PGX/template_all_examples"
+
+          psql "$PG/dj" -c "CREATE DATABASE template_preaggs TEMPLATE template_all_examples"
+          uv run python tests/helpers/populate_preaggs_template.py "$PGX/template_preaggs"
+
+          psql "$PG/dj" -c "CREATE DATABASE template_dimension_links"
+          uv run python tests/helpers/populate_template.py \
+            "$PGX/template_dimension_links" COMPLEX_DIMENSION_LINK
+
+          uv run pytest -n auto --dist=loadscope \
+            --cov=datajunction_server --cov-report= \
+            -q ${{ matrix.paths }} \
+            --without-integration --without-slow-integration
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-shard-${{ matrix.shard }}
+          path: datajunction-server/.cov-shard${{ matrix.shard }}
+          include-hidden-files: true
+          retention-days: 1
+
+  # This is the job branch protection should require; the shards only produce
+  # data and enforce nothing on their own.
+  coverage:
+    needs: coverage-shard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-shard-*
+          merge-multiple: true
+          path: datajunction-server
+
+      - name: Combine and enforce
+        working-directory: ./datajunction-server
+        run: |
+          uv sync --group test --python 3.13
+          ls -la .cov-shard* || { echo "no coverage fragments downloaded"; exit 1; }
+          uv run coverage combine .cov-shard*
+          uv run coverage report --show-missing --fail-under=100
 
   build-javascript:
     runs-on: ubuntu-latest

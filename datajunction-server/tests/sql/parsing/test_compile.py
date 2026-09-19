@@ -24,7 +24,6 @@ from datajunction_server.sql.parsing.types import (
     TimestampType,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers to build mock Node / NodeRevision / Column objects
 # ---------------------------------------------------------------------------

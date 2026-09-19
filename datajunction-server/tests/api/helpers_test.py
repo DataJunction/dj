@@ -5,19 +5,42 @@ Tests for API helpers.
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from datajunction_server.api import helpers
-from datajunction_server.api.helpers import find_required_dimensions
-from datajunction_server.internal import sql
+from datajunction_server.api.helpers import (
+    _resolve_required_dimensions,
+    dedupe_cube_elements,
+    find_required_dimensions,
+)
+from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.errors import DJDoesNotExistException, DJException
+from datajunction_server.internal import sql
 from datajunction_server.internal.nodes import propagate_valid_status
 from datajunction_server.models.node import NodeStatus
+from datajunction_server.sql.parsing.types import IntegerType
+
+
+def test_dedupe_cube_elements_same_object():
+    """The same Column appended twice (two roles on one column) is deduped."""
+    col_a = Column(name="a", type=IntegerType())
+    col_b = Column(name="b", type=IntegerType())
+    assert dedupe_cube_elements([col_a, col_a, col_b]) == [col_a, col_b]
+
+
+def test_dedupe_cube_elements_by_column_id():
+    """Distinct Column objects that share a persisted id (the pk_cube key) dedupe."""
+    col1 = Column(name="dateint", type=IntegerType())
+    col1.id = 5
+    col2 = Column(name="dateint", type=IntegerType())
+    col2.id = 5
+    col3 = Column(name="other", type=IntegerType())
+    col3.id = 6
+    assert dedupe_cube_elements([col1, col2, col3]) == [col1, col3]
 
 
 @pytest.mark.asyncio
@@ -126,6 +149,47 @@ async def test_find_existing_cube():
 
 
 @pytest.mark.asyncio
+async def test_find_existing_cube_matches_dimension_role():
+    """Legacy cube matching must not satisfy one role with another."""
+    dimension = MagicMock(spec=Column)
+    dimension.name = "date_id"
+    dimension.full_name.return_value = "v3.date.date_id"
+
+    wrong_revision = MagicMock(
+        columns=[Column(name="v3.date.date_id", dimension_column="[ship]")],
+    )
+    right_revision = MagicMock(
+        columns=[Column(name="v3.date.date_id", dimension_column="[order]")],
+    )
+    candidates = [
+        MagicMock(current=wrong_revision),
+        MagicMock(current=right_revision),
+    ]
+    mock_execute = AsyncMock(
+        unique=MagicMock(
+            return_value=MagicMock(
+                scalars=MagicMock(
+                    return_value=MagicMock(
+                        all=MagicMock(return_value=candidates),
+                    ),
+                ),
+            ),
+        ),
+    )
+    mock_session = AsyncMock(execute=AsyncMock(return_value=mock_execute))
+
+    result = await helpers.find_existing_cube(
+        session=mock_session,
+        metric_columns=[],
+        dimension_columns=[dimension],
+        dimension_roles=["[order]"],
+        materialized=False,
+    )
+
+    assert result is right_revision
+
+
+@pytest.mark.asyncio
 @patch("datajunction_server.internal.sql.ColumnMetadata", MagicMock)
 @patch("datajunction_server.internal.sql.validate_cube")
 @patch("datajunction_server.internal.sql.Node.get_by_name")
@@ -161,6 +225,7 @@ async def test_build_sql_for_multiple_metrics(
         mock_metric_nodes,
         _,
         dimension_columns,
+        [None, None],
         _,
     )
     mock_session = AsyncMock()
@@ -238,3 +303,21 @@ async def test_find_required_dimensions_full_path_match(
 
     assert len(matched_cols) == 1
     assert matched_cols[0].name == "month"
+
+
+def test_resolve_required_dimensions_short_name_ambiguous_across_parents():
+    """
+    A short name that matches a column on more than one direct parent must be
+    flagged invalid rather than silently resolved to one of them.
+    """
+    orders_currency = Column(name="currency_code")
+    refunds_currency = Column(name="currency_code")
+
+    invalid_dims, matched_cols = _resolve_required_dimensions(
+        required_dimensions=["currency_code"],
+        parent_columns=[orders_currency, refunds_currency],
+        dim_nodes={},
+    )
+
+    assert invalid_dims == {"currency_code"}
+    assert matched_cols == []

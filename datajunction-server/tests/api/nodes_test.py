@@ -4,7 +4,7 @@ Tests for the nodes API.
 
 import asyncio
 import re
-from typing import Any, Dict
+from typing import Any
 from unittest import mock
 from uuid import uuid4
 
@@ -23,11 +23,19 @@ from datajunction_server.errors import DJDoesNotExistException
 from datajunction_server.internal.materializations import decompose_expression
 from datajunction_server.models.node import NodeStatus
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.table_metadata import TableMetadata, TableOwner
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import get_upstream_nodes
 from datajunction_server.sql.parsing import ast, types
 from datajunction_server.sql.parsing.backends.antlr4 import parse
-from datajunction_server.sql.parsing.types import IntegerType, StringType, TimestampType
+from datajunction_server.sql.parsing.types import (
+    DoubleType,
+    IntegerType,
+    StringType,
+    TimestampType,
+)
+from datajunction_server.models.access import ResourceAction
+from tests.authz import VALIDATOR_AUTH_SERVICE, deny
 from tests.sql.utils import compare_query_strings
 
 
@@ -364,7 +372,7 @@ class TestNodeCRUD:
     """
 
     @pytest.fixture
-    def create_dimension_node_payload(self) -> Dict[str, Any]:
+    def create_dimension_node_payload(self) -> dict[str, Any]:
         """
         Payload for creating a dimension node.
         NOTE: Uses unique name to avoid conflicts with template database.
@@ -380,7 +388,7 @@ class TestNodeCRUD:
         }
 
     @pytest.fixture
-    def create_invalid_transform_node_payload(self) -> Dict[str, Any]:
+    def create_invalid_transform_node_payload(self) -> dict[str, Any]:
         """
         Payload for creating a transform node.
         """
@@ -397,7 +405,7 @@ class TestNodeCRUD:
         }
 
     @pytest.fixture
-    def create_transform_node_payload(self) -> Dict[str, Any]:
+    def create_transform_node_payload(self) -> dict[str, Any]:
         """
         Payload for creating a transform node.
         """
@@ -1805,6 +1813,29 @@ class TestNodeCRUD:
         assert response.status_code == 201
 
     @pytest.mark.asyncio
+    async def test_register_table_denies_before_creating_namespace(
+        self,
+        module__client_with_basic,
+        mocker,
+    ):
+        """
+        A caller without WRITE must be denied *before* the namespace is created or
+        reactivated (regression: register_table used to mutate then check).
+        """
+        mocker.patch(
+            VALIDATOR_AUTH_SERVICE,
+            deny(ResourceAction.WRITE),
+        )
+        response = await module__client_with_basic.post(
+            "/register/table/public/denied_reg/widgets/",
+        )
+        assert response.status_code == 403
+        assert "Access denied" in response.json()["message"]
+
+        # The namespace must not have been created (mutation must not precede auth).
+        namespaces = await module__client_with_basic.get("/namespaces/")
+        assert "source.public.denied_reg" not in namespaces.text
+
     async def test_create_source_node_with_query_service(
         self,
         module__client_with_basic,
@@ -2356,6 +2387,593 @@ class TestNodeCRUD:
         ]
 
     @pytest.mark.asyncio
+    async def test_refresh_sets_owner_from_table(
+        self,
+        module__client_with_roads,
+        module__query_service_client: QueryServiceClient,
+        mocker: MockerFixture,
+    ):
+        """An owner reported by the query service becomes the node's only owner."""
+        columns = await module__query_service_client.get_columns_for_table(
+            "default",
+            "roads",
+            "repair_orders",
+            request_headers={},
+        )
+
+        async def _with_owner(*args, **kwargs):
+            return TableMetadata(
+                columns=columns,
+                owner=TableOwner(
+                    username="owner@example.com",
+                    full_name="Example Owner",
+                ),
+            )
+
+        mocker.patch.object(
+            module__query_service_client,
+            "get_table_metadata",
+            _with_owner,
+        )
+        before = (
+            await module__client_with_roads.get("/nodes/default.repair_orders/")
+        ).json()
+        response = await module__client_with_roads.post(
+            "/nodes/default.repair_orders/refresh/",
+        )
+        assert response.status_code in (200, 201)
+
+        after = (
+            await module__client_with_roads.get("/nodes/default.repair_orders/")
+        ).json()
+        assert after["owners"] == [{"username": "owner@example.com"}]
+        # The columns are unchanged, so this is an ownership-only refresh: owners
+        # live on Node rather than NodeRevision, so no revision may be forked.
+        assert after["version"] == before["version"]
+        assert after["node_revision_id"] == before["node_revision_id"]
+
+        # The change is recorded, naming both the old and the new owners
+        history = (
+            await module__client_with_roads.get(
+                "/history?node=default.repair_orders",
+            )
+        ).json()
+        assert history[0]["details"] == {
+            "old_owners": ["dj"],
+            "new_owners": ["owner@example.com"],
+        }
+        assert history[0]["activity_type"] == "update"
+
+    @pytest.mark.asyncio
+    async def test_refresh_with_no_owner_leaves_owners_untouched(
+        self,
+        module__client_with_roads,
+        module__query_service_client: QueryServiceClient,
+        mocker: MockerFixture,
+    ):
+        """owner=None must never clear an existing owner."""
+        columns = await module__query_service_client.get_columns_for_table(
+            "default",
+            "roads",
+            "repair_orders",
+            request_headers={},
+        )
+
+        async def _without_owner(*args, **kwargs):
+            return TableMetadata(columns=columns, owner=None)
+
+        mocker.patch.object(
+            module__query_service_client,
+            "get_table_metadata",
+            _without_owner,
+        )
+        before = (
+            await module__client_with_roads.get("/nodes/default.repair_orders/")
+        ).json()
+        assert before["owners"] == [{"username": "owner@example.com"}]
+
+        await module__client_with_roads.post(
+            "/nodes/default.repair_orders/refresh/",
+        )
+        after = (
+            await module__client_with_roads.get("/nodes/default.repair_orders/")
+        ).json()
+        assert after["owners"] == before["owners"]
+        assert after["version"] == before["version"]
+
+    @pytest.mark.asyncio
+    async def test_refresh_repeating_the_same_owner_is_a_noop(
+        self,
+        module__client_with_roads,
+        module__query_service_client: QueryServiceClient,
+        mocker: MockerFixture,
+    ):
+        """Refreshing with the owner the node already has records no history."""
+        columns = await module__query_service_client.get_columns_for_table(
+            "default",
+            "roads",
+            "repair_orders",
+            request_headers={},
+        )
+
+        async def _same_owner(*args, **kwargs):
+            return TableMetadata(
+                columns=columns,
+                owner=TableOwner(
+                    username="owner@example.com",
+                    display_name="Example Owner",
+                ),
+            )
+
+        mocker.patch.object(
+            module__query_service_client,
+            "get_table_metadata",
+            _same_owner,
+        )
+        before = (
+            await module__client_with_roads.get(
+                "/history?node=default.repair_orders",
+            )
+        ).json()
+        await module__client_with_roads.post(
+            "/nodes/default.repair_orders/refresh/",
+        )
+        after = (
+            await module__client_with_roads.get(
+                "/history?node=default.repair_orders",
+            )
+        ).json()
+        assert len(after) == len(before)
+
+    @pytest.mark.asyncio
+    async def test_refresh_owner_change_with_column_changes(
+        self,
+        module__client_with_roads,
+        module__query_service_client: QueryServiceClient,
+        mocker: MockerFixture,
+    ):
+        """
+        An owner change lands alongside a column change, in the same refresh, and
+        the new user row is created on the fly since usernames are emails.
+        """
+        columns = await module__query_service_client.get_columns_for_table(
+            "default",
+            "roads",
+            "repair_orders",
+            request_headers={},
+        )
+
+        async def _new_owner_and_columns(*args, **kwargs):
+            return TableMetadata(
+                columns=[
+                    *columns,
+                    Column(name="reviewer", type=StringType(), order=len(columns)),
+                ],
+                owner=TableOwner(username="new.owner@example.com"),
+            )
+
+        mocker.patch.object(
+            module__query_service_client,
+            "get_table_metadata",
+            _new_owner_and_columns,
+        )
+        before = (
+            await module__client_with_roads.get("/nodes/default.repair_orders/")
+        ).json()
+        await module__client_with_roads.post(
+            "/nodes/default.repair_orders/refresh/",
+        )
+        after = (
+            await module__client_with_roads.get("/nodes/default.repair_orders/")
+        ).json()
+        assert after["owners"] == [{"username": "new.owner@example.com"}]
+        assert [col["name"] for col in after["columns"]] == [
+            *[col["name"] for col in before["columns"]],
+            "reviewer",
+        ]
+        assert after["version"] != before["version"]
+
+    @pytest.mark.asyncio
+    async def test_refresh_reassigns_owner_to_an_existing_user(
+        self,
+        module__client_with_roads,
+        module__query_service_client: QueryServiceClient,
+        mocker: MockerFixture,
+    ):
+        """An owner who already has a DJ user row is reused, not recreated."""
+        columns = await module__query_service_client.get_columns_for_table(
+            "default",
+            "roads",
+            "repair_orders",
+            request_headers={},
+        )
+
+        async def _known_owner(*args, **kwargs):
+            return TableMetadata(
+                columns=[
+                    *columns,
+                    Column(name="reviewer", type=StringType(), order=len(columns)),
+                ],
+                owner=TableOwner(
+                    username="owner@example.com",
+                    display_name="Example Owner",
+                ),
+            )
+
+        mocker.patch.object(
+            module__query_service_client,
+            "get_table_metadata",
+            _known_owner,
+        )
+        await module__client_with_roads.post(
+            "/nodes/default.repair_orders/refresh/",
+        )
+        after = (
+            await module__client_with_roads.get("/nodes/default.repair_orders/")
+        ).json()
+        assert after["owners"] == [{"username": "owner@example.com"}]
+
+    @pytest.mark.asyncio
+    async def test_refresh_fills_empty_descriptions_from_the_table(
+        self,
+        module__client_with_roads: AsyncClient,
+        module__query_service_client: QueryServiceClient,
+        mocker: MockerFixture,
+    ):
+        """A table comment fills a node description that DJ does not have."""
+        # A dedicated node with an empty description: the shared roads fixture
+        # already has one, and fill-when-empty would (correctly) decline.
+        response = await module__client_with_roads.post(
+            "/nodes/source/",
+            json={
+                "name": "default.undocumented_table",
+                "description": "",
+                "columns": [{"name": "id", "type": "int"}],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "roads",
+                "table": "undocumented_table",
+            },
+        )
+        assert response.status_code in (200, 201)
+
+        async def _with_descriptions(*args, **kwargs):
+            return TableMetadata(
+                columns=[
+                    Column(
+                        name="id",
+                        type=IntegerType(),
+                        order=0,
+                        description="described id",
+                    ),
+                ],
+                description="Table comment from the warehouse",
+            )
+
+        mocker.patch.object(
+            module__query_service_client,
+            "get_table_metadata",
+            _with_descriptions,
+        )
+        await module__client_with_roads.post(
+            "/nodes/default.undocumented_table/refresh/",
+        )
+        after = (
+            await module__client_with_roads.get("/nodes/default.undocumented_table/")
+        ).json()
+        assert after["description"] == "Table comment from the warehouse"
+        described_columns = {
+            column["name"]: column.get("description") for column in after["columns"]
+        }
+        assert described_columns["id"] == "described id"
+
+    @pytest.mark.asyncio
+    async def test_refresh_sets_a_group_owner(
+        self,
+        module__client_with_roads: AsyncClient,
+        module__query_service_client: QueryServiceClient,
+        mocker: MockerFixture,
+    ):
+        """
+        A table owned by a group is applied as the node's owner.
+
+        Some catalogs only name a group for a table. Recording it as a USER would
+        both misstate what it is and collide with the group principal that group
+        membership sync creates under the same username.
+        """
+        columns = await module__query_service_client.get_columns_for_table(
+            "default",
+            "roads",
+            "repair_orders",
+            request_headers={},
+        )
+
+        async def _group_owner(*args, **kwargs):
+            return TableMetadata(
+                columns=columns,
+                owner=TableOwner(
+                    username="data-eng@example.com",
+                    email="data-eng@example.com",
+                    display_name="Data Engineering",
+                    is_group=True,
+                ),
+            )
+
+        mocker.patch.object(
+            module__query_service_client,
+            "get_table_metadata",
+            _group_owner,
+        )
+        await module__client_with_roads.post(
+            "/nodes/default.repair_orders/refresh/",
+        )
+        after = (
+            await module__client_with_roads.get("/nodes/default.repair_orders/")
+        ).json()
+        # The principal kind itself is asserted in
+        # tests/database/nodeowner_test.py, against the same session that writes
+        # it -- this fixture's session is a different container and cannot see it.
+        assert after["owners"] == [{"username": "data-eng@example.com"}]
+
+    @pytest.mark.asyncio
+    async def test_refresh_hydrates_the_primary_key(
+        self,
+        module__client_with_roads: AsyncClient,
+        module__query_service_client: QueryServiceClient,
+        mocker: MockerFixture,
+    ):
+        """The catalog's primary key becomes the node's primary key attribute."""
+        response = await module__client_with_roads.post(
+            "/nodes/source/",
+            json={
+                "name": "default.keyless_table",
+                "description": "A table with no primary key set in DJ",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "amount", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "roads",
+                "table": "keyless_table",
+            },
+        )
+        assert response.status_code in (200, 201)
+
+        async def _with_pk(*args, **kwargs):
+            return TableMetadata(
+                columns=[
+                    Column(name="id", type=IntegerType(), order=0),
+                    Column(name="amount", type=IntegerType(), order=1),
+                ],
+                primary_key=["id"],
+            )
+
+        mocker.patch.object(
+            module__query_service_client,
+            "get_table_metadata",
+            _with_pk,
+        )
+        await module__client_with_roads.post(
+            "/nodes/default.keyless_table/refresh/",
+        )
+        after = (
+            await module__client_with_roads.get("/nodes/default.keyless_table/")
+        ).json()
+        keyed = {
+            column["name"]: [a["attribute_type"]["name"] for a in column["attributes"]]
+            for column in after["columns"]
+        }
+        assert keyed == {"id": ["primary_key"], "amount": []}
+
+    @pytest.mark.asyncio
+    async def test_refresh_does_not_replace_an_existing_primary_key(
+        self,
+        module__client_with_roads: AsyncClient,
+        module__query_service_client: QueryServiceClient,
+        mocker: MockerFixture,
+    ):
+        """
+        A primary key already set in DJ wins over the catalog's.
+
+        A primary key is structural -- dimension joins and cube grain depend on
+        it -- so a hand-chosen one is a deliberate modelling decision.
+        """
+        response = await module__client_with_roads.post(
+            "/nodes/source/",
+            json={
+                "name": "default.keyed_table",
+                "description": "A table whose primary key DJ already declares",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "other_id", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "roads",
+                "table": "keyed_table",
+            },
+        )
+        assert response.status_code in (200, 201)
+        await module__client_with_roads.post(
+            "/nodes/default.keyed_table/columns/other_id/attributes/",
+            json=[{"name": "primary_key"}],
+        )
+
+        async def _with_pk(*args, **kwargs):
+            return TableMetadata(
+                columns=[
+                    Column(name="id", type=IntegerType(), order=0),
+                    Column(name="other_id", type=IntegerType(), order=1),
+                ],
+                primary_key=["id"],
+            )
+
+        mocker.patch.object(
+            module__query_service_client,
+            "get_table_metadata",
+            _with_pk,
+        )
+        await module__client_with_roads.post(
+            "/nodes/default.keyed_table/refresh/",
+        )
+        after = (
+            await module__client_with_roads.get("/nodes/default.keyed_table/")
+        ).json()
+        keyed = {
+            column["name"]: [a["attribute_type"]["name"] for a in column["attributes"]]
+            for column in after["columns"]
+        }
+        assert keyed == {"id": [], "other_id": ["primary_key"]}
+
+    @pytest.mark.asyncio
+    async def test_refresh_skips_a_primary_key_column_the_node_lacks(
+        self,
+        module__client_with_roads: AsyncClient,
+        module__query_service_client: QueryServiceClient,
+        mocker: MockerFixture,
+    ):
+        """
+        A primary key naming a column the node does not have hydrates nothing.
+
+        The column diff is what reconciles a table that gained a column, so the
+        column arrives on the refreshed node but without the attribute -- the
+        catalog's primary key is only applied to columns the node already had.
+        """
+        response = await module__client_with_roads.post(
+            "/nodes/source/",
+            json={
+                "name": "default.late_key_table",
+                "description": "A table that gains its primary key column later",
+                "columns": [
+                    {"name": "amount", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "roads",
+                "table": "late_key_table",
+            },
+        )
+        assert response.status_code in (200, 201)
+
+        async def _with_unknown_pk(*args, **kwargs):
+            return TableMetadata(
+                columns=[
+                    Column(name="amount", type=IntegerType(), order=0),
+                    Column(name="id", type=IntegerType(), order=1),
+                ],
+                primary_key=["id"],
+            )
+
+        mocker.patch.object(
+            module__query_service_client,
+            "get_table_metadata",
+            _with_unknown_pk,
+        )
+        refreshed = await module__client_with_roads.post(
+            "/nodes/default.late_key_table/refresh/",
+        )
+        assert refreshed.status_code == 201
+        after = (
+            await module__client_with_roads.get("/nodes/default.late_key_table/")
+        ).json()
+        keyed = {
+            column["name"]: [a["attribute_type"]["name"] for a in column["attributes"]]
+            for column in after["columns"]
+        }
+        assert keyed == {"amount": [], "id": []}
+
+    @pytest.mark.asyncio
+    async def test_refresh_records_column_type_changes(
+        self,
+        module__client_with_roads: AsyncClient,
+        module__query_service_client: QueryServiceClient,
+        mocker: MockerFixture,
+    ):
+        """
+        A column changing type is recorded in the refresh event.
+
+        This is the part of a refresh worth auditing: a source column changing
+        type can change the value of a metric computed from it, so a version bump
+        with no explanation leaves no way to account for a number that moved.
+        """
+        response = await module__client_with_roads.post(
+            "/nodes/source/",
+            json={
+                "name": "default.retyped_table",
+                "description": "A table whose column type changes",
+                "columns": [{"name": "amount", "type": "int"}],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "roads",
+                "table": "retyped_table",
+            },
+        )
+        assert response.status_code in (200, 201)
+
+        async def _retyped(*args, **kwargs):
+            return TableMetadata(
+                columns=[Column(name="amount", type=DoubleType(), order=0)],
+            )
+
+        mocker.patch.object(
+            module__query_service_client,
+            "get_table_metadata",
+            _retyped,
+        )
+        await module__client_with_roads.post(
+            "/nodes/default.retyped_table/refresh/",
+        )
+
+        history = (
+            await module__client_with_roads.get(
+                "/history?node=default.retyped_table",
+            )
+        ).json()
+        refreshes = [event for event in history if event["activity_type"] == "refresh"]
+        assert refreshes, "the refresh should be recorded"
+        assert refreshes[0]["details"]["type_changes"] == [
+            {"column": "amount", "from": "int", "to": "double"},
+        ]
+
+    @pytest.mark.asyncio
+    async def test_refresh_does_not_overwrite_existing_descriptions(
+        self,
+        module__client_with_roads: AsyncClient,
+        module__query_service_client: QueryServiceClient,
+        mocker: MockerFixture,
+    ):
+        """Curated prose in DJ wins over the warehouse comment."""
+        columns = await module__query_service_client.get_columns_for_table(
+            "default",
+            "roads",
+            "repair_orders",
+            request_headers={},
+        )
+
+        async def _with_descriptions(*args, **kwargs):
+            return TableMetadata(
+                columns=columns,
+                description="Should not replace what DJ already has",
+            )
+
+        mocker.patch.object(
+            module__query_service_client,
+            "get_table_metadata",
+            _with_descriptions,
+        )
+        before = (
+            await module__client_with_roads.get("/nodes/default.repair_orders/")
+        ).json()
+        await module__client_with_roads.post(
+            "/nodes/default.repair_orders/refresh/",
+        )
+        after = (
+            await module__client_with_roads.get("/nodes/default.repair_orders/")
+        ).json()
+        assert after["description"] == before["description"]
+
+    @pytest.mark.asyncio
     async def test_create_update_source_node(
         self,
         client_with_basic: AsyncClient,
@@ -2616,7 +3234,7 @@ class TestNodeCRUD:
         catalog: Catalog,
         source_node: Node,
         client: AsyncClient,
-        create_invalid_transform_node_payload: Dict[str, Any],
+        create_invalid_transform_node_payload: dict[str, Any],
     ) -> None:
         """
         Test creating an invalid transform node in draft and published modes.
@@ -2683,7 +3301,7 @@ class TestNodeCRUD:
         catalog: Catalog,
         source_node: Node,
         client: AsyncClient,
-        create_transform_node_payload: Dict[str, Any],
+        create_transform_node_payload: dict[str, Any],
     ) -> None:
         """
         Test creating and updating a transform node that references an existing source.
@@ -3063,7 +3681,7 @@ class TestNodeCRUD:
         catalog: Catalog,
         source_node: Node,
         client: AsyncClient,
-        create_dimension_node_payload: Dict[str, Any],
+        create_dimension_node_payload: dict[str, Any],
     ) -> None:
         """
         Test creating and updating a dimension node that references an existing source.
@@ -3264,7 +3882,7 @@ class TestNodeCRUD:
         catalog: Catalog,
         source_node: Node,
         client: AsyncClient,
-        create_dimension_node_payload: Dict[str, Any],
+        create_dimension_node_payload: dict[str, Any],
     ) -> None:
         """
         Test creating an invalid node in draft mode
@@ -3941,7 +4559,7 @@ class TestNodeColumnsAttributes:
     """
 
     @pytest.fixture
-    def create_source_node_payload(self) -> Dict[str, Any]:
+    def create_source_node_payload(self) -> dict[str, Any]:
         """
         Payload for creating a source node.
         """
@@ -5800,15 +6418,15 @@ class TestValidateNodes:
                 """,
             ),
         )
-        # Also clear the order so revalidate detects a change and creates a
-        # new revision (matching the existing test_revalidate_sets_column_order
-        # trigger).
+        # Also move a stored column's type away from what the query produces, so
+        # revalidate detects a real change and forks a new revision. (A cleared
+        # column order would not: that is backfilled in place without a bump.)
         await session.execute(
             text(
                 """
                 UPDATE "column"
-                SET "order" = NULL
-                WHERE node_revision_id IN (
+                SET type = 'string'
+                WHERE name = 'dispatcher_id' AND node_revision_id IN (
                     SELECT id FROM noderevision WHERE name = 'default.test_meta_preserved'
                 )
                 """,
@@ -5930,13 +6548,14 @@ class TestValidateNodes:
         }, f"Deploy did not land descriptions: {post_deploy_descriptions}"
 
         # Force revalidate_node to detect a column change so it creates a new
-        # revision (same trigger as test_revalidate_sets_column_order_when_missing).
+        # revision. A stored type that disagrees with the query is a major change;
+        # a cleared column order is not, since that is backfilled in place.
         await session.execute(
             text(
                 """
                 UPDATE "column"
-                SET "order" = NULL
-                WHERE node_revision_id IN (
+                SET type = 'string'
+                WHERE name = 'dispatcher_id' AND node_revision_id IN (
                     SELECT id FROM noderevision WHERE name = 'meta_preserve_test.test_deploy_meta'
                 )
                 """,
@@ -5969,10 +6588,15 @@ class TestValidateNodes:
         client_with_roads: AsyncClient,
         session: AsyncSession,
     ):
-        """revalidate_node must record a history event when it creates a new
-        revision. Without it, /history?node=<name> only shows deploy-driven
-        updates and silently masks revalidate-driven version bumps (UI
-        validate, downstream propagation, manual /validate calls).
+        """revalidate_node must record a history event when it changes a node's
+        stored columns. Without it, /history?node=<name> only shows deploy-driven
+        updates and silently masks what revalidation did (UI validate, downstream
+        propagation, manual /validate calls).
+
+        The column-order backfill exercised here no longer bumps the version --
+        filling in DJ's own bookkeeping is not a change to the node -- but it does
+        still rewrite the stored row, so the audit trail must still explain it.
+        Losing the bump must not mean losing the record.
         """
         response = await client_with_roads.post(
             "/nodes/transform/",
@@ -5985,8 +6609,7 @@ class TestValidateNodes:
         )
         assert response.status_code == 201
 
-        # Force revalidate_node to create a new revision (same trigger as the
-        # column-order-cleared tests above).
+        # Clear the stored order so revalidate_node has a backfill to do.
         await session.execute(
             text(
                 """
@@ -6019,31 +6642,30 @@ class TestValidateNodes:
             )
         ).json()
 
-        # An additional history event was emitted by revalidate_node
-        # specifically (reason: revalidate) when it bumped the revision.
+        # An additional history event was emitted by revalidate_node, naming the
+        # columns whose missing order it backfilled and the version it left the
+        # node on. Without this the audit trail says nothing at all: no version
+        # changed, so nothing else records that the row was rewritten.
         revalidate_events = [
-            e
+            e["details"]
             for e in history_after
             if e.get("activity_type") == "update"
-            and (e.get("details") or {}).get("reason") == "revalidate"
+            and (e.get("details") or {}).get("reason") == "column order backfill"
         ]
-        assert len(revalidate_events) >= 1, (
-            f"Expected a revalidate-reason history event after revision bump; "
-            f"got events: {history_after}"
-        )
-        # The event details explain WHY the validator bumped the revision —
-        # in this case, by recording which columns had their missing order
-        # backfilled. Without this the audit trail says "revalidate happened"
-        # but not "this is what it changed".
-        details = revalidate_events[0]["details"]
-        assert details.get("order_fixed"), (
-            f"Expected order_fixed in revalidate event details; got {details}"
-        )
-        assert set(details["order_fixed"]) == {"repair_order_id"}, (
-            f"Expected order_fixed to list the column whose order was cleared; "
-            f"got {details}"
-        )
+        assert revalidate_events == [
+            {
+                "version": "v1.0",
+                "reason": "column order backfill",
+                "order_fixed": ["repair_order_id"],
+            },
+        ], f"Expected one backfill event; got events: {history_after}"
         assert len(history_after) > len(history_before)
+
+        # And the node itself did not turn over.
+        node_after = (
+            await client_with_roads.get("/nodes/default.test_revalidate_history")
+        ).json()
+        assert node_after["version"] == "v1.0"
 
     @pytest.mark.asyncio
     async def test_revalidate_via_propagation_writes_one_history_event(
@@ -6078,12 +6700,15 @@ class TestValidateNodes:
         )
         assert response.status_code == 201
 
-        # Force the revalidate code path to create a new revision.
+        # Force the revalidate code path to create a new revision. It has to be a
+        # real change -- a stored type the query disagrees with -- because the
+        # cheaper triggers no longer fork a revision, and a test that suppresses an
+        # event which was never going to be written proves nothing.
         await session.execute(
             text(
                 """
                 UPDATE "column"
-                SET "order" = NULL
+                SET type = 'string'
                 WHERE node_revision_id IN (
                     SELECT id FROM noderevision WHERE name = 'default.test_one_event_only'
                 )
@@ -8021,6 +8646,81 @@ async def test_get_dimension_dag_diamond_inbound(
     assert inbound_names.count("default.dag_test_source_both") == 1
     assert "default.dag_test_dim_left" in inbound_names
     assert "default.dag_test_dim_right" in inbound_names
+
+
+@pytest.mark.asyncio
+async def test_list_dimension_attributes_depth_limit(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    ``GET /nodes/{name}/dimensions/?depth=`` should bound how many dimension-link
+    hops are traversed. Build a 3-level chain of dimension nodes
+    (source -> dim_1 -> dim_2 -> dim_3) and confirm a small ``depth`` excludes the
+    attributes of the deeper dimension nodes while a larger ``depth`` includes them.
+    """
+    for name in ("dim_1", "dim_2", "dim_3"):
+        response = await client_with_roads.post(
+            "/nodes/dimension/",
+            json={
+                "name": f"default.depth_limit_{name}",
+                "query": "SELECT hard_hat_id FROM default.hard_hats",
+                "primary_key": ["hard_hat_id"],
+                "mode": "published",
+            },
+        )
+        assert response.status_code == 201
+
+    response = await client_with_roads.post(
+        "/nodes/transform/",
+        json={
+            "name": "default.depth_limit_source",
+            "query": "SELECT hard_hat_id FROM default.hard_hats",
+            "mode": "published",
+        },
+    )
+    assert response.status_code == 201
+
+    links = [
+        ("default.depth_limit_source", "default.depth_limit_dim_1"),
+        ("default.depth_limit_dim_1", "default.depth_limit_dim_2"),
+        ("default.depth_limit_dim_2", "default.depth_limit_dim_3"),
+    ]
+    for from_node, to_node in links:
+        response = await client_with_roads.post(
+            f"/nodes/{from_node}/link",
+            json={
+                "dimension_node": to_node,
+                "join_on": f"{from_node}.hard_hat_id = {to_node}.hard_hat_id",
+            },
+        )
+        assert response.status_code in (200, 201)
+
+    response = await client_with_roads.get(
+        "/nodes/default.depth_limit_source/dimensions/?depth=1",
+    )
+    assert response.status_code == 200
+    depth_1_node_names = {d["node_name"] for d in response.json()}
+    assert "default.depth_limit_dim_1" in depth_1_node_names
+    assert "default.depth_limit_dim_2" not in depth_1_node_names
+    assert "default.depth_limit_dim_3" not in depth_1_node_names
+
+    response = await client_with_roads.get(
+        "/nodes/default.depth_limit_source/dimensions/?depth=2",
+    )
+    assert response.status_code == 200
+    depth_2_node_names = {d["node_name"] for d in response.json()}
+    assert "default.depth_limit_dim_1" in depth_2_node_names
+    assert "default.depth_limit_dim_2" in depth_2_node_names
+    assert "default.depth_limit_dim_3" not in depth_2_node_names
+
+    response = await client_with_roads.get(
+        "/nodes/default.depth_limit_source/dimensions/?depth=30",
+    )
+    assert response.status_code == 200
+    depth_full_node_names = {d["node_name"] for d in response.json()}
+    assert "default.depth_limit_dim_1" in depth_full_node_names
+    assert "default.depth_limit_dim_2" in depth_full_node_names
+    assert "default.depth_limit_dim_3" in depth_full_node_names
 
 
 @pytest.mark.asyncio

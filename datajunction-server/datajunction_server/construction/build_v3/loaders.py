@@ -7,21 +7,21 @@ from __future__ import annotations
 import logging
 from collections import namedtuple
 
-from sqlalchemy import select, text, bindparam
+from sqlalchemy import bindparam, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload, joinedload, load_only, noload
-
-from datajunction_server.database.dimensionlink import DimensionLink
-from datajunction_server.database.node import Node, NodeRevision, Column
-from datajunction_server.database.preaggregation import PreAggregation
-from datajunction_server.models.node_type import NodeType
+from sqlalchemy.orm import joinedload, load_only, noload, selectinload
 
 from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
+from datajunction_server.construction.build_v3.preagg_freshness import preagg_is_fresh
 from datajunction_server.construction.build_v3.types import BuildContext
 from datajunction_server.construction.build_v3.utils import (
     collect_required_dimensions,
     iter_namespaced_columns,
 )
+from datajunction_server.database.dimensionlink import DimensionLink
+from datajunction_server.database.node import Column, Node, NodeRevision
+from datajunction_server.database.preaggregation import PreAggregation
+from datajunction_server.models.node_type import NodeType
 
 logger = logging.getLogger(__name__)
 
@@ -93,9 +93,15 @@ async def batch_load_nodes_with_dependencies(
                 # mapped and downstream code (get_native_grain) reads
                 # col.has_primary_key_attribute().
                 selectinload(NodeRevision.columns).options(
+                    # dimension_id / dimension_column carry column-level reference
+                    # (denormalized) dimension links; load_nodes() maps the ids to
+                    # names so resolve_dimensions can serve them from the local
+                    # column without a node join, matching commonDimensions.
                     load_only(
                         Column.name,
                         Column.type,
+                        Column.dimension_id,
+                        Column.dimension_column,
                     ),
                 ),
                 # NOTE: don't noload Catalog.engines — see load_dimension_links_batch.
@@ -475,6 +481,25 @@ async def load_nodes(ctx: BuildContext) -> None:
     for node in nodes:
         ctx.nodes[node.name] = node
 
+    # Map column-level reference-dimension ids -> dimension node names. The
+    # Column.dimension relationship doesn't reliably eager-load in this build,
+    # so resolve_dimensions uses this map (plus the reliably-loaded
+    # dimension_id/dimension_column scalars) to serve reference dimensions.
+    ref_dim_ids = {
+        col.dimension_id
+        for node in ctx.nodes.values()
+        if node.current
+        for col in node.current.columns
+        if col.dimension_id is not None
+    }
+    if ref_dim_ids:
+        rows = (
+            await ctx.session.execute(
+                select(Node.id, Node.name).where(Node.id.in_(ref_dim_ids)),
+            )
+        ).all()
+        ctx.reference_dimension_names = {row[0]: row[1] for row in rows}
+
     # Collect required dimensions from metrics and add to context
     # Required dimensions are stored as Column objects, so they don't have role info.
     # We need to check if a user-requested dimension already covers the same (node, column).
@@ -630,7 +655,11 @@ async def load_available_preaggs(ctx: BuildContext) -> None:
 
     # Index by node_revision_id for fast lookup
     for preagg in preaggs:
-        if preagg.availability and preagg.availability.is_available():
+        if (
+            preagg.availability
+            and preagg.availability.is_available()
+            and preagg_is_fresh(ctx, preagg)
+        ):
             if preagg.node_revision_id not in ctx.available_preaggs:
                 ctx.available_preaggs[preagg.node_revision_id] = []
             ctx.available_preaggs[preagg.node_revision_id].append(preagg)

@@ -1,21 +1,23 @@
 import importlib.metadata
 import io
-from pathlib import Path
+import json
 import time
 import zipfile
+from pathlib import Path
 from unittest import mock
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
+import yaml
 from datajunction.deployment import DeploymentService
 from datajunction.exceptions import DJClientException, DJDeploymentFailure
-from datajunction.models import DeploymentInfo
+from datajunction.models import DeploymentInfo, SemanticFingerprint
 from datajunction.rendering import (
     _render_error_bullets,
     _strip_summary_lines,
     print_deployment_header,
     print_results,
 )
-import yaml
 from rich.console import Console
 
 
@@ -43,6 +45,171 @@ def test_pull_extracts_zip_from_server(tmp_path):
     client._export_namespace_yaml_zip.assert_called_once_with("foo.bar", None)
     assert yaml.safe_load((tmp_path / "dj.yaml").read_text())["namespace"] == "foo.bar"
     assert (tmp_path / "foo" / "bar" / "baz.yaml").exists()
+
+
+def test_reconstruct_deployment_spec_separates_preaggregations(tmp_path):
+    """Files with ``kind: preagg`` route to preaggregations; the rest are nodes."""
+    (tmp_path / "dj.yaml").write_text("namespace: ns\n")
+    (tmp_path / "revenue.yaml").write_text(
+        "name: ns.revenue\nnode_type: metric\nquery: SELECT SUM(amount) FROM ns.fct\n",
+    )
+    (tmp_path / "revenue_by_day.yaml").write_text(
+        "kind: preagg\n"
+        "name: revenue_by_day\n"
+        "metrics:\n  - ns.revenue\n"
+        "dimensions:\n  - ns.date.day\n"
+        "catalog: default\n"
+        "schema: agg\n"
+        "table: revenue_agg\n"
+        "measure_columns:\n  ns.revenue: revenue_sum\n",
+    )
+
+    svc = DeploymentService(MagicMock())
+    spec, _ = svc._reconstruct_deployment_spec(tmp_path)
+
+    # The node file (no kind → node) stays a node.
+    assert [node["name"] for node in spec["nodes"]] == ["ns.revenue"]
+    assert len(spec["preaggregations"]) == 1
+    preagg = spec["preaggregations"][0]
+    assert preagg["name"] == "revenue_by_day"
+    assert preagg["measure_columns"] == {"ns.revenue": "revenue_sum"}
+    # The discriminator is stripped before reaching the payload.
+    assert "kind" not in preagg
+
+
+def test_reconstruct_deployment_spec_forwards_hierarchies(tmp_path):
+    """A `hierarchies:` block in dj.yaml reaches the deployment payload.
+
+    Same defect as custom_metadata_schemas: the payload names its keys one by one,
+    so an unnamed manifest section is read and dropped. Hierarchies are upsert-only
+    on the server, so an absent block is a no-op and [] is a safe default.
+    """
+    (tmp_path / "dj.yaml").write_text(
+        "namespace: ns\n"
+        "hierarchies:\n"
+        "  - name: geography\n"
+        "    display_name: Geography\n"
+        "    levels:\n"
+        "      - name: country\n"
+        "        dimension_node: ns.country\n"
+        "      - name: city\n"
+        "        dimension_node: ns.city\n",
+    )
+    (tmp_path / "revenue.yaml").write_text(
+        "name: ns.revenue\nnode_type: metric\nquery: SELECT SUM(amount) FROM ns.fct\n",
+    )
+
+    svc = DeploymentService(MagicMock())
+    spec, _ = svc._reconstruct_deployment_spec(tmp_path)
+
+    assert spec["hierarchies"] == [
+        {
+            "name": "geography",
+            "display_name": "Geography",
+            "levels": [
+                {"name": "country", "dimension_node": "ns.country"},
+                {"name": "city", "dimension_node": "ns.city"},
+            ],
+        },
+    ]
+
+
+def test_reconstruct_deployment_spec_defaults_hierarchies_to_empty(tmp_path):
+    """A manifest with no hierarchies sends [], which the server treats as a no-op."""
+    (tmp_path / "dj.yaml").write_text("namespace: ns\n")
+    (tmp_path / "revenue.yaml").write_text(
+        "name: ns.revenue\nnode_type: metric\nquery: SELECT SUM(amount) FROM ns.fct\n",
+    )
+
+    svc = DeploymentService(MagicMock())
+    spec, _ = svc._reconstruct_deployment_spec(tmp_path)
+
+    assert spec["hierarchies"] == []
+
+
+def test_reconstruct_deployment_spec_forwards_custom_metadata_schemas(tmp_path):
+    """A `custom_metadata_schemas:` block in dj.yaml reaches the deployment payload.
+
+    The payload is assembled key by key, so a manifest section the client does not
+    name is read and dropped -- the deploy then succeeds having registered nothing,
+    which is indistinguishable from success.
+    """
+    (tmp_path / "dj.yaml").write_text(
+        "namespace: ns\n"
+        "custom_metadata_schemas:\n"
+        "  - key: system\n"
+        "    description: Governance metadata.\n"
+        "    json_schema:\n"
+        "      type: object\n"
+        "      properties:\n"
+        "        lifecycle:\n"
+        "          type: string\n"
+        "          enum: [experimental, active, retired]\n",
+    )
+    (tmp_path / "revenue.yaml").write_text(
+        "name: ns.revenue\nnode_type: metric\nquery: SELECT SUM(amount) FROM ns.fct\n",
+    )
+
+    svc = DeploymentService(MagicMock())
+    spec, _ = svc._reconstruct_deployment_spec(tmp_path)
+
+    assert spec["custom_metadata_schemas"] == [
+        {
+            "key": "system",
+            "description": "Governance metadata.",
+            "json_schema": {
+                "type": "object",
+                "properties": {
+                    "lifecycle": {
+                        "type": "string",
+                        "enum": ["experimental", "active", "retired"],
+                    },
+                },
+            },
+        },
+    ]
+
+
+def test_reconstruct_deployment_spec_omits_absent_custom_metadata_schemas(tmp_path):
+    """A manifest that never mentions schemas must not send the key at all.
+
+    The server reads absent as "this manifest does not manage schemas" and an empty
+    list as "it manages them and declares none", which retires every schema in the
+    namespace. Sending [] for a manifest that simply has no opinion would delete
+    registrations that something else owns.
+    """
+    (tmp_path / "dj.yaml").write_text("namespace: ns\n")
+    (tmp_path / "revenue.yaml").write_text(
+        "name: ns.revenue\nnode_type: metric\nquery: SELECT SUM(amount) FROM ns.fct\n",
+    )
+
+    svc = DeploymentService(MagicMock())
+    spec, _ = svc._reconstruct_deployment_spec(tmp_path)
+
+    assert "custom_metadata_schemas" not in spec
+
+
+def test_reconstruct_deployment_spec_forwards_empty_custom_metadata_schemas(tmp_path):
+    """An explicitly empty list is forwarded, because it means "retire them"."""
+    (tmp_path / "dj.yaml").write_text("namespace: ns\ncustom_metadata_schemas: []\n")
+    (tmp_path / "revenue.yaml").write_text(
+        "name: ns.revenue\nnode_type: metric\nquery: SELECT SUM(amount) FROM ns.fct\n",
+    )
+
+    svc = DeploymentService(MagicMock())
+    spec, _ = svc._reconstruct_deployment_spec(tmp_path)
+
+    assert spec["custom_metadata_schemas"] == []
+
+
+def test_reconstruct_deployment_spec_rejects_unknown_kind(tmp_path):
+    """An unrecognized ``kind`` fails loudly instead of silently becoming a node."""
+    (tmp_path / "dj.yaml").write_text("namespace: ns\n")
+    (tmp_path / "mystery.yaml").write_text("kind: widget\nname: ns.mystery\n")
+
+    svc = DeploymentService(MagicMock())
+    with pytest.raises(DJClientException, match="Unknown kind 'widget'"):
+        svc._reconstruct_deployment_spec(tmp_path)
 
 
 def test_pull_uploads_existing_yaml_files(tmp_path):
@@ -601,6 +768,66 @@ def test_reconstruct_deployment_spec(tmp_path):
     assert spec["nodes"][0]["name"] == "foo.bar"
 
 
+def test_reconstruct_deployment_spec_missing_dir_raises(tmp_path):
+    """A non-existent directory must fail fast rather than form an empty spec.
+
+    Regression for issue #2301: an empty node set would otherwise be sent to
+    the server and interpreted as "delete every node in the namespace".
+    """
+    svc = DeploymentService(MagicMock())
+    missing = tmp_path / "does_not_exist"
+    with pytest.raises(DJClientException, match="Directory not found"):
+        svc._reconstruct_deployment_spec(missing)
+
+
+def _write_min_project(tmp_path):
+    """Write a minimal valid project (dj.yaml + one node) under tmp_path."""
+    (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
+    node_dir = tmp_path / "foo"
+    node_dir.mkdir()
+    (node_dir / "bar.yaml").write_text(
+        yaml.safe_dump({"name": "foo.bar", "query": "SELECT 1"}),
+    )
+
+
+def test_push_threads_allow_empty(tmp_path):
+    """push(allow_empty=True) must set allow_empty on the deployment spec."""
+    _write_min_project(tmp_path)
+    svc = DeploymentService(MagicMock())
+
+    captured = {}
+
+    def fake_deploy(spec):
+        captured["spec"] = spec
+        # Short-circuit before the poll/print machinery -- we only care that
+        # the spec handed to the server carries the flag.
+        raise DJClientException("stop")
+
+    svc.client.deploy = MagicMock(side_effect=fake_deploy)
+
+    with pytest.raises(DJClientException, match="stop"):
+        svc.push(tmp_path, namespace="foo", allow_empty=True)
+    assert captured["spec"]["allow_empty"] is True
+
+
+def test_push_omits_allow_empty_by_default(tmp_path):
+    """Without allow_empty, the flag must not appear on the deployment spec."""
+    _write_min_project(tmp_path)
+    svc = DeploymentService(MagicMock())
+
+    captured = {}
+
+    def fake_deploy(spec):
+        captured["spec"] = spec
+        raise DJClientException("stop")
+
+    svc.client.deploy = MagicMock(side_effect=fake_deploy)
+
+    with pytest.raises(DJClientException, match="stop"):
+        svc.push(tmp_path, namespace="foo")
+    assert "allow_empty" not in captured["spec"]
+
+
 def test_system_seed_matches_server_deployment_spec():
     """
     The bundled system-node seed is deployed at bootstrap by
@@ -664,6 +891,37 @@ def test_push_waits_until_success(monkeypatch, tmp_path):
 
     client.deploy.assert_called_once()
     client.check_deployment.assert_called()
+
+
+def test_push_format_json_prints_deployment_data(monkeypatch, tmp_path, capsys):
+    """push(format="json") must print the raw deployment dict to stdout
+    instead of the rich text panel, so a caller (e.g. a CI script posting
+    a PR comment) can parse the wet-run result."""
+    (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
+    (tmp_path / "bar.yaml").write_text(yaml.safe_dump({"name": "foo.bar"}))
+
+    client = MagicMock()
+    client.deploy.return_value = {
+        "uuid": "abc",
+        "status": "success",
+        "results": [
+            {
+                "name": "foo.bar",
+                "operation": "update",
+                "status": "success",
+                "changed_fields": ["query"],
+            },
+        ],
+        "namespace": "foo",
+    }
+
+    svc = DeploymentService(client, console=Console(file=io.StringIO()))
+    monkeypatch.setattr(time, "sleep", lambda _: None)
+
+    svc.push(tmp_path, format="json")
+
+    printed = json.loads(capsys.readouterr().out)
+    assert printed == client.deploy.return_value
 
 
 def test_push_force_sets_flag_in_spec(monkeypatch, tmp_path):
@@ -810,6 +1068,38 @@ def test_push_raises_on_success_with_invalid_nodes(monkeypatch, tmp_path):
 
     assert "foo" in exc_info.value.message
     assert len(exc_info.value.errors) == 1
+    assert exc_info.value.errors[0]["name"] == "foo.bar"
+
+
+def test_push_format_json_raises_on_success_with_invalid_nodes(monkeypatch, tmp_path):
+    """Same as above in --format json mode: still raises, and skips the rich
+    text warning (the JSON dump already carries the invalid-node status)."""
+    (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
+    (tmp_path / "bar.yaml").write_text(yaml.safe_dump({"name": "foo.bar"}))
+
+    invalid_results = [
+        {
+            "deploy_type": "node",
+            "name": "foo.bar",
+            "operation": "create",
+            "status": "invalid",
+            "message": "One or more metrics are INVALID",
+        },
+    ]
+    client = MagicMock()
+    client.deploy.return_value = {
+        "uuid": "456",
+        "status": "success",
+        "results": invalid_results,
+        "namespace": "foo",
+    }
+
+    svc = DeploymentService(client, console=Console(file=io.StringIO()))
+    monkeypatch.setattr(time, "sleep", lambda _: None)
+
+    with pytest.raises(DJDeploymentFailure) as exc_info:
+        svc.push(tmp_path, format="json")
+
     assert exc_info.value.errors[0]["name"] == "foo.bar"
 
 
@@ -1112,24 +1402,42 @@ class TestGetImpact:
         monkeypatch.delenv("DJ_DEPLOY_REPO", raising=False)
 
         # Create mock client
-        mock_client = MagicMock()
-        mock_client.get_deployment_impact.return_value = {
+        response = {
             "uuid": "dry_run",
             "namespace": "test.ns",
             "status": "success",
             "results": [
                 {
                     "name": "test.ns.my_node",
+                    "deploy_type": "node",
                     "operation": "noop",
                     "status": "success",
                     "message": "",
+                    "change_tier": "none",
+                    "semantic_fingerprint": {
+                        "version": 1,
+                        "digest": "a" * 64,
+                    },
+                    "revalidation_only": True,
                 },
             ],
-            "downstream_impacts": [],
+            "downstream_impacts": [
+                {
+                    "name": "external.metric",
+                    "node_type": "metric",
+                    "predicted_status": "valid",
+                    "semantic_fingerprint": {
+                        "version": 1,
+                        "digest": "b" * 64,
+                    },
+                },
+            ],
         }
+        mock_client = MagicMock()
+        mock_client.get_deployment_impact.return_value = response
 
         svc = DeploymentService(mock_client)
-        result = svc.get_impact(tmp_path)
+        result = svc.get_impact(tmp_path, display=False)
 
         # Verify the API was called
         mock_client.get_deployment_impact.assert_called_once()
@@ -1137,9 +1445,85 @@ class TestGetImpact:
         assert call_args["namespace"] == "test.ns"
         assert "nodes" in call_args
 
-        # Verify the result is returned
-        assert result["namespace"] == "test.ns"
-        assert result["uuid"] == "dry_run"
+        assert result is response
+        parsed = DeploymentInfo.from_dict(result)
+        assert parsed.results[0].deploy_type == "node"
+        assert parsed.results[0].change_tier == "none"
+        assert parsed.results[0].revalidation_only is True
+        assert parsed.results[0].semantic_fingerprint == SemanticFingerprint(
+            digest="a" * 64,
+        )
+        assert parsed.downstream_impacts[0].semantic_fingerprint == SemanticFingerprint(
+            digest="b" * 64,
+        )
+
+    def test_deployment_info_parses_unknown_fingerprints(self):
+        parsed = DeploymentInfo.from_dict(
+            {
+                "uuid": "dry_run",
+                "namespace": "test.ns",
+                "status": "success",
+                "results": [{"semantic_fingerprint": "unknown"}],
+                "downstream_impacts": [{"semantic_fingerprint": "unknown"}],
+            },
+        )
+
+        assert parsed.results[0].semantic_fingerprint == "unknown"
+        assert parsed.downstream_impacts[0].semantic_fingerprint == "unknown"
+
+        with pytest.raises(
+            ValueError,
+            match="Semantic fingerprint must be an object or 'unknown'",
+        ):
+            DeploymentInfo.from_dict(
+                {
+                    "results": [{"semantic_fingerprint": "invalid"}],
+                },
+            )
+
+    def test_deployment_info_parses_older_impact_response(self):
+        parsed = DeploymentInfo.from_dict(
+            {
+                "uuid": "dry_run",
+                "namespace": "test.ns",
+                "status": "success",
+                "results": [
+                    {
+                        "name": "test.ns.my_node",
+                        "operation": "noop",
+                        "status": "skipped",
+                    },
+                ],
+            },
+        )
+        assert parsed.results[0].deploy_type == ""
+        assert parsed.results[0].change_tier is None
+        assert parsed.results[0].semantic_fingerprint is None
+        assert parsed.downstream_impacts == []
+
+    @pytest.mark.parametrize("digest", ["a" * 63, "A" * 64, "g" * 64])
+    def test_semantic_fingerprint_rejects_invalid_digest(self, digest):
+        with pytest.raises(ValueError, match="64 lowercase hexadecimal"):
+            SemanticFingerprint(digest=digest)
+
+    def test_semantic_fingerprint_preserves_unknown_version(self):
+        parsed = DeploymentInfo.from_dict(
+            {
+                "results": [
+                    {
+                        "semantic_fingerprint": {
+                            "version": 2,
+                            "digest": "a" * 64,
+                        },
+                    },
+                ],
+            },
+        )
+
+        assert parsed.results[0].semantic_fingerprint == SemanticFingerprint(
+            version=2,
+            digest="a" * 64,
+        )
 
     def test_get_impact_with_namespace_override(self, tmp_path, monkeypatch):
         """get_impact should respect namespace override."""
@@ -1479,6 +1863,47 @@ class TestPushBranchDetection:
         assert "Warning" in out.getvalue()
         client.deploy.assert_called_once()
 
+    def test_push_git_config_failure_is_silent_in_format_json(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
+        """Same as above in --format json mode: the warning is suppressed so
+        it doesn't pollute the JSON on stdout."""
+        (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "project.main"}))
+        (tmp_path / "my_node.yaml").write_text(
+            yaml.safe_dump({"name": "project.my_node"}),
+        )
+
+        monkeypatch.delenv("DJ_DEPLOY_REPO", raising=False)
+        monkeypatch.setattr(
+            DeploymentService,
+            "_detect_git_branch",
+            staticmethod(lambda cwd=None: "main"),
+        )
+        monkeypatch.setattr(
+            DeploymentService,
+            "_detect_git_repo",
+            staticmethod(lambda cwd=None: None),
+        )
+        monkeypatch.setattr(time, "sleep", lambda _: None)
+
+        client = MagicMock()
+        client._set_namespace_git_config.side_effect = Exception("network error")
+        client.deploy.return_value = {"uuid": "abc", "status": "success", "results": []}
+        client.check_deployment.return_value = {
+            "uuid": "abc",
+            "status": "success",
+            "results": [],
+        }
+
+        out = io.StringIO()
+        svc = DeploymentService(client, console=Console(file=out))
+        svc.push(tmp_path, format="json")
+
+        assert "Warning" not in out.getvalue()
+        client.deploy.assert_called_once()
+
 
 def test_djdeploymentfailure_str_with_errors():
     exc = DJDeploymentFailure(
@@ -1521,6 +1946,28 @@ def test_push_raises_on_file_name_mismatch(monkeypatch, tmp_path):
 
     with pytest.raises(DJClientException, match="Fix file name mismatches"):
         svc.push(tmp_path)
+
+
+def test_push_format_json_raises_on_file_name_mismatch(monkeypatch, tmp_path):
+    """Same as above in --format json mode: still raises, and skips the rich
+    text error rule/listing (nothing to print — the JSON on stdout is the
+    deployment result, not the file-name-mismatch warnings)."""
+    (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
+    (tmp_path / "wrong.yaml").write_text(yaml.safe_dump({"name": "foo.bar"}))
+
+    client = MagicMock()
+    client.deploy.return_value = {
+        "uuid": "abc",
+        "status": "success",
+        "results": [],
+        "namespace": "foo",
+    }
+
+    svc = DeploymentService(client, console=Console(file=io.StringIO()))
+    monkeypatch.setattr(time, "sleep", lambda _: None)
+
+    with pytest.raises(DJClientException, match="Fix file name mismatches"):
+        svc.push(tmp_path, format="json")
 
 
 def test_collect_nodes_skips_validation_for_unnamed_node(tmp_path):
@@ -1582,3 +2029,91 @@ def test_collect_nodes_skips_vendored_dirs_and_list_yamls(tmp_path):
 
     node_names = [n.get("name") for n in spec["nodes"]]
     assert node_names == ["foo.bar"]  # only the legitimate node survived
+
+
+def test_read_yaml_file_top_level_date(tmp_path):
+    """An unquoted top-level date becomes an ISO string."""
+    path = tmp_path / "node.yaml"
+    path.write_text("name: ns.thing\nvalid_from: 2026-08-17\n")
+
+    assert DeploymentService.read_yaml_file(path) == {
+        "name": "ns.thing",
+        "valid_from": "2026-08-17",
+    }
+
+
+def test_read_yaml_file_nested_date(tmp_path):
+    """A date nested in a dict becomes an ISO string."""
+    path = tmp_path / "cube.yaml"
+    path.write_text(
+        "name: ns.cube\n"
+        "materialization:\n"
+        "  strategy: incremental_time\n"
+        "  coverage:\n"
+        "    from: 2026-08-17\n",
+    )
+
+    assert DeploymentService.read_yaml_file(path) == {
+        "name": "ns.cube",
+        "materialization": {
+            "strategy": "incremental_time",
+            "coverage": {"from": "2026-08-17"},
+        },
+    }
+
+
+def test_read_yaml_file_date_in_list(tmp_path):
+    """Dates inside lists become ISO strings."""
+    path = tmp_path / "node.yaml"
+    path.write_text(
+        "name: ns.thing\nbackfills:\n  - 2026-08-17\n  - start: 2026-01-01\n",
+    )
+
+    assert DeploymentService.read_yaml_file(path) == {
+        "name": "ns.thing",
+        "backfills": ["2026-08-17", {"start": "2026-01-01"}],
+    }
+
+
+def test_read_yaml_file_datetime_keeps_time(tmp_path):
+    """A datetime keeps its time, not just the date."""
+    path = tmp_path / "node.yaml"
+    path.write_text("name: ns.thing\nstarted_at: 2026-08-17 09:30:15\n")
+
+    assert DeploymentService.read_yaml_file(path) == {
+        "name": "ns.thing",
+        "started_at": "2026-08-17T09:30:15",
+    }
+
+
+def test_read_yaml_file_quoted_date_unchanged(tmp_path):
+    """A quoted date passes through unchanged."""
+    path = tmp_path / "node.yaml"
+    path.write_text('name: ns.thing\nvalid_from: "2026-08-17"\n')
+
+    assert DeploymentService.read_yaml_file(path) == {
+        "name": "ns.thing",
+        "valid_from": "2026-08-17",
+    }
+
+
+def test_read_yaml_file_without_dates(tmp_path):
+    """A file with no dates comes back unchanged."""
+    path = tmp_path / "node.yaml"
+    path.write_text(
+        "name: ns.thing\n"
+        "query: SELECT 1\n"
+        "columns:\n"
+        "  - name: one\n"
+        "    type: int\n"
+        "enabled: true\n"
+        "count: 3\n",
+    )
+
+    assert DeploymentService.read_yaml_file(path) == {
+        "name": "ns.thing",
+        "query": "SELECT 1",
+        "columns": [{"name": "one", "type": "int"}],
+        "enabled": True,
+        "count": 3,
+    }

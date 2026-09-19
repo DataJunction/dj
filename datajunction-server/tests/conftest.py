@@ -3,70 +3,68 @@ Fixtures for testing.
 """
 
 import asyncio
-import subprocess
-import sys
-from collections import namedtuple
-from sqlalchemy.pool import NullPool
-from contextlib import ExitStack, asynccontextmanager, contextmanager
-from datetime import timedelta
 import os
 import pathlib
 import re
-from http.client import HTTPException
-from typing import (
-    Any,
+import subprocess
+import sys
+from collections import namedtuple
+from collections.abc import (
     AsyncGenerator,
     Awaitable,
     Callable,
     Collection,
     Coroutine,
-    Dict,
     Generator,
     Iterator,
-    List,
-    Optional,
+)
+from contextlib import ExitStack, asynccontextmanager, contextmanager
+from datetime import timedelta
+from http.client import HTTPException
+from typing import (
+    Any,
 )
 from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.parse import urlparse
 
-from psycopg import connect
-
 import duckdb
 import httpx
-import sqlglot
 import pytest
 import pytest_asyncio
+import sqlglot
 from cachelib.simple import SimpleCache
-from fastapi import Request
+from fastapi import BackgroundTasks, Request
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.inmemory import InMemoryBackend
 from httpx import AsyncClient
+from psycopg import connect
+from psycopg.errors import UndefinedTable
 from pytest_mock import MockerFixture
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 from testcontainers.core.waiting_utils import wait_for_logs
 from testcontainers.postgres import PostgresContainer
 
-from fastapi import BackgroundTasks
-
-from datajunction_server.api.main import app
 from datajunction_server.api.attributes import default_attribute_types
-from datajunction_server.internal.seed import seed_default_catalogs
+from datajunction_server.api.main import app
 from datajunction_server.config import DatabaseConfig, Settings
 from datajunction_server.database.base import Base
 from datajunction_server.database.column import Column
 from datajunction_server.database.engine import Engine
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJQueryServiceClientEntityNotFound
+from datajunction_server.internal.access.authentication.tokens import create_token
 from datajunction_server.internal.access.authorization import (
-    get_authorization_service,
     PassthroughAuthorizationService,
+    get_authorization_service,
 )
+from datajunction_server.internal.seed import seed_default_catalogs
 from datajunction_server.models.materialization import MaterializationInfo
 from datajunction_server.models.query import QueryCreate, QueryWithResults
+from datajunction_server.models.table_metadata import TableMetadata
 from datajunction_server.models.user import OAuthProvider
-from datajunction_server.internal.access.authentication.tokens import create_token
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.typing import QueryState
 from datajunction_server.utils import (
@@ -127,7 +125,6 @@ def module__background_tasks() -> Generator[
 
     def fake_add_task(self, func, *args, **kwargs):
         tasks.append((func, args, kwargs))
-        return None
 
     BackgroundTasks.add_task = fake_add_task
     yield tasks
@@ -141,7 +138,6 @@ def background_tasks() -> Generator[list[tuple[Callable, tuple, dict]], None, No
 
     def fake_add_task(self, func, *args, **kwargs):
         tasks.append((func, args, kwargs))
-        return None
 
     BackgroundTasks.add_task = fake_add_task
     yield tasks
@@ -264,7 +260,9 @@ def func__postgres_container(
     """
     # Create a unique database name for this test
     test_name = request.node.name
-    dbname = f"test_func_{abs(hash(test_name)) % 10000000}_{id(request)}"
+    dbname = (
+        f"test_func_{worker_suffix()}_{abs(hash(test_name)) % 10000000}_{id(request)}"
+    )
 
     # Clone from template
     db_url = clone_database_from_template(
@@ -291,7 +289,9 @@ def func__clean_postgres_container(
     """
     # Create a unique database name for this test
     test_name = request.node.name
-    dbname = f"test_clean_{abs(hash(test_name)) % 10000000}_{id(request)}"
+    dbname = (
+        f"test_clean_{worker_suffix()}_{abs(hash(test_name)) % 10000000}_{id(request)}"
+    )
 
     # Create a fresh empty database (no template)
     db_url = create_database_for_module(postgres_container, dbname)
@@ -333,8 +333,8 @@ def settings_no_qs(
 
     from datajunction_server.models.dialect import register_dialect_plugin
     from datajunction_server.transpilation import (
-        SQLTranspilationPlugin,
         SQLGlotTranspilationPlugin,
+        SQLTranspilationPlugin,
     )
 
     register_dialect_plugin("spark", SQLTranspilationPlugin)
@@ -359,19 +359,150 @@ def duckdb_conn() -> duckdb.DuckDBPyConnection:
 
     Creates a 'default' catalog so that queries like "default".roads.table work.
     """
-    with open(
-        os.path.join(os.path.dirname(__file__), "duckdb.sql"),
-    ) as mock_data:
-        with duckdb.connect(
+    with (
+        open(
+            os.path.join(os.path.dirname(__file__), "duckdb.sql"),
+        ) as mock_data,
+        duckdb.connect(
             ":memory:",
-        ) as conn:
-            # Attach memory database as 'default' catalog so "default".schema.table works
-            conn.execute("""ATTACH ':memory:' AS "default" """)
-            conn.execute("""USE "default" """)
-            conn.execute(mock_data.read())
-            # Schema target for cube view DDL submitted via mock_create_view.
-            conn.execute('CREATE SCHEMA IF NOT EXISTS "default".dj_views')
-            yield conn
+        ) as conn,
+    ):
+        # Attach memory database as 'default' catalog so "default".schema.table works
+        conn.execute("""ATTACH ':memory:' AS "default" """)
+        conn.execute("""USE "default" """)
+        conn.execute(mock_data.read())
+        # Schema target for cube view DDL submitted via mock_create_view.
+        conn.execute('CREATE SCHEMA IF NOT EXISTS "default".dj_views')
+        yield conn
+
+
+class ExternalPostgres:
+    """
+    Stands in for ``PostgresContainer`` when tests run against a server this
+    process did not start, so nothing tears it down at the end of a session.
+    """
+
+    def __init__(self, url: str):
+        self._url = url
+
+    def get_connection_url(self) -> str:
+        return self._url
+
+
+def externally_managed_postgres() -> bool:
+    """True when the Postgres server (and its templates) outlive this process."""
+    return bool(os.environ.get("DJ_TEST_POSTGRES_URL"))
+
+
+def database_exists(postgres, dbname: str) -> bool:
+    """Whether ``dbname`` is already present on the server."""
+    url = urlparse(postgres.get_connection_url())
+    with connect(
+        host=url.hostname,
+        port=url.port,
+        dbname=url.path.lstrip("/"),
+        user=url.username,
+        password=url.password,
+        autocommit=True,
+    ) as conn:
+        row = conn.execute(
+            "SELECT 1 FROM pg_database WHERE datname = %s",
+            (dbname,),
+        ).fetchone()
+    return row is not None
+
+
+def template_is_populated(postgres, dbname: str) -> bool:
+    """
+    Whether `dbname` exists and finished building, per the marker row
+    `mark_template_populated` writes on the base database.
+
+    Checked via the marker instead of connecting to `dbname` directly,
+    since `clone_database_from_template` calls `pg_terminate_backend`
+    against connections to the template before cloning it.
+    """
+    if not database_exists(postgres, dbname):
+        return False
+    url = urlparse(postgres.get_connection_url())
+    with connect(
+        host=url.hostname,
+        port=url.port,
+        dbname=url.path.lstrip("/"),
+        user=url.username,
+        password=url.password,
+        autocommit=True,
+    ) as conn:
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM test_template_status WHERE template_name = %s",
+                (dbname,),
+            ).fetchone()
+        except UndefinedTable:
+            return False
+    return row is not None
+
+
+def require_shared_template(postgres, dbname: str, how_to_build: str) -> None:
+    """
+    Insist that a shared template is present and populated.
+
+    On a server this process does not own, templates are built once before
+    pytest runs. Building them here instead would race between workers and, on
+    failure, leave a half-made database behind, so refuse loudly and say what
+    is missing.
+    """
+    if template_is_populated(postgres, dbname):
+        return
+    state = "exists but is empty" if database_exists(postgres, dbname) else "is missing"
+    raise RuntimeError(
+        f"Shared template database `{dbname}` {state}.\n"
+        f"DJ_TEST_POSTGRES_URL is set, so templates must be built before pytest "
+        f"starts. Build it with:\n\n    {how_to_build}\n\n"
+        f"If it exists but is empty, drop it first: "
+        f'psql -c "DROP DATABASE {dbname};"',
+    )
+
+
+def require_shared_readonly_role(postgres) -> None:
+    """
+    Insist the ``readonly_user`` role exists on a shared server.
+
+    For containers it starts itself the suite creates this role, but on a server
+    it does not own it cannot. The reader database URL depends on it, so a
+    missing role surfaces as an authentication error deep inside an unrelated
+    test rather than as a setup problem.
+    """
+    url = urlparse(postgres.get_connection_url())
+    with connect(
+        host=url.hostname,
+        port=url.port,
+        dbname=url.path.lstrip("/"),
+        user=url.username,
+        password=url.password,
+        autocommit=True,
+    ) as conn:
+        row = conn.execute(
+            "SELECT 1 FROM pg_roles WHERE rolname = 'readonly_user'",
+        ).fetchone()
+    if row is None:
+        raise RuntimeError(
+            "Shared Postgres is missing the `readonly_user` role, which the "
+            "reader database URL needs.\nDJ_TEST_POSTGRES_URL is set, so the "
+            "role has to be created before pytest starts:\n\n"
+            '    psql -c "CREATE ROLE readonly_user WITH LOGIN '
+            "PASSWORD 'readonly'\"",
+        )
+
+
+def worker_suffix() -> str:
+    """
+    Identifier unique to this xdist worker.
+
+    Generated database names have to include it once workers share one server:
+    the old names leaned on ``id(request)``, which is only unique within a
+    process.
+    """
+    return os.environ.get("PYTEST_XDIST_WORKER", "gw0")
 
 
 @pytest.fixture(scope="session")
@@ -383,7 +514,17 @@ def postgres_container() -> PostgresContainer:
     1. The 'dj' database (default)
     2. The template database with all examples pre-loaded
     3. Per-module databases cloned from the template
+    Under pytest-xdist "session" means *per worker process*, so without
+    ``DJ_TEST_POSTGRES_URL`` every worker starts its own container and builds its
+    own template -- N times the same ~50s of work, all at once at startup. Set
+    that variable to a running Postgres and the workers share it, cloning
+    templates somebody else already built.
     """
+    external_url = os.environ.get("DJ_TEST_POSTGRES_URL")
+    if external_url:
+        yield ExternalPostgres(external_url)  # type: ignore[misc]
+        return
+
     postgres = PostgresContainer(
         image="postgres:latest",
         username="dj",
@@ -478,8 +619,8 @@ async def clean_session(
     # Register dialect plugins
     from datajunction_server.models.dialect import register_dialect_plugin
     from datajunction_server.transpilation import (
-        SQLTranspilationPlugin,
         SQLGlotTranspilationPlugin,
+        SQLTranspilationPlugin,
     )
 
     register_dialect_plugin("spark", SQLTranspilationPlugin)
@@ -574,7 +715,9 @@ async def clean_client(
 
     # Create a unique database for this test
     test_name = request.node.name
-    dbname = f"test_clean_{abs(hash(test_name)) % 10000000}_{id(request)}"
+    dbname = (
+        f"test_clean_{worker_suffix()}_{abs(hash(test_name)) % 10000000}_{id(request)}"
+    )
     db_url = create_database_for_module(postgres_container, dbname)
 
     # Create settings for this clean database
@@ -694,24 +837,43 @@ def query_service_client(
         catalog: str,
         schema: str,
         table: str,
-        engine: Optional[Engine] = None,
-        request_headers: Optional[Dict[str, str]] = None,
-    ) -> List[Column]:
+        engine: Engine | None = None,
+        request_headers: dict[str, str] | None = None,
+    ) -> list[Column]:
         return COLUMN_MAPPINGS[f"{catalog}.{schema}.{table}"]
 
     async def mock_get_columns_for_table_async(
         catalog: str,
         schema: str,
         table: str,
-        request_headers: Optional[Dict[str, str]] = None,
-        engine: Optional[Engine] = None,
-    ) -> List[Column]:
+        request_headers: dict[str, str] | None = None,
+        engine: Engine | None = None,
+    ) -> list[Column]:
         return mock_get_columns_for_table(
             catalog,
             schema,
             table,
             engine,
             request_headers,
+        )
+
+    async def mock_get_table_metadata_async(
+        catalog: str,
+        schema: str,
+        table: str,
+        request_headers: dict[str, str] | None = None,
+        engine: Engine | None = None,
+    ) -> TableMetadata:
+        # ``get_columns_for_table`` is resolved at call time so that tests which
+        # patch only the columns call still drive refresh through this method.
+        return TableMetadata(
+            columns=await qs_client.get_columns_for_table(
+                catalog,
+                schema,
+                table,
+                request_headers,
+                engine,
+            ),
         )
 
     mocker.patch.object(
@@ -724,10 +886,15 @@ def query_service_client(
         "get_columns_for_table",
         mock_get_columns_for_table_async,
     )
+    mocker.patch.object(
+        qs_client,
+        "get_table_metadata",
+        mock_get_table_metadata_async,
+    )
 
     def mock_submit_query(
         query_create: QueryCreate,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> QueryWithResults:
         # Transpile from Spark to DuckDB before executing
         transpiled_sql = transpile_to_duckdb(query_create.submitted_query)
@@ -757,7 +924,7 @@ def query_service_client(
 
     async def mock_submit_query_async(
         query_create: QueryCreate,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> QueryWithResults:
         return mock_submit_query(query_create, request_headers)
 
@@ -775,7 +942,7 @@ def query_service_client(
     def mock_create_view(
         view_name: str,
         query_create: QueryCreate,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> str:
         # Transpile from Spark to DuckDB before executing
         transpiled_sql = transpile_to_duckdb(query_create.submitted_query)
@@ -785,7 +952,7 @@ def query_service_client(
     async def mock_create_view_async(
         view_name: str,
         query_create: QueryCreate,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> str:
         return mock_create_view(view_name, query_create, request_headers)
 
@@ -802,7 +969,7 @@ def query_service_client(
 
     def mock_get_query(
         query_id: str,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> Collection[Collection[str]]:
         if query_id == "foo-bar-baz":
             raise DJQueryServiceClientEntityNotFound("Query foo-bar-baz not found.")
@@ -813,7 +980,7 @@ def query_service_client(
 
     async def mock_get_query_async(
         query_id: str,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> Collection[Collection[str]]:
         return mock_get_query(query_id, request_headers)
 
@@ -904,7 +1071,7 @@ def patch_session_contexts(
     @asynccontextmanager
     async def fake_session_context(
         request: Request = None,
-        session_label: str = None,
+        session_label: str | None = None,
     ) -> AsyncGenerator[AsyncSession, None]:
         session = await session_factory()
         try:
@@ -1002,7 +1169,7 @@ async def post_and_dont_raise_if_error(client: AsyncClient, endpoint: str, json:
 
 async def load_examples_in_client(
     client: AsyncClient,
-    examples_to_load: Optional[List[str]] = None,
+    examples_to_load: list[str] | None = None,
 ):
     """
     Load the DJ client with examples.
@@ -1051,7 +1218,7 @@ async def client_example_loader(
     without loading any examples.
     """
 
-    async def _load_examples(examples_to_load: Optional[List[str]] = None):
+    async def _load_examples(examples_to_load: list[str] | None = None):
         # Examples are already loaded in the template database
         return client
 
@@ -1060,7 +1227,7 @@ async def client_example_loader(
 
 @pytest_asyncio.fixture
 async def client_with_examples(
-    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with all examples
@@ -1070,7 +1237,7 @@ async def client_with_examples(
 
 @pytest_asyncio.fixture
 async def client_with_service_setup(
-    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with just the service setup
@@ -1080,7 +1247,7 @@ async def client_with_service_setup(
 
 @pytest_asyncio.fixture
 async def client_with_roads(
-    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with roads examples
@@ -1090,7 +1257,7 @@ async def client_with_roads(
 
 @pytest_asyncio.fixture
 async def client_with_namespaced_roads(
-    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with namespaced roads examples
@@ -1100,7 +1267,7 @@ async def client_with_namespaced_roads(
 
 @pytest_asyncio.fixture
 async def client_with_basic(
-    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with basic examples
@@ -1110,7 +1277,7 @@ async def client_with_basic(
 
 @pytest_asyncio.fixture
 async def client_with_account_revenue(
-    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with account revenue examples
@@ -1120,7 +1287,7 @@ async def client_with_account_revenue(
 
 @pytest_asyncio.fixture
 async def client_with_event(
-    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with event examples
@@ -1130,7 +1297,7 @@ async def client_with_event(
 
 @pytest_asyncio.fixture
 async def client_with_dbt(
-    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with dbt examples
@@ -1140,7 +1307,7 @@ async def client_with_dbt(
 
 @pytest_asyncio.fixture
 async def client_with_build_v3(
-    client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with BUILD_V3 examples.
@@ -1278,13 +1445,13 @@ async def client_qs(
 @pytest_asyncio.fixture
 async def client_with_query_service_example_loader(
     client_qs: AsyncClient,
-) -> Callable[[Optional[List[str]]], AsyncClient]:
+) -> Callable[[list[str] | None], AsyncClient]:
     """
     Provides a callable fixture for loading examples into a test client
     fixture that additionally has a mocked query service.
     """
 
-    def _load_examples(examples_to_load: Optional[List[str]] = None):
+    def _load_examples(examples_to_load: list[str] | None = None):
         return load_examples_in_client(client_qs, examples_to_load)
 
     return _load_examples
@@ -1293,7 +1460,7 @@ async def client_with_query_service_example_loader(
 @pytest_asyncio.fixture
 async def client_with_query_service(
     client_with_query_service_example_loader: Callable[
-        [Optional[List[str]]],
+        [list[str] | None],
         AsyncClient,
     ],
 ) -> AsyncClient:
@@ -1335,7 +1502,7 @@ async def module__client_example_loader(
     so this just returns the client directly.
     """
 
-    async def _load_examples(examples_to_load: Optional[List[str]] = None):
+    async def _load_examples(examples_to_load: list[str] | None = None):
         # Examples already loaded in template - just return the client
         return module__client
 
@@ -1469,6 +1636,15 @@ async def module__client(
                     if asyncio.iscoroutine(result):
                         await result
                 module__background_tasks.clear()
+                # Empty the identity map between requests, the way production
+                # does by handing each request its own session. Sharing one
+                # session across a module leaves partially-loaded instances
+                # (from a `load_only` query) reachable by later requests, and
+                # touching a column they didn't load issues a lazy primary-key
+                # fetch. In a synchronous frame -- the v2 builder, for one --
+                # that raises MissingGreenlet, and which test it lands on
+                # depends on how xdist happened to pack modules onto workers.
+                module__session.expunge_all()
                 return response
 
             test_client.request = wrapped_request
@@ -1536,12 +1712,12 @@ def module__settings(
         transpilation_plugins=["default"],
     )
 
+    from datajunction_server.internal import seed as seed_module
     from datajunction_server.models.dialect import register_dialect_plugin
     from datajunction_server.transpilation import (
-        SQLTranspilationPlugin,
         SQLGlotTranspilationPlugin,
+        SQLTranspilationPlugin,
     )
-    from datajunction_server.internal import seed as seed_module
 
     register_dialect_plugin("spark", SQLTranspilationPlugin)
     register_dialect_plugin("trino", SQLTranspilationPlugin)
@@ -1594,7 +1770,7 @@ def regular_settings(
 
 @pytest_asyncio.fixture(scope="module")
 async def module__client_with_dimension_link(
-    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    module__client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with dbt examples
@@ -1604,7 +1780,7 @@ async def module__client_with_dimension_link(
 
 @pytest_asyncio.fixture(scope="module")
 async def module__client_with_roads(
-    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    module__client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with roads examples
@@ -1614,7 +1790,7 @@ async def module__client_with_roads(
 
 @pytest_asyncio.fixture(scope="module")
 async def module__client_with_namespaced_roads(
-    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    module__client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with roads examples
@@ -1624,7 +1800,7 @@ async def module__client_with_namespaced_roads(
 
 @pytest_asyncio.fixture(scope="module")
 async def module__client_with_account_revenue(
-    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    module__client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with account revenue examples
@@ -1634,7 +1810,7 @@ async def module__client_with_account_revenue(
 
 @pytest_asyncio.fixture(scope="module")
 async def module__client_with_roads_and_acc_revenue(
-    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    module__client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with roads examples
@@ -1644,7 +1820,7 @@ async def module__client_with_roads_and_acc_revenue(
 
 @pytest_asyncio.fixture(scope="module")
 async def module__client_with_basic(
-    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    module__client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with account revenue examples
@@ -1654,7 +1830,7 @@ async def module__client_with_basic(
 
 @pytest_asyncio.fixture(scope="module")
 async def module__client_with_simple_hll(
-    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    module__client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a minimal DJ client fixture for HLL/APPROX_COUNT_DISTINCT testing.
@@ -1664,7 +1840,7 @@ async def module__client_with_simple_hll(
 
 @pytest_asyncio.fixture(scope="module")
 async def module__client_with_both_basics(
-    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    module__client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with account revenue examples
@@ -1674,7 +1850,7 @@ async def module__client_with_both_basics(
 
 @pytest_asyncio.fixture(scope="module")
 async def module__client_with_examples(
-    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    module__client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with all examples
@@ -1684,7 +1860,7 @@ async def module__client_with_examples(
 
 @pytest_asyncio.fixture(scope="module")
 async def module__client_with_build_v3(
-    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    module__client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a module-scoped DJ client fixture with BUILD_V3 examples.
@@ -1714,7 +1890,7 @@ async def module__clean_client(
     """
     # Create a unique database for this module
     module_name = request.module.__name__
-    dbname = f"test_mod_clean_{abs(hash(module_name)) % 10000000}"
+    dbname = f"test_mod_clean_{worker_suffix()}_{abs(hash(module_name)) % 10000000}"
     db_url = create_database_for_module(postgres_container, dbname)
 
     # Create settings for this clean database
@@ -1816,6 +1992,9 @@ async def module__clean_client(
                     if asyncio.iscoroutine(result):
                         await result
                 module__background_tasks.clear()
+                # See the note above: production gives each request its own
+                # session, so clear the identity map to match.
+                session.expunge_all()
                 return response
 
             test_client.request = wrapped_request
@@ -1827,12 +2006,27 @@ async def module__clean_client(
     cleanup_database_for_module(postgres_container, dbname)
 
 
+@pytest.fixture
+def isolated_client_template() -> str | None:
+    """
+    Template database for ``isolated_client`` to clone, if any.
+
+    Defaults to none, so ``isolated_client`` builds an empty database and the
+    caller loads what it needs. A module whose tests all want the same data can
+    override this with a template name: creating the schema and loading examples
+    costs seconds per test, cloning a template costs ~90ms, and each test still
+    gets its own database.
+    """
+    return None
+
+
 @pytest_asyncio.fixture
 async def isolated_client(
     request,
     postgres_container: PostgresContainer,
     mocker: MockerFixture,
     background_tasks,
+    isolated_client_template: str | None,
 ) -> AsyncGenerator[AsyncClient, None]:
     """
     Function-scoped client with a CLEAN database (no template, no pre-loaded examples).
@@ -1847,8 +2041,16 @@ async def isolated_client(
 
     # Create a unique database for this test function
     test_name = request.node.name
-    dbname = f"test_isolated_{abs(hash(test_name)) % 10000000}_{id(request)}"
-    db_url = create_database_for_module(postgres_container, dbname)
+    dbname = f"test_isolated_{worker_suffix()}_{abs(hash(test_name)) % 10000000}_{id(request)}"
+    db_url = (
+        clone_database_from_template(
+            postgres_container,
+            template_name=isolated_client_template,
+            target_name=dbname,
+        )
+        if isolated_client_template
+        else create_database_for_module(postgres_container, dbname)
+    )
 
     # Create settings for this clean database
     writer_db = DatabaseConfig(uri=db_url)
@@ -1885,10 +2087,11 @@ async def isolated_client(
         poolclass=NullPool,  # Avoids lock binding issues across event loops
     )
 
-    # Create tables in the clean database
-    async with engine.begin() as conn:
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
-        await conn.run_sync(Base.metadata.create_all)
+    # Create tables in the clean database. A clone already has them.
+    if not isolated_client_template:
+        async with engine.begin() as conn:
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
+            await conn.run_sync(Base.metadata.create_all)
 
     async_session_factory = async_sessionmaker(
         bind=engine,
@@ -1899,14 +2102,16 @@ async def isolated_client(
     async with async_session_factory() as session:
         session.remove = AsyncMock(return_value=None)
 
-        # Initialize the empty database with required seed data
-        from datajunction_server.api.attributes import default_attribute_types
-        from datajunction_server.internal.seed import seed_default_catalogs
+        # Initialize the empty database with required seed data. A clone of a
+        # template already carries it.
+        if not isolated_client_template:
+            from datajunction_server.api.attributes import default_attribute_types
+            from datajunction_server.internal.seed import seed_default_catalogs
 
-        await default_attribute_types(session)
-        await seed_default_catalogs(session)
-        await create_default_user(session)
-        await session.commit()
+            await default_attribute_types(session)
+            await seed_default_catalogs(session)
+            await create_default_user(session)
+            await session.commit()
 
         def get_session_override() -> AsyncSession:
             return session
@@ -2148,6 +2353,16 @@ def template_database(postgres_container: PostgresContainer) -> str:
     Session-scoped fixture that creates a template database with ALL examples.
     This runs ONCE per test session and then each module clones from it.
     """
+    if externally_managed_postgres():
+        # Built once outside pytest; every worker just clones it.
+        require_shared_readonly_role(postgres_container)
+        require_shared_template(
+            postgres_container,
+            TEMPLATE_DB_NAME,
+            f"python tests/helpers/populate_template.py "
+            f"<url-ending-in>/{TEMPLATE_DB_NAME}",
+        )
+        return TEMPLATE_DB_NAME
     template_url = create_database_for_module(postgres_container, TEMPLATE_DB_NAME)
     _populate_template_via_subprocess(template_url)
     return TEMPLATE_DB_NAME
@@ -2164,7 +2379,7 @@ def module__postgres_container(
     Each module gets its own database cloned from the template with all examples.
     """
     path = pathlib.Path(request.module.__file__).resolve()
-    dbname = f"test_mod_{abs(hash(path)) % 10000000}"
+    dbname = f"test_mod_{worker_suffix()}_{abs(hash(path)) % 10000000}"
 
     module_db_url = clone_database_from_template(
         postgres_container,
@@ -2203,24 +2418,43 @@ def module__query_service_client(
         catalog: str,
         schema: str,
         table: str,
-        engine: Optional[Engine] = None,
-        request_headers: Optional[Dict[str, str]] = None,
-    ) -> List[Column]:
+        engine: Engine | None = None,
+        request_headers: dict[str, str] | None = None,
+    ) -> list[Column]:
         return COLUMN_MAPPINGS[f"{catalog}.{schema}.{table}"]
 
     async def mock_get_columns_for_table_async(
         catalog: str,
         schema: str,
         table: str,
-        request_headers: Optional[Dict[str, str]] = None,
-        engine: Optional[Engine] = None,
-    ) -> List[Column]:
+        request_headers: dict[str, str] | None = None,
+        engine: Engine | None = None,
+    ) -> list[Column]:
         return mock_get_columns_for_table(
             catalog,
             schema,
             table,
             engine,
             request_headers,
+        )
+
+    async def mock_get_table_metadata_async(
+        catalog: str,
+        schema: str,
+        table: str,
+        request_headers: dict[str, str] | None = None,
+        engine: Engine | None = None,
+    ) -> TableMetadata:
+        # ``get_columns_for_table`` is resolved at call time so that tests which
+        # patch only the columns call still drive refresh through this method.
+        return TableMetadata(
+            columns=await qs_client.get_columns_for_table(
+                catalog,
+                schema,
+                table,
+                request_headers,
+                engine,
+            ),
         )
 
     module_mocker.patch.object(
@@ -2233,10 +2467,15 @@ def module__query_service_client(
         "get_columns_for_table",
         mock_get_columns_for_table_async,
     )
+    module_mocker.patch.object(
+        qs_client,
+        "get_table_metadata",
+        mock_get_table_metadata_async,
+    )
 
     def mock_submit_query(
         query_create: QueryCreate,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> QueryWithResults:
         # Transpile from Spark to DuckDB before executing
         transpiled_sql = transpile_to_duckdb(query_create.submitted_query)
@@ -2270,7 +2509,7 @@ def module__query_service_client(
 
     async def mock_submit_query_async(
         query_create: QueryCreate,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> QueryWithResults:
         return mock_submit_query(query_create, request_headers)
 
@@ -2288,7 +2527,7 @@ def module__query_service_client(
     def mock_create_view(
         view_name: str,
         query_create: QueryCreate,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> str:
         # Transpile from Spark to DuckDB before executing
         transpiled_sql = transpile_to_duckdb(query_create.submitted_query)
@@ -2298,7 +2537,7 @@ def module__query_service_client(
     async def mock_create_view_async(
         view_name: str,
         query_create: QueryCreate,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> str:
         return mock_create_view(view_name, query_create, request_headers)
 
@@ -2315,7 +2554,7 @@ def module__query_service_client(
 
     def mock_get_query(
         query_id: str,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> Collection[Collection[str]]:
         if query_id == "foo-bar-baz":
             raise DJQueryServiceClientEntityNotFound("Query foo-bar-baz not found.")
@@ -2326,7 +2565,7 @@ def module__query_service_client(
 
     async def mock_get_query_async(
         query_id: str,
-        request_headers: Optional[Dict[str, str]] = None,
+        request_headers: dict[str, str] | None = None,
     ) -> Collection[Collection[str]]:
         return mock_get_query(query_id, request_headers)
 
@@ -2400,7 +2639,7 @@ def module__query_service_client(
 
 @pytest_asyncio.fixture(scope="module")
 async def module__client_with_all_examples(
-    module__client_example_loader: Callable[[Optional[List[str]]], AsyncClient],
+    module__client_example_loader: Callable[[list[str] | None], AsyncClient],
 ) -> AsyncClient:
     """
     Provides a DJ client fixture with all examples
@@ -2450,3 +2689,33 @@ async def clean_current_user(clean_session: AsyncSession) -> User:
     await clean_session.commit()
     await clean_session.refresh(new_user)
     return new_user
+
+
+@pytest_asyncio.fixture
+async def capture_queries(
+    session: AsyncSession,
+) -> AsyncGenerator[list[str], None]:
+    """
+    Returns a list of strings, where each string represents a SQL statement
+    captured during the test.
+    """
+    queries = []
+    sync_engine = session.bind.sync_engine
+
+    def before_cursor_execute(
+        _conn,
+        _cursor,
+        statement,
+        _parameters,
+        _context,
+        _executemany,
+    ):
+        queries.append(statement)
+
+    # Attach event listener to capture queries
+    event.listen(sync_engine, "before_cursor_execute", before_cursor_execute)
+
+    yield queries
+
+    # Detach event listener after the test
+    event.remove(sync_engine, "before_cursor_execute", before_cursor_execute)

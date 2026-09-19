@@ -3,7 +3,7 @@ Models for columns.
 """
 
 from functools import lru_cache
-from typing import Optional, TypedDict
+from typing import TypedDict
 
 from pydantic.main import BaseModel
 from sqlalchemy import TypeDecorator
@@ -97,7 +97,7 @@ class ColumnAttributeInput(BaseModel):
     A column attribute input
     """
 
-    attribute_type_namespace: Optional[str] = "system"
+    attribute_type_namespace: str | None = "system"
     attribute_type_name: str
     column_name: str
 

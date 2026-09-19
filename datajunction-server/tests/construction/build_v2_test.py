@@ -1,7 +1,5 @@
 """Tests for building nodes"""
 
-from typing import List, Tuple
-
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,15 +21,14 @@ from datajunction_server.errors import (
     DJQueryBuildException,
     ErrorCode,
 )
+from datajunction_server.models.cube_materialization import (
+    Aggregability,
+    AggregationRule,
+    MetricComponent,
+)
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
-
-from datajunction_server.models.cube_materialization import (
-    AggregationRule,
-    MetricComponent,
-    Aggregability,
-)
 
 
 async def create_source(
@@ -40,10 +37,10 @@ async def create_source(
     display_name: str,
     schema_: str,
     table: str,
-    columns: List[Column],
+    columns: list[Column],
     current_user: User,
-    query: str = None,
-) -> Tuple[Node, NodeRevision]:
+    query: str | None = None,
+) -> tuple[Node, NodeRevision]:
     """Create source node."""
     source_node = Node(
         name=name,
@@ -76,9 +73,9 @@ async def create_node_with_query(
     display_name: str,
     node_type: NodeType,
     query: str,
-    columns: List[Column],
+    columns: list[Column],
     current_user: User,
-) -> Tuple[Node, NodeRevision]:
+) -> tuple[Node, NodeRevision]:
     """Create node with query."""
     node = Node(
         name=name,

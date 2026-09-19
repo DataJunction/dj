@@ -9,8 +9,8 @@ from httpx import AsyncClient
 
 from datajunction_server.models.dialect import DialectRegistry
 from datajunction_server.transpilation import (
-    SQLTranspilationPlugin,
     SQLGlotTranspilationPlugin,
+    SQLTranspilationPlugin,
 )
 
 

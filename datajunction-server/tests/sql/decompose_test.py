@@ -6,25 +6,29 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.construction.build_v3 import assert_sql_equal
 from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
 from datajunction_server.models.cube_materialization import (
     Aggregability,
     AggregationRule,
     MetricComponent,
 )
+from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql import functions as dj_functions
 from datajunction_server.sql.decompose import (
+    DUPLICATION_INVARIANT_AGGREGATIONS,
     MetricComponentExtractor,
+    get_decomposition,
+    is_duplication_invariant,
+    is_metric_duplication_sensitive,
     safe_denominator,
     wrap_divisions_in_nullif,
 )
 from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.ast import to_sql
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
-from datajunction_server.models.engine import Dialect
-from datajunction_server.sql.parsing.ast import to_sql
+from tests.construction.build_v3 import assert_sql_equal
 
 
 @pytest_asyncio.fixture
@@ -58,7 +62,7 @@ async def create_metric(session: AsyncSession, current_user, parent_node):
     """Fixture to create a metric node with a query."""
     created_metrics: list[NodeRevision] = []
 
-    async def _create(query: str, name: str = None, parent=None):
+    async def _create(query: str, name: str | None = None, parent=None):
         parent_to_use = parent if parent else parent_node
         metric_name = name or f"test_metric_{len(created_metrics)}"
 
@@ -2301,6 +2305,88 @@ class TestFunctionAggregationClassification:
             assert cls.is_aggregation is True, (
                 f"{cls.__name__} is a real aggregation but is_aggregation is False"
             )
+
+
+def test_is_duplication_invariant():
+    """
+    Invariance is a per-call property: DISTINCT wins for any function, otherwise it's
+    derived from the merge (SUM merge inflates, everything else is invariant), stated
+    for MAX_BY/MIN_BY, and assumed False for other non-decomposable aggregations.
+    """
+
+    def invariant(query: str) -> bool:
+        return is_duplication_invariant(next(parse(query).find_all(ast.Function)))
+
+    assert invariant("SELECT COUNT(DISTINCT x) FROM t") is True
+    assert invariant("SELECT MAX(x) FROM t") is True
+    assert invariant("SELECT MIN(x) FROM t") is True
+    assert invariant("SELECT APPROX_COUNT_DISTINCT(x) FROM t") is True
+    assert invariant("SELECT SUM(x) FROM t") is False
+    assert invariant("SELECT COUNT(x) FROM t") is False
+    assert invariant("SELECT AVG(x) FROM t") is False
+    assert invariant("SELECT MAX_BY(x, y) FROM t") is True
+    assert invariant("SELECT MIN_BY(x, y) FROM t") is True
+    assert invariant("SELECT MEDIAN(x) FROM t") is False
+
+    # Non-decomposable but provably duplication-proof: reads a set, unions
+    # idempotently, or ANDs booleans. Without the allowlist these fail closed and
+    # warn on a correct query.
+    assert invariant("SELECT COLLECT_SET(x) FROM t") is True
+    assert invariant("SELECT APPROX_COUNT_DISTINCT_DS_HLL(x) FROM t") is True
+    assert invariant("SELECT APPROX_COUNT_DISTINCT_DS_THETA(x) FROM t") is True
+    assert invariant("SELECT HLL_SKETCH_AGG(x) FROM t") is True
+    assert invariant("SELECT HLL_UNION_AGG(x) FROM t") is True
+    assert invariant("SELECT EVERY(x) FROM t") is True
+    # Pick-one-row: arbitrary which row, but extra copies can't move the answer --
+    # the same verdict ANY_VALUE gets from its ANY_VALUE merge.
+    assert invariant("SELECT ANY_VALUE(x) FROM t") is True
+    assert invariant("SELECT FIRST(x) FROM t") is True
+    assert invariant("SELECT FIRST_VALUE(x) OVER (ORDER BY y) FROM t") is True
+    assert invariant("SELECT LAST_VALUE(x) OVER (ORDER BY y) FROM t") is True
+    # Duplicates change the output, so these stay sensitive.
+    assert invariant("SELECT COLLECT_LIST(x) FROM t") is False
+    assert invariant("SELECT ARRAY_AGG(x) FROM t") is False
+    assert invariant("SELECT COUNT_MIN_SKETCH(x, 0.1, 0.9, 1) FROM t") is False
+    assert invariant("SELECT APPROX_PERCENTILE(x, 0.5) FROM t") is False
+
+
+def test_duplication_invariant_allowlist_is_only_for_non_decomposables():
+    """
+    The allowlist exists to answer for aggregations that have no merge to read. A
+    decomposable function landing on it means its merge is being ignored, so the
+    two sources of truth could disagree.
+    """
+    for func_class in DUPLICATION_INVARIANT_AGGREGATIONS:
+        assert func_class.is_aggregation is True, func_class.__name__
+        assert get_decomposition(func_class) is None, func_class.__name__
+
+
+def test_is_metric_duplication_sensitive():
+    """
+    A metric is sensitive iff some aggregation it applies inflates. The embedded cases
+    are the point: a DISTINCT count beside an immune argmax stays quiet, a sensitive
+    term beside one still fires.
+    """
+
+    def sensitive(query: str) -> bool:
+        return is_metric_duplication_sensitive(parse(query))
+
+    assert sensitive("SELECT SUM(x) FROM t") is True
+    # Non-decomposable holistics all inflate (these are creatable metrics).
+    assert sensitive("SELECT MEDIAN(x) FROM t") is True
+    assert sensitive("SELECT PERCENTILE(x, 0.5) FROM t") is True
+    assert sensitive("SELECT COLLECT_LIST(x) FROM t") is True
+    assert sensitive("SELECT ARRAY_AGG(x) FROM t") is True
+    # The scan keys off is_aggregation, so a mis-tagged aggregate would be skipped
+    # and silently fail open — here the immune MAX would carry the whole verdict.
+    assert sensitive("SELECT MAX(y) + SIZE(ARRAY_AGG(x)) FROM t") is True
+    assert sensitive("SELECT MAX(x) FROM t") is False
+    # Nested non-aggregation (ABS) is skipped, leaving nothing that inflates.
+    assert sensitive("SELECT MAX(ABS(x)) FROM t") is False
+    assert sensitive("SELECT MAX_BY(x, y) FROM t") is False
+    assert sensitive("SELECT COUNT(DISTINCT x) FROM t") is False
+    assert sensitive("SELECT MAX_BY(x, y) / COUNT(DISTINCT y) FROM t") is False
+    assert sensitive("SELECT MEDIAN(x) / COUNT(DISTINCT y) FROM t") is True
 
 
 @pytest.mark.asyncio

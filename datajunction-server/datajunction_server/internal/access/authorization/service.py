@@ -4,26 +4,33 @@ Authorization service implementations for access control.
 
 import logging
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
-from functools import lru_cache
-from typing import List
+from datetime import UTC, datetime
+from functools import cache
+from typing import TYPE_CHECKING, ClassVar
+
+if TYPE_CHECKING:
+    from datajunction_server.database.rbac import RoleScope
 
 
+from datajunction_server.internal.access.authorization.context import (
+    AuthContext,
+)
 from datajunction_server.models.access import (
     AccessDecision,
     ResourceAction,
     ResourceRequest,
     ResourceType,
+    RestrictiveScopeRule,
+    parse_restrictive_scope_rule,
 )
-from datajunction_server.internal.access.authorization.context import (
-    AuthContext,
-)
+from datajunction_server.naming import parse_scope_pattern
 from datajunction_server.utils import (
     SEPARATOR,
     get_settings,
 )
 
 logger = logging.getLogger(__name__)
+audit_logger = logging.getLogger("datajunction.audit.rbac")
 
 settings = get_settings()
 
@@ -64,6 +71,21 @@ class AuthorizationService(ABC):
             The same list of requests with approved=True/False set on each
         """
 
+    def authorize_explicit_grants(
+        self,
+        auth_context: AuthContext,
+        requests: list[ResourceRequest],
+    ) -> list[AccessDecision]:
+        """Deny control-plane access until a provider explicitly supports it."""
+        return [
+            AccessDecision(
+                request=request,
+                approved=False,
+                reason="explicit_grant_provider_required",
+            )
+            for request in requests
+        ]
+
 
 class RBACAuthorizationService(AuthorizationService):
     """
@@ -83,7 +105,7 @@ class RBACAuthorizationService(AuthorizationService):
 
     name = "rbac"
 
-    PERMISSION_HIERARCHY = {
+    PERMISSION_HIERARCHY: ClassVar[dict[ResourceAction, set[ResourceAction]]] = {
         ResourceAction.MANAGE: {
             ResourceAction.MANAGE,
             ResourceAction.DELETE,
@@ -124,41 +146,154 @@ class RBACAuthorizationService(AuthorizationService):
         Returns:
             Same list of requests with approved=True/False set
         """
-        # Break-glass: admins bypass all RBAC checks. Kept as a single explicit
-        # check (and logged for audit) so the bypass is easy to find and, if
-        # ever needed, to scope down to "admin bypasses grants but still
-        # respects X".
         if auth_context.is_admin:
-            logger.info(
-                "Admin access bypass: user=%s (id=%s) approved %d request(s): %s",
+            logged_requests = requests[:20]
+            audit_logger.warning(
+                "event=rbac_admin_bypass reason=admin_bypass actor=%s actor_id=%s "
+                "request_count=%d requests=%s truncated=%s",
                 auth_context.username,
                 auth_context.user_id,
                 len(requests),
-                ", ".join(str(request) for request in requests),
+                ",".join(str(request) for request in logged_requests),
+                len(requests) > len(logged_requests),
             )
             return [
-                AccessDecision(request=request, approved=True, reason="admin")
+                AccessDecision(
+                    request=request,
+                    approved=True,
+                    reason="admin_bypass",
+                )
                 for request in requests
             ]
-        return [self._make_decision(auth_context, request) for request in requests]
+        explicit_scopes = self.explicit_scopes(auth_context)
+        restrictive_rules = self.restrictive_rules()
+        return [
+            self._make_decision(
+                request,
+                explicit_scopes,
+                auth_context.default_scopes,
+                restrictive_rules,
+            )
+            for request in requests
+        ]
+
+    @classmethod
+    def explicit_scopes(cls, auth_context: AuthContext) -> list["RoleScope"]:
+        """Collect non-expired principal and group scopes."""
+        scopes: list[RoleScope] = []
+        now = datetime.now(UTC)
+        for assignment in auth_context.role_assignments:
+            if assignment.expires_at and assignment.expires_at < now:
+                continue
+            scopes.extend(assignment.role.scopes)
+        return scopes
+
+    @classmethod
+    def candidate_scopes(cls, auth_context: AuthContext) -> list["RoleScope"]:
+        """Collect explicit and default-role scopes."""
+        return [*cls.explicit_scopes(auth_context), *auth_context.default_scopes]
+
+    def authorize_explicit_grants(
+        self,
+        auth_context: AuthContext,
+        requests: list[ResourceRequest],
+    ) -> list[AccessDecision]:
+        """Authorize from assigned roles without policy fallback."""
+        if auth_context.is_admin:
+            return self.authorize(auth_context, requests)
+        return [
+            self._make_explicit_grant_decision(auth_context, request)
+            for request in requests
+        ]
 
     def _make_decision(
+        self,
+        request: ResourceRequest,
+        explicit_scopes: list["RoleScope"],
+        default_scopes: list["RoleScope"],
+        restrictive_rules: list[RestrictiveScopeRule],
+    ) -> AccessDecision:
+        """
+        Convert ResourceRequest to AccessDecision.
+
+        Explicit grants are considered first. Restrictive policy then blocks
+        fallback access before the default-access role and default policy.
+        """
+        if self._matching_scope(explicit_scopes, request):
+            return AccessDecision(
+                request=request,
+                approved=True,
+                reason="explicit_grant",
+            )
+        restrictive_rule = self._matching_restrictive_rule(
+            request,
+            restrictive_rules,
+        )
+        if restrictive_rule:
+            return AccessDecision(
+                request=request,
+                approved=False,
+                reason=f"restrictive_scope:{restrictive_rule}",
+            )
+        if self._matching_scope(default_scopes, request):
+            return AccessDecision(
+                request=request,
+                approved=True,
+                reason="default_access_role",
+            )
+        approved = settings.default_access_policy == "permissive"
+        return AccessDecision(
+            request=request,
+            approved=approved,
+            reason=f"default_access_policy_{settings.default_access_policy}",
+        )
+
+    @classmethod
+    def _matching_scope(
+        cls,
+        scopes: list["RoleScope"],
+        request: ResourceRequest,
+    ) -> "RoleScope | None":
+        """Return the first role scope that grants a request."""
+        return next(
+            (
+                scope
+                for scope in scopes
+                if cls._scope_grants_permission(
+                    scope,
+                    request.verb,
+                    request.access_object.resource_type,
+                    request.access_object.name,
+                )
+            ),
+            None,
+        )
+
+    def _make_explicit_grant_decision(
         self,
         auth_context: AuthContext,
         request: ResourceRequest,
     ) -> AccessDecision:
-        """
-        Convert ResourceRequest to AccessDecision.
-        """
-        has_grant = self.has_permission(
-            assignments=auth_context.role_assignments,
-            action=request.verb,
-            resource_type=request.access_object.resource_type,
-            resource_name=request.access_object.name,
+        """Resolve a request from assigned roles only."""
+        has_grant = (
+            self.has_scope_permission(
+                assignments=auth_context.role_assignments,
+                action=request.verb,
+                scope_type=request.access_object.resource_type,
+                scope_value=request.access_object.name,
+            )
+            if request.scope_target
+            else self.has_permission(
+                assignments=auth_context.role_assignments,
+                action=request.verb,
+                resource_type=request.access_object.resource_type,
+                resource_name=request.access_object.name,
+            )
         )
         return AccessDecision(
             request=request,
-            approved=(has_grant or settings.default_access_policy == "permissive"),
+            approved=has_grant,
+            reason="explicit_grant" if has_grant else "explicit_grant_required",
         )
 
     @classmethod
@@ -172,28 +307,31 @@ class RBACAuthorizationService(AuthorizationService):
         resource_matches_pattern("marketing.revenue", "finance.*") --> False
         resource_matches_pattern("anything", "*") --> True
         resource_matches_pattern("finance", "finance.*") --> False
+        resource_matches_pattern("anything", ".*") --> False (outside the grammar)
+
+        Parsing is shared with scope input validation, so a scope means the same
+        thing when it is written and when it is evaluated. A value outside the
+        grammar grants nothing: evaluation used to strip stars and read ``.*`` or
+        ``**`` as a global match, so a row predating that validation, or written
+        outside the API, could silently grant everything.
         """
-        if pattern == "*":
-            return True  # Match everything
+        parsed = parse_scope_pattern(pattern)
+        if parsed is None:
+            return False
 
-        if "*" not in pattern:
-            return resource_name == pattern  # Exact match
-
-        # Wildcard pattern: finance.* matches finance.revenue and finance.quarterly.revenue
-        # But NOT just "finance" (must have something after the dot)
-        pattern_prefix = pattern.rstrip("*").rstrip(SEPARATOR)
-
-        if not pattern_prefix:
-            return True  # Pattern was just "*"
-
-        # Resource must start with pattern_prefix followed by a dot
-        # (not an exact match to pattern_prefix, that would be handled by exact pattern)
-        return resource_name.startswith(pattern_prefix + SEPARATOR)
+        kind, prefix = parsed
+        if kind == "global":
+            return True
+        if kind == "exact":
+            return resource_name == prefix
+        # Subtree: finance.* covers finance.revenue and finance.quarterly.revenue,
+        # but not finance itself.
+        return resource_name.startswith(prefix + SEPARATOR)
 
     @classmethod
     def has_permission(
         cls,
-        assignments: List,
+        assignments: list,
         action: ResourceAction,
         resource_type: ResourceType,
         resource_name: str,
@@ -218,7 +356,7 @@ class RBACAuthorizationService(AuthorizationService):
         for assignment in assignments:
             # Skip expired assignments
             if assignment.expires_at and assignment.expires_at < datetime.now(
-                timezone.utc,
+                UTC,
             ):
                 continue
 
@@ -236,6 +374,68 @@ class RBACAuthorizationService(AuthorizationService):
         return False
 
     @classmethod
+    def has_scope_permission(
+        cls,
+        assignments: list,
+        action: ResourceAction,
+        scope_type: ResourceType,
+        scope_value: str,
+    ) -> bool:
+        """Return whether an assigned scope contains the requested scope."""
+        for assignment in assignments:
+            if assignment.expires_at and assignment.expires_at < datetime.now(
+                UTC,
+            ):
+                continue
+            for granted_scope in assignment.role.scopes:
+                granted_actions = cls.PERMISSION_HIERARCHY.get(
+                    granted_scope.action,
+                    {granted_scope.action},
+                )
+                if action in granted_actions and cls.scope_contains_scope(
+                    granted_scope.scope_type,
+                    granted_scope.scope_value,
+                    scope_type,
+                    scope_value,
+                ):
+                    return True
+        return False
+
+    @classmethod
+    def scope_contains_scope(
+        cls,
+        granted_type: ResourceType,
+        granted_value: str,
+        delegated_type: ResourceType,
+        delegated_value: str,
+    ) -> bool:
+        """Return whether one supported scope pattern contains another."""
+        granted_pattern = parse_scope_pattern(granted_value)
+        delegated_pattern = parse_scope_pattern(delegated_value)
+        if granted_pattern is None or delegated_pattern is None:
+            return False
+
+        if granted_type != delegated_type and not (
+            granted_type == ResourceType.NAMESPACE
+            and delegated_type == ResourceType.NODE
+        ):
+            return False
+
+        granted_kind, granted_prefix = granted_pattern
+        delegated_kind, delegated_prefix = delegated_pattern
+        if granted_kind == "global":
+            return True
+        if delegated_kind == "global":
+            return False
+        if granted_kind == "exact":
+            return delegated_kind == "exact" and granted_prefix == delegated_prefix
+        if delegated_kind == "exact":
+            return delegated_prefix.startswith(granted_prefix + SEPARATOR)
+        return delegated_prefix == granted_prefix or delegated_prefix.startswith(
+            granted_prefix + SEPARATOR,
+        )
+
+    @classmethod
     def _scope_grants_permission(
         cls,
         scope,
@@ -248,34 +448,70 @@ class RBACAuthorizationService(AuthorizationService):
 
         Handles:
         1. Permission hierarchy (MANAGE > DELETE > WRITE > READ, EXECUTE > READ)
-        2. Empty/None scope_value or "*" = global access
+        2. "*" scope_value = global access, within the scope's own resource type
         3. Wildcard pattern matching (finance.*)
         4. Cross-resource-type: namespace scope covers nodes in that namespace
+
+        Values outside the supported grammar, blanks included, grant nothing.
         """
         # Check permission hierarchy: does scope.action grant the requested action?
         granted_actions = cls.PERMISSION_HIERARCHY.get(scope.action, {scope.action})
         if action not in granted_actions:
             return False
 
-        # Handle global access (empty string, None, or "*" scope_value)
-        if not scope.scope_value or scope.scope_value == "" or scope.scope_value == "*":
-            # Global scope matches any resource of the same type
-            return scope.scope_type == resource_type
+        return cls._resource_in_scope(
+            scope.scope_type,
+            scope.scope_value,
+            resource_type,
+            resource_name,
+        )
 
-        # Same resource type - use pattern matching
-        if scope.scope_type == resource_type:
-            return cls.resource_matches_pattern(resource_name, scope.scope_value)
-
-        # Cross-resource-type: namespace scope can cover nodes
-        if (
-            scope.scope_type == ResourceType.NAMESPACE
-            and resource_type == ResourceType.NODE
-        ):
-            # Check if node name matches the namespace pattern
-            return cls.resource_matches_pattern(resource_name, scope.scope_value)
-
-        # No match
+    @classmethod
+    def _resource_in_scope(
+        cls,
+        scope_type: ResourceType,
+        scope_value: str,
+        resource_type: ResourceType,
+        resource_name: str,
+    ) -> bool:
+        """Return whether a resource falls under a supported scope pattern."""
+        if scope_value == "*":
+            return scope_type == resource_type
+        if scope_type == resource_type:
+            return cls.resource_matches_pattern(resource_name, scope_value)
+        if scope_type == ResourceType.NAMESPACE and resource_type == ResourceType.NODE:
+            return cls.resource_matches_pattern(resource_name, scope_value)
         return False
+
+    @classmethod
+    def restrictive_rules(cls) -> list[RestrictiveScopeRule]:
+        """Parse configured restrictive policy rules."""
+        return [
+            parse_restrictive_scope_rule(value)
+            for value in getattr(settings, "restrictive_scopes", []) or []
+        ]
+
+    @classmethod
+    def _matching_restrictive_rule(
+        cls,
+        request: ResourceRequest,
+        rules: list[RestrictiveScopeRule],
+    ) -> RestrictiveScopeRule | None:
+        """Return the first exact-action restrictive rule covering a request."""
+        return next(
+            (
+                rule
+                for rule in rules
+                if rule.action == request.verb
+                and cls._resource_in_scope(
+                    rule.scope_type,
+                    rule.scope_value,
+                    request.access_object.resource_type,
+                    request.access_object.name,
+                )
+            ),
+            None,
+        )
 
 
 class PassthroughAuthorizationService(AuthorizationService):
@@ -293,8 +529,16 @@ class PassthroughAuthorizationService(AuthorizationService):
         """Approve all requests without checks (sync)."""
         return [AccessDecision(request=request, approved=True) for request in requests]
 
+    def authorize_explicit_grants(
+        self,
+        auth_context: AuthContext,
+        requests: list[ResourceRequest],
+    ) -> list[AccessDecision]:
+        """Approve control-plane checks when authorization is disabled."""
+        return self.authorize(auth_context, requests)
 
-@lru_cache(maxsize=None)
+
+@cache
 def get_authorization_service() -> AuthorizationService:
     """
     Factory function to get the configured authorization service.

@@ -5,7 +5,7 @@ Tests for custom antlr4 parser
 
 import pytest
 
-from datajunction_server.sql.parsing.backends.antlr4 import parse, ast
+from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 
 

@@ -2,10 +2,8 @@
 Models for collections
 """
 
-from typing import Optional
-
-from pydantic.main import BaseModel
 from pydantic import ConfigDict
+from pydantic.main import BaseModel
 
 from datajunction_server.models.node import NodeNameOutput
 
@@ -15,7 +13,7 @@ class CollectionInfo(BaseModel):
     Class for a collection information
     """
 
-    id: Optional[int] = None
+    id: int | None = None
     name: str
     description: str
 
@@ -27,7 +25,7 @@ class CollectionDetails(CollectionInfo):
     Collection information with details
     """
 
-    id: Optional[int] = None
+    id: int | None = None
     name: str
     description: str
     nodes: list[NodeNameOutput]

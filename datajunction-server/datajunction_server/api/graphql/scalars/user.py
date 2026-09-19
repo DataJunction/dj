@@ -3,7 +3,6 @@ User related scalars
 """
 
 from enum import Enum
-from typing import Optional
 
 import strawberry
 
@@ -29,7 +28,7 @@ class User:
 
     id: BigInt
     username: str
-    email: Optional[str]
-    name: Optional[str]
+    email: str | None
+    name: str | None
     oauth_provider: OAuthProvider
     is_admin: bool

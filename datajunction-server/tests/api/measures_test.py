@@ -2,13 +2,11 @@
 Tests for the namespaces API.
 """
 
-from typing import Dict
-
 import pytest
 from httpx import AsyncClient
 
 
-def completed_repairs_measure(measure_name: str = "completed_repairs") -> Dict:
+def completed_repairs_measure(measure_name: str = "completed_repairs") -> dict:
     """
     Test ``GET /measures/``.
     """
@@ -25,7 +23,7 @@ def completed_repairs_measure(measure_name: str = "completed_repairs") -> Dict:
 
 
 @pytest.fixture
-def failed_measure() -> Dict:
+def failed_measure() -> dict:
     """
     Measure that will fail due to one of the columns not existing
     """
@@ -100,7 +98,7 @@ async def test_list_all_measures(
 @pytest.mark.asyncio
 async def test_create_measure(
     module__client_with_roads: AsyncClient,
-    failed_measure: Dict,
+    failed_measure: dict,
 ) -> None:
     """
     Test ``POST /measures/``.

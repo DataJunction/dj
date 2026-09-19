@@ -5,8 +5,6 @@ Estimates the amount of data that will be scanned when executing a query
 by reading table size metadata from already-loaded AvailabilityState records.
 """
 
-from typing import Optional
-
 from datajunction_server.construction.build_v3.types import BuildContext
 from datajunction_server.models.sql import ScanEstimate, SourceScanInfo
 
@@ -14,7 +12,7 @@ from datajunction_server.models.sql import ScanEstimate, SourceScanInfo
 def calculate_scan_estimate(
     physical_tables: list[str],
     ctx: BuildContext,
-) -> Optional[ScanEstimate]:
+) -> ScanEstimate | None:
     """
     Calculate scan estimate for a single grain group.
 

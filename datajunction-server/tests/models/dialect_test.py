@@ -1,16 +1,17 @@
 from unittest import mock
+
 import pytest
+
 from datajunction_server.models.dialect import (
     Dialect,
     DialectRegistry,
+    dialect_plugin,
     register_dialect_plugin,
 )
-from datajunction_server.models.dialect import dialect_plugin
+from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.transpilation import (
     SQLTranspilationPlugin,
 )
-from datajunction_server.models.dialect import Dialect, DialectRegistry, dialect_plugin
-from datajunction_server.models.metric import TranslatedSQL
 
 
 @dialect_plugin("custom123")

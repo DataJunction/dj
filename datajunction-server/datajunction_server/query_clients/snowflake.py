@@ -1,8 +1,10 @@
 """Snowflake query client using direct snowflake-connector-python."""
 
+from __future__ import annotations
+
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
 from datajunction_server.database.column import Column
 from datajunction_server.errors import (
@@ -17,8 +19,8 @@ if TYPE_CHECKING:
 
 try:  # pragma: no cover
     import snowflake.connector
-    from snowflake.connector import DictCursor
     from snowflake.connector import DatabaseError as SnowflakeDatabaseError
+    from snowflake.connector import DictCursor
 
     SNOWFLAKE_AVAILABLE = True
 except ImportError:  # pragma: no cover
@@ -42,13 +44,13 @@ class SnowflakeClient(BaseQueryServiceClient):
         self,
         account: str,
         user: str,
-        password: Optional[str] = None,
+        password: str | None = None,
         warehouse: str = "COMPUTE_WH",
         database: str = "SNOWFLAKE",
         schema: str = "PUBLIC",
-        role: Optional[str] = None,
+        role: str | None = None,
         authenticator: str = "snowflake",
-        private_key_path: Optional[str] = None,
+        private_key_path: str | None = None,
         **connection_kwargs,
     ):
         """
@@ -73,7 +75,7 @@ class SnowflakeClient(BaseQueryServiceClient):
                 "or pip install snowflake-connector-python",
             )
 
-        self.connection_params: Dict[str, Any] = {
+        self.connection_params: dict[str, Any] = {
             "account": account,
             "user": user,
             "warehouse": warehouse,
@@ -131,7 +133,7 @@ class SnowflakeClient(BaseQueryServiceClient):
                 from urllib.parse import parse_qs
 
                 query_params = parse_qs(parsed.query)
-                if "database" in query_params and query_params["database"]:
+                if query_params.get("database"):
                     return query_params["database"][0]
 
         except Exception as e:  # pragma: no cover
@@ -148,9 +150,9 @@ class SnowflakeClient(BaseQueryServiceClient):
         catalog: str,
         schema: str,
         table: str,
-        request_headers: Optional[Dict[str, str]] = None,
-        engine: Optional["Engine"] = None,
-    ) -> List[Column]:
+        request_headers: dict[str, str] | None = None,
+        engine: Engine | None = None,
+    ) -> list[Column]:
         """
         Retrieves columns for a table from Snowflake information schema.
 
@@ -158,7 +160,7 @@ class SnowflakeClient(BaseQueryServiceClient):
         in a threadpool to avoid blocking the event loop.
         """
 
-        def _fetch() -> List[Column]:
+        def _fetch() -> list[Column]:
             try:
                 conn = self._get_connection()
 
@@ -226,13 +228,13 @@ class SnowflakeClient(BaseQueryServiceClient):
                             f"(DJ catalog: {catalog})",
                         )
                     raise DJQueryServiceClientException(
-                        message=f"Error retrieving columns from Snowflake: {str(e)}",
+                        message=f"Error retrieving columns from Snowflake: {e!s}",
                     )
                 _logger.exception(
                     "Unexpected error in get_columns_for_table",
                 )  # pragma: no cover
                 raise DJQueryServiceClientException(
-                    message=f"Unexpected error retrieving columns: {str(e)}",
+                    message=f"Unexpected error retrieving columns: {e!s}",
                 )
             finally:  # pragma: no cover
                 if "conn" in locals():
@@ -259,8 +261,8 @@ class SnowflakeClient(BaseQueryServiceClient):
             FloatType,
             IntegerType,
             StringType,
-            TimeType,
             TimestampType,
+            TimeType,
         )
 
         snowflake_type = snowflake_type.upper()
@@ -338,5 +340,5 @@ class SnowflakeClient(BaseQueryServiceClient):
             conn.close()
             return True
         except Exception as e:  # pragma: no cover
-            _logger.error(f"Snowflake connection test failed: {str(e)}")
+            _logger.error(f"Snowflake connection test failed: {e!s}")
             return False

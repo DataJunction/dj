@@ -471,7 +471,24 @@ Both components are bundled with the Python client and can be installed with a s
 
 ### Installation
 
-To install the DataJunction skill and configure Claude Code integration:
+#### As a Claude Code plugin
+
+If you use Claude Code, install the DJ plugin — it bundles the skills, the MCP
+server config, and the DJ subagent, and Claude Code manages it for you:
+
+```
+/plugin marketplace add DataJunction/dj
+/plugin install datajunction@datajunction
+```
+
+The MCP tools run through the `dj-mcp` command from this package, so also
+`pip install datajunction[mcp]` and set `DJ_API_URL` to point at your instance
+if you want Claude to query live data.
+
+#### With the DJ CLI
+
+To copy the skills into your home directory and configure Claude Code (also the
+path for Claude Desktop):
 
 ```bash
 dj setup-claude

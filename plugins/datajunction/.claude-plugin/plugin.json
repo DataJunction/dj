@@ -1,0 +1,12 @@
+{
+  "name": "datajunction",
+  "version": "0.1.0",
+  "description": "DataJunction semantic layer skills, MCP server, and agent for Claude Code",
+  "homepage": "https://github.com/DataJunction/dj",
+  "repository": "https://github.com/DataJunction/dj",
+  "license": "Apache-2.0",
+  "keywords": ["datajunction", "dj", "semantic-layer", "metrics", "claude-code"],
+  "skills": "./skills/",
+  "agents": ["./agents/dj.md"],
+  "mcpServers": "./.mcp.json"
+}

@@ -2,8 +2,6 @@
 Roads database examples loaded into DJ test session
 """
 
-from typing import Dict, Union
-
 from datajunction_server.database.column import Column
 from datajunction_server.errors import DJException, DJQueryServiceClientException
 from datajunction_server.models.query import (
@@ -1171,7 +1169,7 @@ COLUMN_MAPPINGS = {
     ],
 }
 
-QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
+QUERY_DATA_MAPPINGS: dict[str, DJException | QueryWithResults] = {
     "WITHdefault_DOT_repair_order_detailsAS(SELECTdefault_DOT_repair_order_details."
     "repair_order_id,\tdefault_DOT_repair_order_details.repair_type_id,\tdefault_DOT"
     "_repair_order_details.price,\tdefault_DOT_repair_order_details.quantity,\tdefault"

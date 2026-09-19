@@ -2,11 +2,7 @@
 name: datajunction
 description: |
   Activate this skill whenever working with DataJunction (DJ) semantic layer.
-  Core concepts and shared vocabulary used by every DJ workflow. For
-  querying metrics, invoke `datajunction-query`. For modeling decisions
-  (what shape something should take), invoke `datajunction-semantic-model`.
-  For authoring nodes, invoke `datajunction-repo` (YAML in a git repo) or
-  `datajunction-api` (REST API for exploration / prototyping).
+  Core concepts and shared vocabulary used by every DJ workflow.
   Keywords:
   - DataJunction, DJ
   - semantic layer
@@ -14,7 +10,6 @@ description: |
   - star schema
   - node types
   - source, transform, dimension, metric, cube
-  - metric, metrics
   - mode, status, valid, invalid, draft, published
   - namespace
 user-invocable: false

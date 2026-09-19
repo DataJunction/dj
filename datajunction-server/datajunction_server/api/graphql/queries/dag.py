@@ -5,20 +5,20 @@ DAG-related queries.
 from typing import Annotated
 
 import strawberry
+from sqlalchemy.orm import joinedload
 from strawberry.types import Info
 
-from datajunction_server.database.node import Node
 from datajunction_server.api.graphql.resolvers.nodes import load_node_options
 from datajunction_server.api.graphql.scalars.node import DimensionAttribute
 from datajunction_server.api.graphql.utils import extract_fields, resolver_session
+from datajunction_server.database.node import Node
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.dag import (
     get_common_dimensions,
     get_downstream_nodes,
     get_upstream_nodes,
 )
-from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import SEPARATOR
-from sqlalchemy.orm import joinedload
 
 
 async def common_dimensions(

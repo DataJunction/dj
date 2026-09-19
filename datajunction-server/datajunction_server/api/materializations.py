@@ -3,29 +3,37 @@ Node materialization related APIs.
 """
 
 import logging
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from http import HTTPStatus
-from typing import Annotated, Callable, List
+from typing import Annotated
 
 from fastapi import Depends, Request
-from pydantic import Discriminator
 from fastapi.responses import JSONResponse
+from pydantic import Discriminator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm import joinedload, noload, selectinload
 
-from datajunction_server.api.helpers import get_save_history, get_materialization_info
+from datajunction_server.api.helpers import (
+    get_materialization_info,
+    get_save_history,
+    resolve_column,
+)
 from datajunction_server.database import Node, NodeRevision
 from datajunction_server.database.backfill import Backfill
 from datajunction_server.database.column import Column, ColumnAttribute
+from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.history import History
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJDoesNotExistException, DJInvalidInputException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
+    AccessDenialMode,
     get_access_checker,
 )
+from datajunction_server.models.access import ResourceAction
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.materializations import (
     create_new_materialization,
@@ -34,7 +42,6 @@ from datajunction_server.internal.materializations import (
 from datajunction_server.materialization.jobs import MaterializationJob
 from datajunction_server.models.base import labelize
 from datajunction_server.models.cube_materialization import UpsertCubeMaterialization
-from datajunction_server.models.node import AvailabilityStateInfo
 from datajunction_server.models.materialization import (
     MaterializationConfigInfoUnified,
     MaterializationInfo,
@@ -42,6 +49,7 @@ from datajunction_server.models.materialization import (
     MaterializationStrategy,
     UpsertMaterialization,
 )
+from datajunction_server.models.node import AvailabilityStateInfo
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionBackfill
 from datajunction_server.naming import amenable_name
@@ -105,6 +113,12 @@ async def upsert_materialization(
     Add or update a materialization of the specified node. If a node_name is specified
     for the materialization config, it will always update that named config.
     """
+    # Materializing a node is a write on that node, same as deactivate/backfill below.
+    # The cube path also runs READ checks while building its config, but those cover
+    # the cube's metrics and dimensions, not the node being materialized.
+    access_checker.add_request_by_node_name(node_name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
     request_headers = dict(request.headers)
     node = await Node.get_by_name(session, node_name, raise_if_not_exists=True)
     if node.type == NodeType.SOURCE:  # type: ignore
@@ -279,7 +293,7 @@ async def upsert_materialization(
 
 @router.get(
     "/nodes/{node_name}/materializations/",
-    response_model=List[MaterializationConfigInfoUnified],
+    response_model=list[MaterializationConfigInfoUnified],
     name="List Materializations for a Node",
 )
 async def list_node_materializations(
@@ -290,7 +304,7 @@ async def list_node_materializations(
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
-) -> List[MaterializationConfigInfoUnified]:
+) -> list[MaterializationConfigInfoUnified]:
     """
     Show all materializations configured for the node, with any associated metadata
     like urls from the materialization service, if available.
@@ -306,7 +320,12 @@ async def list_node_materializations(
         session,
         node_name,
         options=[
-            joinedload(Node.revisions).options(*NodeRevision.default_load_options()),
+            joinedload(Node.revisions).options(
+                selectinload(NodeRevision.materializations).selectinload(
+                    Materialization.backfills,
+                ),
+                noload(NodeRevision.created_by),
+            ),
         ]
         if include_all_revisions
         else [],
@@ -337,6 +356,7 @@ async def deactivate_node_materializations(
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> JSONResponse:
     """
     Deactivate the node materialization with the provided name.
@@ -345,6 +365,8 @@ async def deactivate_node_materializations(
     If node_version not provided, it will deactivate the materialization
     for the current version of the node.
     """
+    access_checker.add_request_by_node_name(node_name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
     request_headers = dict(request.headers)
 
     # find the node revision to deactivate the materialization for
@@ -352,7 +374,10 @@ async def deactivate_node_materializations(
     if node_version:
         stmt = (
             select(NodeRevision)
-            .options(*NodeRevision.default_load_options())
+            .options(
+                selectinload(NodeRevision.materializations),
+                noload(NodeRevision.created_by),
+            )
             .where(NodeRevision.name == node_name, NodeRevision.version == node_version)
         )
         result = await session.execute(stmt)
@@ -362,7 +387,18 @@ async def deactivate_node_materializations(
                 f"Node revision with version '{node_version}' not found for node {node_name} .",
             )
     else:
-        node = await Node.get_by_name(session, node_name)
+        node = await Node.get_by_name(
+            session,
+            node_name,
+            options=[
+                noload(Node.created_by),
+                noload(Node.tags),
+                joinedload(Node.current).options(
+                    selectinload(NodeRevision.materializations),
+                    noload(NodeRevision.created_by),
+                ),
+            ],
+        )
         node_revision = node.current  # type: ignore
 
     # find the materialization to deactivate
@@ -391,7 +427,7 @@ async def deactivate_node_materializations(
         node_version=node_revision.version,  # type: ignore
         request_headers=request_headers,
     )
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     materialization_to_deactivate.deactivated_at = UTCDatetime(
         year=now.year,
         month=now.month,
@@ -433,17 +469,20 @@ async def deactivate_node_materializations(
 async def run_materialization_backfill(
     node_name: str,
     materialization_name: str,
-    backfill_partitions: List[PartitionBackfill],
+    backfill_partitions: list[PartitionBackfill],
     *,
     session: AsyncSession = Depends(get_session),
     request: Request,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: User = Depends(get_current_user),
     save_history: Callable = Depends(get_save_history),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> MaterializationInfo:
     """
     Start a backfill for a configured materialization.
     """
+    access_checker.add_request_by_node_name(node_name, ResourceAction.WRITE)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
     request_headers = dict(request.headers)
     node = await Node.get_by_name(
         session,
@@ -473,20 +512,23 @@ async def run_materialization_backfill(
         )
 
     materialization = materializations[0]
-    temporal_partitions = {
-        col.name: col for col in node_revision.temporal_partition_columns()
-    }
-    categorical_partitions = {
-        col.name: col for col in node_revision.categorical_partition_columns()
-    }
+    partition_columns = (
+        node_revision.temporal_partition_columns()
+        + node_revision.categorical_partition_columns()
+    )
     for backfill_spec in backfill_partitions:
-        if backfill_spec.column_name not in set(temporal_partitions).union(
-            set(categorical_partitions),
-        ):
-            raise DJDoesNotExistException(  # pragma: no cover
-                f"Partition with name {backfill_spec.column_name} does not exist on node",
-            )
-        backfill_spec.column_name = amenable_name(backfill_spec.column_name)
+        partition_column = resolve_column(
+            partition_columns,
+            backfill_spec.column_name,
+            node_revision.name,
+            node_revision.type,
+        )
+        partition_name = (
+            partition_column.cube_element_name
+            if node_revision.type == NodeType.CUBE
+            else partition_column.name
+        )
+        backfill_spec.column_name = amenable_name(partition_name)
     materialization_jobs = {
         cls.__name__: cls for cls in MaterializationJob.__subclasses__()
     }
@@ -534,7 +576,7 @@ async def run_materialization_backfill(
 
 @router.get(
     "/nodes/{node_name}/availability/",
-    response_model=List[AvailabilityStateInfo],
+    response_model=list[AvailabilityStateInfo],
     status_code=200,
     name="List All Availability States for a Node",
 )
@@ -542,7 +584,7 @@ async def list_node_availability_states(
     node_name: str,
     *,
     session: AsyncSession = Depends(get_session),
-) -> List[AvailabilityStateInfo]:
+) -> list[AvailabilityStateInfo]:
     """
     Retrieve all availability states for a given node across all revisions.
     """

@@ -2,14 +2,15 @@
 Helper methods for namespaces endpoints.
 """
 
-from collections import defaultdict
 import logging
 import os
 import re
 import textwrap
-from datetime import datetime, timezone
+from collections import defaultdict
+from collections.abc import Callable, Sequence
+from datetime import UTC, datetime
 from io import StringIO
-from typing import Callable, Dict, List, Optional, Tuple, cast
+from typing import cast
 
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import Comment, CommentedMap, CommentedSeq
@@ -24,19 +25,30 @@ from datajunction_server.database.deployment import Deployment
 from datajunction_server.database.history import History
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import Column, Node, NodeRevision
-from datajunction_server.database.user import User
+from datajunction_server.database.rbac import Role, RoleAssignment, RoleScope
+from datajunction_server.database.user import PrincipalKind, User
 from datajunction_server.errors import (
     DJActionNotAllowedException,
+    DJAlreadyExistsException,
     DJDoesNotExistException,
     DJInvalidInputException,
 )
 from datajunction_server.internal.history import ActivityType, EntityType
+from datajunction_server.internal.materializations import (
+    collect_materialization_teardowns,
+    stop_materialization_workflows,
+)
+from datajunction_server.internal.namespace_locks import (
+    lock_namespace_boundary_lifecycle,
+)
 from datajunction_server.internal.nodes import get_single_cube_revision_metadata
+from datajunction_server.models.access import ResourceAction, ResourceType
 from datajunction_server.models.deployment import (
     CubeSpec,
     DeploymentSourceType,
     GitDeploymentSource,
     LocalDeploymentSource,
+    MetricSpec,
     NamespaceSourcesResponse,
     NodeSpec,
 )
@@ -46,9 +58,13 @@ from datajunction_server.models.namespace import (
     HardDeleteResponse,
     ImpactedNode,
     ImpactedNodes,
+    NamespaceProvisionResponse,
+    NamespaceWriteResult,
+    NamespaceWriteStatus,
 )
 from datajunction_server.models.node import NodeMinimumDetail
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import topological_sort
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import SEPARATOR
@@ -65,9 +81,9 @@ RESERVED_NAMESPACE_NAMES = [
 async def get_nodes_in_namespace(
     session: AsyncSession,
     namespace: str,
-    node_type: NodeType = None,
+    node_type: NodeType | None = None,
     include_deactivated: bool = False,
-) -> List[NodeMinimumDetail]:
+) -> list[NodeMinimumDetail]:
     """
     Gets a list of node names in the namespace
     """
@@ -82,8 +98,8 @@ async def get_nodes_in_namespace(
 async def get_nodes_in_namespace_detailed(
     session: AsyncSession,
     namespace: str,
-    node_type: NodeType = None,
-) -> List[Node]:
+    node_type: NodeType | None = None,
+) -> list[Node]:
     """
     Gets a list of node names (w/ full details) in the namespace
     """
@@ -114,7 +130,7 @@ async def get_nodes_in_namespace_detailed(
 async def list_namespaces_in_hierarchy(
     session: AsyncSession,
     namespace: str,
-) -> List[NodeNamespace]:
+) -> list[NodeNamespace]:
     """
     Get all namespaces in hierarchy under the specified namespace
     """
@@ -140,12 +156,12 @@ async def mark_namespace_deactivated(
     namespace: NodeNamespace,
     current_user: User,
     save_history: Callable,
-    message: str = None,
+    message: str | None = None,
 ):
     """
     Deactivates the node namespace and updates history indicating so
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     namespace.deactivated_at = UTCDatetime(
         year=now.year,
         month=now.month,
@@ -173,7 +189,7 @@ async def mark_namespace_restored(
     namespace: NodeNamespace,
     current_user: User,
     save_history: Callable,
-    message: str = None,
+    message: str | None = None,
 ):
     """
     Restores the node namespace and updates history indicating so
@@ -218,10 +234,42 @@ def get_parent_namespaces(namespace: str):
     return [SEPARATOR.join(parts[0:i]) for i in range(len(parts)) if parts[0:i]]
 
 
+async def namespaces_to_authorize(
+    session: AsyncSession,
+    namespace: str,
+    include_parents: bool,
+) -> list[str]:
+    """
+    The namespaces a create request would create or reactivate.
+
+    ``namespace`` is always included: even when it already exists the request can
+    reactivate it, so a grant on an ancestor is never a substitute for one on the
+    namespace itself. Ancestors that already exist are excluded, since they are
+    not mutated -- requiring one would reject a caller whose grant is scoped below
+    it (``finance.*`` does not match ``finance``).
+    """
+    if not include_parents:
+        return [namespace]
+
+    parents = get_parent_namespaces(namespace)
+    existing = set(
+        (
+            await session.execute(
+                select(NodeNamespace.namespace).where(
+                    NodeNamespace.namespace.in_(parents),
+                ),
+            )
+        )
+        .scalars()
+        .all(),
+    )
+    return [parent for parent in parents if parent not in existing] + [namespace]
+
+
 def resolve_git_info_from_map(
     namespace: str,
     ns_map: dict,
-) -> Optional[dict]:
+) -> dict | None:
     """
     Resolve git info for a namespace using a pre-loaded map of NodeNamespace rows.
 
@@ -238,35 +286,29 @@ def resolve_git_info_from_map(
         None,
     )
 
-    # Resolve config_ns: find the git root (has github_repo_path).
-    # If branch_ns.parent_namespace points outside the string hierarchy (a sibling),
-    # use the FK-hop parent if it was pre-loaded into ns_map.
-    # Otherwise, the git root is reachable via string ancestors.
-    config_ns: Optional[NodeNamespace] = None
+    # Rows git config resolves from, most specific first.
+    # A pre-loaded FK parent outside the hierarchy leads.
+    candidates: list[NodeNamespace] = []
     if (
         branch_ns
         and branch_ns.parent_namespace
         and branch_ns.parent_namespace not in ancestor_names
         and branch_ns.parent_namespace in ns_map
     ):
-        fk_parent = ns_map[branch_ns.parent_namespace]
-        if fk_parent.github_repo_path:
-            config_ns = fk_parent
-    if not config_ns:
-        config_ns = next(
-            (
-                ns_map[n]
-                for n in reversed_names
-                if ns_map.get(n) and ns_map[n].github_repo_path
-            ),
-            None,
-        )
+        candidates.append(ns_map[branch_ns.parent_namespace])
+    candidates.extend(ns_map[n] for n in reversed_names if ns_map.get(n))
+
+    config_ns = next((ns for ns in candidates if ns.github_repo_path), None)
 
     if not config_ns:
         return None
 
     branch = branch_ns.git_branch if branch_ns else None
-    default_branch = config_ns.default_branch
+    # The default branch may sit on another row.
+    default_branch = next(
+        (ns.default_branch for ns in candidates if ns.default_branch),
+        None,
+    )
     # Effective git_only cascades: any ancestor (or the namespace itself)
     # with git_only=True locks all descendants. Without this the UI would
     # treat a child namespace as editable when its parent is locked,
@@ -303,7 +345,7 @@ def resolve_git_info_from_map(
 async def get_git_info_for_namespace(
     session: AsyncSession,
     namespace: str,
-) -> Optional[dict]:
+) -> dict | None:
     """
     Return git repository info for a namespace.
 
@@ -315,6 +357,8 @@ async def get_git_info_for_namespace(
        load the git root (which carries ``github_repo_path`` / ``git_path``).
        Otherwise, look for ``github_repo_path`` among the string ancestors
        (self-contained root case).
+    3. Take ``default_branch`` from the first row that has one, in the same
+       order — branch namespaces carry the repo path but not the default branch.
     """
     ancestor_names = get_parent_namespaces(namespace) + [namespace]
     stmt = select(NodeNamespace).where(NodeNamespace.namespace.in_(ancestor_names))
@@ -345,7 +389,8 @@ async def create_namespace(
     current_user: User,
     save_history: Callable,
     include_parents: bool = True,
-) -> List[str]:
+    is_governed_boundary: bool = False,
+) -> list[str]:
     """
     Creates a namespace entry in the database table.
     """
@@ -357,6 +402,7 @@ async def create_namespace(
         if include_parents
         else [namespace]
     )
+    history_events = []
     for parent_namespace in parents:
         if not await get_node_namespace(  # pragma: no cover
             session=session,
@@ -364,20 +410,424 @@ async def create_namespace(
             raise_if_not_exists=False,
         ):
             logger.info("Created namespace `%s`", parent_namespace)
-            node_namespace = NodeNamespace(namespace=parent_namespace)
+            node_namespace = NodeNamespace(
+                namespace=parent_namespace,
+                is_governed_boundary=(
+                    is_governed_boundary and parent_namespace == namespace
+                ),
+            )
             session.add(node_namespace)
-            await save_history(
-                event=History(
+            history_events.append(
+                History(
                     entity_type=EntityType.NAMESPACE,
                     entity_name=namespace,
                     node=None,
                     activity_type=ActivityType.CREATE,
                     user=current_user.username,
                 ),
-                session=session,
             )
+    for event in history_events:
+        await save_history(
+            event=event,
+            session=session,
+        )
     await session.commit()
     return parents
+
+
+def namespace_boundary_scope_targets(
+    namespace: str,
+) -> list[tuple[ResourceType, str]]:
+    """Return every scope governed by a namespace boundary."""
+    return [
+        (ResourceType.NAMESPACE, namespace),
+        (ResourceType.NAMESPACE, f"{namespace}.*"),
+        (ResourceType.NODE, f"{namespace}.*"),
+    ]
+
+
+def _namespace_boundary_scopes(
+    namespace: str,
+    action: ResourceAction,
+) -> list[RoleScope]:
+    return [
+        RoleScope(
+            action=action,
+            scope_type=scope_type,
+            scope_value=scope_value,
+        )
+        for scope_type, scope_value in namespace_boundary_scope_targets(namespace)
+    ]
+
+
+def _matches_creator_owned_pattern(
+    namespace: str,
+    patterns: Sequence[str],
+) -> bool:
+    return any(
+        namespace == pattern
+        or (
+            pattern.endswith(f"{SEPARATOR}*")
+            and namespace.startswith(pattern.removesuffix("*"))
+        )
+        for pattern in patterns
+    )
+
+
+async def _validate_namespace_creation_parent(
+    session: AsyncSession,
+    namespace: str,
+) -> None:
+    """Reject direct child creation under a Git root."""
+    parent = namespace.rsplit(SEPARATOR, 1)[0] if SEPARATOR in namespace else None
+    if parent:
+        parent_ns = await NodeNamespace.get(session, parent, raise_if_not_exists=False)
+        if parent_ns and parent_ns.github_repo_path and parent_ns.git_branch is None:
+            raise DJInvalidInputException(
+                message=(
+                    f"Cannot create namespace '{namespace}' under git root '{parent}'. "
+                    "Create a new branch under this namespace instead."
+                ),
+            )
+
+
+async def _overlapping_namespace_boundary(
+    session: AsyncSession,
+    namespace: str,
+) -> str | None:
+    """Return a governed ancestor or descendant boundary."""
+    ancestor_names = get_parent_namespaces(namespace)
+    descendant_boundary = NodeNamespace.namespace.startswith(
+        f"{namespace}.",
+        autoescape=True,
+    )
+    overlap_filter = (
+        or_(NodeNamespace.namespace.in_(ancestor_names), descendant_boundary)
+        if ancestor_names
+        else descendant_boundary
+    )
+    return await session.scalar(
+        select(NodeNamespace.namespace)
+        .where(
+            NodeNamespace.is_governed_boundary.is_(True),
+            overlap_filter,
+        )
+        .limit(1),
+    )
+
+
+def _role_creation_history(role: Role, current_user: User) -> History:
+    return History(
+        entity_type=EntityType.ROLE,
+        entity_name=role.name,
+        activity_type=ActivityType.CREATE,
+        user=current_user.username,
+        post={
+            "id": role.id,
+            "name": role.name,
+            "description": role.description,
+            "scopes": [
+                {
+                    "action": scope.action.value,
+                    "scope_type": scope.scope_type.value,
+                    "scope_value": scope.scope_value,
+                }
+                for scope in role.scopes
+            ],
+        },
+    )
+
+
+def _assignment_creation_history(
+    *,
+    principal: User,
+    role: Role,
+    current_user: User,
+) -> History:
+    return History(
+        entity_type=EntityType.ROLE_ASSIGNMENT,
+        entity_name=f"{principal.username}:{role.name}",
+        activity_type=ActivityType.CREATE,
+        user=current_user.username,
+        post={
+            "principal_id": principal.id,
+            "principal_username": principal.username,
+            "role_id": role.id,
+            "role_name": role.name,
+            "granted_by_id": current_user.id,
+            "expires_at": None,
+        },
+    )
+
+
+async def _stage_creator_owner_role(
+    *,
+    session: AsyncSession,
+    namespace: str,
+    current_user: User,
+    creator_owned_namespace_patterns: Sequence[str],
+) -> bool:
+    if not _matches_creator_owned_pattern(
+        namespace,
+        creator_owned_namespace_patterns,
+    ):
+        return False
+
+    if await _overlapping_namespace_boundary(
+        session,
+        namespace,
+    ):
+        return False
+    if current_user.kind != PrincipalKind.USER:
+        raise DJInvalidInputException(
+            message="Only user principals can own creator-owned namespaces",
+        )
+
+    owner_role_name = f"namespace:{namespace}:owners"
+    if await Role.get_by_name(session, owner_role_name, include_deleted=True):
+        raise DJAlreadyExistsException(
+            message=f"Role `{owner_role_name}` already exists",
+        )
+    owner_role = Role(
+        name=owner_role_name,
+        description=f"Creator ownership for namespace boundary {namespace}",
+        created_by_id=current_user.id,
+        scopes=_namespace_boundary_scopes(namespace, ResourceAction.MANAGE),
+    )
+    session.add(owner_role)
+    await session.flush()
+    session.add_all(
+        [
+            RoleAssignment(
+                principal_id=current_user.id,
+                role_id=owner_role.id,
+                granted_by_id=current_user.id,
+            ),
+            _role_creation_history(owner_role, current_user),
+            _assignment_creation_history(
+                principal=current_user,
+                role=owner_role,
+                current_user=current_user,
+            ),
+        ],
+    )
+    return True
+
+
+async def provision_namespace_boundary(
+    *,
+    session: AsyncSession,
+    namespace: str,
+    current_user: User,
+    owner_group: str,
+    deployer_service_accounts: list[str],
+) -> NamespaceProvisionResponse:
+    """
+    Create a namespace boundary and its RBAC assignments in one transaction.
+
+    The caller authorizes the role scopes before calling this function. The
+    provisioner only accepts a group owner and service-account deployers, so it
+    never promotes the creator's WRITE access into MANAGE.
+    """
+    validate_namespace(namespace)
+    await lock_namespace_boundary_lifecycle(session)
+    existing_namespace = await NodeNamespace.get(
+        session,
+        namespace,
+        raise_if_not_exists=False,
+    )
+    if existing_namespace:
+        if existing_namespace.deactivated_at:
+            raise DJAlreadyExistsException(
+                message=(
+                    f"Node namespace `{namespace}` is deactivated. Restore it through "
+                    f"`POST /namespaces/{namespace}/restore/`."
+                ),
+            )
+        raise DJAlreadyExistsException(
+            message=f"Node namespace `{namespace}` already exists",
+        )
+    await _validate_namespace_creation_parent(session, namespace)
+    if overlapping_boundary := await _overlapping_namespace_boundary(
+        session,
+        namespace,
+    ):
+        raise DJInvalidInputException(
+            message=(
+                f"Namespace boundary `{namespace}` overlaps governed boundary "
+                f"`{overlapping_boundary}`. Nested governed boundaries are not supported."
+            ),
+        )
+
+    principal_names = [owner_group, *deployer_service_accounts]
+    if len(set(principal_names)) != len(principal_names):
+        raise DJInvalidInputException("Owner and deployer principals must be unique")
+    principals = await User.get_by_usernames(session, principal_names, options=[])
+    owner = principals[0]
+    deployers = principals[1:]
+    if owner.kind != PrincipalKind.GROUP:
+        raise DJInvalidInputException(
+            message=f"Owner principal `{owner_group}` must be a group",
+        )
+    invalid_deployers = [
+        principal.username
+        for principal in deployers
+        if principal.kind != PrincipalKind.SERVICE_ACCOUNT
+    ]
+    if invalid_deployers:
+        raise DJInvalidInputException(
+            message=(
+                "Deployer principals must be service accounts: "
+                + ", ".join(invalid_deployers)
+            ),
+        )
+
+    owner_role_name = f"namespace:{namespace}:owners"
+    role_names = [owner_role_name]
+    deployer_role_name: str | None = None
+    if deployers:
+        deployer_role_name = f"namespace:{namespace}:deployers"
+        role_names.append(deployer_role_name)
+    for role_name in role_names:
+        if await Role.get_by_name(session, role_name):
+            raise DJAlreadyExistsException(message=f"Role `{role_name}` already exists")
+
+    session.add(NodeNamespace(namespace=namespace, is_governed_boundary=True))
+    session.add(
+        History(
+            entity_type=EntityType.NAMESPACE,
+            entity_name=namespace,
+            node=None,
+            activity_type=ActivityType.CREATE,
+            user=current_user.username,
+        ),
+    )
+    owner_role = Role(
+        name=owner_role_name,
+        description=f"Owner group for namespace boundary {namespace}",
+        created_by_id=current_user.id,
+        scopes=_namespace_boundary_scopes(namespace, ResourceAction.MANAGE),
+    )
+    session.add(owner_role)
+    await session.flush()
+    owner_assignment = RoleAssignment(
+        principal_id=owner.id,
+        role_id=owner_role.id,
+        granted_by_id=current_user.id,
+    )
+    session.add_all(
+        [
+            owner_assignment,
+            _role_creation_history(owner_role, current_user),
+            _assignment_creation_history(
+                principal=owner,
+                role=owner_role,
+                current_user=current_user,
+            ),
+        ],
+    )
+
+    if deployer_role_name:
+        deployer_role = Role(
+            name=deployer_role_name,
+            description=f"Deployment access for namespace boundary {namespace}",
+            created_by_id=current_user.id,
+            scopes=_namespace_boundary_scopes(namespace, ResourceAction.DELETE),
+        )
+        session.add(deployer_role)
+        await session.flush()
+        deployer_assignments = [
+            RoleAssignment(
+                principal_id=deployer.id,
+                role_id=deployer_role.id,
+                granted_by_id=current_user.id,
+            )
+            for deployer in deployers
+        ]
+        session.add_all(
+            [
+                *deployer_assignments,
+                _role_creation_history(deployer_role, current_user),
+                *[
+                    _assignment_creation_history(
+                        principal=deployer,
+                        role=deployer_role,
+                        current_user=current_user,
+                    )
+                    for deployer in deployers
+                ],
+            ],
+        )
+
+    await session.commit()
+    return NamespaceProvisionResponse(
+        namespace=namespace,
+        owner_role=owner_role_name,
+        deployer_role=deployer_role_name,
+    )
+
+
+async def create_or_reactivate_namespace(
+    namespace: str,
+    *,
+    include_parents: bool,
+    session: AsyncSession,
+    current_user: User,
+    save_history: Callable,
+    creator_owned_namespace_patterns: Sequence[str],
+) -> NamespaceWriteResult:
+    """
+    Create or reactivate a node namespace.
+
+    Shared by the create-namespace endpoint and the internal register_table /
+    register_view callers. Returns what happened so the API layer can shape the
+    response; callers that only need the namespace to exist can ignore it.
+    Access control is enforced by each caller, not here, so this must only be
+    reached from a path that has already authorized the write.
+    """
+    validate_namespace(namespace)
+    if _matches_creator_owned_pattern(
+        namespace,
+        creator_owned_namespace_patterns,
+    ):
+        await lock_namespace_boundary_lifecycle(session)
+    if node_namespace := await NodeNamespace.get(
+        session,
+        namespace,
+        raise_if_not_exists=False,
+    ):  # pragma: no cover
+        if node_namespace.deactivated_at:
+            node_namespace.deactivated_at = None
+            session.add(node_namespace)
+            await session.commit()
+            return NamespaceWriteResult(
+                status=NamespaceWriteStatus.REACTIVATED,
+                namespaces=[namespace],
+            )
+        return NamespaceWriteResult(
+            status=NamespaceWriteStatus.ALREADY_EXISTS,
+            namespaces=[namespace],
+        )
+    await _validate_namespace_creation_parent(session, namespace)
+    is_governed_boundary = await _stage_creator_owner_role(
+        session=session,
+        namespace=namespace,
+        current_user=current_user,
+        creator_owned_namespace_patterns=creator_owned_namespace_patterns,
+    )
+
+    created_namespaces = await create_namespace(
+        session=session,
+        namespace=namespace,
+        include_parents=include_parents,
+        current_user=current_user,
+        save_history=save_history,
+        is_governed_boundary=is_governed_boundary,
+    )
+    return NamespaceWriteResult(
+        status=NamespaceWriteStatus.CREATED,
+        namespaces=created_namespaces,
+    )
 
 
 async def hard_delete_nodes(
@@ -399,8 +849,8 @@ async def hard_delete_nodes(
     endpoint, or a deployment SAVEPOINT). Shared by ``hard_delete_namespace`` and
     the deployment orchestrator so both apply identical semantics.
     """
-    impacted_downstreams: Dict[str, List[str]] = defaultdict(list)
-    impacted_links: Dict[str, List[str]] = defaultdict(list)
+    impacted_downstreams: dict[str, list[str]] = defaultdict(list)
+    impacted_links: dict[str, list[str]] = defaultdict(list)
     if not node_ids:
         return ImpactedNodes(downstreams=[], links=[])
 
@@ -439,7 +889,7 @@ async def hard_delete_nodes(
         ).bindparams(bindparam("deleted_ids", expanding=True)),
         {"deleted_ids": node_ids},
     )
-    downstream_pairs: Dict[str, List[int]] = defaultdict(list)
+    downstream_pairs: dict[str, list[int]] = defaultdict(list)
     for parent_id, child_name in downstream_rows.all():
         downstream_pairs[child_name].append(parent_id)
     for child_name, parent_ids in downstream_pairs.items():
@@ -490,7 +940,7 @@ async def hard_delete_nodes(
             ),
             {"deleted_dim_ids": dimension_ids, "deleted_node_ids": node_ids},
         )
-        link_pairs: Dict[str, List[int]] = defaultdict(list)
+        link_pairs: dict[str, list[int]] = defaultdict(list)
         for dim_id, consumer_name in link_rows.all():
             link_pairs[consumer_name].append(dim_id)
         for consumer_name, dim_ids in link_pairs.items():
@@ -540,9 +990,16 @@ async def hard_delete_namespace(
     current_user: User,
     save_history: Callable,
     cascade: bool = False,
+    query_service_client: QueryServiceClient | None = None,
+    request_headers: dict[str, str] | None = None,
 ) -> HardDeleteResponse:
     """
     Hard delete a node namespace.
+
+    Materializations under the namespace are read before the delete and their
+    workflows stopped after the commit: the rows naming those workflows go away with
+    the nodes, so a namespace deleted without this leaves the query service running
+    jobs no one can find again, let alone stop.
     """
     node_rows = (
         await session.execute(
@@ -568,6 +1025,7 @@ async def hard_delete_namespace(
                 " this action cannot be undone."
             ),
         )
+    teardowns = await collect_materialization_teardowns(session, node_names)
     impacted = await hard_delete_nodes(session, node_ids, current_user)
 
     # Delete namespaces in the same transaction so the whole operation is
@@ -591,10 +1049,17 @@ async def hard_delete_namespace(
 
     await session.commit()
 
+    materialization_failures = stop_materialization_workflows(
+        query_service_client,
+        teardowns,
+        request_headers=request_headers,
+    )
+
     return HardDeleteResponse(
         deleted_namespaces=deleted_namespaces,
         deleted_nodes=node_names,
         impacted=impacted,
+        materialization_failures=materialization_failures,
     )
 
 
@@ -602,7 +1067,7 @@ def _get_dir_and_filename(
     node_name: str,
     node_type: str,
     namespace_requested: str,
-) -> Tuple[str, str, str]:
+) -> tuple[str, str, str]:
     """
     Get the directory, filename, and build name for a node
     """
@@ -653,7 +1118,7 @@ def _partition_config(column: Column):
     return {}
 
 
-def _source_project_config(node: Node, namespace_requested: str) -> Dict:
+def _source_project_config(node: Node, namespace_requested: str) -> dict:
     """
     Returns a project config definition for a source node
     """
@@ -684,7 +1149,7 @@ def _source_project_config(node: Node, namespace_requested: str) -> Dict:
     }
 
 
-def _transform_project_config(node: Node, namespace_requested: str) -> Dict:
+def _transform_project_config(node: Node, namespace_requested: str) -> dict:
     """
     Returns a project config definition for a transform node
     """
@@ -715,7 +1180,7 @@ def _transform_project_config(node: Node, namespace_requested: str) -> Dict:
     }
 
 
-def _dimension_project_config(node: Node, namespace_requested: str) -> Dict:
+def _dimension_project_config(node: Node, namespace_requested: str) -> dict:
     """
     Returns a project config definition for a dimension node
     """
@@ -746,7 +1211,7 @@ def _dimension_project_config(node: Node, namespace_requested: str) -> Dict:
     }
 
 
-def _metric_project_config(node: Node, namespace_requested: str) -> Dict:
+def _metric_project_config(node: Node, namespace_requested: str) -> dict:
     """
     Returns a project config definition for a metric node
     """
@@ -801,7 +1266,7 @@ async def _cube_project_config(
     session: AsyncSession,
     node: Node,
     namespace_requested: str,
-) -> Dict:
+) -> dict:
     """
     Returns a project config definition for a cube node
     """
@@ -811,24 +1276,19 @@ async def _cube_project_config(
         namespace_requested=namespace_requested,
     )
     cube_revision = await get_single_cube_revision_metadata(session, node.name)
-    metrics = []
-    dimensions = []
-    for element in cube_revision.cube_elements:
-        if element.type == NodeType.METRIC:
-            metrics.append(element.node_name)
-        else:
-            dimensions.append(f"{element.node_name}.{element.name}")
     return {
         "filename": filename,
         "directory": directory,
         "build_name": build_name,
         "display_name": cube_revision.display_name,
         "description": cube_revision.description,
-        "metrics": metrics,
-        "dimensions": dimensions,
+        # cube_node_metrics/cube_node_dimensions read the cube's node_columns and
+        # are already role-aware, so no manual role reconstruction is needed.
+        "metrics": cube_revision.cube_node_metrics,
+        "dimensions": cube_revision.cube_node_dimensions,
         "columns": [
             {
-                "name": column.name,
+                "name": column.cube_element_name,
                 **_partition_config(column),
             }
             for column in cube_revision.columns
@@ -865,9 +1325,9 @@ def _dimension_links_config(node: Node):
 
 async def get_project_config(
     session: AsyncSession,
-    nodes: List[Node],
+    nodes: list[Node],
     namespace_requested: str,
-) -> List[Dict]:
+) -> list[dict]:
     """
     Returns a project config definition
     """
@@ -1046,7 +1506,7 @@ def inject_prefixes(unparameterized_string: str, prefix: str) -> str:
     return unparameterized_string.replace(f"{prefix}" + SEPARATOR, "${prefix}")
 
 
-def _get_node_suffix(full_name: str, namespace_prefix: str) -> Optional[str]:
+def _get_node_suffix(full_name: str, namespace_prefix: str) -> str | None:
     """
     Extract the suffix of a node name after the namespace prefix.
 
@@ -1061,7 +1521,7 @@ def _get_node_suffix(full_name: str, namespace_prefix: str) -> Optional[str]:
 def _inject_prefix_for_cube_ref(
     ref_name: str,
     namespace: str,
-    parent_namespace: Optional[str],
+    parent_namespace: str | None,
     namespace_suffixes: set[str],
 ) -> str:
     """
@@ -1164,6 +1624,24 @@ async def get_node_specs_for_export(
             NodeType.METRIC,
         ):
             node_spec.query = inject_prefixes(node_spec.query, namespace)
+        if node_spec.node_type == NodeType.METRIC:
+            metric_spec = cast(MetricSpec, node_spec)
+            if metric_spec.required_dimensions:
+                # Required dims that are full `node.column` paths get the same
+                # in-deploy-vs-external treatment as cube refs: parameterized to
+                # ${prefix} when the node is part of this deployment, left as the
+                # raw full path when it's external. Bare column names (direct parent
+                # columns) contain no namespace prefix, so they pass through
+                # unchanged.
+                metric_spec.required_dimensions = [
+                    _inject_prefix_for_cube_ref(
+                        required_dim,
+                        namespace,
+                        parent_namespace,
+                        namespace_suffixes,
+                    )
+                    for required_dim in metric_spec.required_dimensions
+                ]
         if node_spec.node_type in (
             NodeType.SOURCE,
             NodeType.TRANSFORM,
@@ -1822,7 +2300,7 @@ def _node_spec_to_yaml_dict(node_spec, include_all_columns=False) -> dict:
     # Use LiteralScalarString to force literal block style (|) for multiline queries
     from ruamel.yaml.scalarstring import LiteralScalarString
 
-    if "query" in data and data["query"]:
+    if data.get("query"):
         cleaned_query = "\n".join(line.rstrip() for line in data["query"].split("\n"))
         # Strip leading/trailing newlines and dedent to remove common leading whitespace
         # (prevents ruamel.yaml from emitting |4- instead of |-)
@@ -1847,7 +2325,7 @@ def _node_spec_to_yaml_dict(node_spec, include_all_columns=False) -> dict:
     # Also clean join_on in dimension_links
     if "dimension_links" in data:
         for link in data["dimension_links"]:
-            if "join_on" in link and link["join_on"]:
+            if link.get("join_on"):
                 cleaned_join = "\n".join(
                     line.rstrip() for line in link["join_on"].split("\n")
                 )
@@ -1922,7 +2400,7 @@ async def resolve_git_config(
     session: AsyncSession,
     namespace: str,
     max_depth: int = 50,
-) -> tuple[Optional[str], Optional[str], Optional[str]]:
+) -> tuple[str | None, str | None, str | None]:
     """
     Resolve complete git configuration by walking up the namespace string hierarchy.
 
@@ -1938,7 +2416,7 @@ async def resolve_git_config(
 def _rollup_branch_counts(
     branch_ns: str,
     counts_by_ns: dict[str, tuple[int, int, datetime]],
-) -> tuple[int, int, Optional[datetime]]:
+) -> tuple[int, int, datetime | None]:
     """
     Sum node counts for a branch namespace and all of its sub-namespaces.
 
@@ -1949,7 +2427,7 @@ def _rollup_branch_counts(
     """
     prefix = branch_ns + SEPARATOR
     num_nodes = invalid_node_count = 0
-    last_updated_at: Optional[datetime] = None
+    last_updated_at: datetime | None = None
     for node_ns, (num, invalid, updated_at) in counts_by_ns.items():
         if node_ns == branch_ns or node_ns.startswith(prefix):
             num_nodes += num
@@ -1965,7 +2443,7 @@ def _rollup_branch_counts(
 async def get_branches(
     session: AsyncSession,
     namespace: str,
-) -> List[BranchInfo]:
+) -> list[BranchInfo]:
     """
     Canonical listing of the branch namespaces created from ``namespace``.
 
@@ -2094,7 +2572,7 @@ async def detect_parent_cycle(
         )
 
 
-def validate_git_path(git_path: Optional[str]) -> None:
+def validate_git_path(git_path: str | None) -> None:
     """
     Ensure git_path doesn't escape repository boundaries.
 

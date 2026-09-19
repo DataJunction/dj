@@ -4,7 +4,6 @@
 import re
 from dataclasses import fields
 from http import HTTPStatus
-from typing import Dict, List, Optional
 
 from datajunction import models
 from datajunction.client import DJClient
@@ -142,7 +141,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         branch_info = data["branch"]
         return Namespace(namespace=branch_info["namespace"], dj_client=self)
 
-    def list_branches(self, namespace: str) -> List[BranchInfo]:
+    def list_branches(self, namespace: str) -> list[BranchInfo]:
         """List all branch namespaces under a git root namespace."""
         response = self._session.get(
             f"/namespaces/{namespace}/branches",
@@ -198,8 +197,8 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         namespace: str,
         github_repo_path: str,
         default_branch: str,
-        git_path: Optional[str] = None,
-        git_only: Optional[bool] = None,
+        git_path: str | None = None,
+        git_only: bool | None = None,
     ) -> GitConfig:
         """Initialize git configuration on a root namespace.
 
@@ -268,7 +267,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
     def make_node_of_type(
         self,
         type_: models.NodeType,
-        data: Dict,
+        data: dict,
     ):
         """
         Make a new node of the given type.
@@ -305,7 +304,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         self,
         type_: models.NodeType,
         name: str,
-        data: Dict,
+        data: dict,
         update_if_exists: bool = False,
     ):
         """
@@ -401,15 +400,15 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
     def create_source(  # pylint: disable=too-many-arguments
         self,
         name: str,
-        catalog: Optional[str] = None,
-        schema: Optional[str] = None,
-        table: Optional[str] = None,
-        display_name: Optional[str] = None,
-        description: Optional[str] = None,
-        columns: Optional[List["models.ColumnYAML"]] = None,
-        primary_key: Optional[List[str]] = None,
-        tags: Optional[List[str]] = None,
-        mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
+        catalog: str | None = None,
+        schema: str | None = None,
+        table: str | None = None,
+        display_name: str | None = None,
+        description: str | None = None,
+        columns: list["models.ColumnYAML"] | None = None,
+        primary_key: list[str] | None = None,
+        tags: list[str] | None = None,
+        mode: models.NodeMode | None = models.NodeMode.PUBLISHED,
         update_if_exists: bool = False,
     ) -> "Source":
         """
@@ -522,13 +521,13 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
     def create_transform(  # pylint: disable=too-many-arguments
         self,
         name: str,
-        query: Optional[str] = None,
-        description: Optional[str] = None,
-        display_name: Optional[str] = None,
-        primary_key: Optional[List[str]] = None,
-        tags: Optional[List[str]] = None,
-        mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
-        custom_metadata: Optional[Dict] = None,
+        query: str | None = None,
+        description: str | None = None,
+        display_name: str | None = None,
+        primary_key: list[str] | None = None,
+        tags: list[str] | None = None,
+        mode: models.NodeMode | None = models.NodeMode.PUBLISHED,
+        custom_metadata: dict | None = None,
         update_if_exists: bool = False,
     ) -> "Transform":
         """
@@ -556,12 +555,12 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
     def create_dimension(  # pylint: disable=too-many-arguments
         self,
         name: str,
-        query: Optional[str] = None,
-        primary_key: Optional[List[str]] = None,
-        description: Optional[str] = None,
-        display_name: Optional[str] = None,
-        tags: Optional[List[str]] = None,
-        mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
+        query: str | None = None,
+        primary_key: list[str] | None = None,
+        description: str | None = None,
+        display_name: str | None = None,
+        tags: list[str] | None = None,
+        mode: models.NodeMode | None = models.NodeMode.PUBLISHED,
         update_if_exists: bool = False,
     ) -> "Dimension":
         """
@@ -588,17 +587,17 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
     def create_metric(  # pylint: disable=too-many-arguments
         self,
         name: str,
-        query: Optional[str] = None,
-        description: Optional[str] = None,
-        display_name: Optional[str] = None,
-        required_dimensions: Optional[List[str]] = None,
-        direction: Optional[models.MetricDirection] = None,
-        unit: Optional[models.MetricUnit] = None,
+        query: str | None = None,
+        description: str | None = None,
+        display_name: str | None = None,
+        required_dimensions: list[str] | None = None,
+        direction: models.MetricDirection | None = None,
+        unit: models.MetricUnit | None = None,
         significant_digits: int | None = None,
         min_decimal_exponent: int | None = None,
         max_decimal_exponent: int | None = None,
-        tags: Optional[List[str]] = None,
-        mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
+        tags: list[str] | None = None,
+        mode: models.NodeMode | None = models.NodeMode.PUBLISHED,
         update_if_exists: bool = False,
     ) -> "Metric":
         """
@@ -638,14 +637,14 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
     def create_cube(  # pylint: disable=too-many-arguments
         self,
         name: str,
-        metrics: Optional[List[str]] = None,
-        dimensions: Optional[List[str]] = None,
-        filters: Optional[List[str]] = None,
-        description: Optional[str] = None,
-        display_name: Optional[str] = None,
-        mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
-        tags: Optional[List[str]] = None,
-        custom_metadata: Optional[Dict] = None,
+        metrics: list[str] | None = None,
+        dimensions: list[str] | None = None,
+        filters: list[str] | None = None,
+        description: str | None = None,
+        display_name: str | None = None,
+        mode: models.NodeMode | None = models.NodeMode.PUBLISHED,
+        tags: list[str] | None = None,
+        custom_metadata: dict | None = None,
         update_if_exists: bool = False,
     ) -> "Cube":
         """
@@ -674,8 +673,8 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
     def create_tag(  # pylint: disable=too-many-arguments
         self,
         name: str,
-        description: Optional[str],
-        tag_metadata: Dict,
+        description: str | None,
+        tag_metadata: dict,
         tag_type: str,
         update_if_exists: bool = False,
     ) -> Tag:

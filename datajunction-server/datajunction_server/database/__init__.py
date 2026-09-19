@@ -2,15 +2,17 @@
 
 __all__ = [
     "AttributeType",
-    "ColumnAttribute",
     "Catalog",
     "Collection",
+    "ColumnAttribute",
+    "CustomMetadataSchema",
     "Database",
     "Deployment",
     "DimensionLink",
     "Engine",
     "GroupMember",
     "History",
+    "Measure",
     "Node",
     "NodeNamespace",
     "NodeRevision",
@@ -24,12 +26,12 @@ __all__ = [
     "Table",
     "Tag",
     "User",
-    "Measure",
 ]
 
 from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.collection import Collection
+from datajunction_server.database.custom_metadata_schema import CustomMetadataSchema
 from datajunction_server.database.database import Database, Table
 from datajunction_server.database.deployment import Deployment
 from datajunction_server.database.dimensionlink import DimensionLink

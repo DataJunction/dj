@@ -12,11 +12,10 @@ import tarfile
 import tempfile
 import uuid
 from pathlib import Path
-from typing import List, Optional
 
 import yaml
 from fastapi import BackgroundTasks, Depends, Request
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, TypeAdapter, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import get_node_namespace
@@ -39,8 +38,6 @@ from datajunction_server.internal.git.yaml_export import (
     fetch_existing_yaml_map,
     generate_namespace_yaml_files,
 )
-from pydantic import TypeAdapter
-
 from datajunction_server.internal.namespaces import (
     inject_prefixes,
     node_spec_to_yaml,
@@ -70,6 +67,20 @@ router = SecureAPIRouter(tags=["git-sync"])
 
 # TypeAdapter for parsing YAML dicts into the correct NodeSpec subclass
 _node_spec_adapter = TypeAdapter(NodeUnion)
+
+
+def _ghost_branch_exception(
+    git_branch: str,
+    github_repo_path: str,
+) -> DJInvalidInputException:
+    """Consistent error for syncing to a branch that no longer exists on the remote."""
+    return DJInvalidInputException(
+        message=(
+            f"Branch '{git_branch}' does not exist in '{github_repo_path}'. "
+            f"It may have been deleted on the remote. Recreate the branch or "
+            f"update this namespace's git configuration before syncing."
+        ),
+    )
 
 
 def _specs_are_equivalent(existing_yaml: str, new_spec: NodeUnion) -> bool:
@@ -113,7 +124,7 @@ def _specs_are_equivalent(existing_yaml: str, new_spec: NodeUnion) -> bool:
 class SyncToGitRequest(BaseModel):
     """Request to sync node(s) to git."""
 
-    commit_message: Optional[str] = None  # Auto-generate if not provided
+    commit_message: str | None = None  # Auto-generate if not provided
     force: bool = False  # If True, write every node regardless of semantic equivalence
 
 
@@ -133,17 +144,17 @@ class SyncNamespaceResult(BaseModel):
     namespace: str
     files_synced: int
     files_deleted: int = 0
-    deleted_paths: List[str] = []
-    commit_sha: Optional[str] = None  # None if no changes detected
-    commit_url: Optional[str] = None  # None if no changes detected
-    results: List[SyncResult]
+    deleted_paths: list[str] = []
+    commit_sha: str | None = None  # None if no changes detected
+    commit_url: str | None = None  # None if no changes detected
+    results: list[SyncResult]
 
 
 class CreatePRRequest(BaseModel):
     """Request to create a pull request."""
 
     title: str
-    body: Optional[str] = None
+    body: str | None = None
 
 
 class PRResult(BaseModel):
@@ -159,7 +170,7 @@ async def _fetch_deployment_spec_from_git(
     github: GitHubService,
     repo_path: str,
     ref: str,
-    git_path: Optional[str],
+    git_path: str | None,
     namespace: str,
 ) -> dict:
     """
@@ -216,14 +227,31 @@ async def _fetch_deployment_spec_from_git(
                 message=f"Path '{git_path}' not found in repository at ref '{ref}'",
             )
 
-        # Parse all YAML files, routing by type: hierarchy vs nodes
-        nodes: List[dict] = []
-        hierarchies: List[dict] = []
+        # Parse all YAML files, routing by type: project config vs hierarchy vs nodes
+        nodes: list[dict] = []
+        hierarchies: list[dict] = []
+        # Tags are declared in the project config file, keyed by name so a
+        # later dj.yaml wins over an earlier one.
+        tags: dict[str, dict] = {}
         for yaml_file in files_dir.rglob("*.yaml"):
             if yaml_file.name == "dj.yaml":
+                try:
+                    with open(yaml_file, encoding="utf-8") as f:
+                        project_config = yaml.safe_load(f)
+                except Exception as exc:  # pragma: no cover
+                    _logger.warning(
+                        "Skipping invalid project config %s: %s",
+                        yaml_file,
+                        exc,
+                    )
+                    continue
+                if isinstance(project_config, dict):
+                    for tag in project_config.get("tags") or []:
+                        if isinstance(tag, dict) and tag.get("name"):
+                            tags[tag["name"]] = tag
                 continue
             try:
-                with open(yaml_file, "r", encoding="utf-8") as f:
+                with open(yaml_file, encoding="utf-8") as f:
                     spec = yaml.safe_load(f)
                 if not isinstance(spec, dict) or "name" not in spec:
                     continue
@@ -238,9 +266,10 @@ async def _fetch_deployment_spec_from_git(
                 continue
 
     _logger.info(
-        "Fetched %d node specs and %d hierarchy specs from git: %s @ %s",
+        "Fetched %d node specs, %d hierarchy specs and %d tag specs from git: %s @ %s",
         len(nodes),
         len(hierarchies),
+        len(tags),
         repo_path,
         ref[:12] if len(ref) > 12 else ref,
     )
@@ -248,7 +277,7 @@ async def _fetch_deployment_spec_from_git(
     return {
         "namespace": namespace,
         "nodes": nodes,
-        "tags": [],
+        "tags": list(tags.values()),
         "hierarchies": hierarchies,
     }
 
@@ -277,7 +306,11 @@ async def sync_node_to_git(
     attributed via Co-authored-by trailer.
     """
     # Get the node
-    node = await Node.get_by_name(session, node_name, options=Node.cube_load_options())
+    node = await Node.get_by_name(
+        session,
+        node_name,
+        options=Node.export_load_options(),
+    )
     if not node:
         raise DJDoesNotExistException(
             message=f"Node '{node_name}' does not exist.",
@@ -337,6 +370,12 @@ async def sync_node_to_git(
     # Sync to git
     try:
         github = GitHubService()
+
+        # A sync targeting a branch that no longer exists on the remote would
+        # otherwise fail deep inside commit_file with an opaque "get ref Not Found".
+        # Check up front so the user gets a clear, actionable message instead.
+        if not await github.branch_exists(github_repo_path, git_branch):
+            raise _ghost_branch_exception(git_branch, github_repo_path)
 
         # Try to read existing YAML content to preserve comments
         # Also get the file SHA if it exists for the commit
@@ -442,12 +481,28 @@ async def sync_namespace_to_git(
         )
 
     # Fetch existing YAML from the repo so the serializer can preserve comments
-    # and key ordering in files that already exist in the branch.
-    existing_files_map = await fetch_existing_yaml_map(
-        github_repo_path,
-        git_branch,
-        git_path,
-    )
+    # and key ordering in files that already exist in the branch. This map is also
+    # the baseline for orphan-deletion detection, so we must NOT silently treat an
+    # unreadable branch as empty — that could delete/clobber files. A missing branch
+    # (404) is the ghost-branch case; any other failure means we can't trust the
+    # baseline. Either way, abort loudly rather than committing blind.
+    try:
+        existing_files_map = await fetch_existing_yaml_map(
+            github_repo_path,
+            git_branch,
+            git_path,
+            raise_on_error=True,
+        )
+    except GitHubServiceError as e:
+        if e.github_status == 404:
+            raise _ghost_branch_exception(git_branch, github_repo_path) from e
+        raise DJInvalidInputException(
+            message=(
+                f"Could not read the current state of branch '{git_branch}' in "
+                f"'{github_repo_path}' ({e.message}). Aborting sync to avoid "
+                f"committing against an incomplete view of the branch."
+            ),
+        ) from e
 
     files = await generate_namespace_yaml_files(
         session,
@@ -461,7 +516,7 @@ async def sync_namespace_to_git(
     # corresponding deletions to git below.
 
     # Filter out unchanged files (semantic comparison), unless force=True
-    files_to_commit: List[dict] = []
+    files_to_commit: list[dict] = []
     skipped_unchanged = 0
     for file_info in files:
         existing_yaml = file_info["existing_yaml"]
@@ -504,7 +559,7 @@ async def sync_namespace_to_git(
         if path not in expected_paths and Path(path).name != "dj.yaml"
     )
 
-    results: List[SyncResult] = []
+    results: list[SyncResult] = []
 
     # If nothing changed and no orphans need deleting, return without even
     # instantiating GitHubService (which has auth-config requirements).
@@ -584,7 +639,7 @@ async def sync_namespace_to_git(
 
 @router.get(
     "/namespaces/{namespace}/pull-request",
-    response_model=Optional[PRResult],
+    response_model=PRResult | None,
     name="Get existing pull request",
 )
 async def get_pull_request(
@@ -592,7 +647,7 @@ async def get_pull_request(
     *,
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> Optional[PRResult]:
+) -> PRResult | None:
     """
     Check if a pull request exists for this branch namespace.
 
@@ -918,6 +973,7 @@ async def sync_namespace_from_git(
         namespace=namespace,
         status=DeploymentStatus.SUCCESS,
         results=execute_result.results,
+        warnings=execute_result.warnings,
         downstream_impacts=execute_result.downstream_impacts,
         source=GitDeploymentSource(
             type="git",

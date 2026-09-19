@@ -173,6 +173,23 @@ class TestCollections:
         assert response.status_code == 204
 
     @pytest.mark.asyncio
+    async def test_collections_removing_from_a_missing_collection(
+        self,
+        module__client_with_account_revenue: AsyncClient,
+    ) -> None:
+        """
+        Test removing nodes from a collection that does not exist
+        """
+        response = await module__client_with_account_revenue.post(
+            "/collections/no%20such%20collection/remove/",
+            json=["default.payment_type"],
+        )
+        assert response.status_code == 404
+        assert response.json()["message"] == (
+            "Collection with name `no such collection` does not exist."
+        )
+
+    @pytest.mark.asyncio
     async def test_collections_deleting(
         self,
         module__client_with_account_revenue: AsyncClient,

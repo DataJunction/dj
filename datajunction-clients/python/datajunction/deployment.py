@@ -5,10 +5,11 @@ import socket
 import subprocess
 import urllib.parse
 import urllib.request
+from datetime import date
 from enum import Enum
 from pathlib import Path
 import time
-from typing import Any, Union
+from typing import Any
 
 import yaml
 from rich.console import Console
@@ -25,6 +26,19 @@ from datajunction.rendering import print_deployment_header, print_results
 
 # TODO: replace with generated models from OpenAPI spec once client codegen is set up.
 # Canonical definitions live in datajunction_server/models/deployment.py.
+
+
+def _stringify_dates(value: Any) -> Any:
+    """
+    Replace dates and datetimes with ISO 8601 strings, recursively.
+    """
+    if isinstance(value, date):  # datetime subclasses date
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {key: _stringify_dates(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_stringify_dates(item) for item in value]
+    return value
 
 
 class DeploymentStatus(str, Enum):
@@ -46,6 +60,24 @@ class ResultStatus(str, Enum):
     NOOP = "noop"
 
 
+class SpecKind(str, Enum):
+    """
+    Top-level ``kind`` discriminator on a project YAML file.
+
+    A file with no ``kind`` defaults to ``NODE`` (backwards compatible: existing
+    files carry no discriminator). Pre-aggregations live in the same tree but
+    are not nodes, so they declare ``kind: preagg`` and route to the
+    deployment's ``preaggregations`` list.
+    """
+
+    NODE = "node"
+    PREAGG = "preagg"
+
+    @classmethod
+    def default(cls) -> "SpecKind":
+        return cls.NODE
+
+
 class DeploymentService:
     """
     High-level deployment client for exporting and importing DJ namespaces.
@@ -59,7 +91,7 @@ class DeploymentService:
     def pull(
         self,
         namespace: str,
-        target_path: Union[str, Path],
+        target_path: str | Path,
     ):
         """
         Export a namespace to a local project.
@@ -107,11 +139,14 @@ class DeploymentService:
         console: Console | None = None,
         verbose: bool = False,
         force: bool = False,
+        allow_empty: bool = False,
+        format: str = "text",
     ):
         """
         Push a local project to a namespace.
         """
         console = console or self.console
+        as_json = format == "json"
 
         deployment_spec, file_errors = self._reconstruct_deployment_spec(source_path)
 
@@ -128,13 +163,14 @@ class DeploymentService:
                 branch,
             )
 
-        print_deployment_header(
-            mode="push",
-            namespace=deployment_spec["namespace"],
-            console=console,
-            repo=source.get("repository"),
-            branch=source.get("branch") or branch,
-        )
+        if not as_json:
+            print_deployment_header(
+                mode="push",
+                namespace=deployment_spec["namespace"],
+                console=console,
+                repo=source.get("repository"),
+                branch=source.get("branch") or branch,
+            )
 
         # Apply git config in the normal push flow. Skip only when the
         # caller passed an explicit ``namespace`` equal to the project's
@@ -153,12 +189,15 @@ class DeploymentService:
                     parent_namespace=parent_namespace or None,
                 )
             except Exception as e:  # pylint: disable=broad-except
-                console.print(
-                    f"[yellow]Warning: could not set git config on namespace "
-                    f"'{deployment_spec['namespace']}': {e}[/yellow]",
-                )
+                if not as_json:
+                    console.print(
+                        f"[yellow]Warning: could not set git config on namespace "
+                        f"'{deployment_spec['namespace']}': {e}[/yellow]",
+                    )
         if force:
             deployment_spec["force"] = True
+        if allow_empty:
+            deployment_spec["allow_empty"] = True
         deployment_data = self.client.deploy(deployment_spec)
         deployment_uuid = deployment_data["uuid"]
 
@@ -176,25 +215,30 @@ class DeploymentService:
                     raise DJClientException("Deployment timed out after 5 minutes")
 
         deployment = DeploymentInfo.from_dict(deployment_data)
-        print_results(
-            deployment_uuid,
-            deployment,
-            console,
-            verbose=verbose,
-        )
+        if as_json:
+            print(json.dumps(deployment_data, indent=2))
+        else:
+            print_results(
+                deployment_uuid,
+                deployment,
+                console,
+                verbose=verbose,
+            )
         if deployment.status == DeploymentStatus.SUCCESS:
             invalid_results = [
                 r for r in deployment.results if r.status == ResultStatus.INVALID
             ]
             if invalid_results:
-                console.print(
-                    "\nDeployment finished: [bold yellow]SUCCESS with invalid nodes[/bold yellow]",
-                )
+                if not as_json:
+                    console.print(
+                        "\nDeployment finished: [bold yellow]SUCCESS with invalid nodes[/bold yellow]",
+                    )
                 raise DJDeploymentFailure(
                     project_name=deployment_spec.get("namespace", source_path),
                     errors=[r.__dict__ for r in invalid_results],
                 )
-            console.print("\nDeployment finished: [bold green]SUCCESS[/bold green]")
+            if not as_json:
+                console.print("\nDeployment finished: [bold green]SUCCESS[/bold green]")
         if deployment.status == DeploymentStatus.FAILED:
             errors = [
                 r
@@ -206,10 +250,11 @@ class DeploymentService:
                 errors=[r.__dict__ for r in (errors if errors else deployment.results)],
             )
         if file_errors:
-            console.print()
-            console.rule("[red bold]Errors[/red bold]", style="red", align="left")
-            for err in file_errors:
-                console.print(f"[red]  {err}[/red]")
+            if not as_json:
+                console.print()
+                console.rule("[red bold]Errors[/red bold]", style="red", align="left")
+                for err in file_errors:
+                    console.print(f"[red]  {err}[/red]")
             raise DJClientException(
                 "Fix file name mismatches before deploying.",
             )
@@ -254,7 +299,7 @@ class DeploymentService:
         deployment = DeploymentInfo.from_dict(data)
         if display:
             print_results(
-                "dry_run",
+                data.get("uuid", "dry_run"),
                 deployment,
                 console,
                 verbose=verbose,
@@ -268,8 +313,8 @@ class DeploymentService:
 
     @staticmethod
     def read_yaml_file(path: str | Path) -> dict[str, Any]:
-        with open(path, "r") as f:
-            return yaml.safe_load(f)
+        with open(path) as f:
+            return _stringify_dates(yaml.safe_load(f))
 
     @staticmethod
     def _resolve_email_to_github_username(
@@ -475,8 +520,40 @@ class DeploymentService:
         Reads exported YAML files and reconstructs a DeploymentSpec-compatible dict.
         Returns (deployment_spec, warnings).
         """
+        # A non-existent directory silently yields zero node files, which the
+        # server would interpret as "delete every node in the namespace". Fail
+        # fast with a clear error instead of forming an empty spec (issue #2301).
+        if not Path(base_dir).is_dir():
+            raise DJClientException(
+                f"Directory not found: {base_dir}. Refusing to push an empty "
+                f"deployment -- an empty node set would soft-delete the nodes in "
+                f"the target namespace. Check the path.",
+            )
+
         project_metadata = self._read_project_yaml(base_dir)
-        nodes, warnings = self._collect_nodes_from_dir(base_dir)
+        collected, warnings = self._collect_nodes_from_dir(base_dir)
+
+        # Every YAML file declares its ``kind`` (see SpecKind); an absent
+        # discriminator defaults to a node. Pre-aggregation specs live in the
+        # same tree but are not nodes, so they are routed to the deployment's
+        # ``preaggregations`` list. The key is stripped so it never reaches the
+        # node/pre-agg payload.
+        nodes: list[dict[str, Any]] = []
+        preaggregations: list[dict[str, Any]] = []
+        for item in collected:
+            raw_kind = item.pop("kind", SpecKind.default().value)
+            try:
+                kind = SpecKind(raw_kind)
+            except ValueError:
+                raise DJClientException(
+                    f"Unknown kind '{raw_kind}' in "
+                    f"'{item.get('name', '<unnamed>')}'; expected one of "
+                    f"{[k.value for k in SpecKind]}.",
+                )
+            if kind is SpecKind.PREAGG:
+                preaggregations.append(item)
+            else:
+                nodes.append(item)
 
         # Deduplicate nodes by name (keep last occurrence)
         seen_names: dict[str, dict] = {}
@@ -495,7 +572,23 @@ class DeploymentService:
             or project_metadata.get("prefix", ""),
             "nodes": nodes,
             "tags": project_metadata.get("tags", []),
+            # Upsert-only on the server: an empty list is a no-op, never a
+            # retirement, so defaulting to [] is safe here in a way it is not
+            # for custom_metadata_schemas below.
+            "hierarchies": project_metadata.get("hierarchies", []),
+            "preaggregations": preaggregations,
         }
+
+        # Forwarded only when dj.yaml declares it, because absent and empty mean
+        # different things to the server: absent leaves registered schemas alone,
+        # while an empty list says this manifest manages them and declares none,
+        # which retires them. Defaulting to [] here would silently retire every
+        # schema in the namespace on the next push from a manifest that never
+        # mentioned them.
+        if "custom_metadata_schemas" in project_metadata:
+            deployment_spec["custom_metadata_schemas"] = project_metadata[
+                "custom_metadata_schemas"
+            ]
 
         # Add deployment source if available from env vars
         source = self._build_deployment_source(cwd=base_dir)

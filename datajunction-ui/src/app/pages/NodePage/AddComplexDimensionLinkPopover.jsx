@@ -12,6 +12,7 @@ import { langs } from '@uiw/codemirror-extensions-langs';
 export default function AddComplexDimensionLinkPopover({
   node,
   dimensions,
+  loadDimensionOptions = null,
   existingLink = null,
   isEditMode = false,
   onSubmit,
@@ -236,6 +237,7 @@ export default function AddComplexDimensionLinkPopover({
                           ) : (
                             <FormikSelect
                               selectOptions={dimensions}
+                              loadOptions={loadDimensionOptions}
                               formikFieldName="dimensionNode"
                               placeholder="Select dimension"
                             />

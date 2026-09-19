@@ -5,16 +5,12 @@ import logging
 import time
 from functools import wraps
 
-from datajunction_server.instrumentation.provider import get_metrics_provider
-
 import strawberry
-from fastapi import Depends, Request, BackgroundTasks
+from fastapi import BackgroundTasks, Depends, Request
 from strawberry.extensions import SchemaExtension
 from strawberry.fastapi import GraphQLRouter
 from strawberry.types import Info
 
-from datajunction_server.internal.caching.cachelib_cache import get_cache
-from datajunction_server.internal.access.authentication.http import DJHTTPBearer
 from datajunction_server.api.graphql.dataloaders import (
     create_collection_nodes_loader,
     create_extracted_measures_loader,
@@ -23,21 +19,21 @@ from datajunction_server.api.graphql.dataloaders import (
 )
 from datajunction_server.api.graphql.queries.catalogs import list_catalogs
 from datajunction_server.api.graphql.queries.collections import list_collections
-from datajunction_server.api.graphql.queries.namespaces import list_namespaces
 from datajunction_server.api.graphql.queries.dag import (
     common_dimensions,
     downstream_nodes,
     upstream_nodes,
 )
-from datajunction_server.api.graphql.queries.engines import list_engines, list_dialects
+from datajunction_server.api.graphql.queries.engines import list_dialects, list_engines
+from datajunction_server.api.graphql.queries.namespaces import list_namespaces
 from datajunction_server.api.graphql.queries.nodes import (
     find_nodes,
     find_nodes_paginated,
     node_counts,
 )
 from datajunction_server.api.graphql.queries.sql import (
-    measures_sql,
     materialization_plan,
+    measures_sql,
 )
 from datajunction_server.api.graphql.queries.tags import (
     list_tag_types,
@@ -47,8 +43,8 @@ from datajunction_server.api.graphql.queries.tags import (
 from datajunction_server.api.graphql.scalars import Connection
 from datajunction_server.api.graphql.scalars.catalog_engine import (
     Catalog,
-    Engine,
     DialectInfo,
+    Engine,
 )
 from datajunction_server.api.graphql.scalars.collection import Collection
 from datajunction_server.api.graphql.scalars.namespace import Namespace
@@ -62,6 +58,9 @@ from datajunction_server.api.graphql.scalars.sql import (
     MaterializationPlan,
 )
 from datajunction_server.api.graphql.scalars.tag import Tag
+from datajunction_server.instrumentation.provider import get_metrics_provider
+from datajunction_server.internal.access.authentication.http import DJHTTPBearer
+from datajunction_server.internal.caching.cachelib_cache import get_cache
 from datajunction_server.utils import get_session, get_settings
 
 logger = logging.getLogger(__name__)

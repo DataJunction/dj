@@ -3,10 +3,9 @@ History related APIs.
 """
 
 import logging
-from typing import List, Optional
 
 from fastapi import Depends, Query
-from sqlalchemy import select, and_, cast, func, String
+from sqlalchemy import String, and_, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -28,7 +27,7 @@ settings = get_settings()
 router = SecureAPIRouter(tags=["history"])
 
 
-@router.get("/history/{entity_type}/{entity_name}/", response_model=List[HistoryOutput])
+@router.get("/history/{entity_type}/{entity_name}/", response_model=list[HistoryOutput])
 async def list_history(
     entity_type: EntityType,
     entity_name: str,
@@ -36,7 +35,7 @@ async def list_history(
     limit: int = Query(default=100, lte=100),
     *,
     session: AsyncSession = Depends(get_session),
-) -> List[HistoryOutput]:
+) -> list[HistoryOutput]:
     """
     List history for an entity type (i.e. Node) and entity name
     """
@@ -50,16 +49,16 @@ async def list_history(
     return [HistoryOutput.model_validate(entry) for entry in hist]
 
 
-@router.get("/history/", response_model=List[HistoryOutput])
+@router.get("/history/", response_model=list[HistoryOutput])
 async def list_history_by_node_context(
-    node: Optional[str] = None,
+    node: str | None = None,
     only_subscribed: bool = False,
     offset: int = 0,
     limit: int = Query(default=100, lte=100),
     *,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
-) -> List[HistoryOutput]:
+) -> list[HistoryOutput]:
     """
     List all activity history for a node context
     """

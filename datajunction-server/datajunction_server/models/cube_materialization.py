@@ -1,11 +1,12 @@
 """Models related to cube materialization"""
 
 import hashlib
-from typing import Any, Dict, List, Optional, Union, Literal
+from collections.abc import Iterable
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, computed_field
+from pydantic import BaseModel, Field, computed_field, field_validator
 
-from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.errors import DJInvalidInputException, DJWarning
 from datajunction_server.models.column import SemanticType
 from datajunction_server.models.decompose import (
     Aggregability,
@@ -14,9 +15,12 @@ from datajunction_server.models.decompose import (
     MetricComponent,
 )
 from datajunction_server.models.materialization import (
+    DEFAULT_CUBE_RETENTION,
     DRUID_AGG_MAPPING,
+    CoverageSpec,
     MaterializationJobTypeEnum,
     MaterializationStrategy,
+    SparkSpec,
 )
 from datajunction_server.models.node_type import NodeNameVersion
 from datajunction_server.models.partition import Granularity
@@ -31,6 +35,48 @@ __all__ = [
 ]
 
 
+def materialized_table_name(
+    node_name: str,
+    node_version: str,
+    unique_hash: str,
+) -> str:
+    """Canonical output table name for a materialized node revision.
+
+    Format: ``<node_name>_<node_version>_<hash>`` with dots replaced by
+    underscores. The Druid datasource additionally carries the
+    ``druid_datasource_prefix``. ``version_from_materialized_table`` is the
+    inverse; keep the two in lock-step (a round-trip test enforces it).
+    """
+    return f"{node_name}_{node_version}_{unique_hash}".replace(".", "_")
+
+
+def version_from_materialized_table(
+    table: str,
+    node_name: str,
+) -> str | None:
+    """Recover the node version encoded in a materialized table/datasource name.
+
+    Inverse of ``materialized_table_name``. Tolerates an optional
+    ``druid_datasource_prefix`` (Druid datasources are prefixed; other engines
+    report the bare table). Returns ``None`` when ``table`` is not a
+    materialized name for ``node_name`` (e.g. a source table or another node),
+    so callers can fall back safely.
+    """
+    from datajunction_server.utils import get_settings
+
+    candidate = table
+    prefix = get_settings().druid_datasource_prefix
+    if prefix and candidate.startswith(prefix):
+        candidate = candidate[len(prefix) :]
+    stem = f"{node_name}_".replace(".", "_")
+    if not candidate.startswith(stem):
+        return None
+    version_part, sep, hash_part = candidate[len(stem) :].rpartition("_")
+    if not sep or not version_part or not hash_part:
+        return None
+    return version_part.replace("_", ".")
+
+
 class MetricMeasures(BaseModel):
     """
     Represent a metric as a set of measures, along with the expression for
@@ -38,7 +84,7 @@ class MetricMeasures(BaseModel):
     """
 
     metric: str
-    measures: List[MetricComponent]
+    measures: list[MetricComponent]
     combiner: str
 
 
@@ -48,7 +94,7 @@ class DruidSpec(BaseModel):
     """
 
     datasource: str = Field(description="The Druid datasource name.")
-    ingestion_spec: Dict = Field(
+    ingestion_spec: dict = Field(
         description="Druid ingestion spec for the materialization.",
     )
 
@@ -83,7 +129,7 @@ class MeasuresMaterialization(BaseModel):
         description="The time granularity for each materialization run. Examples: DAY, HOUR",
     )
 
-    spark_conf: Dict[str, str] | None = Field(
+    spark_conf: dict[str, str] | None = Field(
         description="Spark config for this materialization.",
     )
     upstream_tables: list[str] = Field(
@@ -115,7 +161,11 @@ class MeasuresMaterialization(BaseModel):
             ],
         )
         unique_hash = hashlib.sha256(unique_string.encode()).hexdigest()[:16]
-        return f"{self.node.name}_{self.node.version}_{unique_hash}".replace(".", "_")
+        return materialized_table_name(
+            self.node.name,
+            str(self.node.version),
+            unique_hash,
+        )
 
     def model_dump(self, **kwargs):  # pragma: no cover
         base = super().model_dump(**kwargs)
@@ -123,7 +173,7 @@ class MeasuresMaterialization(BaseModel):
         return base
 
     @classmethod
-    def from_measures_query(cls, measures_query, temporal_partition):
+    def from_measures_query(cls, measures_query, temporal_partition, spark_conf=None):
         """
         Builds a MeasuresMaterialization object from a measures query.
         """
@@ -143,9 +193,7 @@ class MeasuresMaterialization(BaseModel):
         # The cube column stores the role separately in ``dimension_column``
         # as ``[role]``. Reconstruct the role-qualified form to match the v3
         # measures-query ``semantic_entity`` (e.g. ``node.col[role]``).
-        partition_ref = (
-            f"{temporal_partition.name}{temporal_partition.dimension_column or ''}"
-        )
+        partition_ref = temporal_partition.cube_element_name
         partition_matches = [
             col.name
             for col in measures_query.columns
@@ -173,7 +221,7 @@ class MeasuresMaterialization(BaseModel):
             ]
             + dimensional_metric_components,
             measures=metric_components,
-            spark_conf=measures_query.spark_conf,
+            spark_conf=spark_conf,
             upstream_tables=measures_query.upstream_tables,
         )
 
@@ -225,15 +273,29 @@ class UpsertCubeMaterialization(BaseModel):
     schedule: str
 
     # Configuration for the materialization (optional for compatibility)
-    config: Dict[str, Any] | None = None
+    config: dict[str, Any] | None = None
 
     # Lookback window, only relevant if materialization strategy is INCREMENTAL_TIME
     lookback_window: str | None = "1 DAY"
 
+    # How long the Druid datasource keeps ingested data. Applies under both strategies.
+    retention: str | None = DEFAULT_CUBE_RETENTION
+
+    coverage: CoverageSpec | None = None
+
+    # Deep-merged into the Druid ingestion spec DJ generates.
+    druid: dict[str, Any] | None = None
+
+    # Spark config for this materialization's stages.
+    spark: SparkSpec | None = None
+
+    # Carried to the query service verbatim. DJ reads no key out of it.
+    platform: dict[str, Any] | None = None
+
     @field_validator("job")
     def validate_job(
         cls,
-        job: Union[str, MaterializationJobTypeEnum],
+        job: str | MaterializationJobTypeEnum,
     ) -> MaterializationJobTypeEnum:
         """
         Validates the `job` field. Converts to an enum if `job` is a string.
@@ -260,7 +322,7 @@ class CombineMaterialization(BaseModel):
 
     node: NodeNameVersion
     query: str | None = None
-    columns: List[ColumnMetadata]
+    columns: list[ColumnMetadata]
     grain: list[str] = Field(
         description="The grain at which the node is being materialized.",
     )
@@ -286,6 +348,15 @@ class CombineMaterialization(BaseModel):
     )
     upstream_tables: list[str] = Field(default_factory=list)
 
+    spark_conf: dict[str, str] | None = Field(
+        description="Spark config for this materialization.",
+        default=None,
+    )
+    druid_overrides: dict[str, Any] | None = Field(
+        description="Overrides merged into the generated Druid spec.",
+        default=None,
+    )
+
     @computed_field  # type: ignore[misc]
     @property
     def output_table_name(self) -> str:
@@ -303,7 +374,11 @@ class CombineMaterialization(BaseModel):
             ],
         )
         unique_hash = hashlib.sha256(unique_string.encode()).hexdigest()[:16]
-        return f"{self.node.name}_{self.node.version}_{unique_hash}".replace(".", "_")
+        return materialized_table_name(
+            self.node.name,
+            str(self.node.version),
+            unique_hash,
+        )
 
     def metrics_spec(self) -> list[dict[str, Any]]:
         """
@@ -346,7 +421,7 @@ class CombineMaterialization(BaseModel):
                 " on this cube or it cannot be materialized to Druid.",
             )
 
-        from datajunction_server.utils import get_settings  # noqa: PLC0415
+        from datajunction_server.utils import deep_merge, get_settings
 
         druid_datasource_name = (
             f"{get_settings().druid_datasource_prefix}{self.output_table_name}"
@@ -354,7 +429,7 @@ class CombineMaterialization(BaseModel):
 
         # if there are categorical partitions, we can additionally include one of them
         # in the partitionDimension field under partitionsSpec
-        druid_spec: Dict = {
+        druid_spec: dict = {
             "dataSchema": {
                 "dataSource": druid_datasource_name,
                 "parser": {
@@ -387,6 +462,8 @@ class CombineMaterialization(BaseModel):
                 "type": "hadoop",
             },
         }
+        if self.druid_overrides:
+            druid_spec = deep_merge(druid_spec, self.druid_overrides)
         return druid_spec
 
     def model_dump(self, **kwargs):  # pragma: no cover
@@ -407,7 +484,7 @@ class DruidCubeConfig(BaseModel):
     metrics: list[CubeMetric]
 
     # List of MeasuresMaterialization configurations.
-    measures_materializations: List[MeasuresMaterialization]
+    measures_materializations: list[MeasuresMaterialization]
 
     # List of materializations used to combine measures outputs. For hyper efficient
     # Druid queries, there should ideally only be a single one, but this may not be
@@ -415,7 +492,45 @@ class DruidCubeConfig(BaseModel):
     combiners: list[CombineMaterialization]
 
     # Lookback window, only relevant if materialization strategy is INCREMENTAL_TIME
-    lookback_window: Optional[str] = "1 DAY"
+    lookback_window: str | None = "1 DAY"
+
+    # How long the Druid datasource keeps ingested data. Applies under both strategies.
+    # Configs persisted before this field existed pick up the default on their next build.
+    retention: str | None = DEFAULT_CUBE_RETENTION
+
+    coverage: CoverageSpec | None = None
+
+    # Deep-merged into the Druid ingestion spec DJ generates.
+    druid: dict[str, Any] | None = None
+
+    # Spark config for this materialization's stages.
+    spark: SparkSpec | None = None
+
+    # Carried to the query service verbatim. DJ reads no key out of it.
+    platform: dict[str, Any] | None = None
+
+
+class PrincipalRef(BaseModel):
+    """
+    A principal on a materialization payload.
+    """
+
+    username: str
+    kind: Literal["user", "service_account", "group"] = "user"
+
+
+def principal_refs(owners: Iterable[Any]) -> list[PrincipalRef]:
+    """
+    The owners of a node, in the shape a materialization payload carries them.
+
+    Every path that hands a materialization to the query service goes through here,
+    so the attribution the query service reads is identical no matter whether the
+    materialization was scheduled fresh or refreshed in place.
+    """
+    return [
+        PrincipalRef(username=owner.username, kind=owner.kind)
+        for owner in sorted(owners, key=lambda owner: owner.username)
+    ]
 
 
 class DruidCubeMaterializationInput(BaseModel):
@@ -434,15 +549,32 @@ class DruidCubeMaterializationInput(BaseModel):
     strategy: MaterializationStrategy
     schedule: str
     job: str
-    lookback_window: Optional[str] = "1 DAY"
+    lookback_window: str | None = "1 DAY"
+
+    # Retention for the target Druid datasource, applied by the query service through
+    # Druid's coordinator API.
+    retention: str | None = DEFAULT_CUBE_RETENTION
+
+    owners: list[PrincipalRef] = Field(default_factory=list)
+
+    # Passed through verbatim; DJ does not read keys out of it.
+    custom_metadata: dict | None = None
+
+    # Also passed through verbatim, declared per materialization.
+    platform: dict[str, Any] | None = None
 
     # List of measures materializations
-    measures_materializations: List[MeasuresMaterialization]
+    measures_materializations: list[MeasuresMaterialization]
 
     # List of materializations used to combine measures outputs. For hyper efficient
     # Druid queries, there should ideally only be a single one, but this may not be
     # possible for metrics at different levels.
     combiners: list[CombineMaterialization]
+
+    # True when scheduled against a branch-preview deployment rather than main,
+    # so the query service can decide how to target its run (e.g. avoid
+    # gap-closing backfills against today's date).
+    is_branch_deploy: bool = False
 
 
 # =============================================================================
@@ -467,11 +599,11 @@ class CubeMaterializeRequest(BaseModel):
         default=MaterializationStrategy.INCREMENTAL_TIME,
         description="Materialization strategy (FULL or INCREMENTAL_TIME)",
     )
-    lookback_window: Optional[str] = Field(
+    lookback_window: str | None = Field(
         default="1 DAY",
         description="Lookback window for incremental materialization. Accepts null for FULL strategy.",
     )
-    druid_datasource: Optional[str] = Field(
+    druid_datasource: str | None = Field(
         default=None,
         description="Custom Druid datasource name. Defaults to 'dj__{cube_name}'",
     )
@@ -490,10 +622,10 @@ class PreAggTableInfo(BaseModel):
     parent_node: str = Field(
         description="Parent node name this pre-agg is derived from",
     )
-    grain: List[str] = Field(
+    grain: list[str] = Field(
         description="Grain columns for this pre-agg",
     )
-    strategy: Optional[MaterializationStrategy] = Field(
+    strategy: MaterializationStrategy | None = Field(
         default=None,
         description=(
             "Materialization strategy of the pre-agg. Used by the cube "
@@ -518,35 +650,37 @@ class CubeMaterializeResponse(BaseModel):
     druid_datasource: str
 
     # Pre-agg dependencies - the Druid workflow should wait for these
-    preagg_tables: List[PreAggTableInfo]
+    preagg_tables: list[PreAggTableInfo]
 
     # Combined SQL that reads from pre-agg tables
     combined_sql: str
-    combined_columns: List[ColumnMetadata]
-    combined_grain: List[str]
+    combined_columns: list[ColumnMetadata]
+    combined_grain: list[str]
 
     # Druid ingestion spec
-    druid_spec: Dict
+    druid_spec: dict
 
     # Materialization config
     strategy: MaterializationStrategy
     schedule: str
-    lookback_window: Optional[str] = None
+    lookback_window: str | None = None
 
     # Metric combiner expressions (metric_name -> combiner SQL)
-    metric_combiners: Dict[str, str] = Field(
+    metric_combiners: dict[str, str] = Field(
         default_factory=dict,
         description="Mapping of metric names to their combiner SQL expressions",
     )
 
     # Workflow info
-    workflow_urls: List[str] = Field(
+    workflow_urls: list[str] = Field(
         default_factory=list,
         description="URLs to the created workflows (if any)",
     )
 
     # Status
     message: str
+
+    warnings: list[DJWarning] = []
 
 
 class CubeMaterializationV2Input(BaseModel):
@@ -564,7 +698,7 @@ class CubeMaterializationV2Input(BaseModel):
     cube_version: str = Field(description="Cube version")
 
     # Pre-agg table dependencies
-    preagg_tables: List[PreAggTableInfo] = Field(
+    preagg_tables: list[PreAggTableInfo] = Field(
         description="List of pre-agg tables the Druid ingestion depends on",
     )
 
@@ -572,10 +706,10 @@ class CubeMaterializationV2Input(BaseModel):
     combined_sql: str = Field(
         description="SQL that combines pre-agg tables (FULL OUTER JOIN + COALESCE)",
     )
-    combined_columns: List[ColumnMetadata] = Field(
+    combined_columns: list[ColumnMetadata] = Field(
         description="Output columns of the combined SQL",
     )
-    combined_grain: List[str] = Field(
+    combined_grain: list[str] = Field(
         description="Shared grain of the combined query",
     )
 
@@ -583,16 +717,16 @@ class CubeMaterializationV2Input(BaseModel):
     druid_datasource: str = Field(
         description="Target Druid datasource name",
     )
-    druid_spec: Dict = Field(
+    druid_spec: dict = Field(
         description="Druid ingestion spec",
     )
 
     # Temporal partition info (only set for INCREMENTAL_TIME)
-    timestamp_column: Optional[str] = Field(
+    timestamp_column: str | None = Field(
         default=None,
         description="Name of the timestamp/partition column. None for FULL strategy without a temporal partition.",
     )
-    timestamp_format: Optional[str] = Field(
+    timestamp_format: str | None = Field(
         default=None,
         description="Format of the timestamp column. None when timestamp_column is None.",
     )
@@ -604,10 +738,16 @@ class CubeMaterializationV2Input(BaseModel):
     schedule: str = Field(
         description="Cron schedule (e.g., '0 0 * * *' for daily)",
     )
-    lookback_window: Optional[str] = Field(
+    lookback_window: str | None = Field(
         default=None,
         description="Lookback window for incremental. None for FULL strategy.",
     )
+
+
+# The name every cube planner materialization row is stored under. The two cube
+# dialects share a job class, so this -- and the `version` discriminator on the
+# config below -- is what tells a planner row apart from a fused one.
+DRUID_CUBE_V3_MATERIALIZATION_NAME = "druid_cube_v3"
 
 
 class DruidCubeV3Config(BaseModel):
@@ -639,7 +779,7 @@ class DruidCubeV3Config(BaseModel):
     )
 
     # Pre-agg table dependencies
-    preagg_tables: List[PreAggTableInfo] = Field(
+    preagg_tables: list[PreAggTableInfo] = Field(
         description="Pre-agg tables the Druid ingestion reads from",
     )
 
@@ -647,59 +787,59 @@ class DruidCubeV3Config(BaseModel):
     combined_sql: str = Field(
         description="SQL that combines pre-agg tables",
     )
-    combined_columns: List[ColumnMetadata] = Field(
+    combined_columns: list[ColumnMetadata] = Field(
         description="Output columns of the combined SQL",
     )
-    combined_grain: List[str] = Field(
+    combined_grain: list[str] = Field(
         description="Shared grain columns of the cube",
     )
 
     # Metric components for Druid metricsSpec
-    measure_components: List[MetricComponent] = Field(
+    measure_components: list[MetricComponent] = Field(
         default_factory=list,
         description="Metric components with aggregation/merge info",
     )
-    component_aliases: Dict[str, str] = Field(
+    component_aliases: dict[str, str] = Field(
         default_factory=dict,
         description="Mapping from component name to output column alias",
     )
 
     # Cube's metric node names (deprecated - use metrics field instead)
-    cube_metrics: List[str] = Field(
+    cube_metrics: list[str] = Field(
         default_factory=list,
         description="List of metric node names in the cube",
     )
 
     # Metrics with their combiner expressions
     # This replaces the computed `metrics` property with stored values
-    metrics: List[Dict[str, Any]] = Field(
+    metrics: list[dict[str, Any]] = Field(
         default_factory=list,
         description="List of metrics with metric_expression for querying the materialized cube",
     )
 
     # Temporal partition info (only set for INCREMENTAL_TIME)
-    timestamp_column: Optional[str] = Field(
+    timestamp_column: str | None = Field(
         default=None,
         description="Name of the timestamp/partition column. None for FULL strategy without a temporal partition.",
     )
-    timestamp_format: Optional[str] = Field(
+    timestamp_format: str | None = Field(
         default=None,
         description="Format of the timestamp column. None when timestamp_column is None.",
     )
 
     # Workflow tracking
-    workflow_urls: List[str] = Field(
+    workflow_urls: list[str] = Field(
         default_factory=list,
         description="URLs for the materialization workflow",
     )
-    workflow_names: List[str] = Field(
+    workflow_names: list[str] = Field(
         default_factory=list,
         description="Workflow names for deactivation",
     )
 
     @computed_field  # type: ignore[misc]
     @property
-    def dimensions(self) -> List[str]:
+    def dimensions(self) -> list[str]:
         """
         Backwards compatibility: Returns dimensions (alias for combined_grain).
 
@@ -710,7 +850,7 @@ class DruidCubeV3Config(BaseModel):
 
     @computed_field  # type: ignore[misc]
     @property
-    def combiners(self) -> List[Dict[str, Any]]:
+    def combiners(self) -> list[dict[str, Any]]:
         """
         Returns combiners with columns in expected format.
 
@@ -735,7 +875,7 @@ class DruidCubeV3Config(BaseModel):
 
     @computed_field  # type: ignore[misc]
     @property
-    def urls(self) -> List[str]:
+    def urls(self) -> list[str]:
         """
         Old UI compatibility: Alias for workflow_urls.
 

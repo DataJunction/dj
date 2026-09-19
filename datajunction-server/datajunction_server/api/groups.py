@@ -2,8 +2,6 @@
 Group management APIs.
 """
 
-from typing import List
-
 from fastapi import Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,7 +33,10 @@ async def enforce_group_administration(access_checker: AccessChecker) -> None:
     privileged, cross-cutting operation rather than a per-namespace one.
     """
     access_checker.add_scope(ResourceType.NAMESPACE, "*", ResourceAction.MANAGE)
-    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+    await access_checker.check(
+        on_denied=AccessDenialMode.RAISE,
+        require_explicit_grant=True,
+    )
 
 
 @router.post("/groups/", response_model=GroupOutput, status_code=201)
@@ -79,11 +80,11 @@ async def register_group(
     return group
 
 
-@router.get("/groups/", response_model=List[GroupOutput])
+@router.get("/groups/", response_model=list[GroupOutput])
 async def list_groups(
     *,
     session: AsyncSession = Depends(get_session),
-) -> List[User]:
+) -> list[User]:
     """
     List all registered groups.
     """
@@ -212,12 +213,12 @@ async def remove_group_member(
     await session.commit()
 
 
-@router.get("/groups/{group_name}/members/", response_model=List[UserOutput])
+@router.get("/groups/{group_name}/members/", response_model=list[UserOutput])
 async def list_group_members(
     group_name: str,
     *,
     session: AsyncSession = Depends(get_session),
-) -> List[User]:
+) -> list[User]:
     """
     List members of a group.
 

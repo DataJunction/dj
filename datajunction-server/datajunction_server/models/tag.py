@@ -2,13 +2,10 @@
 Models for tags.
 """
 
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import Any
 
 from pydantic import ConfigDict, Field
 from pydantic.main import BaseModel
-
-if TYPE_CHECKING:
-    pass
 
 
 class MutableTagFields(BaseModel):
@@ -16,9 +13,9 @@ class MutableTagFields(BaseModel):
     Tag fields that can be changed.
     """
 
-    description: Optional[str] = None
-    display_name: Optional[str] = None
-    tag_metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    description: str | None = None
+    display_name: str | None = None
+    tag_metadata: dict[str, Any] | None = Field(default_factory=dict)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

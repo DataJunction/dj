@@ -15,8 +15,8 @@ from datajunction_server.instrumentation.middleware import (
 )
 from datajunction_server.instrumentation.provider import (
     MetricsProvider,
-    set_metrics_provider,
     get_metrics_provider,
+    set_metrics_provider,
 )
 
 

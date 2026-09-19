@@ -15,12 +15,13 @@ import pytest
 import pytest_asyncio
 
 from datajunction_server.construction.build_v3.types import GeneratedSQL
+from datajunction_server.database.column import Column
+from datajunction_server.errors import ErrorCode
 from datajunction_server.mcp import context, tools
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.node_type import NodeType as NodeTypeEnum
 from datajunction_server.models.sql import ScanEstimate
 from datajunction_server.sql.parsing.backends.antlr4 import parse
-
 
 # ---------------------------------------------------------------------------
 # tools._format_bytes
@@ -591,7 +592,18 @@ async def test_get_node_details_cube_skips_dimension_lookup(
     current.status = MagicMock(value="valid")
     current.mode = MagicMock(value="published")
     current.query = ""
-    current.columns = []
+    current.columns = [
+        Column(
+            name="n.date.date_id",
+            dimension_column="[order]",
+            type="int",
+        ),
+        Column(
+            name="n.date.date_id",
+            dimension_column="[ship]",
+            type="int",
+        ),
+    ]
     current.parents = []
     current.metric_metadata = None
 
@@ -619,8 +631,10 @@ async def test_get_node_details_cube_skips_dimension_lookup(
     monkeypatch.setattr(tools, "get_dimensions", fake_get_dims)
     monkeypatch.setattr(tools, "get_git_info_for_namespace", fake_get_git)
 
-    await tools.get_node_details("n.cube")
+    output = await tools.get_node_details("n.cube")
     assert get_dims_called == []  # cube branch must not call get_dimensions
+    assert "n.date.date_id[order]" in output
+    assert "n.date.date_id[ship]" in output
 
 
 # ---------------------------------------------------------------------------
@@ -898,6 +912,64 @@ async def test_get_query_plan_with_no_components_and_no_dimensions(
     assert "Grain:           none" in out
     # Empty components list in decomposed → no "Components: " line in formula block
     assert out.count("Components:") == 0
+
+
+@pytest.mark.asyncio
+async def test_get_query_plan_renders_warnings(
+    bound_session_for_tools,
+    monkeypatch,
+) -> None:
+    """Build warnings (e.g. fan-out risk) are rendered in the plan.
+
+    Covers both the coded-warning branch (uses the ErrorCode name) and the
+    uncoded fallback (labelled "WARNING").
+    """
+    coded = MagicMock()
+    coded.code.name = "FANOUT_RISK"
+    coded.message = "Possible fan-out on v3.total_revenue"
+
+    uncoded = MagicMock()
+    uncoded.code = None
+    uncoded.message = "Something worth noting"
+
+    # ErrorCode.UNKNOWN_ERROR is 0, so a truthiness test would mislabel it as an
+    # uncoded warning.
+    zero_coded = MagicMock()
+    zero_coded.code = ErrorCode.UNKNOWN_ERROR
+    zero_coded.message = "Zero-valued code"
+
+    decomposed = MagicMock()
+    decomposed.is_derived_for_parents = MagicMock(return_value=False)
+    decomposed.metric_node.current.query = "SELECT 1"
+    decomposed.components = []
+
+    grain = MagicMock()
+    grain.metrics = ["m1"]
+    grain.grain = []
+    grain.aggregability = MagicMock(value="FULL")
+    grain.parent_name = "n.fact"
+    grain.components = []
+    grain.sql = "SELECT 1"
+
+    result = MagicMock()
+    result.dialect = MagicMock(value="spark")
+    result.requested_dimensions = []
+    result.grain_groups = [grain]
+    result.decomposed_metrics = {"m1": decomposed}
+    result.warnings = [coded, uncoded, zero_coded]
+    result.ctx.parent_map = {}
+    result.ctx.nodes = {}
+
+    async def fake_build_measures(**kwargs):
+        return result
+
+    monkeypatch.setattr(tools, "build_measures_sql", fake_build_measures)
+
+    out = await tools.get_query_plan(metrics=["m1"])
+    assert "⚠ Warnings" in out
+    assert "[FANOUT_RISK] Possible fan-out on v3.total_revenue" in out
+    assert "[WARNING] Something worth noting" in out
+    assert "[UNKNOWN_ERROR] Zero-valued code" in out
 
 
 # ---------------------------------------------------------------------------

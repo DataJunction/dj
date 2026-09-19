@@ -2,8 +2,6 @@
 Catalog related queries.
 """
 
-from typing import List
-
 from sqlalchemy import select
 from strawberry.types import Info
 
@@ -15,7 +13,7 @@ from datajunction_server.database.catalog import Catalog as DBCatalog
 async def list_catalogs(
     *,
     info: Info = None,
-) -> List[Catalog]:
+) -> list[Catalog]:
     """
     List all available catalogs
     """

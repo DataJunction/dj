@@ -31,7 +31,6 @@ Examples:
 import argparse
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Optional
 
 from datajunction import DJClient
 
@@ -40,7 +39,7 @@ def revalidate_node(
     dj: DJClient,
     node_name: str,
     dry_run: bool = False,
-) -> tuple[str, bool, Optional[str]]:
+) -> tuple[str, bool, str | None]:
     """
     Revalidate a single node using the DJ client.
 
@@ -66,7 +65,7 @@ def revalidate_node(
         # Try to extract more helpful error message from response
         try:
             if hasattr(e, "response"):
-                response = getattr(e, "response")
+                response = e.response
                 if hasattr(response, "text"):
                     error_msg = response.text  # type: ignore
         except (AttributeError, TypeError):  # pragma: no cover
@@ -76,7 +75,7 @@ def revalidate_node(
 
 def set_column_order(
     dj: DJClient,
-    namespace: Optional[List[str]] = None,
+    namespace: list[str] | None = None,
     dry_run: bool = False,
     max_workers: int = 10,
 ) -> None:

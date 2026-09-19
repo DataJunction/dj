@@ -6,43 +6,48 @@ import asyncio
 import logging
 import time
 import uuid
-from typing import Optional
+from abc import ABC, abstractmethod
 
-from fastapi import Depends, BackgroundTasks, Request
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import BackgroundTasks, Depends, Request, Response
 from sqlalchemy import select
-from datajunction_server.database.user import User
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from datajunction_server.database.deployment import Deployment
 from datajunction_server.database.namespace import NodeNamespace
-from datajunction_server.errors import DJDoesNotExistException, DJInvalidInputException
-from datajunction_server.internal.caching.cachelib_cache import get_cache
-from datajunction_server.internal.caching.interface import Cache
-from datajunction_server.internal.git.github_service import (
-    GitHubServiceError,
-    GitHubService,
-)
-from datajunction_server.internal.namespaces import resolve_git_config
-from datajunction_server.service_clients import QueryServiceClient
-from datajunction_server.models.deployment import (
-    DeploymentResult,
-    DeploymentSpec,
-    DeploymentInfo,
-    DeploymentSourceType,
-    GitDeploymentSource,
-    LocalDeploymentSource,
+from datajunction_server.database.user import User
+from datajunction_server.errors import (
+    DJClientUpgradeRequiredException,
+    DJDoesNotExistException,
+    DJError,
+    DJInvalidInputException,
 )
 from datajunction_server.instrumentation.provider import get_metrics_provider
-from datajunction_server.internal.deployment.deployment import deploy
-from datajunction_server.internal.deployment.orchestrator import DeploymentOrchestrator
-from datajunction_server.internal.deployment.utils import DeploymentContext
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
     AccessDenialMode,
     get_access_checker,
 )
+from datajunction_server.internal.caching.cachelib_cache import get_cache
+from datajunction_server.internal.caching.interface import Cache
+from datajunction_server.internal.deployment.deployment import deploy
+from datajunction_server.internal.deployment.utils import DeploymentContext
+from datajunction_server.internal.git.github_service import (
+    GitHubService,
+    GitHubServiceError,
+)
+from datajunction_server.internal.namespaces import resolve_git_config
 from datajunction_server.models import access
-from datajunction_server.models.deployment import DeploymentStatus
+from datajunction_server.models.deployment import (
+    DeploymentInfo,
+    DeploymentResult,
+    DeploymentSourceType,
+    DeploymentSpec,
+    DeploymentStatus,
+    GitDeploymentSource,
+    LocalDeploymentSource,
+)
+from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import (
     get_current_user,
     get_query_service_client,
@@ -50,7 +55,6 @@ from datajunction_server.utils import (
     get_settings,
     session_context,
 )
-from abc import ABC, abstractmethod
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -60,7 +64,7 @@ router = SecureAPIRouter(tags=["deployments"])
 async def _verify_git_deployment(
     session: AsyncSession,
     deployment_spec: DeploymentSpec,
-    namespace_obj: Optional[NodeNamespace],
+    namespace_obj: NodeNamespace | None,
 ) -> None:
     """
     Verify that a deployment to a git_only namespace meets requirements:
@@ -97,12 +101,18 @@ async def _verify_git_deployment(
         deployment_spec.namespace,
     )
 
-    # Verify commit exists in the configured repository
+    # Verify commit exists in the configured repository. A namespace can be
+    # git_only without a github_repo_path (e.g. auto-locked on first git deploy,
+    # or a flat namespace locked via PATCH). There's no repo to verify the
+    # commit against, so skip verification rather than hard-failing the deploy —
+    # the lock is about blocking UI edits, and this deploy is already git-sourced.
     if not github_repo_path:
-        raise DJInvalidInputException(  # pragma: no cover
-            message=f"Namespace '{deployment_spec.namespace}' is git-only but has no "
-            "github_repo_path configured. Cannot verify commit.",
+        logger.info(
+            "Namespace %s is git-only with no github_repo_path; "
+            "skipping commit verification.",
+            deployment_spec.namespace,
         )
+        return
 
     try:
         github = GitHubService()
@@ -129,9 +139,75 @@ async def _verify_git_deployment(
     )
 
 
+def _normalize_repo_path(repository: str) -> str:
+    """
+    Normalize a deployment source repository to the ``owner/repo`` form stored in
+    ``NodeNamespace.github_repo_path``. Accepts ``github.com/org/repo``,
+    ``https://github.netflix.net/corp/repo.git``, ``git@host:corp/repo``, or an
+    already-normalized ``corp/repo`` — and returns the trailing ``owner/repo``.
+    """
+    repo = repository.strip()
+    for prefix in ("https://", "http://", "ssh://", "git@"):
+        repo = repo.removeprefix(prefix)
+    repo = repo.replace(":", "/")
+    repo = repo.removesuffix(".git")
+    parts = [segment for segment in repo.split("/") if segment]
+    return "/".join(parts[-2:]) if len(parts) >= 2 else repo
+
+
+async def _maybe_autolock_git_namespace(deployment_spec: DeploymentSpec) -> None:
+    """
+    Default-on-git-push: when a namespace is deployed from git, record the repo it
+    tracks (``github_repo_path`` + ``git_branch``) so it becomes a *repo owner* and
+    is UI-locked via ``is_repo_owner`` — the single "git-managed ⇒ read-only"
+    signal. No ``git_only`` write, so unlock is a config change (detach the repo).
+
+    Guards:
+    - Only a git deploy carrying a ``commit_sha`` — a reproducible, CI-driven
+      deployment. Looser branch-only git deploys are left editable.
+    - Only a non-branch namespace (no ``parent_namespace``) — branch namespaces
+      are meant to be git-deployed *and* editable (edit, sync back).
+    - Only when ``github_repo_path`` is unset — never clobber an intentional
+      config on later deploys.
+    - ``git_branch`` is set to the deployed branch (non-null) so the namespace is
+      a *flat* repo owner, not mistaken for a child-spawning git root.
+
+    Called only after a successful deploy, so the namespace already exists.
+    """
+    src = deployment_spec.source
+    if (
+        not src
+        or src.type != DeploymentSourceType.GIT
+        or not getattr(src, "commit_sha", None)
+        or not getattr(src, "repository", None)
+    ):
+        return
+    async with session_context() as session:
+        ns = await NodeNamespace.get(
+            session,
+            deployment_spec.namespace,
+            raise_if_not_exists=False,
+        )
+        if (
+            ns is None
+            or ns.parent_namespace is not None
+            or ns.github_repo_path is not None
+        ):
+            return
+        ns.github_repo_path = _normalize_repo_path(src.repository)
+        ns.git_branch = getattr(src, "branch", None) or ns.git_branch
+        session.add(ns)
+        await session.commit()
+
+
 class DeploymentExecutor(ABC):
     @abstractmethod
-    async def submit(self, spec: DeploymentSpec, context: DeploymentContext) -> str:
+    async def submit(
+        self,
+        spec: DeploymentSpec,
+        context: DeploymentContext,
+        dry_run: bool = False,
+    ) -> str:
         """
         Kick off a deployment job asynchronously.
         Should not block. Should update deployment status externally.
@@ -143,7 +219,12 @@ class InProcessExecutor(DeploymentExecutor):
     def __init__(self):
         self.statuses: dict[str, DeploymentStatus] = {}
 
-    async def submit(self, spec: DeploymentSpec, context: DeploymentContext) -> str:
+    async def submit(
+        self,
+        spec: DeploymentSpec,
+        context: DeploymentContext,
+        dry_run: bool = False,
+    ) -> str:
         deployment_uuid = str(uuid.uuid4())
         async with session_context() as session:
             deployment = Deployment(
@@ -161,6 +242,7 @@ class InProcessExecutor(DeploymentExecutor):
                 deployment_id=deployment_uuid,
                 deployment_spec=spec,
                 context=context,
+                dry_run=dry_run,
             ),
         )
         return deployment_uuid
@@ -171,6 +253,7 @@ class InProcessExecutor(DeploymentExecutor):
         status: DeploymentStatus,
         results: list[DeploymentResult] | None = None,
         downstream_impacts: list | None = None,
+        warnings: list[DJError] | None = None,
     ):
         async with session_context() as session:
             deployment = await session.get(Deployment, deployment_uuid)
@@ -180,6 +263,8 @@ class InProcessExecutor(DeploymentExecutor):
             deployment.status = status
             if results is not None:
                 deployment.results = [r.model_dump() for r in results]
+            if warnings is not None:
+                deployment.deployment_warnings = warnings
             if downstream_impacts is not None:
                 deployment.downstream_impacts = [
                     d.model_dump() for d in downstream_impacts
@@ -191,6 +276,7 @@ class InProcessExecutor(DeploymentExecutor):
         deployment_id: str,
         deployment_spec: DeploymentSpec,
         context: DeploymentContext,
+        dry_run: bool = False,
     ):
         await InProcessExecutor.update_status(deployment_id, DeploymentStatus.RUNNING)
 
@@ -201,6 +287,7 @@ class InProcessExecutor(DeploymentExecutor):
                     deployment_id=deployment_id,
                     deployment=deployment_spec,
                     context=context,
+                    dry_run=dry_run,
                 )
                 results = execute_result.results
                 final_status = (
@@ -211,6 +298,7 @@ class InProcessExecutor(DeploymentExecutor):
                             DeploymentResult.Status.SUCCESS,
                             DeploymentResult.Status.SKIPPED,
                             DeploymentResult.Status.INVALID,
+                            DeploymentResult.Status.WARNING,
                         )
                         for r in results
                     )
@@ -221,7 +309,10 @@ class InProcessExecutor(DeploymentExecutor):
                     final_status,
                     results,
                     downstream_impacts=execute_result.downstream_impacts,
+                    warnings=execute_result.warnings,
                 )
+                if final_status == DeploymentStatus.SUCCESS and not dry_run:
+                    await _maybe_autolock_git_namespace(deployment_spec)
         except Exception as exc:
             logger.error("Deployment %s failed: %s", deployment_id, exc, exc_info=True)
             await InProcessExecutor.update_status(
@@ -274,18 +365,21 @@ async def create_deployment(
     )
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
-    # Check git_only enforcement
+    # Git-managed namespaces (explicitly git_only, or a repo owner) require a
+    # verified git deployment. A repo owner is any namespace that directly owns
+    # a repo (github_repo_path set, no parent) — covers both git roots and flat
+    # git-backed namespaces.
     namespace_obj = await NodeNamespace.get(
         session,
         deployment_spec.namespace,
         raise_if_not_exists=False,
     )
-    is_git_root = (
+    is_repo_owner = (
         namespace_obj is not None
         and namespace_obj.github_repo_path is not None
-        and namespace_obj.git_branch is None
+        and namespace_obj.parent_namespace is None
     )
-    if namespace_obj and (namespace_obj.git_only or is_git_root):
+    if namespace_obj and (namespace_obj.git_only or is_repo_owner):
         await _verify_git_deployment(session, deployment_spec, namespace_obj)
 
     _t0 = time.monotonic()
@@ -305,6 +399,7 @@ async def create_deployment(
             cache=cache,
         ),
     )
+
     deployment = await session.get(Deployment, deployment_id)
     status = deployment.status.value if deployment else "unknown"
     get_metrics_provider().timer(
@@ -321,6 +416,7 @@ async def create_deployment(
         namespace=deployment.namespace,
         status=deployment.status.value,
         results=deployment.deployment_results,
+        warnings=deployment.deployment_warnings,
         downstream_impacts=deployment.deployment_downstream_impacts,
     )
 
@@ -340,6 +436,7 @@ async def get_deployment_status(
         namespace=deployment.namespace,
         status=deployment.status.value,
         results=deployment.deployment_results,
+        warnings=deployment.deployment_warnings,
         downstream_impacts=deployment.deployment_downstream_impacts,
     )
 
@@ -372,6 +469,7 @@ async def list_deployments(  # pragma: no cover
                 namespace=deployment.namespace,
                 status=deployment.status,
                 results=deployment.deployment_results,
+                warnings=deployment.deployment_warnings,
                 created_at=deployment.created_at.isoformat()
                 if deployment.created_at
                 else None,
@@ -384,6 +482,10 @@ async def list_deployments(  # pragma: no cover
     return results
 
 
+PREFER_HEADER = "Prefer"
+PREFER_RESPOND_ASYNC = "respond-async"
+
+
 @router.post(
     "/deployments/impact",
     name="Preview deployment impact",
@@ -392,6 +494,7 @@ async def list_deployments(  # pragma: no cover
 async def preview_deployment_impact(
     deployment_spec: DeploymentSpec,
     request: Request,
+    response: Response,
     background_tasks: BackgroundTasks,
     *,
     session: AsyncSession = Depends(get_session),
@@ -401,16 +504,31 @@ async def preview_deployment_impact(
     access_checker: AccessChecker = Depends(get_access_checker),
 ) -> DeploymentInfo:
     """
-    Analyze the impact of a deployment WITHOUT actually deploying.
+    Submit a deployment impact preview for asynchronous processing.
 
-    Runs a full dry-run through the deployment orchestrator: nodes are validated
-    and deployed into a database SAVEPOINT, downstream impact is computed via BFS,
-    then the SAVEPOINT is rolled back so no changes are persisted.
+    This endpoint is asynchronous: it submits a dry-run through the deployment
+    orchestrator and returns immediately with a deployment ``uuid`` in
+    PENDING/RUNNING status. Callers must poll ``GET /deployments/{uuid}`` until
+    the status is terminal (SUCCESS/FAILED) to get the full impact analysis:
+    nodes are validated and deployed into a database SAVEPOINT, downstream
+    impact is computed via BFS, then the SAVEPOINT is rolled back so no changes
+    are persisted.
 
-    Returns the same ``DeploymentInfo`` shape as ``POST /deployments``, with
-    ``results`` showing what would change and ``downstream_impacts`` showing
-    which downstream nodes would be affected.
+    Requires a ``Prefer: respond-async`` header (RFC 7240), since this endpoint
+    used to respond synchronously with the full result.
     """
+    prefer = request.headers.get(PREFER_HEADER, "")
+    preferences = [p.strip().split("=")[0] for p in prefer.split(",")]
+    if PREFER_RESPOND_ASYNC not in preferences:
+        raise DJClientUpgradeRequiredException(
+            message=(
+                "This endpoint is now asynchronous — upgrade datajunction-clients "
+                "to a version that sends `Prefer: respond-async` and polls for "
+                "/deployments/impact."
+            ),
+        )
+    response.headers["Preference-Applied"] = PREFER_RESPOND_ASYNC
+
     access_checker.add_request(
         access.ResourceRequest(
             verb=access.ResourceAction.READ,
@@ -422,10 +540,8 @@ async def preview_deployment_impact(
     )
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
-    orchestrator = DeploymentOrchestrator(
-        deployment_id="dry_run",
-        deployment_spec=deployment_spec,
-        session=session,
+    deployment_id = await executor.submit(
+        spec=deployment_spec,
         context=DeploymentContext(
             current_user=current_user,
             request=request,
@@ -435,11 +551,13 @@ async def preview_deployment_impact(
         ),
         dry_run=True,
     )
-    execute_result = await orchestrator.execute()
+
+    deployment = await session.get(Deployment, deployment_id)
     return DeploymentInfo(
-        uuid="dry_run",
-        namespace=deployment_spec.namespace,
-        status=DeploymentStatus.SUCCESS,
-        results=execute_result.results,
-        downstream_impacts=execute_result.downstream_impacts,
+        uuid=deployment_id,
+        namespace=deployment.namespace,
+        status=deployment.status.value,
+        results=deployment.deployment_results,
+        warnings=deployment.deployment_warnings,
+        downstream_impacts=deployment.deployment_downstream_impacts,
     )
