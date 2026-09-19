@@ -3,12 +3,14 @@
 import pytest
 from pydantic import ValidationError
 
+from datajunction_server.models import reaggregate as reaggregate_module
 from datajunction_server.models.reaggregate import (
     DimensionReaggregateRule,
     ReaggregateSpec,
     ReaggregationFunction,
     dimension_reaggregate_rules,
     dump_reaggregate_spec,
+    is_parameterized_reaggregate_function,
     parse_reaggregate_spec,
     unsupported_dimension_reaggregate_functions,
 )
@@ -28,6 +30,7 @@ def test_dump_reaggregate_spec_from_dict():
             ],
         },
     ) == {
+        "fn": None,
         "params": None,
         "rules": [
             {
@@ -52,6 +55,7 @@ def test_dump_reaggregate_spec_from_model():
             ],
         ),
     ) == {
+        "fn": None,
         "params": None,
         "rules": [
             {
@@ -88,7 +92,6 @@ def test_parse_reaggregate_spec_from_model():
 @pytest.mark.parametrize(
     "unknown_field",
     [
-        {"fn": "last_value"},
         {"weight": "default.orders.quantity"},
         {
             "rules": [
@@ -143,11 +146,42 @@ def test_empty_params_allowed():
     assert ReaggregateSpec(params={}).params == {}
 
 
+def test_params_accepted_for_parameterized_function(monkeypatch):
+    """
+    Registering a function as parameterized enables `params` assignment.
+    """
+    monkeypatch.setattr(
+        reaggregate_module,
+        "PARAMETERIZED_REAGGREGATE_FUNCTIONS",
+        frozenset({ReaggregationFunction.AVG}),
+    )
+    spec = ReaggregateSpec(fn=ReaggregationFunction.AVG, params={"compression": 200})
+    assert spec.params == {"compression": 200}
+    assert dump_reaggregate_spec(spec)["params"] == {"compression": 200}
+
+
+def test_only_sketch_families_are_parameterized():
+    """
+    Only a sketch family takes tuning parameters.
+
+    The rollup functions are fully specified by their name -- there is nothing
+    to tune about a SUM. A sketch is not: a t-digest still needs a compression,
+    which is why `params` is accepted for it and rejected everywhere else.
+    """
+    parameterized = {
+        fn for fn in ReaggregationFunction if is_parameterized_reaggregate_function(fn)
+    }
+
+    assert parameterized == {ReaggregationFunction.TDIGEST}
+
+
 def test_params_round_trip_through_parse():
     """
     `params` survives dict -> model -> dict without loss.
     """
-    spec = parse_reaggregate_spec({"params": {"compression": 200}})
+    spec = parse_reaggregate_spec(
+        {"fn": "tdigest", "params": {"compression": 200}},
+    )
     assert spec.params == {"compression": 200}
     assert parse_reaggregate_spec(dump_reaggregate_spec(spec)).params == {
         "compression": 200,

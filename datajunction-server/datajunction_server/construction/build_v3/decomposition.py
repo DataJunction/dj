@@ -27,6 +27,7 @@ from datajunction_server.construction.build_v3.types import (
 from datajunction_server.database.node import Node
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.decompose import Aggregability, MetricComponent
+from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.decompose import MetricComponentExtractor
 from datajunction_server.sql.parsing import ast
@@ -79,6 +80,7 @@ async def decompose_and_group_metrics(
                         base_metric,
                         nodes_cache=ctx.nodes,
                         parent_map=ctx.parent_map,
+                        dialect=ctx.dialect,
                     )
                     all_decomposed[base_metric.name] = decomposed
 
@@ -98,6 +100,7 @@ async def decompose_and_group_metrics(
                     metric_node,
                     nodes_cache=ctx.nodes,
                     parent_map=ctx.parent_map,
+                    dialect=ctx.dialect,
                 )
                 all_decomposed[metric_name] = derived_decomposed
         else:
@@ -121,6 +124,7 @@ async def decompose_and_group_metrics(
                 metric_node,
                 nodes_cache=ctx.nodes,
                 parent_map=ctx.parent_map,
+                dialect=ctx.dialect,
             )
             all_decomposed[metric_node.name] = decomposed
 
@@ -146,6 +150,7 @@ async def decompose_metric(
     *,
     nodes_cache: dict[str, Node] | None = None,
     parent_map: dict[str, list[str]] | None = None,
+    dialect: Dialect = Dialect.SPARK,
 ) -> DecomposedMetricInfo:
     """
     Decompose a metric into its constituent components.
@@ -162,6 +167,10 @@ async def decompose_metric(
             parent_map, avoids database queries by using cached data.
         parent_map: Optional dict of child_name -> list of parent_names.
             Required if nodes_cache is provided.
+        dialect: Dialect the combiner is rendered for. ``decompose_and_group_metrics``
+            passes the build's resolved dialect, which for a materialized cube is
+            the one taken from its availability catalog -- Druid, in practice.
+            Defaults to Spark for direct callers.
 
     Returns:
         DecomposedMetricInfo with components, combiner expression, and aggregability
@@ -172,7 +181,7 @@ async def decompose_metric(
         )
 
     # Use the MetricComponentExtractor with optional cache
-    extractor = MetricComponentExtractor(metric_node.current.id)
+    extractor = MetricComponentExtractor(metric_node.current.id, dialect=dialect)
     components, derived_ast = await extractor.extract(
         session,
         nodes_cache=nodes_cache,
