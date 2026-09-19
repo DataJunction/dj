@@ -8,7 +8,7 @@ then break on a real node.
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, get_args, get_origin
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,21 +30,57 @@ from datajunction_server.models.deployment import (
 )
 from datajunction_server.models.node_type import NodeType
 
-# Every projection carries these, so reading one off a missing node gives an
-# empty value rather than an evaluation error.
-_ABSENT_NODE: dict[str, Any] = {
-    "name": "",
-    "type": "",
-    "namespace": "",
-    "display_name": "",
-    "description": "",
-    "mode": "",
-    "owners": [],
-    "tags": [],
-    "columns": [],
-    "primary_key": [],
-    "dimension_links": [],
-}
+
+def _is_sequence_field(annotation: Any) -> bool:
+    """True when a field holds a list, including behind an Optional or a union."""
+    if get_origin(annotation) is list:
+        return True
+    return any(get_origin(arg) is list for arg in get_args(annotation))
+
+
+def _node_spec_defaults() -> dict[str, Any]:
+    """
+    Every field on any node spec, with the empty value CEL should read when this
+    subclass does not have it.
+
+    A list field has to default to a list: a metric has no `dimension_links`,
+    and a check calling `.all()` on the empty string would fail where it should
+    trivially pass.
+    """
+    defaults: dict[str, Any] = {}
+    pending = [NodeSpec]
+    while pending:
+        cls = pending.pop()
+        for name, info in cls.model_fields.items():
+            if name == "custom_metadata":
+                continue
+            empty: Any = [] if _is_sequence_field(info.annotation) else ""
+            # A list default wins: one subclass typing it as a list is enough.
+            if defaults.get(name) != []:
+                defaults[name] = empty
+        pending.extend(cls.__subclasses__())
+    return defaults
+
+
+_NODE_DEFAULTS = _node_spec_defaults()
+
+
+def _cel_safe(value: Any, empty: Any = "") -> Any:
+    """
+    Coerce a dumped value into something CEL can read.
+
+    None becomes the field's empty value rather than null, so a check reading an
+    unset field does not have to guard every one.
+    """
+    if value is None:
+        return empty
+    if isinstance(value, (StrEnum, NodeType)):
+        return str(value)
+    if isinstance(value, Mapping):
+        return {str(key): _cel_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_cel_safe(item) for item in value]
+    return value
 
 
 @dataclass
@@ -91,39 +127,25 @@ def _placeholder(subschema: Any) -> Any:
 
 
 def project_node(spec: NodeSpec | None, declared: DeclaredProperties) -> dict[str, Any]:
-    """Project one node spec into the `node` binding. None means no such node."""
-    if spec is None:
-        return dict(_ABSENT_NODE, custom_metadata=custom_metadata(None, declared))
-    return {
-        "name": spec.rendered_name,
-        "type": str(spec.node_type),
-        "namespace": spec.namespace or "",
-        "display_name": spec.display_name or "",
-        "description": spec.description or "",
-        "mode": str(spec.mode),
-        "owners": list(spec.owners),
-        "tags": list(spec.tags),
-        "columns": [
-            {
-                "name": column.name,
-                "type": column.type or "",
-                "display_name": column.display_name or "",
-                "description": column.description or "",
-                "attributes": list(column.attributes),
-            }
-            for column in getattr(spec, "columns", None) or []
-        ],
-        "primary_key": list(getattr(spec, "primary_key", None) or []),
-        "dimension_links": [
-            {
-                "type": str(link.type),
-                "role": link.role or "",
-                "dimension_node": link.rendered_dimension_node,
-            }
-            for link in getattr(spec, "dimension_links", None) or []
-        ],
-        "custom_metadata": custom_metadata(spec.custom_metadata, declared),
+    """
+    Project one node spec into the `node` binding. None means no such node.
+
+    Every field of every node spec is carried, defaulted when this subclass has
+    none, so a check never reads a key that is missing -- CEL treats that as an
+    error rather than an empty value.
+    """
+    dumped = spec.model_dump() if spec is not None else {}
+    projected = {
+        name: _cel_safe(dumped.get(name), empty)
+        for name, empty in _NODE_DEFAULTS.items()
     }
+    projected["name"] = spec.rendered_name if spec is not None else ""
+    projected["type"] = str(spec.node_type) if spec is not None else ""
+    projected["custom_metadata"] = custom_metadata(
+        dumped.get("custom_metadata"),
+        declared,
+    )
+    return projected
 
 
 def project_previous(
