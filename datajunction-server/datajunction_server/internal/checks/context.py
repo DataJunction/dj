@@ -41,7 +41,7 @@ class Change(TypedDict):
     kind: str
 
 
-class Activation(TypedDict):
+class Bindings(TypedDict):
     """
     What one node's check evaluates against.
 
@@ -49,9 +49,6 @@ class Activation(TypedDict):
         previous      the same node as currently deployed
         dependencies  its upstreams, each projected like `node`
         change.kind   create, update, delete or noop
-
-    A delete or a noop produces no new version, so `previous` repeats `node`.
-    Reading `change.kind` is the only way to tell those two apart.
     """
 
     node: NodeProjection

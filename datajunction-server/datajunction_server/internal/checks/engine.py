@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
-from datajunction_server.internal.checks.context import Activation
+from datajunction_server.internal.checks.context import Bindings
 from datajunction_server.internal.checks.validator import CheckGate, CompiledCheck
 
 
@@ -25,22 +25,22 @@ class CheckResult:
 
 def evaluate(
     checks: Iterable[CompiledCheck],
-    activation: Activation,
-    previous_activation: Activation | None = None,
+    bindings: Bindings,
+    previous_bindings: Bindings | None = None,
 ) -> list[CheckResult]:
-    """Run every check against one activation and resolve its gate."""
+    """Run every check against one bindings and resolve its gate."""
     results = []
     for check in checks:
-        if check.when is not None and not _boolean(check.when, activation):
+        if check.when is not None and not _boolean(check.when, bindings):
             results.append(CheckResult(check.name, check.gate, None, blocked=False))
             continue
-        passed = _boolean(check.condition, activation)
+        passed = _boolean(check.condition, bindings)
         results.append(
             CheckResult(
                 check.name,
                 check.gate,
                 passed,
-                blocked=_blocks(check, passed, previous_activation),
+                blocked=_blocks(check, passed, previous_bindings),
             ),
         )
     return results
@@ -49,7 +49,7 @@ def evaluate(
 def _blocks(
     check: CompiledCheck,
     passed: bool,
-    previous_activation: Activation | None,
+    previous_bindings: Bindings | None,
 ) -> bool:
     if passed or check.gate == CheckGate.WARN:
         return False
@@ -57,16 +57,16 @@ def _blocks(
         return True
     # BLOCK_ON_REGRESSION: re-evaluate against the previous state, so authors
     # never write diff logic. Nothing prior means nothing to regress from.
-    if previous_activation is None:
+    if previous_bindings is None:
         return False
-    if check.when is not None and not _boolean(check.when, previous_activation):
+    if check.when is not None and not _boolean(check.when, previous_bindings):
         return False
-    return _boolean(check.condition, previous_activation)
+    return _boolean(check.condition, previous_bindings)
 
 
-def _boolean(expression: Any, activation: Activation) -> bool:
+def _boolean(expression: Any, bindings: Bindings) -> bool:
     """Evaluate to a real bool."""
-    value = expression.eval(data=activation)
+    value = expression.eval(data=bindings)
     if str(value.type()) != "BOOL":
         raise RuntimeError(f"check did not evaluate to a boolean: {value}")
     return bool(value.value())

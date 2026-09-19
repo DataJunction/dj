@@ -43,13 +43,13 @@ def _by_name(results):
     return {result.check: result for result in results}
 
 
-def _without(activation, prop):
-    """The same activation with one declared property unset."""
-    node = dict(activation["node"])
+def _without(bindings, prop):
+    """The same bindings with one declared property unset."""
+    node = dict(bindings["node"])
     metadata = dict(node["custom_metadata"])
     metadata["sample"] = {**metadata["sample"], prop: None}
     node["custom_metadata"] = metadata
-    return {**activation, "node": node}
+    return {**bindings, "node": node}
 
 
 def test_warn_records_a_failure_without_blocking(checks, fixtures):
@@ -93,7 +93,7 @@ def test_block_on_regression_does_not_block_without_previous_state(checks, fixtu
 def test_block_on_regression_blocks_when_the_check_used_to_pass(checks, fixtures):
     empty, populated = fixtures
     regressed = _by_name(
-        evaluate(checks, empty, previous_activation=populated),
+        evaluate(checks, empty, previous_bindings=populated),
     )["demo.size_set"]
     assert regressed.blocked is True
 
@@ -101,7 +101,7 @@ def test_block_on_regression_blocks_when_the_check_used_to_pass(checks, fixtures
 def test_block_on_regression_tolerates_a_pre_existing_failure(checks, fixtures):
     empty, _ = fixtures
     # Failing before and failing now is not a regression.
-    already = _by_name(evaluate(checks, empty, previous_activation=empty))[
+    already = _by_name(evaluate(checks, empty, previous_bindings=empty))[
         "demo.size_set"
     ]
     assert already.passed is False
@@ -114,7 +114,7 @@ def test_block_on_regression_skips_a_guard_that_did_not_apply_before(checks, fix
     # verdict to regress from.
     now = _without(populated, "shape")
     result = _by_name(
-        evaluate(checks, now, previous_activation=bare),
+        evaluate(checks, now, previous_bindings=bare),
     )["demo.dimension_shape_set"]
     assert result.passed is False
     assert result.blocked is False
