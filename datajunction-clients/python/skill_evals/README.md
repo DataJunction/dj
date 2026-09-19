@@ -34,6 +34,31 @@ Each case asserts with some mix of:
 - **llm-rubric** (LLM judge) — the modeling judgment: did it decompose correctly, resist
   the shortcut, name things meaningfully.
 
+The programmatic asserts score **partial credit**: every rule is one check, and the
+result carries the fraction satisfied (`7/9 checks — …`). A five-node deployment with
+one bad node no longer scores the same as unparseable junk, so you can see a skill edit
+move the needle before it fully passes. `pass` stays strict — every check must hold —
+so a partial score never reads as success.
+
+## The baseline arm
+
+Every case runs twice: once with the skill in context, once with it replaced by a short
+control prompt that names the domain and output format but gives no modeling guidance
+(`skill_prompt.CONTROL_SYSTEM`). The two arms appear side by side in the promptfoo
+report as `with-skill` and `baseline-no-skill`.
+
+The absolute score isn't the interesting number — the **delta** is. A case both arms
+pass isn't testing the skill, it's testing the model, and belongs in the set only as a
+regression guard. A case both arms fail is either a skill gap or a bad case. What
+justifies the skill's tokens is the band in between.
+
+A control prompt rather than nothing, because a bare baseline fails every case for the
+wrong reason (the model doesn't know we wanted DJ YAML), which would make the delta
+look large and mean nothing.
+
+Skip it with `./run.sh --no-baseline` for half the tokens when you just want a quick
+check of the with-skill arm.
+
 ## Running it
 
 The provider endpoint comes from env — nothing about it is hardcoded. Copy
@@ -63,7 +88,9 @@ SKILL_EVAL_MODEL=claude-sonnet-4-6 ./run.sh     # any model the endpoint serves
 - `promptfooconfig.yaml` — providers, prompts, golden cases + assertions.
 - `skill_prompt.py` — prompt function: injects the SKILL.md(s) as system + the request.
   `vars.skill` is a comma-separated string (multiple skills compose).
-- `provider.py` — two-turn OpenAI-compatible client; a `followup` var triggers turn 2.
-- `node_rules.py` — shared node-spec rules mirroring the server deployment schema.
+- `provider.py` — two-turn OpenAI-compatible client; a `followup` var triggers turn 2,
+  and `skill_mode` selects the with-skill or baseline arm.
+- `node_rules.py` — shared node-spec rules mirroring the server deployment schema, plus
+  the `CheckRun` tally behind partial-credit scoring.
 - `assert_node.py` — structural check on a single produced node.
 - `assert_deployment.py` — structural check on a multi-node decomposition / deployment.

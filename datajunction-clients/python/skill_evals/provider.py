@@ -14,9 +14,13 @@ Behaviour:
   - if the case sets a ``followup`` var, turn 2: replay [system, user, assistant=turn1,
     user=followup] and append the reply after ``node_rules.TURN2_MARKER``.
 
-Config is all env (nothing about the provider is hardcoded): ``OPENAI_BASE_URL``
-(default the public OpenAI API), ``OPENAI_API_KEY``, and ``SKILL_EVAL_MODEL`` (default
-gpt-4o).
+The ``skill_mode`` config selects the arm: ``full`` (default) keeps the skill in
+context, ``none`` is the baseline that replaces it with a control prompt. The config
+declares both arms so each run reports the skill's delta.
+
+Endpoint config is all env (nothing about the provider is hardcoded):
+``OPENAI_BASE_URL`` (default the public OpenAI API), ``OPENAI_API_KEY``, and
+``SKILL_EVAL_MODEL`` (default gpt-4o).
 """
 
 import json
@@ -25,8 +29,20 @@ import urllib.error
 import urllib.request
 
 import node_rules
+import skill_prompt
 
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
+
+
+def _apply_skill_mode(messages, skill_mode):
+    """``full`` keeps the skill(s) the prompt function injected as the system message.
+    ``none`` is the baseline arm: drop them for a short control prompt, so the delta
+    between arms measures the skill's guidance rather than the model's DJ priors."""
+    if skill_mode != "none":
+        return messages
+    return [{"role": "system", "content": skill_prompt.CONTROL_SYSTEM}] + [
+        message for message in messages if message.get("role") != "system"
+    ]
 
 
 def _messages_from_prompt(prompt):
@@ -67,7 +83,10 @@ def call_api(prompt, options, context):
     base_url = os.environ.get("OPENAI_BASE_URL", DEFAULT_BASE_URL)
     api_key = os.environ.get("OPENAI_API_KEY", "")
 
-    messages = _messages_from_prompt(prompt)
+    messages = _apply_skill_mode(
+        _messages_from_prompt(prompt),
+        config.get("skill_mode", "full"),
+    )
     variables = (context or {}).get("vars", {})
     followup = variables.get("followup")
 

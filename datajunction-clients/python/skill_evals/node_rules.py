@@ -92,40 +92,86 @@ def node_label(data: dict) -> str:
     return data.get("name") or data.get("node_type") or "<unnamed>"
 
 
-def validate_node(data: dict, expected: str | None = None) -> list[str]:
-    """Structural problems with a single node spec (empty list == valid)."""
-    problems: list[str] = []
+class CheckRun:
+    """Tallies individual checks so an assertion scores partial credit.
+
+    Binary pass/fail hides progress: a five-node deployment with one bad node looks
+    the same as unparseable junk. Each rule records one check here, and the result
+    carries the fraction satisfied. ``pass`` stays strict — every check must hold —
+    so a partial score never reads as success.
+    """
+
+    def __init__(self) -> None:
+        self.total = 0
+        self.failed: list[str] = []
+
+    def check(self, ok: bool, problem: str) -> bool:
+        """Record one check. ``problem`` is only used when it fails."""
+        self.total += 1
+        if not ok:
+            self.failed.append(problem)
+        return ok
+
+    @property
+    def passed(self) -> int:
+        return self.total - len(self.failed)
+
+    @property
+    def score(self) -> float:
+        return 1.0 if not self.total else self.passed / self.total
+
+    def result(self, summary: str) -> dict:
+        """A promptfoo assertion result: fractional score, strict pass."""
+        tally = f"{self.passed}/{self.total} checks"
+        if self.failed:
+            return {
+                "pass": False,
+                "score": round(self.score, 4),
+                "reason": f"{tally} — {'; '.join(self.failed)}",
+            }
+        return {"pass": True, "score": 1.0, "reason": f"{tally} — {summary}"}
+
+
+def validate_node(data: dict, checks: CheckRun, expected: str | None = None) -> None:
+    """Record the structural checks for a single node spec."""
     label = node_label(data)
-
     node_type = data.get("node_type")
-    if node_type is None:
-        if data.get("type") in NODE_TYPES:
-            problems.append(
-                f"{label}: uses legacy top-level `type: {data['type']}` — the deployment "
-                f"schema discriminator is `node_type` "
-                f"(datajunction_server.models.deployment)",
-            )
-        else:
-            problems.append(f"{label}: missing `node_type`")
-    elif node_type not in NODE_TYPES:
-        problems.append(
-            f"{label}: node_type {node_type!r} not one of {sorted(NODE_TYPES)}",
-        )
-    elif expected and node_type != expected:
-        problems.append(f"{label}: node_type is {node_type!r}, expected {expected!r}")
 
-    if "name" not in data:
-        problems.append(f"{label}: missing `name`")
+    if node_type in NODE_TYPES:
+        problem = ""
+    elif node_type is not None:
+        problem = f"{label}: node_type {node_type!r} not one of {sorted(NODE_TYPES)}"
+    elif data.get("type") in NODE_TYPES:
+        problem = (
+            f"{label}: uses legacy top-level `type: {data['type']}` — the deployment "
+            f"schema discriminator is `node_type` "
+            f"(datajunction_server.models.deployment)"
+        )
+    else:
+        problem = f"{label}: missing `node_type`"
+    checks.check(not problem, problem)
+
+    if expected:
+        checks.check(
+            node_type == expected,
+            f"{label}: node_type is {node_type!r}, expected {expected!r}",
+        )
+
+    checks.check("name" in data, f"{label}: missing `name`")
+
     if isinstance(node_type, str):
         for field in REQUIRED_FIELDS.get(node_type, []):
-            if not data.get(field):
-                problems.append(f"{label}: {node_type} node missing `{field}`")
-    if node_type == "dimension" and not has_primary_key(data):
-        problems.append(
+            checks.check(
+                bool(data.get(field)),
+                f"{label}: {node_type} node missing `{field}`",
+            )
+
+    if node_type == "dimension":
+        checks.check(
+            has_primary_key(data),
             f"{label}: dimension has no primary key (top-level `primary_key` or a "
             f"column with `attributes: [primary_key]`)",
         )
-    return problems
 
 
 def is_derived_metric(data: dict) -> bool:

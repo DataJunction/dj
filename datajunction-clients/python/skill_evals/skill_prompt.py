@@ -14,6 +14,17 @@ from pathlib import Path
 
 SKILLS_DIR = Path(__file__).resolve().parent.parent / "datajunction" / "skills"
 
+# System prompt for the baseline arm, where the provider drops the skill (see
+# provider.py's ``skill_mode``). It names the domain and the output format but gives
+# no modeling guidance, so the with-skill minus baseline delta measures what the
+# skill's *advice* contributes — not whether the model can guess that we wanted DJ
+# YAML. A bare baseline would fail every case for the wrong reason.
+CONTROL_SYSTEM = (
+    "You are helping a user model data in DataJunction (DJ), an open-source semantic "
+    "layer. Answer the request directly. When asked for node definitions, output them "
+    "as YAML in a fenced ```yaml block."
+)
+
 
 def build_prompt(context):
     variables = context["vars"]

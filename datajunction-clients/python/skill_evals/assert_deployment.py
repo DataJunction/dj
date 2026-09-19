@@ -41,46 +41,42 @@ def get_assert(output, context):
             "reason": "no authored nodes found in deployment output",
         }
 
-    problems: list[str] = []
+    checks = node_rules.CheckRun()
     for node in nodes:
-        problems.extend(node_rules.validate_node(node))
+        node_rules.validate_node(node, checks)
 
     counts: dict[str, int] = {}
     for node in nodes:
         counts[node.get("node_type")] = counts.get(node.get("node_type"), 0) + 1
 
     for node_type, minimum in (variables.get("min_nodes_by_type") or {}).items():
-        if counts.get(node_type, 0) < minimum:
-            problems.append(
-                f"expected >= {minimum} {node_type} node(s), found {counts.get(node_type, 0)}",
-            )
+        checks.check(
+            counts.get(node_type, 0) >= minimum,
+            f"expected >= {minimum} {node_type} node(s), found {counts.get(node_type, 0)}",
+        )
 
-    if variables.get("require_derived_ratio") and not any(
-        node_rules.is_derived_metric(n) for n in nodes
-    ):
-        problems.append(
+    if variables.get("require_derived_ratio"):
+        checks.check(
+            any(node_rules.is_derived_metric(n) for n in nodes),
             "no derived ratio metric (expected a metric composing other metrics by name, "
             "not a single query with the whole ratio inlined)",
         )
 
-    if variables.get("require_dimension_link") and not any(
-        n.get("dimension_links") for n in nodes
-    ):
-        problems.append(
+    if variables.get("require_dimension_link"):
+        checks.check(
+            any(n.get("dimension_links") for n in nodes),
             "no node declares `dimension_links` (the join should be a dim link)",
         )
 
     if variables.get("forbid_join"):
+        # One check per node, so partial credit shows how many queries are clean.
         for node in nodes:
-            if node.get("node_type") in ("metric", "transform") and _JOIN.search(
-                str(node.get("query") or ""),
-            ):
-                problems.append(
+            if node.get("node_type") in ("metric", "transform"):
+                checks.check(
+                    not _JOIN.search(str(node.get("query") or "")),
                     f"{node_rules.node_label(node)}: query contains a JOIN — joins belong "
                     f"in dimension links, not baked into the query",
                 )
 
     summary = ", ".join(f"{v}×{k}" for k, v in sorted(counts.items())) or "0 nodes"
-    if problems:
-        return {"pass": False, "score": 0, "reason": "; ".join(problems)}
-    return {"pass": True, "score": 1, "reason": f"valid deployment ({summary})"}
+    return checks.result(f"valid deployment ({summary})")

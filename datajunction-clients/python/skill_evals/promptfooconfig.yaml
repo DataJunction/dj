@@ -22,10 +22,21 @@ description: DataJunction skill behavioral evals
 # from OPENAI_BASE_URL / OPENAI_API_KEY — so unlike the built-in openai provider it does
 # NOT need its id templated. The llm-rubric grader below stays a native openai:chat
 # provider (gpt-4o committed default — run.sh swaps it to SKILL_EVAL_MODEL locally).
+# Every case runs in two arms, so a run reports what the skill *contributed* rather
+# than one absolute number: with-skill minus baseline is the skill's earned delta. The
+# baseline swaps the skill for a short control prompt (skill_prompt.CONTROL_SYSTEM).
+# Same id, distinct labels — narrow to one arm with `./run.sh --no-baseline`.
 providers:
   - id: file://provider.py
+    label: with-skill
     config:
       temperature: 0
+      skill_mode: full
+  - id: file://provider.py
+    label: baseline-no-skill
+    config:
+      temperature: 0
+      skill_mode: none
 
 prompts:
   - file://skill_prompt.py:build_prompt

@@ -29,21 +29,23 @@ def get_assert(output, context):
         }
 
     data = nodes[0]
-    problems = node_rules.validate_node(data, expected)
+    checks = node_rules.CheckRun()
+    node_rules.validate_node(data, checks, expected)
 
     query = str(data.get("query") or "")
     require = variables.get("require_in_query")
-    if require and not re.search(require, query):
-        problems.append(f"query does not match required pattern {require!r}")
+    if require:
+        checks.check(
+            bool(re.search(require, query)),
+            f"query does not match required pattern {require!r}",
+        )
     forbid = variables.get("forbid_in_query")
-    if forbid and re.search(forbid, query):
-        problems.append(f"query matches forbidden pattern {forbid!r}")
+    if forbid:
+        checks.check(
+            not re.search(forbid, query),
+            f"query matches forbidden pattern {forbid!r}",
+        )
 
-    if problems:
-        return {"pass": False, "score": 0, "reason": "; ".join(problems)}
-    node_type = data.get("node_type")
-    return {
-        "pass": True,
-        "score": 1,
-        "reason": f"valid {node_type} node per deployment schema",
-    }
+    return checks.result(
+        f"valid {data.get('node_type')} node per deployment schema",
+    )
