@@ -1,9 +1,6 @@
 """
-Project a deployment into the activations the check engine evaluates, one per
+Project a deployment into the bindings the check engine evaluates, one per
 entity, from the node spec and the plan's `existing_specs` and `node_graph`.
-
-Fixtures are built through the same projection, so a check that loads cannot
-then break on a real node.
 """
 
 from collections.abc import Iterable, Mapping, Sequence
@@ -18,7 +15,7 @@ from datajunction_server.database.tag import Tag
 
 from datajunction_server.enum import StrEnum
 from datajunction_server.internal.checks.context import (
-    Activation,
+    Bindings,
     Change,
     DeclaredProperties,
     LinkProjection,
@@ -54,8 +51,7 @@ def _is_sequence_field(annotation: Any) -> bool:
 
 def _spec_defaults(base: type[BaseModel], skip: frozenset[str]) -> dict[str, Any]:
     """
-    Every field on `base` or any subclass of it, with the empty value CEL should
-    read when this subclass does not have it.
+    Set default values for CEL reads.
     """
     defaults: dict[str, Any] = {}
     pending = [base]
@@ -76,8 +72,6 @@ def _spec_defaults(base: type[BaseModel], skip: frozenset[str]) -> dict[str, Any
 _NODE_DEFAULTS = _spec_defaults(NodeSpec, frozenset({"custom_metadata", "tags"}))
 _LINK_DEFAULTS = _spec_defaults(DimensionLinkSpec, frozenset())
 
-# A node the deploy leaves alone or removes is identical to its deployed state,
-# so `previous` is the same projection.
 _UNCHANGED_OPERATIONS = frozenset(
     {DeploymentResult.Operation.NOOP, DeploymentResult.Operation.DELETE},
 )
@@ -231,7 +225,7 @@ def project_dependency(
     return dict(project_node(spec, declared, tag_types), name=name)
 
 
-def build_activation(
+def build_bindings(
     spec: NodeSpec | None,
     *,
     previous: NodeSpec | None,
@@ -239,7 +233,7 @@ def build_activation(
     operation: DeploymentResult.Operation,
     declared: DeclaredProperties,
     tag_types: TagTypes,
-) -> Activation:
+) -> Bindings:
     node = project_node(spec, declared, tag_types)
     # An unchanged or removed node is its own previous state, so project once.
     projected_previous = (
@@ -247,7 +241,7 @@ def build_activation(
         if operation in _UNCHANGED_OPERATIONS
         else project_node(previous, declared, tag_types)
     )
-    return Activation(
+    return Bindings(
         node=node,
         previous=projected_previous,
         dependencies=[
@@ -258,7 +252,7 @@ def build_activation(
     )
 
 
-def build_fixtures(declared: DeclaredSchemas) -> list[Activation]:
+def build_fixtures(declared: DeclaredSchemas) -> list[Bindings]:
     """
     Two synthetic nodes for `load_checks` to evaluate every clause against.
 
@@ -312,7 +306,7 @@ def build_fixtures(declared: DeclaredSchemas) -> list[Activation]:
     )
     tag_types = {"fixture_tag": "fixture_tag_type"}
     return [
-        build_activation(
+        build_bindings(
             bare,
             previous=None,
             dependencies=[],
@@ -320,7 +314,7 @@ def build_fixtures(declared: DeclaredSchemas) -> list[Activation]:
             declared=declared.properties,
             tag_types=tag_types,
         ),
-        build_activation(
+        build_bindings(
             populated,
             previous=populated,
             dependencies=[("fixture.parent", bare)],

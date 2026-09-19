@@ -56,7 +56,7 @@ from datajunction_server.internal.custom_metadata import upsert_schema_specs
 from datajunction_server.internal.deployment.checks import (
     RulesetOutcome,
     RulesetVerdict,
-    build_activation,
+    build_bindings,
     build_fixtures,
     resolve_declared_schemas,
     resolve_tag_types,
@@ -701,7 +701,7 @@ class DeploymentOrchestrator:
         for spec, operation in entities:
             name = spec.rendered_name
             previous = plan.existing_specs.get(name)
-            activation = build_activation(
+            bindings = build_bindings(
                 spec,
                 previous=previous,
                 dependencies=self._checked_dependencies(plan, name, in_flight),
@@ -709,9 +709,9 @@ class DeploymentOrchestrator:
                 declared=declared.properties,
                 tag_types=tag_types,
             )
-            previous_activation = None
+            previous_bindings = None
             if wants_previous and previous is not None:
-                previous_activation = build_activation(
+                previous_bindings = build_bindings(
                     previous,
                     previous=previous,
                     dependencies=self._checked_dependencies(plan, name, {}),
@@ -719,7 +719,7 @@ class DeploymentOrchestrator:
                     declared=declared.properties,
                     tag_types=tag_types,
                 )
-            results = evaluate_checks(loaded.checks, activation, previous_activation)
+            results = evaluate_checks(loaded.checks, bindings, previous_bindings)
             for result in results:
                 if result.skipped:
                     continue
