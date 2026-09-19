@@ -14,8 +14,6 @@ VARIABLES: dict[str, Any] = {
     "node": _STR_MAP,
     "dependencies": cel.Type.List(_STR_MAP),
     "previous": _STR_MAP,
-    # Typed STRING so a guard like `change.kind == 'delete'` is known to
-    # compare strings at compile time.
     "change": cel.Type.Map(cel.Type.STRING, cel.Type.STRING),
 }
 
@@ -23,21 +21,43 @@ VARIABLES: dict[str, Any] = {
 # they are not spelled out here.
 NodeProjection = dict[str, Any]
 
+# One dimension link, its keys unioned across the link specs.
+LinkProjection = dict[str, Any]
+
+# Tag name -> the type the deploy resolved for it.
+TagTypes = Mapping[str, str]
+
+
+class TagProjection(TypedDict):
+    """One of a node's tags."""
+
+    name: str
+    tag_type: str
+
+
+class Change(TypedDict):
+    """What the deploy is doing to the node."""
+
+    kind: str
+
 
 class Activation(TypedDict):
     """
-    The values a check evaluates against: one per name in VARIABLES.
+    What one node's check evaluates against.
 
-    `previous` is the node as last deployed, and `change.kind` is the deploy's
-    operation on it: create, update, delete or noop. A node the deploy leaves
-    alone or removes is its own previous state, so `change` is the only way to
-    tell a removal from an untouched node.
+        node          the node as the manifest declares it
+        previous      the same node as currently deployed
+        dependencies  its upstreams, each projected like `node`
+        change.kind   create, update, delete or noop
+
+    A delete or a noop produces no new version, so `previous` repeats `node`.
+    Reading `change.kind` is the only way to tell those two apart.
     """
 
     node: NodeProjection
     previous: NodeProjection
     dependencies: list[NodeProjection]
-    change: dict[str, str]
+    change: Change
 
 
 # Read from the registered custom_metadata schemas.

@@ -19,8 +19,12 @@ from datajunction_server.database.tag import Tag
 from datajunction_server.enum import StrEnum
 from datajunction_server.internal.checks.context import (
     Activation,
+    Change,
     DeclaredProperties,
+    LinkProjection,
     NodeProjection,
+    TagProjection,
+    TagTypes,
     custom_metadata,
 )
 from datajunction_server.internal.checks.engine import CheckResult
@@ -128,10 +132,11 @@ async def resolve_tag_types(
     used: Iterable[str],
 ) -> dict[str, str]:
     """
-    The type of every tag the deploy's nodes carry.
+    Map each tag name the deploy's nodes use to its type.
 
-    Checks run before tags are written, so a tag this deploy defines is read
-    from the manifest and the rest are read from the stored tag.
+    A tag this deploy defines takes its type from the manifest, any other tag
+    from the stored tag. Checks run before tags are written, so the manifest is
+    the newer of the two wherever both exist.
     """
     declared = {spec.name: str(spec.tag_type or "") for spec in tag_specs}
     names = set(used) | set(declared)
@@ -150,7 +155,7 @@ async def resolve_tag_types(
 
 
 def _placeholder(subschema: Any) -> Any:
-    """A representative value for a declared property, typed from its schema."""
+    """A representative value for a declared property."""
     kind = str(subschema.get("type")) if isinstance(subschema, Mapping) else ""
     return {
         "integer": 1,
@@ -161,35 +166,31 @@ def _placeholder(subschema: Any) -> Any:
     }.get(kind, "placeholder")
 
 
-def project_link(dumped: Mapping[str, Any]) -> dict[str, Any]:
-    """
-    One dimension link, carrying every field either kind of link declares.
-
-    A join link and a reference link name their target differently, so both are
-    read through `dimension`.
-    """
+def project_link(dumped: Mapping[str, Any]) -> LinkProjection:
+    """One dimension link that unions together fields across join links and
+    reference links."""
     projected = {
         name: _cel_safe(dumped.get(name), empty)
         for name, empty in _LINK_DEFAULTS.items()
     }
+    # The two kinds name their target differently; both read through `dimension`.
     projected["dimension"] = (
         dumped.get("dimension") or dumped.get("dimension_node") or ""
     )
     return projected
 
 
-def project_tags(
-    names: Sequence[str],
-    tag_types: Mapping[str, str],
-) -> list[dict[str, str]]:
+def project_tags(names: Sequence[str], tag_types: TagTypes) -> list[TagProjection]:
     """A node's tags, each with the type the deploy resolved for it."""
-    return [{"name": name, "tag_type": tag_types.get(name, "")} for name in names]
+    return [
+        TagProjection(name=name, tag_type=tag_types.get(name, "")) for name in names
+    ]
 
 
 def project_node(
     spec: NodeSpec | None,
     declared: DeclaredProperties,
-    tag_types: Mapping[str, str],
+    tag_types: TagTypes,
 ) -> NodeProjection:
     """
     Project one node spec into the `node` binding. None means no such node.
@@ -221,7 +222,7 @@ def project_dependency(
     name: str,
     spec: NodeSpec | None,
     declared: DeclaredProperties,
-    tag_types: Mapping[str, str],
+    tag_types: TagTypes,
 ) -> NodeProjection:
     """
     One upstream, in the same shape as `node`. An upstream the deployment does
@@ -237,7 +238,7 @@ def build_activation(
     dependencies: Sequence[tuple[str, NodeSpec | None]],
     operation: DeploymentResult.Operation,
     declared: DeclaredProperties,
-    tag_types: Mapping[str, str],
+    tag_types: TagTypes,
 ) -> Activation:
     node = project_node(spec, declared, tag_types)
     # An unchanged or removed node is its own previous state, so project once.
@@ -253,7 +254,7 @@ def build_activation(
             project_dependency(name, dependency, declared, tag_types)
             for name, dependency in dependencies
         ],
-        change={"kind": str(operation.value)},
+        change=Change(kind=str(operation.value)),
     )
 
 
