@@ -41,14 +41,10 @@ def _is_sequence_field(annotation: Any) -> bool:
     return any(get_origin(arg) is list for arg in get_args(annotation))
 
 
-def _node_spec_defaults() -> dict[str, Any]:
+def _node_spec_defaults() -> NodeProjection:
     """
     Every field on any node spec, with the empty value CEL should read when this
-    subclass does not have it.
-
-    A list field has to default to a list: a metric has no `dimension_links`,
-    and a check calling `.all()` on the empty string would fail where it should
-    trivially pass.
+    subclass does not have it. custom_metadata is filled in per node instead.
     """
     defaults: dict[str, Any] = {}
     pending = [NodeSpec]
@@ -75,12 +71,7 @@ _UNCHANGED_OPERATIONS = frozenset(
 
 
 def _cel_safe(value: Any, empty: Any = "") -> Any:
-    """
-    Coerce a dumped value into something CEL can read.
-
-    None becomes the field's empty value rather than null, so a check reading an
-    unset field does not have to guard every one.
-    """
+    """Coerce a dumped value into something CEL can read."""
     if value is None:
         return empty
     if isinstance(value, (StrEnum, NodeType)):
@@ -108,8 +99,7 @@ async def resolve_declared_schemas(
 ) -> DeclaredSchemas:
     """
     Union the declared property names per metadata key across the deploy's node
-    types. Checks compile once per deploy, so the vocabulary has to be one
-    thing; a property declared only for metrics reads as null elsewhere.
+    types.
     """
     declared = DeclaredSchemas()
     for node_type in sorted(set(node_types)):
@@ -183,20 +173,27 @@ def build_activation(
     projected_previous = (
         node if operation in _UNCHANGED_OPERATIONS else project_node(previous, declared)
     )
-    return {
-        "node": node,
-        "dependencies": [
+    return Activation(
+        node=node,
+        previous=projected_previous,
+        dependencies=[
             project_dependency(name, dependency, declared)
             for name, dependency in dependencies
         ],
-        "previous": projected_previous,
-        "change": {"kind": str(operation.value)},
-    }
+        change={"kind": str(operation.value)},
+    )
 
 
 def build_fixtures(declared: DeclaredSchemas) -> list[Activation]:
-    """One empty node and one fully populated, so both branches of a clause are
-    exercised at load."""
+    """
+    Two synthetic nodes for `load_checks` to evaluate every clause against.
+
+    Compiling is not enough to catch a misspelled custom_metadata property:
+    custom_metadata is map<string, dyn>, so any path type-checks. Running each
+    clause turns that into a config-load failure instead of a silent error on
+    every real node. One node is bare and one fully populated, so a clause that
+    only breaks on one of them is caught too.
+    """
     populated_metadata = {
         key: dict(placeholders)
         for key, placeholders in declared.placeholders.items()
@@ -258,7 +255,7 @@ class RulesetVerdict(StrEnum):
     FAILED = "failed"
     # Every member was skipped, so the bundle asserted nothing. Not the same
     # as vacuously passing.
-    NOT_APPLICABLE = "not applicable"
+    NOT_APPLICABLE = "not_applicable"
 
 
 @dataclass

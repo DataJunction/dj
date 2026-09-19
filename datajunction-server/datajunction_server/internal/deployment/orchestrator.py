@@ -811,8 +811,11 @@ class DeploymentOrchestrator:
     @staticmethod
     def _ruleset_message(outcome: RulesetOutcome) -> str:
         if outcome.verdict == RulesetVerdict.NOT_APPLICABLE:
-            detail = "no member check applied here"
-        elif outcome.failed:
+            return (
+                f"Ruleset '{outcome.ruleset}' not applicable: "
+                "no member check applied here."
+            )
+        if outcome.failed:
             detail = f"failing checks: {', '.join(sorted(outcome.failed))}"
         else:
             detail = f"{len(outcome.ran)} member check(s) passed"

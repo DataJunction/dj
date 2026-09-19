@@ -21,11 +21,8 @@ CHECKS = [
     ),
     CheckSpec(
         name="demo.owner_present",
-        description="At least one owner, with a resolvable email.",
-        condition=(
-            "size(node.owners) >= 1"
-            " && node.owners.all(o, o.email != null && o.email != '')"
-        ),
+        description="At least one owner, each a non-empty username.",
+        condition="size(node.owners) >= 1 && node.owners.all(o, o != '')",
         gate=CheckGate.WARN,
     ),
     CheckSpec(
@@ -36,9 +33,9 @@ CHECKS = [
         gate=CheckGate.BLOCK,
     ),
     CheckSpec(
-        name="demo.flavour_tagged",
-        description="A flavour tag is set.",
-        condition="node.tags.exists(t, t.tag_type == 'flavour')",
+        name="demo.tagged",
+        description="At least one tag is set.",
+        condition="node.tags.exists(t, t != '')",
         gate=CheckGate.WARN,
     ),
     CheckSpec(
