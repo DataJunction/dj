@@ -1,10 +1,9 @@
 """
-Project a deployment into the activations the check engine evaluates.
+Project a deployment into the activations the check engine evaluates, one per
+entity, from the node spec and the plan's `existing_specs` and `node_graph`.
 
-The engine takes one activation per entity; a deploy already carries the shapes
-it needs — the node spec, the plan's `existing_specs` and `node_graph` — so the
-work here is projecting them. The same projection builds the fixtures the checks
-are compiled against, so a check that loads cannot then break on a real node.
+Fixtures are built through the same projection, so a check that loads cannot
+then break on a real node.
 """
 
 from collections.abc import Iterable, Mapping, Sequence
@@ -31,8 +30,8 @@ from datajunction_server.models.deployment import (
 )
 from datajunction_server.models.node_type import NodeType
 
-# Keys every node projection carries, so a check reading one against a node that
-# has no such field gets an empty value rather than an evaluation error.
+# Every projection carries these, so reading one off a missing node gives an
+# empty value rather than an evaluation error.
 _ABSENT_NODE: dict[str, Any] = {
     "name": "",
     "type": "",
@@ -53,8 +52,7 @@ class DeclaredSchemas:
     """The custom_metadata vocabulary a deploy's checks are compiled against."""
 
     properties: dict[str, tuple[str, ...]] = field(default_factory=dict)
-    # One representative value per declared property, typed from its schema, so
-    # a numeric comparison survives the populated fixture.
+    # Typed from the schema, so a numeric comparison survives the fixture.
     placeholders: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
@@ -65,9 +63,8 @@ async def resolve_declared_schemas(
 ) -> DeclaredSchemas:
     """
     Union the declared property names per metadata key across the deploy's node
-    types. Checks compile once for the whole deploy, so the vocabulary has to be
-    one thing: a property declared only for metrics simply reads as null on a
-    dimension, which is the right "not set" answer.
+    types. Checks compile once per deploy, so the vocabulary has to be one
+    thing; a property declared only for metrics reads as null elsewhere.
     """
     declared = DeclaredSchemas()
     for node_type in sorted(set(node_types)):
@@ -173,11 +170,8 @@ def build_activation(
 
 
 def build_fixtures(declared: DeclaredSchemas) -> list[Activation]:
-    """
-    One bare node and one with every field populated, so both branches of a
-    clause are exercised at load. Built through the projection a real deploy
-    uses, so the two shapes cannot drift.
-    """
+    """One empty node and one fully populated, so both branches of a clause are
+    exercised at load."""
     populated_metadata = {
         key: dict(placeholders)
         for key, placeholders in declared.placeholders.items()
@@ -237,8 +231,8 @@ class RulesetVerdict(StrEnum):
 
     PASSED = "passed"
     FAILED = "failed"
-    # Every member check was excluded by its own `when`, so the bundle asserted
-    # nothing here. Not the same as vacuously passing.
+    # Every member was skipped, so the bundle asserted nothing. Not the same
+    # as vacuously passing.
     NOT_APPLICABLE = "not applicable"
 
 
@@ -258,8 +252,7 @@ def roll_up(
 ) -> list[RulesetOutcome]:
     """
     Aggregate one entity's check results into a verdict per ruleset. Membership
-    is the flat set the manifest resolved, so `includes` is already expanded and
-    passing a tier implies passing every tier it builds on.
+    is the flat set the manifest resolved, so `includes` is already expanded.
     """
     outcomes = []
     for name, ruleset in rulesets.items():
@@ -284,11 +277,7 @@ def roll_up(
 def unsupported_ruleset_guards(
     rulesets: Mapping[str, ResolvedRuleset],
 ) -> list[MalformedCheck]:
-    """
-    A ruleset `when` scopes the bundle to part of the graph, and nothing here
-    applies that scoping yet. Refusing beats quietly enforcing the ruleset's
-    checks everywhere, or nowhere.
-    """
+    """Refuse a ruleset `when`, since nothing applies that scoping yet."""
     return [
         MalformedCheck(
             check=f"ruleset {name}",

@@ -169,8 +169,7 @@ from datajunction_server.utils import (
 
 logger = logging.getLogger(__name__)
 
-# A ruleset verdict reports; it never blocks, so a failed roll-up is still only
-# as loud as the gates of the member checks that produced it.
+# A ruleset verdict reports only; what blocks is the member checks' gates.
 _RULESET_STATUSES = {
     RulesetVerdict.PASSED: DeploymentResult.Status.SUCCESS,
     RulesetVerdict.FAILED: DeploymentResult.Status.FAILED,
@@ -648,8 +647,8 @@ class DeploymentOrchestrator:
     async def _run_governance_checks(self, plan: DeploymentPlan) -> None:
         """
         Compile the manifest's checks once, then evaluate them against every node
-        the deploy declares or removes. Runs before any of the plan is applied, so
-        a blocking failure refuses the deploy rather than undoing it.
+        the deploy declares or removes. Runs before the plan is applied, so a
+        blocking failure refuses the deploy rather than undoing it.
         """
         if not self.deployment_spec.checks:
             return
@@ -684,8 +683,7 @@ class DeploymentOrchestrator:
             )
         descriptions = {check.name: check.description for check in loaded.checks}
         in_flight = {spec.rendered_name: spec for spec in plan.to_deploy}
-        # The previous state only matters to block_on_regression, and projecting
-        # it is not free, so build it only where some check asks for it.
+        # Only block_on_regression reads it, and projecting is not free.
         wants_previous = any(
             check.gate == CheckGate.BLOCK_ON_REGRESSION for check in loaded.checks
         )
@@ -740,7 +738,7 @@ class DeploymentOrchestrator:
                     ),
                 )
 
-            # Reporting only: what blocks is the per-check gate, above.
+            # Reporting only.
             for outcome in roll_up(manifest.rulesets, results):
                 self.deployed_results.append(
                     DeploymentResult(
