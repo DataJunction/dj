@@ -323,7 +323,9 @@ def resolve_git_info_from_map(
         "default_branch": default_branch,
         "path": config_ns.git_path,
         "is_default_branch": (
-            branch is None  # root namespace — no branch means it IS the default
+            # No branch means default only when this namespace IS the git
+            # root itself — not merely when no ancestor has git_branch set.
+            (branch is None and config_ns.namespace == namespace)
             or (default_branch is not None and branch == default_branch)
         ),
         "parent_namespace": branch_ns.parent_namespace if branch_ns else None,
