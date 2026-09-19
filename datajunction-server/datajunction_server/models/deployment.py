@@ -1,5 +1,5 @@
 import json
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from enum import Enum, IntEnum
 from typing import Annotated, Any, ClassVar, Literal
 
@@ -1544,6 +1544,40 @@ class CustomMetadataSchemaSpec(BaseModel):
     description: str | None = None
 
 
+class DeploymentCheckSpec(BaseModel):
+    """
+    Specification for a governance check declared by a manifest.
+
+    `when` and `condition` are CEL source, kept as written: they are compiled and
+    vetted by the evaluation layer at config load, so a malformed expression is
+    reported there rather than raising while the manifest is parsed. `gate` is a
+    plain string for the same reason -- an unrecognized gate comes back as a
+    malformed check, not a parse error.
+    """
+
+    name: str
+    condition: str
+    gate: str
+    when: str | None = None
+    description: str = ""
+
+
+class DeploymentRulesetSpec(BaseModel):
+    """
+    Specification for a named bundle of checks.
+
+    `includes` names other rulesets whose checks are folded in, expanded
+    transitively. `when` guards the whole bundle, which is how a ruleset rolls
+    out to part of a namespace's graph before it governs all of it.
+    """
+
+    name: str
+    checks: list[str] = Field(default_factory=list)
+    includes: list[str] = Field(default_factory=list)
+    display_name: str | None = None
+    when: str | None = None
+
+
 class GitDeploymentSource(BaseModel):
     """
     Deployment from a tracked git repository.
@@ -1648,6 +1682,10 @@ class DeploymentSpec(BaseModel):
     # namespace's rows. A list default would make every deployment that omits
     # the section look like the latter.
     custom_metadata_schemas: list[CustomMetadataSchemaSpec] | None = None
+    # Read at deploy time and never persisted, so None and [] mean the same
+    # thing here: no checks to run.
+    checks: list[DeploymentCheckSpec] | None = None
+    rulesets: list[DeploymentRulesetSpec] | None = None
     source: DeploymentSource | None = None  # CI/CD provenance tracking
     git_config: NamespaceGitConfig | None = None  # Git branch management config
     force: bool = Field(
@@ -1734,6 +1772,74 @@ class DeploymentSpec(BaseModel):
                     ),
                 )
         return self
+
+    @model_validator(mode="after")
+    def validate_checks(self):
+        """
+        Vet the shape of the `checks` and `rulesets` blocks: names are unique, and
+        every reference resolves. The expressions themselves are the evaluation
+        layer's business.
+        """
+        check_names = _unique_names(self.checks or [], "check")
+        ruleset_names = _unique_names(self.rulesets or [], "ruleset")
+
+        for ruleset in self.rulesets or []:
+            for check in ruleset.checks:
+                if check not in check_names:
+                    raise DJInvalidDeploymentConfig(
+                        message=(
+                            f"Ruleset '{ruleset.name}' names check '{check}', which "
+                            "is not declared in this manifest's `checks` block."
+                        ),
+                    )
+            for included in ruleset.includes:
+                if included not in ruleset_names:
+                    raise DJInvalidDeploymentConfig(
+                        message=(
+                            f"Ruleset '{ruleset.name}' includes ruleset "
+                            f"'{included}', which is not declared in this "
+                            "manifest's `rulesets` block."
+                        ),
+                    )
+        _reject_include_cycles(self.rulesets or [])
+        return self
+
+
+def _unique_names(specs: Iterable[Any], label: str) -> set[str]:
+    """Collect spec names, rejecting duplicates."""
+    names: set[str] = set()
+    for spec in specs:
+        if spec.name in names:
+            raise DJInvalidDeploymentConfig(
+                message=f"Duplicate {label} name '{spec.name}' in this manifest.",
+            )
+        names.add(spec.name)
+    return names
+
+
+def _reject_include_cycles(rulesets: Sequence["DeploymentRulesetSpec"]) -> None:
+    """
+    Depth-first walk of the `includes` graph, reporting the first cycle found.
+    `path` is the current chain, so a repeat within it is the cycle itself,
+    while `resolved` holds rulesets already cleared by an earlier walk.
+    """
+    by_name = {ruleset.name: ruleset for ruleset in rulesets}
+    resolved: set[str] = set()
+
+    def walk(name: str, path: list[str]) -> None:
+        if name in path:
+            cycle = " -> ".join([*path[path.index(name) :], name])
+            raise DJInvalidDeploymentConfig(
+                message=f"Ruleset includes form a cycle: {cycle}.",
+            )
+        if name in resolved:
+            return
+        for included in by_name[name].includes:
+            walk(included, [*path, name])
+        resolved.add(name)
+
+    for ruleset in rulesets:
+        walk(ruleset.name, [])
 
 
 class VersionedNode(BaseModel):
