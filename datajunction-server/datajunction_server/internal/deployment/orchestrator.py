@@ -54,9 +54,12 @@ from datajunction_server.internal.checks.manifest import to_manifest_checks
 from datajunction_server.internal.checks.validator import CheckGate, load_checks
 from datajunction_server.internal.custom_metadata import upsert_schema_specs
 from datajunction_server.internal.deployment.checks import (
+    RulesetOutcome,
+    RulesetVerdict,
     build_activation,
     build_fixtures,
     resolve_declared_schemas,
+    roll_up,
     unsupported_ruleset_guards,
 )
 from datajunction_server.internal.deployment.dimension_reachability import (
@@ -165,6 +168,14 @@ from datajunction_server.utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+# A ruleset verdict reports; it never blocks, so a failed roll-up is still only
+# as loud as the gates of the member checks that produced it.
+_RULESET_STATUSES = {
+    RulesetVerdict.PASSED: DeploymentResult.Status.SUCCESS,
+    RulesetVerdict.FAILED: DeploymentResult.Status.FAILED,
+    RulesetVerdict.NOT_APPLICABLE: DeploymentResult.Status.SKIPPED,
+}
 
 
 def _version_key(version: str) -> tuple[int, int]:
@@ -699,11 +710,8 @@ class DeploymentOrchestrator:
                     change={"is_new": False, "is_removal": False},
                     declared=declared.properties,
                 )
-            for result in evaluate_checks(
-                loaded.checks,
-                activation,
-                previous_activation,
-            ):
+            results = evaluate_checks(loaded.checks, activation, previous_activation)
+            for result in results:
                 if result.skipped:
                     continue
                 message = self._check_message(result, descriptions[result.check])
@@ -725,10 +733,22 @@ class DeploymentOrchestrator:
                 self.deployed_results.append(
                     DeploymentResult(
                         name=name,
-                        deploy_type=DeploymentResult.Type.GENERAL,
+                        deploy_type=DeploymentResult.Type.CHECK,
                         status=self._check_status(result),
                         operation=DeploymentResult.Operation.NOOP,
                         message=message,
+                    ),
+                )
+
+            # Reporting only: what blocks is the per-check gate, above.
+            for outcome in roll_up(manifest.rulesets, results):
+                self.deployed_results.append(
+                    DeploymentResult(
+                        name=name,
+                        deploy_type=DeploymentResult.Type.RULESET,
+                        status=_RULESET_STATUSES[outcome.verdict],
+                        operation=DeploymentResult.Operation.NOOP,
+                        message=self._ruleset_message(outcome),
                     ),
                 )
 
@@ -786,6 +806,16 @@ class DeploymentOrchestrator:
         verdict = "passed" if result.passed else "failed"
         detail = f" {description}" if description else ""
         return f"Check '{result.check}' ({result.gate}) {verdict}.{detail}"
+
+    @staticmethod
+    def _ruleset_message(outcome: RulesetOutcome) -> str:
+        if outcome.verdict == RulesetVerdict.NOT_APPLICABLE:
+            detail = "no member check applied here"
+        elif outcome.failed:
+            detail = f"failing checks: {', '.join(sorted(outcome.failed))}"
+        else:
+            detail = f"{len(outcome.ran)} member check(s) passed"
+        return f"Ruleset '{outcome.ruleset}' {outcome.verdict}: {detail}."
 
     async def _update_deployment_status(self):
         """

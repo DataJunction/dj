@@ -13,10 +13,12 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.enum import StrEnum
 from datajunction_server.internal.checks.context import (
     DeclaredProperties,
     custom_metadata,
 )
+from datajunction_server.internal.checks.engine import CheckResult
 from datajunction_server.internal.checks.manifest import ResolvedRuleset
 from datajunction_server.internal.checks.validator import Activation, MalformedCheck
 from datajunction_server.internal.custom_metadata import resolve_schemas
@@ -228,6 +230,55 @@ def build_fixtures(declared: DeclaredSchemas) -> list[Activation]:
             declared=declared.properties,
         ),
     ]
+
+
+class RulesetVerdict(StrEnum):
+    """One ruleset's roll-up over one entity."""
+
+    PASSED = "passed"
+    FAILED = "failed"
+    # Every member check was excluded by its own `when`, so the bundle asserted
+    # nothing here. Not the same as vacuously passing.
+    NOT_APPLICABLE = "not applicable"
+
+
+@dataclass
+class RulesetOutcome:
+    """A ruleset's verdict for one entity, and the member checks behind it."""
+
+    ruleset: str
+    verdict: RulesetVerdict
+    ran: tuple[str, ...]
+    failed: tuple[str, ...]
+
+
+def roll_up(
+    rulesets: Mapping[str, ResolvedRuleset],
+    results: Sequence[CheckResult],
+) -> list[RulesetOutcome]:
+    """
+    Aggregate one entity's check results into a verdict per ruleset. Membership
+    is the flat set the manifest resolved, so `includes` is already expanded and
+    passing a tier implies passing every tier it builds on.
+    """
+    outcomes = []
+    for name, ruleset in rulesets.items():
+        ran = tuple(
+            result.check
+            for result in results
+            if result.check in ruleset.checks and not result.skipped
+        )
+        failed = tuple(
+            result.check
+            for result in results
+            if result.check in ran and not result.passed
+        )
+        if not ran:
+            verdict = RulesetVerdict.NOT_APPLICABLE
+        else:
+            verdict = RulesetVerdict.FAILED if failed else RulesetVerdict.PASSED
+        outcomes.append(RulesetOutcome(name, verdict, ran, failed))
+    return outcomes
 
 
 def unsupported_ruleset_guards(

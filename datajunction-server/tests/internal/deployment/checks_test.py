@@ -82,7 +82,15 @@ def check_rows(orchestrator) -> list[DeploymentResult]:
     return [
         result
         for result in orchestrator.deployed_results
-        if result.deploy_type == DeploymentResult.Type.GENERAL
+        if result.deploy_type == DeploymentResult.Type.CHECK
+    ]
+
+
+def ruleset_rows(orchestrator) -> list[DeploymentResult]:
+    return [
+        result
+        for result in orchestrator.deployed_results
+        if result.deploy_type == DeploymentResult.Type.RULESET
     ]
 
 
@@ -293,7 +301,7 @@ async def test_ruleset_when_guard_is_refused(session, current_user):
 
 
 @pytest.mark.asyncio
-async def test_a_ruleset_without_a_guard_is_accepted(session, current_user):
+async def test_a_ruleset_passes_when_every_member_check_passed(session, current_user):
     orchestrator = make_orchestrator(
         session,
         current_user,
@@ -312,6 +320,198 @@ async def test_a_ruleset_without_a_guard_is_accepted(session, current_user):
         make_plan(to_deploy=[transform("one", owners=["someone"])]),
     )
     assert check_rows(orchestrator)[0].status == DeploymentResult.Status.SUCCESS
+    (verdict,) = ruleset_rows(orchestrator)
+    assert verdict.name == f"{NAMESPACE}.one"
+    assert verdict.status == DeploymentResult.Status.SUCCESS
+    assert verdict.message == "Ruleset 'baseline' passed: 1 member check(s) passed."
+
+
+@pytest.mark.asyncio
+async def test_a_ruleset_fails_when_a_member_check_failed(session, current_user):
+    """The gate is warn, so the deploy still runs; the roll-up still says failed."""
+    orchestrator = make_orchestrator(
+        session,
+        current_user,
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.owner_present",
+                condition="size(node.owners) >= 1",
+                gate="warn",
+            ),
+            DeploymentCheckSpec(
+                name="demo.description_present",
+                condition="node.description != ''",
+                gate="warn",
+            ),
+        ],
+        rulesets=[
+            DeploymentRulesetSpec(
+                name="baseline",
+                checks=["demo.owner_present", "demo.description_present"],
+            ),
+        ],
+    )
+    await orchestrator._run_governance_checks(
+        make_plan(to_deploy=[transform("one", owners=["someone"])]),
+    )
+    (verdict,) = ruleset_rows(orchestrator)
+    assert verdict.status == DeploymentResult.Status.FAILED
+    assert "demo.description_present" in verdict.message
+    assert "demo.owner_present" not in verdict.message
+
+
+@pytest.mark.asyncio
+async def test_a_skipped_member_does_not_fail_its_ruleset(session, current_user):
+    """A check whose `when` excluded the node asserted nothing about it."""
+    orchestrator = make_orchestrator(
+        session,
+        current_user,
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.owner_present",
+                condition="size(node.owners) >= 1",
+                gate="warn",
+            ),
+            DeploymentCheckSpec(
+                name="demo.primary_key_set",
+                when="node.type == 'metric'",
+                condition="size(node.primary_key) >= 1",
+                gate="warn",
+            ),
+        ],
+        rulesets=[
+            DeploymentRulesetSpec(
+                name="baseline",
+                checks=["demo.owner_present", "demo.primary_key_set"],
+            ),
+        ],
+    )
+    await orchestrator._run_governance_checks(
+        make_plan(to_deploy=[transform("one", owners=["someone"])]),
+    )
+    (verdict,) = ruleset_rows(orchestrator)
+    assert verdict.status == DeploymentResult.Status.SUCCESS
+    assert verdict.message == "Ruleset 'baseline' passed: 1 member check(s) passed."
+
+
+@pytest.mark.asyncio
+async def test_a_ruleset_is_not_applicable_when_every_member_was_skipped(
+    session,
+    current_user,
+):
+    """Nothing asserted is not the same as everything satisfied."""
+    orchestrator = make_orchestrator(
+        session,
+        current_user,
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.primary_key_set",
+                when="node.type == 'metric'",
+                condition="size(node.primary_key) >= 1",
+                gate="warn",
+            ),
+        ],
+        rulesets=[
+            DeploymentRulesetSpec(name="baseline", checks=["demo.primary_key_set"]),
+        ],
+    )
+    await orchestrator._run_governance_checks(
+        make_plan(to_deploy=[transform("one")]),
+    )
+    assert check_rows(orchestrator) == []
+    (verdict,) = ruleset_rows(orchestrator)
+    assert verdict.status == DeploymentResult.Status.SKIPPED
+    assert verdict.message == (
+        "Ruleset 'baseline' not applicable: no member check applied here."
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_nested_ruleset_rolls_up_what_it_includes(session, current_user):
+    """Passing `certified` means passing everything `baseline` asserts, too."""
+    orchestrator = make_orchestrator(
+        session,
+        current_user,
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.owner_present",
+                condition="size(node.owners) >= 1",
+                gate="warn",
+            ),
+            DeploymentCheckSpec(
+                name="demo.description_present",
+                condition="node.description != ''",
+                gate="warn",
+            ),
+        ],
+        rulesets=[
+            DeploymentRulesetSpec(name="baseline", checks=["demo.owner_present"]),
+            DeploymentRulesetSpec(
+                name="certified",
+                includes=["baseline"],
+                checks=["demo.description_present"],
+            ),
+        ],
+    )
+    await orchestrator._run_governance_checks(
+        make_plan(to_deploy=[transform("one", owners=["someone"])]),
+    )
+    verdicts = {
+        row.message.split("'")[1]: row.status for row in ruleset_rows(orchestrator)
+    }
+    assert verdicts == {
+        "baseline": DeploymentResult.Status.SUCCESS,
+        "certified": DeploymentResult.Status.FAILED,
+    }
+
+
+@pytest.mark.asyncio
+async def test_every_node_gets_a_verdict_for_every_ruleset(session, current_user):
+    orchestrator = make_orchestrator(
+        session,
+        current_user,
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.owner_present",
+                condition="size(node.owners) >= 1",
+                gate="warn",
+            ),
+        ],
+        rulesets=[
+            DeploymentRulesetSpec(name="baseline", checks=["demo.owner_present"]),
+        ],
+    )
+    await orchestrator._run_governance_checks(
+        make_plan(
+            to_deploy=[transform("one", owners=["someone"]), transform("two")],
+        ),
+    )
+    assert [(row.name, row.status) for row in ruleset_rows(orchestrator)] == [
+        (f"{NAMESPACE}.one", DeploymentResult.Status.SUCCESS),
+        (f"{NAMESPACE}.two", DeploymentResult.Status.FAILED),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_ruleset_verdict_never_blocks_the_deploy(session, current_user):
+    """Blocking is the member checks' gates; the roll-up only reports."""
+    orchestrator = make_orchestrator(
+        session,
+        current_user,
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.owner_present",
+                condition="size(node.owners) >= 1",
+                gate="warn",
+            ),
+        ],
+        rulesets=[
+            DeploymentRulesetSpec(name="baseline", checks=["demo.owner_present"]),
+        ],
+    )
+    await orchestrator._run_governance_checks(make_plan(to_deploy=[transform("one")]))
+    assert ruleset_rows(orchestrator)[0].status == DeploymentResult.Status.FAILED
+    assert orchestrator.errors == []
 
 
 @pytest.mark.asyncio

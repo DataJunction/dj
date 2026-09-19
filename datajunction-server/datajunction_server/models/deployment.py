@@ -1914,6 +1914,10 @@ class DeploymentResult(BaseModel):
         PREAGG = "preaggregation"
         MATERIALIZATION = "materialization"
         GENERAL = "general"
+        # One governance check against one node, and a ruleset's roll-up over
+        # the member checks that ran on it.
+        CHECK = "check"
+        RULESET = "ruleset"
 
     name: str
     deploy_type: Type
