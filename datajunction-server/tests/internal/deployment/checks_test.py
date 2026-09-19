@@ -27,6 +27,7 @@ from datajunction_server.models.deployment import (
     DeploymentSpec,
     DimensionSpec,
     MetricSpec,
+    NodeSpec,
     TransformSpec,
 )
 from datajunction_server.models.node_type import NodeType
@@ -749,3 +750,36 @@ def test_only_guarded_rulesets_are_refused():
     (refused,) = unsupported_ruleset_guards(rulesets)
     assert refused.check == "ruleset strict"
     assert refused.clause == "when"
+
+
+def test_every_node_spec_field_is_projected():
+    """
+    A new field on any node spec becomes visible to checks without anyone
+    remembering to add it here.
+    """
+    declared: set[str] = set()
+    pending = [NodeSpec]
+    while pending:
+        cls = pending.pop()
+        declared |= set(cls.model_fields)
+        pending.extend(cls.__subclasses__())
+
+    projected = set(project_node(None, {}))
+    assert declared - projected == set()
+
+
+def test_a_subclass_without_a_field_still_projects_it_empty():
+    """
+    A metric has no dimension links, and a list field must project as a list:
+    `.all()` on the empty string would fail where it should trivially pass.
+    """
+    metric = project_node(
+        MetricSpec(name="m", node_type="metric", query="SELECT 1"), {}
+    )
+    dimension = project_node(
+        DimensionSpec(name="d", node_type="dimension", query="SELECT 1"),
+        {},
+    )
+    assert set(metric) == set(dimension) == set(project_node(None, {}))
+    assert metric["dimension_links"] == []
+    assert metric["catalog"] == ""
