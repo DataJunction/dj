@@ -640,8 +640,6 @@ class DeploymentOrchestrator:
         Setup all deployment-level resources
         """
         self.registry.set_namespaces(await self._setup_namespaces())
-        # Claims first: a manifest may claim a tag type and create tags of that type
-        # in the same deploy, which only works if the claim is already recorded.
         if self.deployment_spec.managed_tag_types is not None:
             await upsert_tag_type_claims(
                 self.session,
@@ -1091,9 +1089,6 @@ class DeploymentOrchestrator:
                 ),
             )
 
-        # A type another namespace claims can only be given to new tags there.
-        # Existing tags are left alone: a claim records ownership, it does not
-        # migrate the tags already carrying the type.
         new_specs = {
             name: spec
             for name, spec in deployment_tag_specs.items()

@@ -41,9 +41,7 @@ router = SecureAPIRouter(tags=["tags"])
 
 
 async def with_owner(session: AsyncSession, tag: Tag) -> TagOutput:
-    """
-    Tag output carrying the namespace that claims its type, if any.
-    """
+    """Tag output carrying the namespace that claims its type, if any."""
     output = TagOutput.model_validate(tag)
     output.owned_by_namespace = await claim_owner(session, tag.tag_type)
     return output

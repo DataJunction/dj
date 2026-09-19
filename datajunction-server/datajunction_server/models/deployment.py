@@ -1585,14 +1585,9 @@ class TagTypeClaimSpec(BaseModel):
     """
     Specification for a tag type this deployment manages.
 
-    A managed type can only be created by deployments of the managing namespace, which
-    is how a governed vocabulary -- one synced from an external taxonomy, say -- stops
-    accumulating entries from callers that do not own it. The namespace defaults to the
-    enclosing DeploymentSpec's; naming a sub-namespace narrows it, and a namespace
-    outside the deploying one is rejected.
+    Tags of a managed type can only be created by the managing namespace.
 
-    A bare string is the common case, so `managed_tag_types: [domain]` and
-    `[{tag_type: domain}]` mean the same thing.
+    `managed_tag_types: [domain]` and `[{tag_type: domain}]` mean the same thing.
     """
 
     tag_type: str
@@ -1710,8 +1705,6 @@ class DeploymentSpec(BaseModel):
     custom_metadata_schemas: list[CustomMetadataSchemaSpec] | None = None
     checks: list[DeploymentCheckSpec] | None = None
     rulesets: list[DeploymentRulesetSpec] | None = None
-    # None and [] differ here too: None leaves existing claims alone, [] releases the
-    # ones this namespace holds, so a vocabulary can move to another repo.
     managed_tag_types: list[TagTypeClaimSpec] | None = None
     source: DeploymentSource | None = None  # CI/CD provenance tracking
     git_config: NamespaceGitConfig | None = None  # Git branch management config
@@ -1804,8 +1797,6 @@ class DeploymentSpec(BaseModel):
             elif claim.namespace != self.namespace and not claim.namespace.startswith(
                 f"{self.namespace}.",
             ):
-                # Narrower than the deploying namespace is a rollout choice;
-                # wider, or sideways, would let one repo govern another's tags.
                 raise DJInvalidDeploymentConfig(
                     message=(
                         f"Managed tag type '{claim.tag_type}' declares namespace "

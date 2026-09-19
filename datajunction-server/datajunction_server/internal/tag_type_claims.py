@@ -22,12 +22,11 @@ def is_within(namespace: str, scope: str) -> bool:
 
 async def resolve_claim_namespace(session: AsyncSession, namespace: str) -> str:
     """
-    The namespace that owns a claim declared while deploying *namespace*.
+    The namespace to record a claim under when deploying *namespace*.
 
-    A branch namespace holds nothing durable, so a claim declared from one belongs to
-    the namespace the branch hangs off of -- otherwise every feature branch would own
-    the vocabularies it deploys, and lose them when it is deleted. A governed boundary
-    is its own authority, so the walk stops there rather than escaping the boundary.
+    Deploying `taxonomy.mybranch` records the claim under `taxonomy`, so the claim
+    outlives the branch. Follows `parent_namespace` upward, stopping at the first
+    governed namespace or at one with no parent.
     """
     seen: set[str] = set()
     current = namespace
@@ -60,23 +59,7 @@ async def upsert_tag_type_claims(
     *,
     current_user_id: int,
 ) -> None:
-    """
-    Reconcile the claims held under *namespace* to exactly *specs*.
-
-    A spec carries its own namespace, defaulted to the deployment's by
-    `DeploymentSpec.set_namespaces` and constrained there to that namespace or one
-    beneath it. Each is resolved through the namespace hierarchy before it is stored,
-    so the recorded owner is the durable namespace rather than whichever branch ran
-    the deploy.
-
-    A type another namespace already claims fails the deployment: last-writer-wins
-    would silently hand a governed vocabulary to whoever deployed most recently. A
-    type this namespace holds but no longer declares is released, so a vocabulary can
-    move between repos.
-
-    Does not commit -- the caller owns the transaction, which is what lets a dry-run
-    deployment roll the claims back.
-    """
+    """Reconcile *namespace*'s claims to *specs*, releasing the ones it drops."""
     deploy_scope = await resolve_claim_namespace(session, namespace)
     declared: dict[str, str] = {}
     for spec in specs:
@@ -85,8 +68,8 @@ async def upsert_tag_type_claims(
             spec.namespace or namespace,
         )
 
-    # Everything this deployment could touch: the claims it holds, which it may
-    # release, plus any claim on a type it declares, which may be a conflict.
+    # The claims it holds, which it may release, plus any claim on a type it
+    # declares, which may be a conflict.
     clauses = [
         TagTypeClaim.namespace == deploy_scope,
         TagTypeClaim.namespace.startswith(f"{deploy_scope}.", autoescape=True),

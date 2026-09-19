@@ -176,10 +176,8 @@ async def test_a_sideways_claim_is_rejected():
 
 @pytest.mark.asyncio
 async def test_a_branch_namespace_claims_for_its_parent(session, current_user):
-    """
-    A branch holds nothing durable, so its claim belongs to the namespace the branch
-    hangs off of -- otherwise deleting the branch would drop the vocabulary.
-    """
+    """A branch's claim is recorded against its parent, so deleting the branch
+    does not drop the vocabulary."""
     await add_namespace(session, "taxonomy")
     await add_namespace(session, "taxonomy.somebranch", parent_namespace="taxonomy")
     await add_namespace(

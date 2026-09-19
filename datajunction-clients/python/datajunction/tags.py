@@ -21,7 +21,6 @@ class Tag(ClientEntity):
     description: str | None = None
     display_name: str | None = None
     tag_metadata: dict | None = None
-    # Derived server-side from the tag type's claim, so it is read here but never sent.
     owned_by_namespace: str | None = None
 
     def to_dict(self) -> dict:
