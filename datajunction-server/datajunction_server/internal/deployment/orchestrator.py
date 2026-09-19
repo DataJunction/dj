@@ -32,6 +32,7 @@ from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import MissingParent, NodeRelationship
 from datajunction_server.database.partition import Partition
 from datajunction_server.database.tag import Tag
+from datajunction_server.database.tag_type_claim import TagTypeClaim
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.errors import (
     DJError,
@@ -89,6 +90,11 @@ from datajunction_server.internal.namespaces import get_git_info_for_namespace
 from datajunction_server.internal.nodes import (
     derive_frozen_measures_bulk,
     is_non_trivial_cube_change,
+)
+from datajunction_server.internal.tag_type_claims import (
+    is_within,
+    resolve_claim_namespace,
+    upsert_tag_type_claims,
 )
 from datajunction_server.models.access import ResourceAction
 from datajunction_server.models.base import labelize
@@ -634,6 +640,13 @@ class DeploymentOrchestrator:
         Setup all deployment-level resources
         """
         self.registry.set_namespaces(await self._setup_namespaces())
+        if self.deployment_spec.managed_tag_types is not None:
+            await upsert_tag_type_claims(
+                self.session,
+                self.deployment_spec.namespace,
+                self.deployment_spec.managed_tag_types,
+                current_user_id=self.context.current_user.id,
+            )
         self.registry.add_tags(await self._setup_tags())
         self.registry.add_owners(await self._setup_owners())
         self.registry.add_catalogs(await self._setup_catalogs())
@@ -1075,6 +1088,35 @@ class DeploymentOrchestrator:
                     message=f"Tags used by nodes but not defined: {', '.join(undefined_tags)}",
                 ),
             )
+
+        new_specs = {
+            name: spec
+            for name, spec in deployment_tag_specs.items()
+            if name not in existing_tags
+        }
+        claims = await TagTypeClaim.get_owners(
+            self.session,
+            [spec.tag_type for spec in new_specs.values()],
+        )
+        if claims:
+            authority = await resolve_claim_namespace(
+                self.session,
+                self.deployment_spec.namespace,
+            )
+            for tag_name, tag_spec in new_specs.items():
+                owner = claims.get(tag_spec.tag_type)
+                if owner is not None and not is_within(authority, owner):
+                    self.errors.append(
+                        DJError(
+                            code=ErrorCode.ALREADY_EXISTS,
+                            message=(
+                                f"Tag `{tag_name}` has tag type `{tag_spec.tag_type}`, "
+                                f"which is claimed by namespace `{owner}`. Tags of this "
+                                "type can only be created by a deployment of that "
+                                "namespace."
+                            ),
+                        ),
+                    )
 
         # Upsert tags
         tags_modified = False

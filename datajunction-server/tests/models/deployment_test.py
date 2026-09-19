@@ -34,6 +34,7 @@ from datajunction_server.models.deployment import (
     PreAggSpec,
     SourceSpec,
     TagSpec,
+    TagTypeClaimSpec,
     TransformSpec,
     bump_version,
     eq_columns,
@@ -285,6 +286,7 @@ def test_deployment_spec():
         "custom_metadata_schemas": None,
         "checks": None,
         "rulesets": None,
+        "managed_tag_types": None,
         "source": None,
         "auto_register_sources": True,
         "force": False,
@@ -1835,6 +1837,69 @@ def test_a_cycle_in_includes_is_rejected(includes, cycle):
             ],
         )
     assert f"Ruleset includes form a cycle: {cycle}." in str(exc_info.value)
+
+
+def test_a_managed_tag_type_namespace_defaults_to_the_deployment():
+    """Omitting it claims the type for the deploying namespace."""
+    spec = DeploymentSpec(
+        namespace="shared",
+        nodes=[],
+        managed_tag_types=[TagTypeClaimSpec(tag_type="domain")],
+    )
+    assert spec.managed_tag_types[0].namespace == "shared"
+
+
+def test_a_bare_string_managed_tag_type_is_the_deploying_namespace():
+    """`managed_tag_types: [domain]` is the common case and needs no mapping."""
+    spec = DeploymentSpec(namespace="shared", nodes=[], managed_tag_types=["domain"])
+    assert spec.managed_tag_types[0].tag_type == "domain"
+    assert spec.managed_tag_types[0].namespace == "shared"
+
+
+def test_bare_and_mapped_managed_tag_types_mix():
+    """A narrowed entry stays a mapping while the rest stay bare."""
+    spec = DeploymentSpec(
+        namespace="shared",
+        nodes=[],
+        managed_tag_types=[
+            "domain",
+            TagTypeClaimSpec(tag_type="topic", namespace="shared.conformed"),
+        ],
+    )
+    assert [(c.tag_type, c.namespace) for c in spec.managed_tag_types] == [
+        ("domain", "shared"),
+        ("topic", "shared.conformed"),
+    ]
+
+
+def test_a_managed_tag_type_may_be_scoped_to_a_sub_namespace():
+    """Narrower than the deployment is a rollout choice, same as schemas."""
+    spec = DeploymentSpec(
+        namespace="shared",
+        nodes=[],
+        managed_tag_types=[
+            TagTypeClaimSpec(tag_type="domain", namespace="shared.conformed"),
+        ],
+    )
+    assert spec.managed_tag_types[0].namespace == "shared.conformed"
+
+
+@pytest.mark.parametrize(
+    "outside",
+    ["elsewhere", "shared_other", "other.shared", "sharedx"],
+)
+def test_a_managed_tag_type_namespace_outside_the_deployment_is_rejected(outside):
+    """
+    Sideways claims would let one repo govern another repo's vocabulary. The
+    prefix traps (`shared_other`, `sharedx`) are rejected too.
+    """
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        DeploymentSpec(
+            namespace="shared",
+            nodes=[],
+            managed_tag_types=[TagTypeClaimSpec(tag_type="domain", namespace=outside)],
+        )
+    assert "not 'shared' or beneath it" in str(exc_info.value)
 
 
 def semantic_specs() -> dict[str, NodeSpec]:

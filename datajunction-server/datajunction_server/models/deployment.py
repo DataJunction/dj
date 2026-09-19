@@ -1581,6 +1581,24 @@ class DeploymentRulesetSpec(BaseModel):
     when: str | None = None
 
 
+class TagTypeClaimSpec(BaseModel):
+    """
+    Specification for a tag type this deployment manages.
+
+    Tags of a managed type can only be created by the managing namespace.
+
+    `managed_tag_types: [domain]` and `[{tag_type: domain}]` mean the same thing.
+    """
+
+    tag_type: str
+    namespace: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_bare_tag_type(cls, value: Any) -> Any:
+        return {"tag_type": value} if isinstance(value, str) else value
+
+
 class GitDeploymentSource(BaseModel):
     """
     Deployment from a tracked git repository.
@@ -1687,6 +1705,7 @@ class DeploymentSpec(BaseModel):
     custom_metadata_schemas: list[CustomMetadataSchemaSpec] | None = None
     checks: list[DeploymentCheckSpec] | None = None
     rulesets: list[DeploymentRulesetSpec] | None = None
+    managed_tag_types: list[TagTypeClaimSpec] | None = None
     source: DeploymentSource | None = None  # CI/CD provenance tracking
     git_config: NamespaceGitConfig | None = None  # Git branch management config
     force: bool = Field(
@@ -1770,6 +1789,20 @@ class DeploymentSpec(BaseModel):
                         f"'{schema.namespace}', which is not '{self.namespace}' or "
                         "beneath it. A deployment may scope a schema to its own "
                         "namespace or a sub-namespace, never to another."
+                    ),
+                )
+        for claim in self.managed_tag_types or []:
+            if not claim.namespace:
+                claim.namespace = self.namespace
+            elif claim.namespace != self.namespace and not claim.namespace.startswith(
+                f"{self.namespace}.",
+            ):
+                raise DJInvalidDeploymentConfig(
+                    message=(
+                        f"Managed tag type '{claim.tag_type}' declares namespace "
+                        f"'{claim.namespace}', which is not '{self.namespace}' or "
+                        "beneath it. A deployment may scope a managed tag type to its "
+                        "own namespace or a sub-namespace, never to another."
                     ),
                 )
         return self
