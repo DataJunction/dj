@@ -70,6 +70,22 @@ CHECKS = [
         gate=CheckGate.BLOCK_ON_REGRESSION,
     ),
     CheckSpec(
+        name="demo.no_retired_dependencies",
+        description="Not depending on anything retired.",
+        condition=(
+            "dependencies.all(d,"
+            " !(d.custom_metadata.sample.shape in ['retired', 'archived']))"
+        ),
+        gate=CheckGate.BLOCK,
+    ),
+    CheckSpec(
+        name="demo.wound_down_before_removal",
+        description="An entity is wound down before it is removed.",
+        when="change.kind == 'delete'",
+        condition="previous.custom_metadata.sample.color in ['amber', 'red']",
+        gate=CheckGate.BLOCK,
+    ),
+    CheckSpec(
         name="demo.shape_before_removal",
         description="A shape is recorded before an entity is removed.",
         when="change.kind == 'delete'",
