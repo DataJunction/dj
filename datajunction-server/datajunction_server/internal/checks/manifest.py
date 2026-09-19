@@ -1,7 +1,6 @@
 """
-Turn a manifest's `checks` and `rulesets` blocks into what the evaluation layer
-takes. A check is one rule; a ruleset is a named bundle of them, so a manifest
-can talk about a tier rather than a list.
+A manifest can declare `checks` and `rulesets` blocks. A check is one rule, and
+a ruleset is a named bundle of them.
 
     checks:
       - name: demo.owner_present
@@ -15,9 +14,6 @@ can talk about a tier rather than a list.
         condition: "size(node.primary_key) >= 1"
         gate: block
 
-A check carries its own verdict and its own consequence. A ruleset has no
-conditions of its own -- it is composition:
-
     rulesets:
       - name: baseline
         display_name: Baseline
@@ -27,12 +23,6 @@ conditions of its own -- it is composition:
         when: "node.custom_metadata.sample.size != null"  # the tier is scoped
         includes: [baseline]                              # all of baseline, plus
         checks: [demo.column_descriptions]
-
-The two `when` guards stack: a ruleset's says which entities the tier applies
-to, a check's says which entities that one rule applies to.
-
-Nothing here compiles an expression -- the strings are carried across as
-authored and vetted by `load_checks`.
 """
 
 from collections.abc import Iterable, Sequence
