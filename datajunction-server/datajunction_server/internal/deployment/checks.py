@@ -14,15 +14,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.enum import StrEnum
 from datajunction_server.internal.checks.context import (
+    Activation,
     DeclaredProperties,
+    NodeProjection,
     custom_metadata,
 )
 from datajunction_server.internal.checks.engine import CheckResult
 from datajunction_server.internal.checks.manifest import ResolvedRuleset
-from datajunction_server.internal.checks.validator import Activation, MalformedCheck
+from datajunction_server.internal.checks.validator import MalformedCheck
 from datajunction_server.internal.custom_metadata import resolve_schemas
 from datajunction_server.models.deployment import (
     ColumnSpec,
+    DeploymentResult,
     DimensionReferenceLinkSpec,
     DimensionSpec,
     NodeSpec,
@@ -64,13 +67,11 @@ def _node_spec_defaults() -> dict[str, Any]:
 
 _NODE_DEFAULTS = _node_spec_defaults()
 
-# What the deploy is doing to a node. An unchanged or removed node is identical
-# to its deployed state, so `previous` is the same projection.
-CHANGE_CREATE = "create"
-CHANGE_UPDATE = "update"
-CHANGE_UNCHANGED = "unchanged"
-CHANGE_REMOVE = "remove"
-_UNCHANGED_KINDS = frozenset({CHANGE_UNCHANGED, CHANGE_REMOVE})
+# A node the deploy leaves alone or removes is identical to its deployed state,
+# so `previous` is the same projection.
+_UNCHANGED_OPERATIONS = frozenset(
+    {DeploymentResult.Operation.NOOP, DeploymentResult.Operation.DELETE},
+)
 
 
 def _cel_safe(value: Any, empty: Any = "") -> Any:
@@ -134,7 +135,7 @@ def _placeholder(subschema: Any) -> Any:
     }.get(kind, "placeholder")
 
 
-def project_node(spec: NodeSpec | None, declared: DeclaredProperties) -> dict[str, Any]:
+def project_node(spec: NodeSpec | None, declared: DeclaredProperties) -> NodeProjection:
     """
     Project one node spec into the `node` binding. None means no such node.
 
@@ -159,7 +160,7 @@ def project_dependency(
     name: str,
     spec: NodeSpec | None,
     declared: DeclaredProperties,
-) -> dict[str, Any]:
+) -> NodeProjection:
     """
     An upstream, projected like `node` so the same rule reads either.
 
@@ -174,13 +175,13 @@ def build_activation(
     *,
     previous: NodeSpec | None,
     dependencies: Sequence[tuple[str, NodeSpec | None]],
-    kind: str,
+    operation: DeploymentResult.Operation,
     declared: DeclaredProperties,
 ) -> Activation:
     node = project_node(spec, declared)
     # An unchanged or removed node is its own previous state, so project once.
     projected_previous = (
-        node if kind in _UNCHANGED_KINDS else project_node(previous, declared)
+        node if operation in _UNCHANGED_OPERATIONS else project_node(previous, declared)
     )
     return {
         "node": node,
@@ -189,7 +190,7 @@ def build_activation(
             for name, dependency in dependencies
         ],
         "previous": projected_previous,
-        "change": {"kind": kind},
+        "change": {"kind": str(operation.value)},
     }
 
 
@@ -237,14 +238,14 @@ def build_fixtures(declared: DeclaredSchemas) -> list[Activation]:
             bare,
             previous=None,
             dependencies=[],
-            kind=CHANGE_CREATE,
+            operation=DeploymentResult.Operation.CREATE,
             declared=declared.properties,
         ),
         build_activation(
             populated,
             previous=populated,
             dependencies=[("fixture.parent", bare)],
-            kind=CHANGE_REMOVE,
+            operation=DeploymentResult.Operation.DELETE,
             declared=declared.properties,
         ),
     ]
