@@ -10,7 +10,11 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, get_args, get_origin
 
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import load_only, noload
+
+from datajunction_server.database.tag import Tag
 
 from datajunction_server.enum import StrEnum
 from datajunction_server.internal.checks.context import (
@@ -26,9 +30,12 @@ from datajunction_server.internal.custom_metadata import resolve_schemas
 from datajunction_server.models.deployment import (
     ColumnSpec,
     DeploymentResult,
+    DimensionJoinLinkSpec,
+    DimensionLinkSpec,
     DimensionReferenceLinkSpec,
     DimensionSpec,
     NodeSpec,
+    TagSpec,
     TransformSpec,
 )
 from datajunction_server.models.node_type import NodeType
@@ -41,17 +48,17 @@ def _is_sequence_field(annotation: Any) -> bool:
     return any(get_origin(arg) is list for arg in get_args(annotation))
 
 
-def _node_spec_defaults() -> NodeProjection:
+def _spec_defaults(base: type[BaseModel], skip: frozenset[str]) -> dict[str, Any]:
     """
-    Every field on any node spec, with the empty value CEL should read when this
-    subclass does not have it. custom_metadata is filled in per node instead.
+    Every field on `base` or any subclass of it, with the empty value CEL should
+    read when this subclass does not have it.
     """
     defaults: dict[str, Any] = {}
-    pending = [NodeSpec]
+    pending = [base]
     while pending:
         cls = pending.pop()
         for name, info in cls.model_fields.items():
-            if name == "custom_metadata":
+            if name in skip:
                 continue
             empty: Any = [] if _is_sequence_field(info.annotation) else ""
             # A list default wins: one subclass typing it as a list is enough.
@@ -61,7 +68,9 @@ def _node_spec_defaults() -> NodeProjection:
     return defaults
 
 
-_NODE_DEFAULTS = _node_spec_defaults()
+# custom_metadata and tags are projected per node instead.
+_NODE_DEFAULTS = _spec_defaults(NodeSpec, frozenset({"custom_metadata", "tags"}))
+_LINK_DEFAULTS = _spec_defaults(DimensionLinkSpec, frozenset())
 
 # A node the deploy leaves alone or removes is identical to its deployed state,
 # so `previous` is the same projection.
@@ -113,6 +122,33 @@ async def resolve_declared_schemas(
     return declared
 
 
+async def resolve_tag_types(
+    session: AsyncSession,
+    tag_specs: Iterable[TagSpec],
+    used: Iterable[str],
+) -> dict[str, str]:
+    """
+    The type of every tag the deploy's nodes carry.
+
+    Checks run before tags are written, so a tag this deploy defines is read
+    from the manifest and the rest are read from the stored tag.
+    """
+    declared = {spec.name: str(spec.tag_type or "") for spec in tag_specs}
+    names = set(used) | set(declared)
+    if not names:
+        return {}
+    stored = await Tag.find_tags(
+        session,
+        tag_names=sorted(names),
+        options=[
+            load_only(Tag.id, Tag.name, Tag.tag_type),
+            noload(Tag.created_by),
+            noload(Tag.nodes),
+        ],
+    )
+    return {**{tag.name: str(tag.tag_type or "") for tag in stored}, **declared}
+
+
 def _placeholder(subschema: Any) -> Any:
     """A representative value for a declared property, typed from its schema."""
     kind = str(subschema.get("type")) if isinstance(subschema, Mapping) else ""
@@ -125,7 +161,36 @@ def _placeholder(subschema: Any) -> Any:
     }.get(kind, "placeholder")
 
 
-def project_node(spec: NodeSpec | None, declared: DeclaredProperties) -> NodeProjection:
+def project_link(dumped: Mapping[str, Any]) -> dict[str, Any]:
+    """
+    One dimension link, carrying every field either kind of link declares.
+
+    A join link and a reference link name their target differently, so both are
+    read through `dimension`.
+    """
+    projected = {
+        name: _cel_safe(dumped.get(name), empty)
+        for name, empty in _LINK_DEFAULTS.items()
+    }
+    projected["dimension"] = (
+        dumped.get("dimension") or dumped.get("dimension_node") or ""
+    )
+    return projected
+
+
+def project_tags(
+    names: Sequence[str],
+    tag_types: Mapping[str, str],
+) -> list[dict[str, str]]:
+    """A node's tags, each with the type the deploy resolved for it."""
+    return [{"name": name, "tag_type": tag_types.get(name, "")} for name in names]
+
+
+def project_node(
+    spec: NodeSpec | None,
+    declared: DeclaredProperties,
+    tag_types: Mapping[str, str],
+) -> NodeProjection:
     """
     Project one node spec into the `node` binding. None means no such node.
 
@@ -138,11 +203,17 @@ def project_node(spec: NodeSpec | None, declared: DeclaredProperties) -> NodePro
         name: _cel_safe(dumped.get(name), empty)
         for name, empty in _NODE_DEFAULTS.items()
     }
+    # Both are excluded from the dump, so they are read off the spec.
     projected["name"] = spec.rendered_name if spec is not None else ""
+    projected["namespace"] = (spec.namespace or "") if spec is not None else ""
     projected["custom_metadata"] = custom_metadata(
         dumped.get("custom_metadata"),
         declared,
     )
+    projected["tags"] = project_tags(dumped.get("tags") or [], tag_types)
+    projected["dimension_links"] = [
+        project_link(link) for link in dumped.get("dimension_links") or []
+    ]
     return projected
 
 
@@ -150,14 +221,13 @@ def project_dependency(
     name: str,
     spec: NodeSpec | None,
     declared: DeclaredProperties,
+    tag_types: Mapping[str, str],
 ) -> NodeProjection:
     """
-    An upstream, projected like `node` so the same rule reads either.
-
-    An upstream outside the deployment namespace has no spec, so only its name
-    is known.
+    One upstream, in the same shape as `node`. An upstream the deployment does
+    not contain has no spec, so only its name is filled in.
     """
-    return dict(project_node(spec, declared), name=name)
+    return dict(project_node(spec, declared, tag_types), name=name)
 
 
 def build_activation(
@@ -167,17 +237,20 @@ def build_activation(
     dependencies: Sequence[tuple[str, NodeSpec | None]],
     operation: DeploymentResult.Operation,
     declared: DeclaredProperties,
+    tag_types: Mapping[str, str],
 ) -> Activation:
-    node = project_node(spec, declared)
+    node = project_node(spec, declared, tag_types)
     # An unchanged or removed node is its own previous state, so project once.
     projected_previous = (
-        node if operation in _UNCHANGED_OPERATIONS else project_node(previous, declared)
+        node
+        if operation in _UNCHANGED_OPERATIONS
+        else project_node(previous, declared, tag_types)
     )
     return Activation(
         node=node,
         previous=projected_previous,
         dependencies=[
-            project_dependency(name, dependency, declared)
+            project_dependency(name, dependency, declared, tag_types)
             for name, dependency in dependencies
         ],
         change={"kind": str(operation.value)},
@@ -222,14 +295,21 @@ def build_fixtures(declared: DeclaredSchemas) -> list[Activation]:
             ),
         ],
         primary_key=["first"],
+        # One of each kind, so a clause reading join fields is exercised
+        # against a reference link too.
         dimension_links=[
             DimensionReferenceLinkSpec(
                 node_column="first",
                 dimension="fixture.other.attribute",
             ),
+            DimensionJoinLinkSpec(
+                dimension_node="fixture.other",
+                node_column="first",
+            ),
         ],
         custom_metadata=populated_metadata,
     )
+    tag_types = {"fixture_tag": "fixture_tag_type"}
     return [
         build_activation(
             bare,
@@ -237,6 +317,7 @@ def build_fixtures(declared: DeclaredSchemas) -> list[Activation]:
             dependencies=[],
             operation=DeploymentResult.Operation.CREATE,
             declared=declared.properties,
+            tag_types=tag_types,
         ),
         build_activation(
             populated,
@@ -244,6 +325,7 @@ def build_fixtures(declared: DeclaredSchemas) -> list[Activation]:
             dependencies=[("fixture.parent", bare)],
             operation=DeploymentResult.Operation.DELETE,
             declared=declared.properties,
+            tag_types=tag_types,
         ),
     ]
 
