@@ -23,6 +23,9 @@ from datajunction_server.construction.build_v3.builder import build_measures_sql
 from datajunction_server.construction.build_v3.cte import (
     process_metric_combiner_expression,
 )
+from datajunction_server.construction.build_v3.decomposition import (
+    build_merge_call,
+)
 from datajunction_server.construction.build_v3.preagg_matcher import (
     get_temporal_partitions,
 )
@@ -862,20 +865,19 @@ def _build_grain_group_from_preagg_table(
 
             # Find the component to get the merge function
             merge_func = None
+            merge_args: list[str] = []
             for comp in original_gg.components:
                 if (  # pragma: no branch
                     comp.name == col.name
                     or original_gg.component_aliases.get(comp.name) == col.name
                 ):
                     merge_func = comp.merge
+                    merge_args = comp.merge_args
                     break
 
             if merge_func:
                 # Apply re-aggregation
-                agg_expr = ast.Function(
-                    name=ast.Name(merge_func),
-                    args=[col_ref],
-                )
+                agg_expr = build_merge_call(merge_func, merge_args, col_ref)
                 aliased = ast.Alias(child=agg_expr, alias=ast.Name(col.name))
                 select_items.append(aliased)
             else:

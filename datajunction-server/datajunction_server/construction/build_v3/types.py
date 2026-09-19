@@ -13,6 +13,7 @@ from datajunction_server.database.node import Node
 from datajunction_server.errors import DJInvalidInputException, DJWarning
 from datajunction_server.models.decompose import Aggregability, MetricComponent
 from datajunction_server.models.dialect import Dialect
+from datajunction_server.models.materialization import MaterializationTarget
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import to_sql
@@ -43,6 +44,9 @@ class BuildContext:
     dimensions: list[str]
     filters: list[str] = field(default_factory=list)
     dialect: Dialect = Dialect.SPARK
+    # Set only when this build is producing a measures table for materialization.
+    # None for query-time builds, which never serialize.
+    materialization_target: MaterializationTarget | None = None
     alias_registry: AliasRegistry = field(default_factory=AliasRegistry)
 
     # Filter classification (populated early in setup)

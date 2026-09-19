@@ -17,6 +17,7 @@ from datajunction_server.models.cube_materialization import (
     MetricComponent,
 )
 from datajunction_server.models.engine import Dialect
+from datajunction_server.models.materialization import MaterializationTarget
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.reaggregate import (
     DimensionReaggregateRule,
@@ -2909,15 +2910,8 @@ class TestReaggregateParams:
 
 class _DialectAwareSum(AggDecomposition):
     """
-    A SUM whose combiner renders differently per dialect, and which records the
-    call it was handed.
-
-    Stands in for a quantile sketch, the first family that actually needs this.
-    Druid exposes no scalar extractor for ``COMPLEX<tDigestSketch>``, so a
-    t-digest's merge and combine fuse into one ``TDIGEST_QUANTILE(col, fraction)``
-    call while Spark and Trino keep them separate -- a difference a rename table
-    cannot express. The fraction comes from the authored call, which is why
-    ``func`` is passed alongside the dialect.
+    A SUM whose combiner renders differently per dialect, recording the call it
+    was handed. Tests the pipeline for dialect-specific extraction logic.
     """
 
     seen: list[tuple["ast.Function", Dialect]] = []
@@ -2928,8 +2922,18 @@ class _DialectAwareSum(AggDecomposition):
 
     def combine(self, components, func, dialect=Dialect.SPARK):
         type(self).seen.append((func, dialect))
-        name = "druid_combiner" if dialect == Dialect.DRUID else "spark_combiner"
-        return make_func(name, components[0].name)
+        
+        combiners = {
+            Dialect.DRUID: self._combine_druid,
+            Dialect.SPARK: self._combine_spark,
+        }
+        return combiners.get(dialect, self._combine_spark)(components)
+        
+    def _combine_druid(self, components):
+        return make_func("druid_combiner", components[0].name)
+        
+    def _combine_spark(self, components):
+        return make_func("spark_combiner", components[0].name)
 
 
 @pytest.fixture
@@ -2969,10 +2973,6 @@ def test_combine_renders_per_dialect():
 def test_combine_defaults_to_spark():
     """
     Omitting the dialect yields the Spark rendering.
-
-    The default is what keeps the seven non-build_v3 extractor call sites
-    working untouched; they render for display and for frozen measures, where
-    Spark is the right answer.
     """
     components = [
         MetricComponent(
@@ -2991,11 +2991,6 @@ def test_combine_defaults_to_spark():
 def test_combine_receives_the_originating_call():
     """
     The combiner is handed the authored ``ast.Function``, arguments included.
-
-    This is what makes the quantile fraction reachable: the ``0.5`` in
-    ``APPROX_PERCENTILE(col, 0.5)`` lives only on the call, and before this the
-    combiner saw nothing but the merged components. Asserted on the arguments
-    rather than on identity, since that is the part a combiner needs.
     """
     components = [
         MetricComponent(
@@ -3032,9 +3027,6 @@ async def test_extractor_threads_dialect_into_combiner(
 ):
     """
     The dialect handed to the extractor reaches the combiner.
-
-    End-to-end over the real extraction path rather than a direct ``combine``
-    call, because the plumbing between them is the part that was missing.
     """
     metric_rev = await create_metric("SELECT SUM(price) FROM parent_node")
 
@@ -3056,10 +3048,6 @@ async def test_extractor_dialect_does_not_leak_between_instances(
 ):
     """
     Dialect is per-extractor configuration, not shared state.
-
-    ``get_decomposition`` builds a fresh decomposition per call and the dialect
-    rides the extractor, so a Druid extraction must not change what a later
-    default extraction renders.
     """
     metric_rev = await create_metric("SELECT SUM(price) FROM parent_node")
 
@@ -3072,6 +3060,66 @@ async def test_extractor_dialect_does_not_leak_between_instances(
     assert "druid_combiner" not in str(after)
 
 
+class _SerializingSum(AggDecomposition):
+    """A SUM that declares a Druid-only serialize conversion."""
+
+    @property
+    def components(self) -> list[ComponentDef]:
+        return [
+            ComponentDef(
+                suffix="_sum",
+                accumulate="SUM",
+                merge="SUM",
+                serialize="to_druid_bytes({})",
+                serialize_targets=(MaterializationTarget.DRUID,),
+            ),
+        ]
+
+    def combine(self, components, func, dialect=Dialect.SPARK):
+        return make_func("SUM", components[0].name)
+
+
+@pytest.fixture
+def serializing_sum():
+    """Swap SUM's decomposition for one declaring a serialize, then restore."""
+    original = DECOMPOSITION_REGISTRY.get(dj_functions.Sum)
+    DECOMPOSITION_REGISTRY[dj_functions.Sum] = _SerializingSum
+    try:
+        yield
+    finally:
+        DECOMPOSITION_REGISTRY[dj_functions.Sum] = original
+
+
+@pytest.mark.asyncio
+async def test_serialize_propagates_from_component_def(
+    session: AsyncSession,
+    create_metric,
+    serializing_sum,
+):
+    """
+    A ``serialize`` declared on ``ComponentDef`` reaches the extracted component.
+    """
+    metric_rev = await create_metric("SELECT SUM(price) FROM parent_node")
+
+    components, _ = await MetricComponentExtractor(metric_rev.id).extract(session)
+
+    assert len(components) == 1
+    assert components[0].serialize == "to_druid_bytes({})"
+    assert components[0].serialize_targets == [MaterializationTarget.DRUID]
+
+
+@pytest.mark.asyncio
+async def test_components_without_serialize_declare_none(
+    session: AsyncSession,
+    create_metric,
+):
+    """An ordinary decomposition leaves the conversion unset."""
+    metric_rev = await create_metric("SELECT SUM(price) FROM parent_node")
+
+    components, _ = await MetricComponentExtractor(metric_rev.id).extract(session)
+
+    assert components[0].serialize is None
+    assert components[0].serialize_targets == []
 
 
 # =============================================================================
@@ -3127,9 +3175,6 @@ def test_declared_family_overrides_the_function_registry(registered_family):
 def test_family_receives_its_tuning_params(registered_family):
     """
     `reaggregate.params` reaches the decomposition, and thus the accumulate.
-
-    Without this the declared compression would be recorded for reuse identity
-    and Druid ingestion but silently ignored by the SQL that builds the sketch.
     """
     spec = ReaggregateSpec(
         fn=ReaggregationFunction.TDIGEST,
@@ -3145,9 +3190,6 @@ def test_family_receives_its_tuning_params(registered_family):
 def test_undeclared_metric_is_untouched_by_a_registered_family(registered_family):
     """
     A metric without `reaggregate` keeps the by-function decomposition.
-
-    Registering a family must not change metrics that never opted in -- that
-    separation is the whole point of gating on the spec.
     """
     assert get_decomposition(dj_functions.ApproxPercentile) is None
     assert isinstance(
@@ -3160,9 +3202,6 @@ def test_undeclared_metric_is_untouched_by_a_registered_family(registered_family
 def test_unregistered_family_falls_through():
     """
     Declaring a family nothing implements degrades rather than raising.
-
-    OSS has no implementations, so `fn: tdigest` there simply leaves the metric
-    with the aggregability it already had.
     """
     spec = ReaggregateSpec(fn=ReaggregationFunction.TDIGEST)
 

@@ -222,36 +222,7 @@ def compute_preagg_hash(
 
 
 class PreAggregation(Base):
-    """
-    First-class pre-aggregation entity that can be shared across cubes.
-
-    A pre-aggregation represents a materialized grouping of measures at a specific grain,
-    enabling efficient metric calculations by pre-computing aggregations.
-
-    Pre-aggregations are ALWAYS created by DJ (via /preaggs/plan endpoint) from
-    metrics + dimensions. Users never manually construct them - this ensures
-    consistency between DJ-managed (Flow A) and user-managed (Flow B) materialization.
-
-    Key concepts:
-    - `node_revision`: The specific node revision this pre-agg is based on
-    - `grain_columns`: Fully qualified dimension references that define the aggregation level
-    - `measures`: Full MetricComponent info for matching and re-aggregation
-    - `sql`: The generated SQL for materializing this pre-agg
-    - `grain_group_hash`: Hash of (node_revision_id + sorted(grain_columns)) for grouping
-
-    Measure format (MetricComponent):
-    - name: Column name in materialized table
-    - expression: The raw SQL expression
-    - expr_hash: Hash of expression for identity matching
-    - aggregation: Phase 1 function (e.g., "SUM")
-    - merge: Phase 2 re-aggregation function
-    - rule: Aggregation rules (type, level)
-
-    Availability tracking:
-    - Materialization status is tracked via AvailabilityState
-    - Flow A: DJ's query service posts availability after materialization
-    - Flow B: User's query service posts to /preaggs/{id}/availability/
-    """
+    """First-class pre-aggregation entity that can be shared across cubes."""
 
     __tablename__ = "pre_aggregation"
 
@@ -490,33 +461,7 @@ class PreAggregation(Base):
         grain_columns: list[str],
         measure_identities: set[str],
     ) -> PreAggregation | None:
-        """
-        Find the row this exact declaration already occupies, if any.
-
-        This is the upsert's identity check -- "is this the same declaration I am
-        about to write?" -- so it matches the uniqueness key exactly: same
-        revision and grain (via ``grain_group_hash``) and the SAME set of measure
-        identities, not merely a covering one.
-
-        Covering was wrong here, in two compounding ways. Callers replace the
-        matched row's contents wholesale, so a narrow declaration could match a
-        wider pre-agg and silently strip measures off it, breaking routing for
-        whatever metric depended on the dropped ones. And ``preagg_hash`` is
-        UNIQUE over exactly ``(node_revision_id, grain_columns,
-        measure_identities)`` and frozen at insert, so a covering match could
-        hand back a row whose stored hash no longer described its own contents.
-        A declaration that genuinely differs now gets its own row instead.
-
-        Identity tokens rather than bare expression hashes, because the latter
-        made SUM- and MAX-backed pre-aggs look like one row, so registering
-        either silently overwrote the other.
-
-        Contrast ``find_latest_for_node``, which asks the other question -- "what
-        did this declaration look like before?" -- and does want covering.
-
-        Returns:
-            Matching PreAggregation if found, None otherwise
-        """
+        """Find the row this exact declaration already occupies, if any."""
         grain_group_hash = compute_grain_group_hash(node_revision_id, grain_columns)
         candidates = await cls.get_by_grain_group_hash(session, grain_group_hash)
 

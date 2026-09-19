@@ -374,13 +374,8 @@ def test_frozen_measure_conflict_rejects_different_measure_identity():
 
 def test_frozen_measure_conflict_rejects_different_tuning_params():
     """
-    A name collision fails when only the sketch tuning parameters differ.
-
-    Component names are hashed from the expression and its source, not from
-    params, so a p95 at compression=200 and one at compression=1000 over the
-    same column collide on name. Without this the second metric would silently
-    bind the frozen measure -- and the materialized sketch -- built at the
-    first one's accuracy.
+    A name collision fails when only tuning parameters differ, preventing
+    a metric from silently reusing a sketch built with a different accuracy.
     """
     frozen_measure = FrozenMeasure(
         name="latency_tdigest",
@@ -404,11 +399,7 @@ def test_frozen_measure_conflict_rejects_different_tuning_params():
 
 def test_frozen_measure_reuse_allows_matching_params():
     """
-    Identical params are reusable, and absent-vs-empty is not a difference.
-
-    Almost every measure has no params at all; a stored ``None`` meeting a
-    freshly-extracted ``{}`` must not read as a conflict and start rejecting
-    ordinary metrics.
+    Identical params are reusable; absent-vs-empty is not a conflict.
     """
     frozen_measure = FrozenMeasure(
         name="latency_tdigest",
