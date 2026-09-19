@@ -1,7 +1,7 @@
 import logging
 import re
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -31,7 +31,7 @@ from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import MissingParent, NodeRelationship
 from datajunction_server.database.partition import Partition
-from datajunction_server.database.tag import Tag
+from datajunction_server.database.tag import Tag, TagNodeRelationship
 from datajunction_server.database.tag_type_claim import TagTypeClaim
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.errors import (
@@ -575,6 +575,9 @@ class DeploymentOrchestrator:
                         deployment_plan,
                         [],
                     )
+                # A push that only drops a tag from the manifest changes no
+                # nodes, so the reconcile has to run on this path too.
+                self.deployed_results.extend(await self._reconcile_claimed_tags())
                 return DeploymentExecuteResult(
                     results=await self._handle_no_changes(),
                     downstream_impacts=[],
@@ -1146,6 +1149,143 @@ class DeploymentOrchestrator:
         if tags_modified:
             await self.session.flush()  # Get IDs but don't commit
         return existing_tags
+
+    async def _reconcile_claimed_tags(self) -> list[DeploymentResult]:
+        """
+        Delete tags of a claimed type that this manifest no longer declares.
+
+        Only the namespace holding the claim reconciles, so a branch deploy --
+        whose claim resolves to the parent namespace, not itself -- never deletes
+        the parent's tags. Runs after nodes are deployed and deleted, so a push
+        that drops a tag and detaches it in the same commit sees it unattached.
+
+        A tag still on an active node is kept and reported rather than failing the
+        deploy: a claimed vocabulary exists to be used by other namespaces, whose
+        nodes the deploying repo cannot edit.
+        """
+        if not self.deployment_spec.managed_tag_types:
+            return []
+        owners = await TagTypeClaim.get_owners(
+            self.session,
+            sorted(
+                {claim.tag_type for claim in self.deployment_spec.managed_tag_types},
+            ),
+        )
+        namespace = self.deployment_spec.namespace
+        tag_types = sorted(
+            tag_type
+            for tag_type, owner in owners.items()
+            if is_within(owner, namespace)
+        )
+        if not tag_types:
+            return []
+
+        declared = {spec.name for spec in self.deployment_spec.tags}
+        declared |= {tag for spec in self.deployment_spec.nodes for tag in spec.tags}
+        existing = await Tag.find_tags(
+            self.session,
+            tag_types=tag_types,
+            options=[load_only(Tag.id, Tag.name, Tag.tag_type), noload(Tag.nodes)],
+        )
+        obsolete = sorted(
+            (tag for tag in existing if tag.name not in declared),
+            key=lambda tag: tag.name,
+        )
+        if not obsolete:
+            return []
+
+        # Same footgun as external pre-aggs: a manifest that claims a type but
+        # declares no tags of it is usually a partial push, not a request to drop
+        # the whole vocabulary. Wiping one takes the explicit opt-in.
+        if not declared and not self.deployment_spec.allow_empty:
+            message = (
+                f"{len(obsolete)} tag(s) of claimed type(s) "
+                f"{', '.join(tag_types)} were left intact because the deployment "
+                f"declares no tags. Re-run with allow_empty to delete them."
+            )
+            self.warnings.append(
+                DJError(
+                    code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                    message=message,
+                ),
+            )
+            return [
+                DeploymentResult(
+                    name=namespace,
+                    deploy_type=DeploymentResult.Type.TAG,
+                    status=DeploymentResult.Status.WARNING,
+                    operation=DeploymentResult.Operation.NOOP,
+                    message=message,
+                ),
+            ]
+
+        results: list[DeploymentResult] = []
+        holders = await self._active_nodes_by_tag([tag.id for tag in obsolete])
+        for tag in obsolete:
+            blocking = holders.get(tag.id, [])
+            if blocking:
+                results.append(
+                    DeploymentResult(
+                        name=tag.name,
+                        deploy_type=DeploymentResult.Type.TAG,
+                        status=DeploymentResult.Status.WARNING,
+                        operation=DeploymentResult.Operation.NOOP,
+                        message=(
+                            f"Tag '{tag.name}' is no longer declared but is still "
+                            f"attached to {len(blocking)} node(s): "
+                            f"{', '.join(blocking[:5])}"
+                            f"{f' and {len(blocking) - 5} more' if len(blocking) > 5 else ''}"
+                            ". Remove the tag from these nodes to delete it."
+                        ),
+                    ),
+                )
+                continue
+            self.session.add(
+                History(
+                    entity_type=EntityType.TAG,
+                    entity_name=tag.name,
+                    activity_type=ActivityType.DELETE,
+                    details={
+                        "deployment_id": self.deployment_id,
+                        "message": (
+                            f"Tag of claimed type '{tag.tag_type}' deleted because "
+                            f"namespace '{namespace}' no longer declares it."
+                        ),
+                    },
+                    user=self._history_user,
+                ),
+            )
+            await self.session.delete(tag)
+            results.append(
+                DeploymentResult(
+                    name=tag.name,
+                    deploy_type=DeploymentResult.Type.TAG,
+                    status=DeploymentResult.Status.SUCCESS,
+                    operation=DeploymentResult.Operation.DELETE,
+                    message=(
+                        f"Tag of claimed type '{tag.tag_type}' deleted: no longer "
+                        f"declared by namespace '{namespace}'."
+                    ),
+                ),
+            )
+        await self.session.flush()
+        return results
+
+    async def _active_nodes_by_tag(self, tag_ids: list[int]) -> dict[int, list[str]]:
+        """Names of the active nodes holding each of *tag_ids*."""
+        rows = (
+            await self.session.execute(
+                select(TagNodeRelationship.tag_id, Node.name)
+                .join(Node, Node.id == TagNodeRelationship.node_id)
+                .where(TagNodeRelationship.tag_id.in_(tag_ids))
+                .where(Node.deactivated_at.is_(None))
+                .order_by(Node.name),
+            )
+        ).all()
+        holders: dict[int, list[str]] = defaultdict(list)
+        for tag_id, node_name in rows:
+            holders[tag_id].append(node_name)
+        return holders
 
     async def _setup_hierarchies(self) -> None:
         """
@@ -1997,6 +2137,14 @@ class DeploymentOrchestrator:
                 )
                 p.append(f"{len(ns_results)} namespaces")
             self.deployed_results.extend(ns_results)
+            await self._update_deployment_status()
+
+        # Last: a tag is deletable only once the nodes holding it are gone, and
+        # this deploy may have just deleted or detached them.
+        with timer.phase("reconcile claimed tags"):
+            tag_results = await self._reconcile_claimed_tags()
+        if tag_results:
+            self.deployed_results.extend(tag_results)
             await self._update_deployment_status()
 
         return downstream

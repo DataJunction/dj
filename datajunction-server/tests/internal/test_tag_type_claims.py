@@ -1,11 +1,14 @@
 """Tests for tag type claims — namespace ownership of a tag vocabulary."""
 
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
 from sqlalchemy import select
 
 from datajunction_server.database.namespace import NodeNamespace
+from datajunction_server.database.node import Node
+from datajunction_server.database.tag import Tag, TagNodeRelationship
 from datajunction_server.database.tag_type_claim import TagTypeClaim
 from datajunction_server.errors import (
     DJAlreadyExistsException,
@@ -18,10 +21,13 @@ from datajunction_server.internal.tag_type_claims import (
     upsert_tag_type_claims,
 )
 from datajunction_server.models.deployment import (
+    DeploymentResult,
     DeploymentSpec,
+    MetricSpec,
     TagSpec,
     TagTypeClaimSpec,
 )
+from datajunction_server.models.node_type import NodeType
 
 
 async def claim_for(session, tag_type: str) -> TagTypeClaim | None:
@@ -296,3 +302,270 @@ async def test_a_manifest_without_claims_touches_nothing(session, current_user):
     spec = DeploymentSpec(namespace="taxonomy", nodes=[])
     await orchestrator_for(spec, session, current_user)._setup_deployment_resources()
     assert (await claim_for(session, "domain")).namespace == "taxonomy"
+
+
+async def add_tag(session, current_user, name: str, tag_type: str) -> Tag:
+    """A tag already stored on the server, as an earlier deploy would leave it."""
+    tag = Tag(
+        name=name,
+        tag_type=tag_type,
+        display_name=name,
+        created_by_id=current_user.id,
+    )
+    session.add(tag)
+    await session.flush()
+    return tag
+
+
+async def attach_tag(session, current_user, tag: Tag, node_name: str) -> Node:
+    """A node in some other namespace carrying the tag."""
+    node = Node(
+        name=node_name,
+        type=NodeType.METRIC,
+        namespace=node_name.rsplit(".", 1)[0],
+        current_version="v1.0",
+        created_by_id=current_user.id,
+    )
+    session.add(node)
+    await session.flush()
+    session.add(TagNodeRelationship(tag_id=tag.id, node_id=node.id))
+    await session.flush()
+    return node
+
+
+def results_for(results, name: str) -> list:
+    """The deployment results reported against a tag."""
+    return [result for result in results if result.name == name]
+
+
+@pytest.mark.asyncio
+async def test_reconcile_deletes_a_tag_the_manifest_dropped(session, current_user):
+    """The manifest is the full list of tags of a type it claims."""
+    await add_tag(session, current_user, "payments", "domain")
+    await add_tag(session, current_user, "retired", "domain")
+    spec = DeploymentSpec(
+        namespace="taxonomy",
+        nodes=[],
+        tags=[TagSpec(name="payments", tag_type="domain")],
+        managed_tag_types=[TagTypeClaimSpec(tag_type="domain")],
+    )
+    orchestrator = orchestrator_for(spec, session, current_user)
+    await orchestrator._setup_deployment_resources()
+    results = await orchestrator._reconcile_claimed_tags()
+
+    remaining = await Tag.find_tags(session, tag_types=["domain"])
+    assert [tag.name for tag in remaining] == ["payments"]
+    assert [
+        (result.status, result.operation) for result in results_for(results, "retired")
+    ] == [(DeploymentResult.Status.SUCCESS, DeploymentResult.Operation.DELETE)]
+
+
+@pytest.mark.asyncio
+async def test_reconcile_keeps_a_tag_an_active_node_still_holds(session, current_user):
+    """
+    The nodes holding a claimed tag usually live in namespaces the deploying repo
+    cannot edit, so the deploy reports the blocked deletion instead of failing.
+    """
+    tag = await add_tag(session, current_user, "retired", "domain")
+    await attach_tag(session, current_user, tag, "analytics.revenue")
+    spec = DeploymentSpec(
+        namespace="taxonomy",
+        nodes=[],
+        tags=[TagSpec(name="payments", tag_type="domain")],
+        managed_tag_types=[TagTypeClaimSpec(tag_type="domain")],
+    )
+    orchestrator = orchestrator_for(spec, session, current_user)
+    await orchestrator._setup_deployment_resources()
+    results = await orchestrator._reconcile_claimed_tags()
+
+    assert {tag.name for tag in await Tag.find_tags(session, tag_types=["domain"])} == {
+        "payments",
+        "retired",
+    }
+    (result,) = results_for(results, "retired")
+    assert result.status == DeploymentResult.Status.WARNING
+    assert result.operation == DeploymentResult.Operation.NOOP
+    assert result.message == (
+        "Tag 'retired' is no longer declared but is still attached to 1 node(s): "
+        "analytics.revenue. Remove the tag from these nodes to delete it."
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_long_list_of_holders_is_truncated(session, current_user):
+    """A widely-used tag names the first few holders rather than all of them."""
+    tag = await add_tag(session, current_user, "retired", "domain")
+    for index in range(6):
+        await attach_tag(session, current_user, tag, f"analytics.metric_{index}")
+    spec = DeploymentSpec(
+        namespace="taxonomy",
+        nodes=[],
+        tags=[TagSpec(name="payments", tag_type="domain")],
+        managed_tag_types=[TagTypeClaimSpec(tag_type="domain")],
+    )
+    orchestrator = orchestrator_for(spec, session, current_user)
+    await orchestrator._setup_deployment_resources()
+    results = await orchestrator._reconcile_claimed_tags()
+
+    (result,) = results_for(results, "retired")
+    assert result.message == (
+        "Tag 'retired' is no longer declared but is still attached to 6 node(s): "
+        "analytics.metric_0, analytics.metric_1, analytics.metric_2, "
+        "analytics.metric_3, analytics.metric_4 and 1 more. Remove the tag from "
+        "these nodes to delete it."
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_tag_only_a_deleted_node_held_is_deleted(session, current_user):
+    """A deactivated node does not keep a dropped tag alive."""
+    tag = await add_tag(session, current_user, "retired", "domain")
+    node = await attach_tag(session, current_user, tag, "analytics.revenue")
+    node.deactivated_at = datetime.now(UTC)
+    await session.flush()
+    spec = DeploymentSpec(
+        namespace="taxonomy",
+        nodes=[],
+        tags=[TagSpec(name="payments", tag_type="domain")],
+        managed_tag_types=[TagTypeClaimSpec(tag_type="domain")],
+    )
+    orchestrator = orchestrator_for(spec, session, current_user)
+    await orchestrator._setup_deployment_resources()
+    results = await orchestrator._reconcile_claimed_tags()
+
+    assert [tag.name for tag in await Tag.find_tags(session, tag_types=["domain"])] == [
+        "payments",
+    ]
+    assert [result.operation for result in results_for(results, "retired")] == [
+        DeploymentResult.Operation.DELETE,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_reconcile_leaves_unclaimed_types_alone(session, current_user):
+    """A claim on one type says nothing about tags of another."""
+    await add_tag(session, current_user, "quarterly", "group")
+    spec = DeploymentSpec(
+        namespace="taxonomy",
+        nodes=[],
+        tags=[TagSpec(name="payments", tag_type="domain")],
+        managed_tag_types=[TagTypeClaimSpec(tag_type="domain")],
+    )
+    orchestrator = orchestrator_for(spec, session, current_user)
+    await orchestrator._setup_deployment_resources()
+    results = await orchestrator._reconcile_claimed_tags()
+
+    assert [tag.name for tag in await Tag.find_tags(session, tag_types=["group"])] == [
+        "quarterly",
+    ]
+    assert results_for(results, "quarterly") == []
+
+
+@pytest.mark.asyncio
+async def test_a_tag_a_deployed_node_uses_survives(session, current_user):
+    """A node's tag counts as declared even with no tag spec of its own."""
+    await add_tag(session, current_user, "payments", "domain")
+    spec = DeploymentSpec(
+        namespace="taxonomy",
+        nodes=[
+            MetricSpec(
+                name="revenue",
+                query="SELECT SUM(amount) FROM taxonomy.fct",
+                tags=["payments"],
+            ),
+        ],
+        managed_tag_types=[TagTypeClaimSpec(tag_type="domain")],
+    )
+    orchestrator = orchestrator_for(spec, session, current_user)
+    await orchestrator._setup_deployment_resources()
+    results = await orchestrator._reconcile_claimed_tags()
+    assert results == []
+
+    assert [tag.name for tag in await Tag.find_tags(session, tag_types=["domain"])] == [
+        "payments",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_branch_deploy_does_not_reconcile(session, current_user):
+    """
+    A branch's claim resolves to its parent, so the branch is not the holder and
+    a stale checkout of it cannot delete the parent's vocabulary.
+    """
+    await add_namespace(session, "taxonomy")
+    await add_namespace(session, "taxonomy.somebranch", parent_namespace="taxonomy")
+    await add_tag(session, current_user, "retired", "domain")
+    spec = DeploymentSpec(
+        namespace="taxonomy.somebranch",
+        nodes=[],
+        tags=[TagSpec(name="payments", tag_type="domain")],
+        managed_tag_types=[TagTypeClaimSpec(tag_type="domain")],
+    )
+    orchestrator = orchestrator_for(spec, session, current_user)
+    await orchestrator._setup_deployment_resources()
+    results = await orchestrator._reconcile_claimed_tags()
+    assert results == []
+
+    assert (await claim_for(session, "domain")).namespace == "taxonomy"
+    assert {tag.name for tag in await Tag.find_tags(session, tag_types=["domain"])} == {
+        "payments",
+        "retired",
+    }
+
+
+@pytest.mark.asyncio
+async def test_wiping_a_vocabulary_needs_allow_empty(session, current_user):
+    """
+    A manifest that claims a type but declares no tags is usually a partial push,
+    not a request to drop the whole vocabulary.
+    """
+    await add_tag(session, current_user, "payments", "domain")
+    fields = dict(
+        namespace="taxonomy",
+        nodes=[],
+        managed_tag_types=[TagTypeClaimSpec(tag_type="domain")],
+    )
+    orchestrator = orchestrator_for(DeploymentSpec(**fields), session, current_user)
+    await orchestrator._setup_deployment_resources()
+    results = await orchestrator._reconcile_claimed_tags()
+
+    assert [tag.name for tag in await Tag.find_tags(session, tag_types=["domain"])] == [
+        "payments",
+    ]
+    (result,) = results_for(results, "taxonomy")
+    assert result.status == DeploymentResult.Status.WARNING
+    assert result.message == (
+        "1 tag(s) of claimed type(s) domain were left intact because the "
+        "deployment declares no tags. Re-run with allow_empty to delete them."
+    )
+    assert [warning.message for warning in orchestrator.warnings] == [result.message]
+
+    # The opt-in drops them.
+    orchestrator = orchestrator_for(
+        DeploymentSpec(**fields, allow_empty=True),
+        session,
+        current_user,
+    )
+    await orchestrator._setup_deployment_resources()
+    results = await orchestrator._reconcile_claimed_tags()
+    assert await Tag.find_tags(session, tag_types=["domain"]) == []
+
+
+@pytest.mark.asyncio
+async def test_a_manifest_without_claims_reconciles_nothing(session, current_user):
+    """Omitting the section leaves every tag alone, claimed or not."""
+    await upsert_tag_type_claims(
+        session,
+        "taxonomy",
+        [TagTypeClaimSpec(tag_type="domain", namespace="taxonomy")],
+        current_user_id=current_user.id,
+    )
+    await add_tag(session, current_user, "retired", "domain")
+    spec = DeploymentSpec(namespace="taxonomy", nodes=[])
+    orchestrator = orchestrator_for(spec, session, current_user)
+    results = await orchestrator._reconcile_claimed_tags()
+    assert results == []
+
+    assert [tag.name for tag in await Tag.find_tags(session, tag_types=["domain"])] == [
+        "retired",
+    ]
