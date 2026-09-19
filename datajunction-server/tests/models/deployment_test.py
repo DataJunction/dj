@@ -17,6 +17,8 @@ from datajunction_server.models.deployment import (
     ColumnSpec,
     CubeSpec,
     CustomMetadataSchemaSpec,
+    DeploymentCheckSpec,
+    DeploymentRulesetSpec,
     DeploymentSpec,
     DimensionJoinLinkSpec,
     DimensionReferenceLinkSpec,
@@ -281,6 +283,8 @@ def test_deployment_spec():
         "hierarchies": [],
         "preaggregations": [],
         "custom_metadata_schemas": None,
+        "checks": None,
+        "rulesets": None,
         "source": None,
         "auto_register_sources": True,
         "force": False,
@@ -1712,6 +1716,125 @@ def test_a_schema_namespace_outside_the_deployment_is_rejected(outside):
             ],
         )
     assert "not 'shared' or beneath it" in str(exc_info.value)
+
+
+# An invented vocabulary, matching the check-engine tests: `demo.*` names over a
+# `sample` metadata key with color/size/shape properties.
+def _check(name: str, gate: str = "warn") -> DeploymentCheckSpec:
+    return DeploymentCheckSpec(
+        name=name,
+        description=f"Something about {name}.",
+        condition="size(node.owners) >= 1",
+        gate=gate,
+    )
+
+
+def _deployment(**kwargs) -> DeploymentSpec:
+    return DeploymentSpec(namespace="shared", nodes=[], **kwargs)
+
+
+def test_a_manifest_without_checks_declares_none():
+    """Omitting both blocks changes nothing."""
+    spec = _deployment()
+    assert spec.checks is None
+    assert spec.rulesets is None
+
+
+def test_checks_and_rulesets_load():
+    spec = _deployment(
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.owner_present",
+                description="Every entity has an owner.",
+                when="node.type == 'dimension'",
+                condition="size(node.owners) >= 1",
+                gate="warn",
+            ),
+            _check("demo.color_set"),
+        ],
+        rulesets=[
+            DeploymentRulesetSpec(
+                name="baseline",
+                display_name="Baseline",
+                checks=["demo.owner_present", "demo.color_set"],
+            ),
+        ],
+    )
+    assert spec.checks[0].when == "node.type == 'dimension'"
+    assert spec.checks[1].when is None
+    assert spec.rulesets[0].display_name == "Baseline"
+    assert spec.rulesets[0].includes == []
+
+
+def test_an_unrecognized_gate_is_not_rejected_here():
+    """
+    The gate stays a string, so a typo is reported as a malformed check at config
+    load rather than raising while the manifest is parsed.
+    """
+    spec = _deployment(checks=[_check("demo.color_set", gate="blcok")])
+    assert spec.checks[0].gate == "blcok"
+
+
+def test_duplicate_check_names_are_rejected():
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        _deployment(checks=[_check("demo.color_set"), _check("demo.color_set")])
+    assert "Duplicate check name 'demo.color_set'" in str(exc_info.value)
+
+
+def test_duplicate_ruleset_names_are_rejected():
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        _deployment(
+            rulesets=[
+                DeploymentRulesetSpec(name="baseline"),
+                DeploymentRulesetSpec(name="baseline"),
+            ],
+        )
+    assert "Duplicate ruleset name 'baseline'" in str(exc_info.value)
+
+
+def test_a_ruleset_naming_an_undeclared_check_is_rejected():
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        _deployment(
+            checks=[_check("demo.color_set")],
+            rulesets=[
+                DeploymentRulesetSpec(name="baseline", checks=["demo.size_set"]),
+            ],
+        )
+    assert "names check 'demo.size_set', which is not declared" in str(exc_info.value)
+
+
+def test_a_ruleset_including_an_undeclared_ruleset_is_rejected():
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        _deployment(
+            rulesets=[DeploymentRulesetSpec(name="strict", includes=["baseline"])],
+        )
+    assert "includes ruleset 'baseline', which is not declared" in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "includes, cycle",
+    [
+        ({"baseline": ["baseline"]}, "baseline -> baseline"),
+        (
+            {"baseline": ["strict"], "strict": ["baseline"]},
+            "baseline -> strict -> baseline",
+        ),
+        (
+            {"baseline": ["strict"], "strict": ["extra"], "extra": ["baseline"]},
+            "baseline -> strict -> extra -> baseline",
+        ),
+    ],
+    ids=["self", "direct", "transitive"],
+)
+def test_a_cycle_in_includes_is_rejected(includes, cycle):
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        _deployment(
+            rulesets=[
+                DeploymentRulesetSpec(name=name, includes=included)
+                for name, included in includes.items()
+            ],
+        )
+    assert f"Ruleset includes form a cycle: {cycle}." in str(exc_info.value)
 
 
 def semantic_specs() -> dict[str, NodeSpec]:
