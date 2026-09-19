@@ -1548,11 +1548,12 @@ class DeploymentCheckSpec(BaseModel):
     """
     Specification for a governance check declared by a manifest.
 
-    `when` and `condition` are CEL source, kept as written: they are compiled and
-    vetted by the evaluation layer at config load, so a malformed expression is
-    reported there rather than raising while the manifest is parsed. `gate` is a
-    plain string for the same reason -- an unrecognized gate comes back as a
-    malformed check, not a parse error.
+        condition   the assertion; the check passes when it is true
+        when        optional; the check runs only if this is true, and is
+                    skipped rather than failed otherwise
+
+    Both are CEL expressions, compiled and vetted by the evaluation layer at
+    config load.
     """
 
     name: str
@@ -1566,9 +1567,11 @@ class DeploymentRulesetSpec(BaseModel):
     """
     Specification for a named bundle of checks.
 
-    `includes` names other rulesets whose checks are folded in, expanded
-    transitively. `when` guards the whole bundle, which is how a ruleset rolls
-    out to part of a namespace's graph before it governs all of it.
+        includes    other rulesets whose checks are folded in, transitively
+        when        optional; the bundle applies only where this is true, which
+                    is how a tier governs part of a graph before all of it
+
+    `when` is a CEL expression, compiled and vetted like a check's.
     """
 
     name: str
@@ -1682,8 +1685,6 @@ class DeploymentSpec(BaseModel):
     # namespace's rows. A list default would make every deployment that omits
     # the section look like the latter.
     custom_metadata_schemas: list[CustomMetadataSchemaSpec] | None = None
-    # Read at deploy time and never persisted, so None and [] mean the same
-    # thing here: no checks to run.
     checks: list[DeploymentCheckSpec] | None = None
     rulesets: list[DeploymentRulesetSpec] | None = None
     source: DeploymentSource | None = None  # CI/CD provenance tracking
@@ -1777,8 +1778,8 @@ class DeploymentSpec(BaseModel):
     def validate_checks(self):
         """
         Vet the shape of the `checks` and `rulesets` blocks: names are unique, and
-        every reference resolves. The expressions themselves are the evaluation
-        layer's business.
+        every reference resolves. The expressions themselves will be validated by
+        the evaluation layer.
         """
         check_names = _unique_names(self.checks or [], "check")
         ruleset_names = _unique_names(self.rulesets or [], "ruleset")

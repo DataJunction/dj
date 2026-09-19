@@ -1,6 +1,37 @@
 """
 Turn a manifest's `checks` and `rulesets` blocks into what the evaluation layer
-takes. Nothing here compiles an expression: the strings are carried across as
+takes. A check is one rule; a ruleset is a named bundle of them, so a manifest
+can talk about a tier rather than a list.
+
+    checks:
+      - name: demo.owner_present
+        description: Every entity has an owner.
+        condition: "size(node.owners) >= 1"
+        gate: warn
+
+      - name: demo.primary_key_set
+        description: Dimensions declare a primary key.
+        when: "node.type == 'dimension'"     # only applies to dimensions
+        condition: "size(node.primary_key) >= 1"
+        gate: block
+
+A check carries its own verdict and its own consequence. A ruleset has no
+conditions of its own -- it is composition:
+
+    rulesets:
+      - name: baseline
+        display_name: Baseline
+        checks: [demo.owner_present, demo.primary_key_set]
+
+      - name: strict
+        when: "node.custom_metadata.sample.size != null"  # the tier is scoped
+        includes: [baseline]                              # all of baseline, plus
+        checks: [demo.column_descriptions]
+
+The two `when` guards stack: a ruleset's says which entities the tier applies
+to, a check's says which entities that one rule applies to.
+
+Nothing here compiles an expression -- the strings are carried across as
 authored and vetted by `load_checks`.
 """
 
