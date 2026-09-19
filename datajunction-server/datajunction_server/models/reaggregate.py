@@ -21,6 +21,10 @@ class ReaggregationFunction(StrEnum):
     FIRST_VALUE = "first_value"
     MIN = "min"
     MAX = "max"
+    # Quantile sketch family. Unlike the functions above it does not describe a
+    # rollup arithmetic; it selects how a quantile metric is accumulated, merged
+    # and read back, which is what makes percentiles pre-aggregatable at all.
+    TDIGEST = "tdigest"
 
 
 DIMENSION_REAGGREGATE_FUNCTIONS = frozenset(
@@ -33,7 +37,12 @@ DIMENSION_REAGGREGATE_FUNCTIONS = frozenset(
 )
 
 
-PARAMETERIZED_REAGGREGATE_FUNCTIONS: frozenset[ReaggregationFunction] = frozenset()
+PARAMETERIZED_REAGGREGATE_FUNCTIONS: frozenset[ReaggregationFunction] = frozenset(
+    {
+        # compression: centroids retained, trading sketch size for tail accuracy.
+        ReaggregationFunction.TDIGEST,
+    },
+)
 
 
 def is_parameterized_reaggregate_function(

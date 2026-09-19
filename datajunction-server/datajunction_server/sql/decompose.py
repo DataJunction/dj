@@ -3,7 +3,7 @@
 import hashlib
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import cast
+from typing import Any, cast
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,9 +16,11 @@ from datajunction_server.models.decompose import (
     AggregationRule,
     MetricComponent,
 )
+from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.reaggregate import (
     ReaggregateSpec,
+    ReaggregationFunction,
     dimension_reaggregate_rules,
     is_supported_dimension_reaggregate_function,
     parse_reaggregate_spec,
@@ -122,8 +124,22 @@ class AggDecomposition(ABC):
     def components(self) -> list[ComponentDef]:
         """Define the components needed for this aggregation."""
 
+    def __init__(self, params: dict[str, Any] | None = None):
+        """
+        Args:
+            params: Tuning parameters from the metric's ``reaggregate.params``.
+                Empty for the registry-by-function decompositions, which take
+                none; a sketch family reads its accuracy setting from here.
+        """
+        self.params = params or {}
+
     @abstractmethod
-    def combine(self, components: list[MetricComponent]) -> ast.Expression:
+    def combine(
+        self,
+        components: list[MetricComponent],
+        func: ast.Function,
+        dialect: Dialect = Dialect.SPARK,
+    ) -> ast.Expression:
         """Build the combiner expression from merged metric components."""
 
 
@@ -132,6 +148,30 @@ class AggDecomposition(ABC):
 # =============================================================================
 
 DECOMPOSITION_REGISTRY: dict[type, type[AggDecomposition] | None] = {}
+
+
+# Decompositions selected by the metric's declared reaggregation family rather
+# than by its aggregation function. A family entry wins over the by-function
+# registry, which is what lets `APPROX_PERCENTILE(x, 0.95)` keep its spelling and
+# still decompose, but only for metrics that opted in with `reaggregate.fn`.
+FAMILY_DECOMPOSITION_REGISTRY: dict[ReaggregationFunction, type[AggDecomposition]] = {}
+
+
+def decomposes_family(fn: ReaggregationFunction):
+    """
+    Register a decomposition for a reaggregation family.
+
+    Exported for downstream deployments, which supply the engine-specific
+    functions a family needs. OSS registers none, so a metric declaring an
+    unregistered family falls through to the by-function registry and keeps the
+    aggregability it has today.
+    """
+
+    def decorator(decomp_class: type[AggDecomposition]):
+        FAMILY_DECOMPOSITION_REGISTRY[fn] = decomp_class
+        return decomp_class
+
+    return decorator
 
 
 def decomposes(func_class: type):
@@ -162,7 +202,12 @@ class SumDecomposition(AggDecomposition):
     def components(self) -> list[ComponentDef]:
         return [ComponentDef("_sum", "SUM", "SUM")]
 
-    def combine(self, components: list[MetricComponent]):
+    def combine(
+        self,
+        components: list[MetricComponent],
+        func: ast.Function,
+        dialect: Dialect = Dialect.SPARK,
+    ):
         return make_func("SUM", components[0].name)
 
 
@@ -174,7 +219,12 @@ class MaxDecomposition(AggDecomposition):
     def components(self) -> list[ComponentDef]:
         return [ComponentDef("_max", "MAX", "MAX")]
 
-    def combine(self, components: list[MetricComponent]):
+    def combine(
+        self,
+        components: list[MetricComponent],
+        func: ast.Function,
+        dialect: Dialect = Dialect.SPARK,
+    ):
         return make_func("MAX", components[0].name)
 
 
@@ -186,7 +236,12 @@ class MinDecomposition(AggDecomposition):
     def components(self) -> list[ComponentDef]:
         return [ComponentDef("_min", "MIN", "MIN")]
 
-    def combine(self, components: list[MetricComponent]):
+    def combine(
+        self,
+        components: list[MetricComponent],
+        func: ast.Function,
+        dialect: Dialect = Dialect.SPARK,
+    ):
         return make_func("MIN", components[0].name)
 
 
@@ -198,7 +253,12 @@ class AnyValueDecomposition(AggDecomposition):
     def components(self) -> list[ComponentDef]:
         return [ComponentDef("_any_value", "ANY_VALUE", "ANY_VALUE")]
 
-    def combine(self, components: list[MetricComponent]):
+    def combine(
+        self,
+        components: list[MetricComponent],
+        func: ast.Function,
+        dialect: Dialect = Dialect.SPARK,
+    ):
         return make_func("ANY_VALUE", components[0].name)
 
 
@@ -215,7 +275,12 @@ class CountDecomposition(AggDecomposition):
     def components(self) -> list[ComponentDef]:
         return [ComponentDef("_count", "COUNT", "SUM")]
 
-    def combine(self, components: list[MetricComponent]):
+    def combine(
+        self,
+        components: list[MetricComponent],
+        func: ast.Function,
+        dialect: Dialect = Dialect.SPARK,
+    ):
         return make_func("SUM", components[0].name)
 
 
@@ -227,7 +292,12 @@ class CountIfDecomposition(AggDecomposition):
     def components(self) -> list[ComponentDef]:
         return [ComponentDef("_count_if", "COUNT_IF", "SUM")]
 
-    def combine(self, components: list[MetricComponent]):
+    def combine(
+        self,
+        components: list[MetricComponent],
+        func: ast.Function,
+        dialect: Dialect = Dialect.SPARK,
+    ):
         return make_func("SUM", components[0].name)
 
 
@@ -247,7 +317,12 @@ class AvgDecomposition(AggDecomposition):
             ComponentDef("_count", "COUNT", "SUM"),
         ]
 
-    def combine(self, components: list[MetricComponent]):
+    def combine(
+        self,
+        components: list[MetricComponent],
+        func: ast.Function,
+        dialect: Dialect = Dialect.SPARK,
+    ):
         return ast.BinaryOp(
             op=ast.BinaryOpKind.Divide,
             left=make_func("SUM", components[0].name),
@@ -279,7 +354,12 @@ class ApproxCountDistinctDecomposition(AggDecomposition):
             ),
         ]
 
-    def combine(self, components: list[MetricComponent]):
+    def combine(
+        self,
+        components: list[MetricComponent],
+        func: ast.Function,
+        dialect: Dialect = Dialect.SPARK,
+    ):
         return make_func(
             "hll_sketch_estimate",
             make_func("hll_union_agg", components[0].name),
@@ -382,7 +462,12 @@ class VarianceDecompositionBase(AggDecomposition):
 class VarPopDecomposition(VarianceDecompositionBase):
     """Population variance: E[X²] - E[X]²"""
 
-    def combine(self, components: list[MetricComponent]):
+    def combine(
+        self,
+        components: list[MetricComponent],
+        func: ast.Function,
+        dialect: Dialect = Dialect.SPARK,
+    ):
         return self._make_var_pop(components)
 
 
@@ -390,7 +475,12 @@ class VarPopDecomposition(VarianceDecompositionBase):
 class VarSampDecomposition(VarianceDecompositionBase):
     """Sample variance with Bessel's correction."""
 
-    def combine(self, components: list[MetricComponent]):
+    def combine(
+        self,
+        components: list[MetricComponent],
+        func: ast.Function,
+        dialect: Dialect = Dialect.SPARK,
+    ):
         return self._make_var_samp(components)
 
 
@@ -398,7 +488,12 @@ class VarSampDecomposition(VarianceDecompositionBase):
 class VarianceDecomposition(VarianceDecompositionBase):
     """VARIANCE (alias for VAR_SAMP in Spark)."""
 
-    def combine(self, components: list[MetricComponent]):
+    def combine(
+        self,
+        components: list[MetricComponent],
+        func: ast.Function,
+        dialect: Dialect = Dialect.SPARK,
+    ):
         return self._make_var_samp(components)  # pragma: no cover
 
 
@@ -411,7 +506,12 @@ class VarianceDecomposition(VarianceDecompositionBase):
 class StddevPopDecomposition(VarianceDecompositionBase):
     """Population standard deviation: sqrt(VAR_POP)"""
 
-    def combine(self, components: list[MetricComponent]):
+    def combine(
+        self,
+        components: list[MetricComponent],
+        func: ast.Function,
+        dialect: Dialect = Dialect.SPARK,
+    ):
         return make_func("SQRT", self._make_var_pop(components))
 
 
@@ -419,7 +519,12 @@ class StddevPopDecomposition(VarianceDecompositionBase):
 class StddevSampDecomposition(VarianceDecompositionBase):
     """Sample standard deviation: sqrt(VAR_SAMP)"""
 
-    def combine(self, components: list[MetricComponent]):
+    def combine(
+        self,
+        components: list[MetricComponent],
+        func: ast.Function,
+        dialect: Dialect = Dialect.SPARK,
+    ):
         return make_func("SQRT", self._make_var_samp(components))
 
 
@@ -427,7 +532,12 @@ class StddevSampDecomposition(VarianceDecompositionBase):
 class StddevDecomposition(VarianceDecompositionBase):
     """STDDEV (alias for STDDEV_SAMP in Spark)."""
 
-    def combine(self, components: list[MetricComponent]):
+    def combine(
+        self,
+        components: list[MetricComponent],
+        func: ast.Function,
+        dialect: Dialect = Dialect.SPARK,
+    ):
         return make_func("SQRT", self._make_var_samp(components))  # pragma: no cover
 
 
@@ -532,7 +642,12 @@ class CovarianceDecompositionBase(AggDecomposition):
 class CovarPopDecomposition(CovarianceDecompositionBase):
     """Population covariance: E[XY] - E[X]*E[Y]"""
 
-    def combine(self, components: list[MetricComponent]):
+    def combine(
+        self,
+        components: list[MetricComponent],
+        func: ast.Function,
+        dialect: Dialect = Dialect.SPARK,
+    ):
         return self._make_covar_pop(components)
 
 
@@ -540,7 +655,12 @@ class CovarPopDecomposition(CovarianceDecompositionBase):
 class CovarSampDecomposition(CovarianceDecompositionBase):
     """Sample covariance with Bessel's correction."""
 
-    def combine(self, components: list[MetricComponent]):
+    def combine(
+        self,
+        components: list[MetricComponent],
+        func: ast.Function,
+        dialect: Dialect = Dialect.SPARK,
+    ):
         return self._make_covar_samp(components)
 
 
@@ -574,7 +694,12 @@ class CorrDecomposition(AggDecomposition):
             ComponentDef("_count", "COUNT({0})", "SUM", arg_index=0),
         ]
 
-    def combine(self, components: list[MetricComponent]) -> ast.Expression:
+    def combine(
+        self,
+        components: list[MetricComponent],
+        func: ast.Function,
+        dialect: Dialect = Dialect.SPARK,
+    ) -> ast.Expression:
         """
         Build CORR: COVAR(X,Y) / (STDDEV(X) * STDDEV(Y))
 
@@ -644,8 +769,27 @@ not_decomposable(dj_functions.MinBy)
 # =============================================================================
 
 
-def get_decomposition(func_class: type) -> AggDecomposition | None:
-    """Get decomposition instance for a function class, or None if not decomposable."""
+def get_decomposition(
+    func_class: type,
+    reaggregate: ReaggregateSpec | None = None,
+) -> AggDecomposition | None:
+    """
+    Get the decomposition for an aggregation, or None if not decomposable.
+
+    A metric that declares a reaggregation family gets that family's
+    decomposition, which is how an opt-in sketch overrides the default handling
+    of its aggregation function. Everything else resolves by function class as
+    before.
+
+    A declared family with nothing registered for it falls through rather than
+    raising: OSS ships no family implementations, so the metric simply keeps the
+    aggregability it would have had.
+    """
+    if reaggregate is not None and reaggregate.fn is not None:
+        family_class = FAMILY_DECOMPOSITION_REGISTRY.get(reaggregate.fn)
+        if family_class is not None:
+            return family_class(params=reaggregate.params)
+
     decomp_class = DECOMPOSITION_REGISTRY.get(func_class)
     if decomp_class is None:
         return None
@@ -779,14 +923,29 @@ class MetricComponentExtractor:
     For derived metrics: collects components from base metrics and substitutes references.
     """
 
-    def __init__(self, node_revision_id: int):
+    def __init__(
+        self,
+        node_revision_id: int,
+        dialect: Dialect = Dialect.SPARK,
+    ):
         """
         Extract metric components from a specific metric revision.
 
         Args:
             node_revision_id: ID of the metric node revision
+            dialect: Dialect the combiner will be rendered for. Combiners are
+                mostly dialect-neutral, but a sketch family whose engines expose
+                different function shapes needs the target -- Druid fuses a
+                t-digest's merge and combine, where Spark and Trino keep them
+                separate.
+
+                Defaults to Spark, which is right for the callers that render
+                for display or for frozen measures. Only the build_v3 path,
+                which knows the cube's actual target engine, passes anything
+                else.
         """
         self._node_revision_id = node_revision_id
+        self._dialect = dialect
 
     @classmethod
     async def from_node_name(  # pragma: no cover
@@ -927,7 +1086,10 @@ class MetricComponentExtractor:
 
             if is_parent_derived and parent_revision_id:
                 # Recursively extract the derived metric (inline expansion)
-                parent_extractor = MetricComponentExtractor(parent_revision_id)
+                parent_extractor = MetricComponentExtractor(
+                    parent_revision_id,
+                    dialect=self._dialect,
+                )
                 base_components, derived_ast = await parent_extractor.extract(
                     session,
                     nodes_cache=nodes_cache,
@@ -1143,7 +1305,15 @@ class MetricComponentExtractor:
 
             # If any aggregation is non-decomposable, abort decomposition
             # entirely — the metric is non-decomposable as a whole.
-            if any(get_decomposition(dj_fn) is None for _, dj_fn in agg_funcs):
+            #
+            # The spec has to be passed here, not just to `_decompose` below:
+            # a family-gated metric decomposes precisely because it declared a
+            # family, and its aggregation function has no entry of its own. Ask
+            # without the spec and every such metric aborts at this gate and
+            # never reaches the family registry at all.
+            if any(
+                get_decomposition(dj_fn, reaggregate) is None for _, dj_fn in agg_funcs
+            ):
                 if dimension_reaggregate_rules(reaggregate):
                     self._raise_unsupported_reaggregate_shape(
                         "dimension-specific reaggregation requires a "
@@ -1152,7 +1322,7 @@ class MetricComponentExtractor:
                 return [], query_ast
 
             for func, dj_function in agg_funcs:
-                result = self._decompose(func, dj_function, query_ast)
+                result = self._decompose(func, dj_function, query_ast, reaggregate)
                 if result:  # pragma: no branch
                     # Apply combiner to AST
                     func.parent.replace(from_=func, to=result.combiner)  # type: ignore
@@ -1292,9 +1462,10 @@ class MetricComponentExtractor:
         func: ast.Function,
         dj_function: type,
         query_ast: ast.Query,
+        reaggregate: ReaggregateSpec | None = None,
     ) -> DecompositionResult | None:
         """Decompose an aggregation function using the registry."""
-        decomposition = get_decomposition(dj_function)
+        decomposition = get_decomposition(dj_function, reaggregate)
 
         if decomposition is None:  # pragma: no cover
             # Defensive: ``_extract_base`` filters non-decomposable
@@ -1321,7 +1492,7 @@ class MetricComponentExtractor:
                 quantifier=ast.SetQuantifier.Distinct,
             )
         else:
-            combiner_ast = decomposition.combine(components)
+            combiner_ast = decomposition.combine(components, func, self._dialect)
             # Decomposed AVG / variance / stddev / covariance all build
             # SUM(...) / SUM(count)-style combiners where the denominator
             # can legitimately be 0.  Wrap to produce NULL rather than
