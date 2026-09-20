@@ -3796,6 +3796,100 @@ class TestDeployments:
         assert mock_qs.run_cube_backfill.call_args_list == []
 
     @pytest.mark.asyncio
+    async def test_declared_retention_reaches_the_stored_config(
+        self,
+        session,
+        client,
+        default_hard_hats,
+        default_hard_hat,
+        default_us_states,
+        default_us_state,
+        default_avg_length_of_employment,
+        mock_qs,
+    ):
+        """
+        A non-default `retention` is stored, so it round-trips and an unchanged
+        re-deploy is a no-op.
+
+        It used to be dropped on the way in and read back as the default, which both
+        gave the cube a retention its author never asked for and made every later
+        deploy of the untouched cube report an update.
+        """
+        namespace = "cube_retention"
+        cube = CubeSpec(
+            name="default.repairs_cube",
+            display_name="Repairs Cube",
+            description="""Cube for analyzing repair orders""",
+            dimensions=[
+                "${prefix}default.hard_hat.state",
+                "${prefix}default.hard_hat.birth_date",
+            ],
+            metrics=["${prefix}default.avg_length_of_employment"],
+            columns=[
+                ColumnSpec(
+                    name="${prefix}default.hard_hat.birth_date",
+                    partition=PartitionSpec(
+                        type=PartitionType.TEMPORAL,
+                        granularity=Granularity.DAY,
+                        format="yyyyMMdd",
+                    ),
+                ),
+            ],
+            materialization=MaterializationSpec(
+                schedule="0 6 * * *",
+                lookback_window="1 DAY",
+                retention="5000 DAYS",
+            ),
+            owners=["dj"],
+        )
+        nodes_list = [
+            default_hard_hats,
+            default_hard_hat,
+            default_us_states,
+            default_us_state,
+            default_avg_length_of_employment,
+            cube,
+        ]
+        cube_name = f"{namespace}.default.repairs_cube"
+        spec = DeploymentSpec(namespace=namespace, nodes=nodes_list)
+        data = await deploy_and_wait(client, spec)
+        assert data["status"] == "success"
+
+        session.expire_all()
+        deployed = await Node.get_by_name(
+            session,
+            cube_name,
+            options=Node.cube_load_options(),
+        )
+        assert (await deployed.to_spec(session)).materialization == (
+            MaterializationSpec(
+                schedule="0 6 * * *",
+                strategy=MaterializationStrategy.INCREMENTAL_TIME,
+                lookback_window="1 DAY",
+                retention="5000 DAYS",
+            )
+        )
+
+        # The same manifest again: nothing moved, so nothing is reported as changed.
+        data = await deploy_and_wait(client, spec)
+        assert data["status"] == "success"
+        assert [
+            result
+            for result in data["results"]
+            if result["name"] == cube_name
+            and result["deploy_type"] == "materialization"
+        ] == [
+            {
+                "deploy_type": "materialization",
+                "message": "cube materialization on schedule 0 6 * * *",
+                "name": cube_name,
+                "operation": "noop",
+                "changed_fields": [],
+                "status": "success",
+            },
+        ]
+
+    @pytest.mark.asyncio
     async def test_deploy_cube_with_declared_coverage(
         self,
         session,

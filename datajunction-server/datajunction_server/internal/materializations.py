@@ -38,6 +38,7 @@ from datajunction_server.models.column import SemanticType
 from datajunction_server.models.cube_materialization import UpsertCubeMaterialization
 from datajunction_server.models.deployment import MaterializationSpec
 from datajunction_server.models.materialization import (
+    DEFAULT_CUBE_RETENTION,
     DruidCubeConfigInput,
     DruidMeasuresCubeConfig,
     DruidMetricsCubeConfig,
@@ -358,10 +359,10 @@ def _upsert_from_materialization(
     """
     Recover the user's materialization intent from a persisted materialization.
 
-    Only the intent -- job type, strategy, schedule, lookback window, declared
-    coverage and the author's Druid, Spark and platform settings -- is carried
-    over; everything else in a stored config is generated content derived from
-    the revision it was built against.
+    Only the intent -- job type, strategy, schedule, lookback window, retention,
+    declared coverage and the author's Druid, Spark and platform settings -- is
+    carried over; everything else in a stored config is generated content derived
+    from the revision it was built against.
     """
     config = materialization.config if isinstance(materialization.config, dict) else {}
     lookback_window = config.get("lookback_window")
@@ -372,6 +373,9 @@ def _upsert_from_materialization(
             strategy=materialization.strategy,
             schedule=materialization.schedule,
             lookback_window=lookback_window,
+            # Same default as the export: a config persisted before `retention`
+            # existed rebuilds with the value that export already reports.
+            retention=config.get("retention", DEFAULT_CUBE_RETENTION),
             coverage=config.get("coverage"),
             druid=config.get("druid"),
             spark=config.get("spark"),
@@ -521,6 +525,7 @@ async def reconcile_declared_materializations(
                     strategy=block.strategy,
                     schedule=block.schedule,
                     lookback_window=block.lookback_window,
+                    retention=block.retention,
                     coverage=block.coverage,
                     druid=block.druid,
                     spark=block.spark,
@@ -675,6 +680,7 @@ async def swap_cube_materializations(
                         "schedule": block.schedule,
                         "strategy": block.strategy,
                         "lookback_window": block.lookback_window,
+                        "retention": block.retention,
                         "coverage": block.coverage,
                     },
                 )
