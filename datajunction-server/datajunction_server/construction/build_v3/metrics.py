@@ -138,18 +138,6 @@ def _replace_reaggregate_merge_expression(
     )
 
 
-def _dimension_ref_base(ref: str) -> str:
-    """Return a dimension ref without its role suffix."""
-    return ref.split("[", 1)[0]
-
-
-def _dimension_ref_role(ref: str) -> str | None:
-    """Return the role suffix for a dimension ref, if any."""
-    if "[" not in ref:
-        return None
-    return ref.rsplit("[", 1)[1].rstrip("]")
-
-
 def _source_dimension_alias(
     source_dimension_aliases: dict[str, str],
     dimension_ref: str,
@@ -157,13 +145,9 @@ def _source_dimension_alias(
     """
     Return the source CTE's column alias for a dimension ref.
 
-    Role-qualified refs must match exactly. A role-less ref may use its base
-    name, but must not borrow the alias of a role-qualified dimension.
+    Semantic refs, including their roles, must match exactly.
     """
-    alias = source_dimension_aliases.get(dimension_ref)
-    if alias or _dimension_ref_role(dimension_ref) is not None:
-        return alias
-    return source_dimension_aliases.get(_dimension_ref_base(dimension_ref))
+    return source_dimension_aliases.get(dimension_ref)
 
 
 def _metric_refs_from_query(ctx: BuildContext, metric_name: str) -> set[str]:

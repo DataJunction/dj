@@ -15,6 +15,9 @@ from typing import cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.construction.build_v3.dimension_refs import (
+    split_dimension_ref,
+)
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
     DecomposedMetricInfo,
@@ -325,21 +328,10 @@ def get_native_grain(node: Node) -> list[str]:
     return pk_columns
 
 
-def _dimension_ref_base(ref: str) -> str:
-    """Return a dimension ref without its role suffix."""
-    return ref.split("[", 1)[0]
-
-
-def _dimension_ref_role(ref: str) -> str | None:
-    """Return the role suffix for a dimension ref, if any."""
-    if "[" not in ref:
-        return None
-    return ref.rsplit("[", 1)[1].rstrip("]")
-
-
 def _dimension_ref_column(ref: str) -> str:
     """Return the column part of a fully qualified or local dimension ref."""
-    return _dimension_ref_base(ref).rsplit(SEPARATOR, 1)[-1]
+    base, _ = split_dimension_ref(ref)
+    return base.rsplit(SEPARATOR, 1)[-1]
 
 
 def _reaggregate_dimension_requested(
@@ -352,12 +344,10 @@ def _reaggregate_dimension_requested(
     Role-qualified dimensions only count when the role matches exactly. Coarser
     dimensions on the same node do not count.
     """
-    protected_base = _dimension_ref_base(protected_dimension)
-    protected_role = _dimension_ref_role(protected_dimension)
+    protected_base, protected_role = split_dimension_ref(protected_dimension)
     protected_col = _dimension_ref_column(protected_dimension)
     for requested in requested_dimensions:
-        requested_base = _dimension_ref_base(requested)
-        requested_role = _dimension_ref_role(requested)
+        requested_base, requested_role = split_dimension_ref(requested)
         if requested == protected_dimension:
             return True
         if requested_base == protected_base and requested_role == protected_role:

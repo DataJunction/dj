@@ -27,12 +27,9 @@ from datajunction_server.construction.build_v3.measures import (
 )
 from datajunction_server.construction.build_v3.metrics import (
     _build_reaggregate_collapse_expression,
-    _dimension_ref_base,
-    _dimension_ref_role,
     _references_component,
     _replace_reaggregate_merge_expression,
     _metric_parent_refs,
-    _source_dimension_alias,
     build_window_agg_cte_from_base_metrics,
     generate_metrics_sql,
 )
@@ -234,13 +231,6 @@ def test_replace_reaggregate_merge_expression_skips_parentless_nested_match():
                 args=[ast.Column(name=ast.Name("balance_sum"))],
             ),
         )
-
-
-def test_reaggregate_dimension_ref_helpers_handle_roleless_refs_without_alias():
-    """Roleless refs return None for role and do not require an alias fallback."""
-    assert _dimension_ref_base("v3.date.date_id[order]") == "v3.date.date_id"
-    assert _dimension_ref_role("v3.date.date_id") is None
-    assert _source_dimension_alias({}, "v3.date.date_id") is None
 
 
 def test_metric_parent_refs_adds_metric_refs_discovered_from_query():

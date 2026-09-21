@@ -19,6 +19,9 @@ from datajunction_server.construction.build_v3.decomposition import (
     is_derived_metric,
     missing_reaggregate_dimensions,
 )
+from datajunction_server.construction.build_v3.dimension_refs import (
+    split_dimension_ref,
+)
 from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
 from datajunction_server.construction.build_v3.filters import (
     parse_and_resolve_filters,
@@ -65,16 +68,6 @@ _FILTER_COVERAGE_UNKNOWN = object()
 ReaggregateRequirement = tuple[str, str, ReaggregationFunction]
 
 
-def _split_dimension_ref(ref: str) -> tuple[str, str | None]:
-    """
-    Return a dimension ref without role suffix and the role suffix, if present.
-    """
-    if "[" not in ref:
-        return ref, None
-    base, role = ref.rsplit("[", 1)
-    return base, role.rstrip("]")
-
-
 def _cube_dimension_covers_reaggregate_dimension(
     protected_dimension: str,
     cube_dimension: str,
@@ -85,8 +78,8 @@ def _cube_dimension_covers_reaggregate_dimension(
     if _reaggregate_dimension_requested(protected_dimension, [cube_dimension]):
         return True
 
-    protected_base, protected_role = _split_dimension_ref(protected_dimension)
-    cube_base, cube_role = _split_dimension_ref(cube_dimension)
+    protected_base, protected_role = split_dimension_ref(protected_dimension)
+    cube_base, cube_role = split_dimension_ref(cube_dimension)
     if protected_role != cube_role:
         return False
 
