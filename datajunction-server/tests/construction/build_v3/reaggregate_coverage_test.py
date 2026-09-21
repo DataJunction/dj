@@ -238,11 +238,9 @@ def test_replace_reaggregate_merge_expression_skips_parentless_nested_match():
 
 def test_reaggregate_dimension_ref_helpers_handle_roleless_refs_without_alias():
     """Roleless refs return None for role and do not require an alias fallback."""
-    ctx = BuildContext(session=SimpleNamespace(), metrics=[], dimensions=[])
-
     assert _dimension_ref_base("v3.date.date_id[order]") == "v3.date.date_id"
     assert _dimension_ref_role("v3.date.date_id") is None
-    assert _source_dimension_alias(ctx, "v3.date.date_id") is None
+    assert _source_dimension_alias({}, "v3.date.date_id") is None
 
 
 def test_metric_parent_refs_adds_metric_refs_discovered_from_query():
@@ -291,40 +289,65 @@ def test_window_agg_from_base_metrics_collapses_semi_additive_derived_parent(
         "window_metric": ["derived"],
         "derived": ["balance"],
     }
-    ctx.alias_registry.register("v3.date.date_id")
-
-    query = build_window_agg_cte_from_base_metrics(
-        GrainGroupSQL(
-            query=parse("SELECT category FROM base_metrics"),
-            columns=[
-                ColumnMetadata(
-                    name="category",
-                    semantic_name="category",
-                    type="string",
-                    semantic_type="dimension",
-                ),
-            ],
-            grain=["category"],
-            aggregability=Aggregability.FULL,
-            metrics=[],
-            parent_name="cross_fact",
-            is_window_grain_group=True,
-            window_metrics_served=["window_metric"],
+    window_group = GrainGroupSQL(
+        query=parse("SELECT category FROM base_metrics"),
+        columns=[
+            ColumnMetadata(
+                name="category",
+                semantic_name="category",
+                type="string",
+                semantic_type="dimension",
+            ),
+        ],
+        grain=["category"],
+        aggregability=Aggregability.FULL,
+        metrics=[],
+        parent_name="cross_fact",
+        is_window_grain_group=True,
+        window_metrics_served=["window_metric"],
+    )
+    decomposed_metrics = {
+        "balance": _decomposed_metric(
+            "balance",
+            _semi_additive_component(dimension="v3.date.date_id[order]"),
         ),
+    }
+    query = build_window_agg_cte_from_base_metrics(
+        window_group,
         "base_metrics",
         ctx,
-        {
-            "balance": _decomposed_metric(
-                "balance",
-                _semi_additive_component(fn=ReaggregationFunction.MAX),
-            ),
-        },
+        {"v3.date.date_id[order]": "date_id_order"},
+        set(),
+        decomposed_metrics,
     )
 
     rendered = str(query)
-    assert "MAX(base_metrics.balance)" in rendered
+    assert "MAX_BY(base_metrics.balance, base_metrics.date_id_order)" in rendered
     assert "extra_metric" in rendered
     assert "raw_col" in rendered
+
+    with pytest.raises(
+        DJInvalidInputException,
+        match="protected dimension 'v3.date.date_id\\[order\\]' is not projected",
+    ):
+        build_window_agg_cte_from_base_metrics(
+            window_group,
+            "base_metrics",
+            ctx,
+            {},
+            set(),
+            decomposed_metrics,
+        )
+
+    collapsed_query = build_window_agg_cte_from_base_metrics(
+        window_group,
+        "base_metrics",
+        ctx,
+        {},
+        {"balance"},
+        decomposed_metrics,
+    )
+    assert "SUM(base_metrics.balance)" in str(collapsed_query)
 
 
 def test_generate_metrics_sql_rejects_multiple_base_grain_groups_with_reaggregate():

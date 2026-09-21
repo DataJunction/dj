@@ -252,13 +252,29 @@ def test_reaggregate_dimension_requested_is_role_sensitive(
 
 def test_source_dimension_alias_does_not_fall_back_for_roled_refs():
     """A roled protected dimension must collapse by that role's physical alias."""
-    ctx = BuildContext(session=MagicMock(), metrics=[], dimensions=[])
-    ctx.alias_registry.register("v3.date.date_id")
-    ctx.alias_registry.register("v3.date.date_id[ship]")
+    source_dimension_aliases = {
+        "v3.date.date_id": "date_id",
+        "v3.date.date_id[ship]": "date_id_ship",
+    }
 
-    assert _source_dimension_alias(ctx, "v3.date.date_id[order]") is None
-    assert _source_dimension_alias(ctx, "v3.date.date_id[ship]") == "date_id_ship"
-    assert _source_dimension_alias(ctx, "v3.date.date_id") == "date_id"
+    assert (
+        _source_dimension_alias(
+            source_dimension_aliases,
+            "v3.date.date_id[order]",
+        )
+        is None
+    )
+    assert (
+        _source_dimension_alias(
+            source_dimension_aliases,
+            "v3.date.date_id[ship]",
+        )
+        == "date_id_ship"
+    )
+    assert (
+        _source_dimension_alias(source_dimension_aliases, "v3.date.date_id")
+        == "date_id"
+    )
 
 
 @pytest.mark.asyncio

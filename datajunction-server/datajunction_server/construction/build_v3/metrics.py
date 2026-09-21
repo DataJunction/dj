@@ -150,14 +150,20 @@ def _dimension_ref_role(ref: str) -> str | None:
     return ref.rsplit("[", 1)[1].rstrip("]")
 
 
-def _source_dimension_alias(ctx: BuildContext, dimension_ref: str) -> str | None:
+def _source_dimension_alias(
+    source_dimension_aliases: dict[str, str],
+    dimension_ref: str,
+) -> str | None:
     """
-    Return the registered source column alias for a dimension ref.
+    Return the source CTE's column alias for a dimension ref.
+
+    Role-qualified refs must match exactly. A role-less ref may use its base
+    name, but must not borrow the alias of a role-qualified dimension.
     """
-    alias = ctx.alias_registry.get_alias(dimension_ref)
+    alias = source_dimension_aliases.get(dimension_ref)
     if alias or _dimension_ref_role(dimension_ref) is not None:
         return alias
-    return ctx.alias_registry.get_alias(_dimension_ref_base(dimension_ref))
+    return source_dimension_aliases.get(_dimension_ref_base(dimension_ref))
 
 
 def _metric_refs_from_query(ctx: BuildContext, metric_name: str) -> set[str]:
@@ -765,6 +771,7 @@ def process_base_metrics(
     """
     component_refs: dict[str, ColumnRef] = {}
     metric_exprs: dict[str, MetricExprInfo] = {}
+    precollapsed_reaggregate_metrics: set[str] = set()
 
     # Collect all metrics in grain groups
     all_metrics: set[str] = set()
@@ -807,6 +814,11 @@ def process_base_metrics(
                 alias,
                 gg,
             )
+            if any(
+                comp.rule.reaggregate and comp.name in gg.reaggregate_dimension_aliases
+                for comp in decomposed.components
+            ):
+                precollapsed_reaggregate_metrics.add(metric_name)
             # Convert component mappings to ColumnRef objects
             for comp_name, (cte_alias, col_name) in comp_mappings.items():
                 component_refs[comp_name] = ColumnRef(
@@ -827,6 +839,7 @@ def process_base_metrics(
         all_metrics=all_metrics,
         metric_exprs=metric_exprs,
         component_refs=component_refs,
+        precollapsed_reaggregate_metrics=precollapsed_reaggregate_metrics,
     )
 
 
@@ -1543,6 +1556,8 @@ def build_window_agg_cte_from_base_metrics(
     window_grain_group: GrainGroupSQL,
     base_metrics_cte_alias: str,
     ctx: BuildContext,
+    source_dimension_aliases: dict[str, str],
+    precollapsed_reaggregate_metrics: set[str],
     decomposed_metrics: dict[str, DecomposedMetricInfo],
 ) -> ast.Query:
     """
@@ -1562,6 +1577,10 @@ def build_window_agg_cte_from_base_metrics(
         window_grain_group: Window grain group with metadata (dimensions, metrics served)
         base_metrics_cte_alias: Alias of the base_metrics CTE (typically "base_metrics")
         ctx: Build context
+        source_dimension_aliases: Semantic dimension refs mapped to the column
+            aliases actually projected by the base_metrics CTE
+        precollapsed_reaggregate_metrics: Semi-additive metrics whose protected
+            dimension was removed by an earlier collapse
         decomposed_metrics: Decomposed metric info
 
     Returns:
@@ -1605,7 +1624,7 @@ def build_window_agg_cte_from_base_metrics(
             comp = decomposed.components[0]
             if comp.rule.reaggregate:
                 protected_dim_alias = _source_dimension_alias(
-                    ctx,
+                    source_dimension_aliases,
                     comp.rule.reaggregate.dimension,
                 )
                 if (
@@ -1617,6 +1636,15 @@ def build_window_agg_cte_from_base_metrics(
                         ctx.dialect,
                         metric_ref,
                         make_column_ref(protected_dim_alias, base_metrics_cte_alias),
+                    )
+                if (
+                    protected_dim_alias is None
+                    and metric_name not in precollapsed_reaggregate_metrics
+                ):
+                    raise DJInvalidInputException(
+                        "Unsupported semi-additive metric shape: protected "
+                        f"dimension '{comp.rule.reaggregate.dimension}' is not "
+                        "projected by the base metrics CTE.",
                     )
 
         if decomposed.aggregability == Aggregability.NONE:  # pragma: no cover
@@ -2230,6 +2258,8 @@ def generate_metrics_sql(
                     wgg,
                     source_cte_alias,  # base_metrics CTE
                     ctx,
+                    dict(dim_info),
+                    base_metrics_result.precollapsed_reaggregate_metrics,
                     decomposed_metrics,
                 )
             else:

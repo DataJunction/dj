@@ -621,6 +621,8 @@ class BaseMetricsResult:
     all_metrics: set[str]  # All metric names in grain groups
     metric_exprs: dict[str, MetricExprInfo]  # metric_name -> expression info
     component_refs: dict[str, ColumnRef]  # component_name -> column reference
+    # Semi-additive base metrics collapsed before being projected by base_metrics.
+    precollapsed_reaggregate_metrics: set[str] = field(default_factory=set)
 
 
 @dataclass
