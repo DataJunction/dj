@@ -854,12 +854,17 @@ class TestRequiredDimensions:
         assert ErrorCode.INVALID_COLUMN not in error_codes
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "dimension",
+        ["test.dim.nonexistent_col", "value"],
+    )
     async def test_invalid_reaggregate_dimension_column(
         self,
         session: AsyncSession,
         parent_node: Node,
+        dimension: str,
     ):
-        """reaggregate.rules[].dimension full-path column absent from dim node is invalid."""
+        """Reaggregate dimensions must be qualified and resolve to a column."""
         dim_node = self._make_dim_node("test.dim", ["dateint"])
         context = self._make_context(session, parent_node)
         spec = MetricSpec(
@@ -868,7 +873,7 @@ class TestRequiredDimensions:
             reaggregate={
                 "rules": [
                     {
-                        "dimension": "test.dim.nonexistent_col",
+                        "dimension": dimension,
                         "fn": "last_value",
                     },
                 ],
@@ -881,7 +886,7 @@ class TestRequiredDimensions:
         assert result.status == NodeStatus.INVALID
         err = next(e for e in result.errors if e.code == ErrorCode.INVALID_COLUMN)
         assert err.debug is not None
-        assert "test.dim.nonexistent_col" in err.debug["invalid_reaggregate_dimensions"]
+        assert dimension in err.debug["invalid_reaggregate_dimensions"]
 
     @pytest.mark.asyncio
     async def test_invalid_reaggregate_function(
@@ -897,7 +902,7 @@ class TestRequiredDimensions:
             reaggregate={
                 "rules": [
                     {
-                        "dimension": "id",
+                        "dimension": "test.parent.id",
                         "fn": "sum",
                     },
                 ],

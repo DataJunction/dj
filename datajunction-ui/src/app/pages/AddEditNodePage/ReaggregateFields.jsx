@@ -21,8 +21,8 @@ export const ReaggregateFields = () => {
         const data = await djClient.node(values.upstream_node);
         setDimensionOptions(
           data.columns.map(col => ({
-            value: col.name,
-            label: col.name,
+            value: `${values.upstream_node}.${col.name}`,
+            label: `${values.upstream_node}.${col.name}`,
           })),
         );
       } else {

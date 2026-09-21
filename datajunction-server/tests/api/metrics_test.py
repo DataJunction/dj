@@ -515,7 +515,7 @@ async def test_metric_reaggregate_roundtrip_and_validation(
             "reaggregate": {
                 "rules": [
                     {
-                        "dimension": "repair_order_id",
+                        "dimension": "default.repair_orders_fact.repair_order_id",
                         "fn": "last_value",
                     },
                 ],
@@ -526,7 +526,7 @@ async def test_metric_reaggregate_roundtrip_and_validation(
     assert response.json()["reaggregate"] == {
         "rules": [
             {
-                "dimension": "repair_order_id",
+                "dimension": "default.repair_orders_fact.repair_order_id",
                 "fn": "last_value",
             },
         ],
@@ -537,7 +537,7 @@ async def test_metric_reaggregate_roundtrip_and_validation(
     assert response.json()["reaggregate"] == {
         "rules": [
             {
-                "dimension": "repair_order_id",
+                "dimension": "default.repair_orders_fact.repair_order_id",
                 "fn": "last_value",
             },
         ],
@@ -548,7 +548,7 @@ async def test_metric_reaggregate_roundtrip_and_validation(
     assert response.json()["reaggregate"] == {
         "rules": [
             {
-                "dimension": "repair_order_id",
+                "dimension": "default.repair_orders_fact.repair_order_id",
                 "fn": "last_value",
             },
         ],

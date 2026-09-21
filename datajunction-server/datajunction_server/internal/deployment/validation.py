@@ -19,7 +19,10 @@ from datajunction_server.errors import (
     ErrorCode,
 )
 from datajunction_server.internal.deployment.type_inference import validate_node_query
-from datajunction_server.internal.validation import validate_metric_query
+from datajunction_server.internal.validation import (
+    invalid_reaggregate_dimension_references,
+    validate_metric_query,
+)
 from datajunction_server.models.deployment import (
     ColumnSpec,
     DimensionJoinLinkSpec,
@@ -856,10 +859,14 @@ class NodeSpecBulkValidator:
             for col in dep_node.current.columns
         ]
 
+        reaggregate_dimensions = [rule.dimension for rule in reaggregate.rules]
         invalid, _ = _resolve_required_dimensions(
-            [rule.dimension for rule in reaggregate.rules],
+            reaggregate_dimensions,
             parent_columns,
             self._all_dim_nodes,
+        )
+        invalid.update(
+            invalid_reaggregate_dimension_references(reaggregate_dimensions),
         )
 
         if not invalid:

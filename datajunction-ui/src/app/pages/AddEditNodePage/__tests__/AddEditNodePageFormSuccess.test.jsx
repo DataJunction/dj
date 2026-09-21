@@ -169,7 +169,7 @@ describe('AddEditNodePage submission succeeded', () => {
     });
 
     mockDjClient.DataJunctionAPI.node.mockResolvedValue({
-      columns: [{ name: 'v3.date.date_id[order]' }],
+      columns: [{ name: 'order_date' }],
     });
 
     mockDjClient.DataJunctionAPI.listTags.mockReturnValue([
@@ -209,7 +209,9 @@ describe('AddEditNodePage submission succeeded', () => {
     fireEvent.keyDown(selectReaggregateDimension.firstChild, {
       key: 'ArrowDown',
     });
-    fireEvent.click(await screen.findByText('v3.date.date_id[order]'));
+    fireEvent.click(
+      await screen.findByText('default.repair_orders.order_date'),
+    );
     fireEvent.change(screen.getByLabelText('Semi-Additive Type'), {
       target: { value: 'last_value' },
     });
@@ -238,7 +240,7 @@ describe('AddEditNodePage submission succeeded', () => {
           {
             rules: [
               {
-                dimension: 'v3.date.date_id[order]',
+                dimension: 'default.repair_orders.order_date',
                 fn: 'last_value',
               },
             ],

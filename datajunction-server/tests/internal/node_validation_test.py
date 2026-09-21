@@ -1020,11 +1020,16 @@ async def test_validate_node_data_v2_flags_invalid_required_dimensions(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "dimension",
+    ["test.v2_reagg_dim.ghost_col", "id"],
+)
 async def test_validate_node_data_v2_flags_invalid_reaggregate_dimensions(
     session: AsyncSession,
     user: User,
+    dimension: str,
 ):
-    """reaggregate dimensions must resolve to columns on parent dimension nodes."""
+    """reaggregate dimensions must be qualified and resolve to parent columns."""
     from datajunction_server.errors import ErrorCode
     from datajunction_server.internal.validation import validate_node_data_v2
 
@@ -1074,7 +1079,7 @@ async def test_validate_node_data_v2_flags_invalid_reaggregate_dimensions(
         reaggregate={
             "rules": [
                 {
-                    "dimension": "test.v2_reagg_dim.ghost_col",
+                    "dimension": dimension,
                     "fn": "last_value",
                 },
             ],
@@ -1084,7 +1089,9 @@ async def test_validate_node_data_v2_flags_invalid_reaggregate_dimensions(
 
     assert validator.status == NodeStatus.INVALID
     assert any(
-        err.code == ErrorCode.INVALID_COLUMN and "reaggregate dimensions" in err.message
+        err.code == ErrorCode.INVALID_COLUMN
+        and "reaggregate dimensions" in err.message
+        and dimension in err.debug["invalid_reaggregate_dimensions"]
         for err in validator.errors
     ), [(e.code, e.message) for e in validator.errors]
 
@@ -1130,7 +1137,7 @@ async def test_validate_node_data_v2_flags_unsupported_reaggregate_function(
         reaggregate={
             "rules": [
                 {
-                    "dimension": "order_date",
+                    "dimension": "test.v2_reagg_fn_parent.order_date",
                     "fn": "sum",
                 },
             ],

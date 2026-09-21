@@ -11,6 +11,7 @@ from datajunction_server.database.column import Column, ColumnAttribute
 from datajunction_server.errors import (
     DJError,
     DJException,
+    DJInvalidInputException,
     DJInvalidMetricQueryException,
     ErrorCode,
 )
@@ -31,6 +32,21 @@ from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.sql.parsing.types import ListType, MapType, StructType
+
+
+def invalid_reaggregate_dimension_references(dimensions: list[str]) -> set[str]:
+    """Return reaggregate dimensions that are not fully qualified."""
+    from datajunction_server.construction.build_v3.dimensions import (
+        parse_dimension_ref,
+    )
+
+    invalid: set[str] = set()
+    for dimension in dimensions:
+        try:
+            parse_dimension_ref(dimension)
+        except DJInvalidInputException:
+            invalid.add(dimension)
+    return invalid
 
 
 def _reparse_parent_column_types(dependencies_map: dict) -> None:
@@ -365,13 +381,17 @@ async def validate_node_data(
         invalid_reaggregate_dimensions: set[str] = set()
         invalid_reaggregate_functions: list[str] = []
         if reaggregate_spec and reaggregate_spec.rules:
+            reaggregate_dimensions = [rule.dimension for rule in reaggregate_spec.rules]
             (
                 invalid_reaggregate_dimensions,
                 _,
             ) = await find_required_dimensions(
                 session,
-                [rule.dimension for rule in reaggregate_spec.rules],
+                reaggregate_dimensions,
                 parent_columns,
+            )
+            invalid_reaggregate_dimensions.update(
+                invalid_reaggregate_dimension_references(reaggregate_dimensions),
             )
             invalid_reaggregate_functions = unsupported_dimension_reaggregate_functions(
                 reaggregate_spec,
@@ -772,13 +792,17 @@ async def validate_node_data_v2(
     invalid_reaggregate_dimensions: set[str] = set()
     invalid_reaggregate_functions: list[str] = []
     if reaggregate_spec and reaggregate_spec.rules:
+        reaggregate_dimensions = [rule.dimension for rule in reaggregate_spec.rules]
         (
             invalid_reaggregate_dimensions,
             _,
         ) = await find_required_dimensions(
             session,
-            [rule.dimension for rule in reaggregate_spec.rules],
+            reaggregate_dimensions,
             parent_columns,
+        )
+        invalid_reaggregate_dimensions.update(
+            invalid_reaggregate_dimension_references(reaggregate_dimensions),
         )
         invalid_reaggregate_functions = unsupported_dimension_reaggregate_functions(
             reaggregate_spec,
