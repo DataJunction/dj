@@ -15,6 +15,7 @@ from datajunction_server.construction.build_v3.combiners import (
     build_combiner_sql_from_preaggs,
 )
 from datajunction_server.construction.build_v3.cube_matcher import (
+    _metric_graph_has_reaggregate,
     validate_cube_reaggregate_materialization,
 )
 from datajunction_server.construction.build_v3.cte import strip_role_suffix
@@ -212,6 +213,12 @@ async def _validate_cube_reaggregate_materialization(
     Validate materialization safety using full metric decomposition.
     """
     if not cube.current:  # pragma: no cover
+        return
+
+    if not await _metric_graph_has_reaggregate(
+        session,
+        cube.current.cube_node_metrics,
+    ):
         return
 
     from datajunction_server.construction.build_v3.builder import setup_build_context

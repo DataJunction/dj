@@ -12,7 +12,10 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datajunction_server.api.cubes import _resolve_cube_partition_output_column
+from datajunction_server.api.cubes import (
+    _resolve_cube_partition_output_column,
+    _validate_cube_reaggregate_materialization,
+)
 from datajunction_server.construction.build_v3.combiners import (
     PreAggSourceInfo,
     TemporalPartitionInfo,
@@ -26,6 +29,7 @@ from datajunction_server.errors import (
     ErrorCode,
 )
 from datajunction_server.models.cube import CubeElementMetadata
+from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.materialization import (
     MaterializationInfo,
     MaterializationStrategy,
@@ -37,6 +41,69 @@ from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.utils import get_query_service_client
 from tests.construction.build_v3 import assert_sql_equal
 from tests.sql.utils import compare_query_strings
+
+
+@pytest.mark.asyncio
+async def test_cube_reaggregate_validation_skips_decomposition_without_reaggregate(
+    mocker,
+):
+    """Ordinary cube materializations avoid full metric decomposition."""
+    session = mocker.MagicMock(spec=AsyncSession)
+    cube = mocker.MagicMock()
+    cube.current.cube_node_metrics = ["default.total_revenue"]
+    has_reaggregate = mocker.patch(
+        "datajunction_server.api.cubes._metric_graph_has_reaggregate",
+        new=mocker.AsyncMock(return_value=False),
+    )
+    setup_build_context = mocker.patch(
+        "datajunction_server.construction.build_v3.builder.setup_build_context",
+        new=mocker.AsyncMock(),
+    )
+
+    await _validate_cube_reaggregate_materialization(session, cube)
+
+    has_reaggregate.assert_awaited_once_with(
+        session,
+        ["default.total_revenue"],
+    )
+    setup_build_context.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cube_reaggregate_validation_decomposes_reaggregate_graph(mocker):
+    """Reaggregate metric graphs still receive full safety validation."""
+    session = mocker.MagicMock(spec=AsyncSession)
+    cube = mocker.MagicMock()
+    cube.current.cube_node_metrics = ["default.balance_index"]
+    cube.current.cube_node_dimensions = ["default.product.category"]
+    cube.current.cube_filters = []
+    mocker.patch(
+        "datajunction_server.api.cubes._metric_graph_has_reaggregate",
+        new=mocker.AsyncMock(return_value=True),
+    )
+    context = mocker.MagicMock()
+    setup_build_context = mocker.patch(
+        "datajunction_server.construction.build_v3.builder.setup_build_context",
+        new=mocker.AsyncMock(return_value=context),
+    )
+    validate = mocker.patch(
+        "datajunction_server.api.cubes.validate_cube_reaggregate_materialization",
+    )
+
+    await _validate_cube_reaggregate_materialization(session, cube)
+
+    setup_build_context.assert_awaited_once_with(
+        session=session,
+        metrics=["default.balance_index"],
+        dimensions=["default.product.category"],
+        filters=None,
+        dialect=Dialect.SPARK,
+        use_materialized=False,
+    )
+    validate.assert_called_once_with(
+        cube.current,
+        decomposed_metrics=context.decomposed_metrics,
+    )
 
 
 def test_cube_partition_output_prefers_exact_unqualified_match():
