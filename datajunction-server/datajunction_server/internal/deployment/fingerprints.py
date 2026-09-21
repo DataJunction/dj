@@ -9,6 +9,7 @@ from datajunction_server.database import Node, NodeRevision
 from datajunction_server.internal.deployment.utils import (
     extract_dimension_refs_from_filters,
     extract_node_graph,
+    extract_upstream_candidates,
 )
 from datajunction_server.models.deployment import (
     CubeSpec,
@@ -34,6 +35,7 @@ from datajunction_server.semantic_fingerprints.merkle import (
     cycle_component_fingerprint,
     strongly_connected_components,
 )
+from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.utils import SEPARATOR
 
@@ -124,6 +126,62 @@ def _candidate_parts(
     return cache[key]
 
 
+def _seed_parent_cache_entry(
+    spec: NodeSpec,
+    parent_cache: ParentCandidateCache,
+    query_ast: ast.Query,
+) -> None:
+    """Seed a spec's parent-candidate cache entry from an already-parsed AST."""
+    key = id(spec)
+    if key in parent_cache:
+        return
+    spec._query_ast = query_ast
+    candidates = extract_upstream_candidates(
+        query_ast,
+        is_metric=isinstance(spec, MetricSpec),
+    )
+    resolver = SEMANTIC_PARENT_RESOLVERS[type(spec)]
+    parent_cache[key] = (frozenset(candidates), resolver(spec))
+
+
+def _seed_parent_cache_from_pre_parsed(
+    specs: dict[str, NodeSpec],
+    parent_cache: ParentCandidateCache,
+    pre_parsed_queries: dict[str, tuple[str, ast.Query]] | None,
+) -> None:
+    """Reuse ASTs already parsed elsewhere (e.g. impact propagation)."""
+    if not pre_parsed_queries:
+        return
+    for name, (query_text, query_ast) in pre_parsed_queries.items():
+        spec = specs.get(name)
+        if not isinstance(spec, (TransformSpec, DimensionSpec)):
+            continue
+        if spec.rendered_query != query_text:
+            continue
+        _seed_parent_cache_entry(spec, parent_cache, query_ast)
+
+
+def _reuse_unchanged_query_asts(
+    proposed: dict[str, NodeSpec],
+    existing_specs: dict[str, NodeSpec],
+    parent_cache: ParentCandidateCache,
+) -> None:
+    """Reuse the current graph's AST for a proposed spec with unchanged query text."""
+    for name, proposed_spec in proposed.items():
+        if not isinstance(proposed_spec, (TransformSpec, DimensionSpec, MetricSpec)):
+            continue
+        existing_spec = existing_specs.get(name)
+        if (
+            existing_spec is None
+            or proposed_spec is existing_spec
+            or type(existing_spec) is not type(proposed_spec)
+            or existing_spec._query_ast is None
+            or proposed_spec.rendered_query != existing_spec.rendered_query
+        ):
+            continue
+        _seed_parent_cache_entry(proposed_spec, parent_cache, existing_spec._query_ast)
+
+
 def _parent_candidates(
     spec: NodeSpec,
     cache: ParentCandidateCache | None = None,
@@ -161,14 +219,14 @@ def _resolve_parent_references(
     references: ParentReferences,
     specs: dict[str, NodeSpec],
 ) -> tuple[set[str], set[str]]:
-    resolved = set()
-    unresolved = set()
+    resolved: set[str] = set()
+    unresolved: set[str] = set()
     for options in references:
         parent = next((candidate for candidate in options if candidate in specs), None)
         if parent is not None:
             resolved.add(parent)
         else:
-            unresolved.add(options[0])
+            unresolved.update(options)
     return resolved, unresolved
 
 
@@ -224,29 +282,16 @@ def _spec_with_normalized_required_dimensions(
 
 async def _load_external_specs(
     session: AsyncSession,
-    seed_specs: Iterable[NodeSpec],
+    initial_frontier: Iterable[str],
+    known_names: set[str],
     ignored_parse_errors: set[str],
     parent_cache: ParentCandidateCache,
 ) -> dict[str, NodeSpec]:
-    seeds = list(seed_specs)
-    known_names = {spec.rendered_name for spec in seeds}
+    """Transitively load names unresolved within the deployment's own specs."""
+    known_names = set(known_names)
     external_specs: dict[str, NodeSpec] = {}
-    pending = seeds
-    while pending:
-        candidates: set[str] = set()
-        for spec in pending:
-            try:
-                candidates.update(_parent_candidates(spec, parent_cache))
-            except (DJParseException, TypeError, ValueError) as exc:
-                if spec.rendered_name not in ignored_parse_errors:
-                    logger.warning(
-                        "Semantic parent extraction failed for %s: %s",
-                        spec.rendered_name,
-                        exc,
-                    )
-        frontier = sorted(candidates - known_names)
-        if not frontier:
-            break
+    frontier = sorted(set(initial_frontier) - known_names)
+    while frontier:
         known_names.update(frontier)
         nodes = await Node.get_by_names(
             session,
@@ -261,6 +306,18 @@ async def _load_external_specs(
         )
         pending = [await node.to_spec(session) for node in nodes]
         external_specs.update({spec.rendered_name: spec for spec in pending})
+        candidates: set[str] = set()
+        for spec in pending:
+            try:
+                candidates.update(_parent_candidates(spec, parent_cache))
+            except (DJParseException, TypeError, ValueError) as exc:
+                if spec.rendered_name not in ignored_parse_errors:
+                    logger.warning(
+                        "Semantic parent extraction failed for %s: %s",
+                        spec.rendered_name,
+                        exc,
+                    )
+        frontier = sorted(candidates - known_names)
     return external_specs
 
 
@@ -268,12 +325,19 @@ def _resolved_proposed_specs(
     existing_specs: dict[str, NodeSpec],
     proposed_specs: Iterable[NodeSpec],
     deleted_names: set[str],
+    unchanged_names: Iterable[str] = (),
 ) -> dict[str, NodeSpec]:
+    """Reuses the existing object for names the caller marks unchanged."""
+    unchanged_names = set(unchanged_names)
     specs = {
         name: spec for name, spec in existing_specs.items() if name not in deleted_names
     }
     for proposed in proposed_specs:
-        existing = existing_specs.get(proposed.rendered_name)
+        name = proposed.rendered_name
+        existing = existing_specs.get(name)
+        if name in unchanged_names and existing is not None:
+            specs[name] = existing
+            continue
         if (
             isinstance(proposed, SourceSpec)
             and not proposed.columns
@@ -283,8 +347,35 @@ def _resolved_proposed_specs(
                 deep=True,
                 update={"columns": existing.columns},
             )
-        specs[proposed.rendered_name] = proposed
+        specs[name] = proposed
     return specs
+
+
+def _ancestor_closure(
+    target_names: Iterable[str],
+    specs: dict[str, NodeSpec],
+    parent_cache: ParentCandidateCache,
+) -> tuple[set[str], set[str]]:
+    """Transitive ancestors of `target_names`, plus unresolved parent names."""
+    closure: set[str] = set()
+    unresolved_names: set[str] = set()
+    frontier = [name for name in target_names if name in specs]
+    while frontier:
+        name = frontier.pop()
+        if name in closure:
+            continue
+        closure.add(name)
+        try:
+            parents, unresolved = _resolved_parent_names(
+                specs[name],
+                specs,
+                parent_cache,
+            )
+        except (DJParseException, TypeError, ValueError):
+            parents, unresolved = [], []
+        unresolved_names.update(unresolved)
+        frontier.extend(parent for parent in parents if parent not in closure)
+    return closure, unresolved_names
 
 
 def _compute_merkle_fingerprints(
@@ -293,13 +384,24 @@ def _compute_merkle_fingerprints(
     parent_cache: ParentCandidateCache | None = None,
     *,
     version: int = LATEST_SEMANTIC_FINGERPRINT_VERSION,
+    only_names: set[str] | None = None,
+    shared_fingerprints: dict[int, SemanticFingerprintValue] | None = None,
 ) -> FingerprintMap:
+    """`shared_fingerprints` is a cache keyed by id(spec), shared across snapshots."""
     parent_cache = parent_cache if parent_cache is not None else {}
+    shared_fingerprints = shared_fingerprints if shared_fingerprints is not None else {}
+    names_to_process = sorted(specs) if only_names is None else sorted(only_names)
     graph: dict[str, list[str]] = {}
     failed_names: set[str] = set()
     fingerprint_specs: dict[str, NodeSpec] = {}
-    for name in sorted(specs):
+    cached_results: dict[str, SemanticFingerprintValue] = {}
+    for name in names_to_process:
         spec = specs[name]
+        if id(spec) in shared_fingerprints:
+            # Cache hit: treat as parent-less singleton.
+            graph[name] = []
+            cached_results[name] = shared_fingerprints[id(spec)]
+            continue
         try:
             graph[name], unresolved = _resolved_parent_names(
                 spec,
@@ -370,7 +472,11 @@ def _compute_merkle_fingerprints(
         unavailable: FingerprintMap = {
             name: UNKNOWN_SEMANTIC_FINGERPRINT for name in members
         }
-        if any(name in failed_names for name in members):
+        if len(members) == 1 and members[0] in cached_results:
+            component_results[component_index] = {
+                members[0]: cached_results[members[0]],
+            }
+        elif any(name in failed_names for name in members):
             component_results[component_index] = unavailable
         else:
             external_edges: list[tuple[str, str, SemanticFingerprint]] = []
@@ -394,15 +500,13 @@ def _compute_merkle_fingerprints(
                 is_cycle = len(members) > 1 or members[0] in graph[members[0]]
                 try:
                     if not is_cycle:
-                        component_results[component_index] = {
-                            members[0]: compose_node_fingerprint(
-                                fingerprint_specs[members[0]],
-                                version,
-                                parent_fingerprints=[
-                                    edge[2] for edge in external_edges
-                                ],
-                            ),
-                        }
+                        value = compose_node_fingerprint(
+                            fingerprint_specs[members[0]],
+                            version,
+                            parent_fingerprints=[edge[2] for edge in external_edges],
+                        )
+                        component_results[component_index] = {members[0]: value}
+                        shared_fingerprints[id(specs[members[0]])] = value
                     else:
                         local_fingerprints = {
                             name: local_node_fingerprint(
@@ -450,7 +554,10 @@ def _compute_merkle_fingerprints(
     if processed != len(components):  # pragma: no cover
         raise RuntimeError("SCC condensation graph contains a cycle")
 
-    return {name: component_results[component_by_name[name]][name] for name in specs}
+    return {
+        name: component_results[component_by_name[name]][name]
+        for name in names_to_process
+    }
 
 
 class SemanticFingerprintGraph:
@@ -463,16 +570,21 @@ class SemanticFingerprintGraph:
         ignored_parse_errors: set[str] | None = None,
         parent_cache: ParentCandidateCache | None = None,
         version: int = LATEST_SEMANTIC_FINGERPRINT_VERSION,
+        shared_fingerprints: dict[int, SemanticFingerprintValue] | None = None,
     ):
         self._specs = dict(specs)
         self._ignored_parse_errors = set(ignored_parse_errors or ())
         self._parent_cache = parent_cache if parent_cache is not None else {}
         self._version = version
         self._fingerprints: FingerprintMap | None = None
+        # Cache keyed by id(spec), shared across sibling snapshots.
+        self._shared_fingerprints = (
+            shared_fingerprints if shared_fingerprints is not None else {}
+        )
 
     def fingerprint(self, name: str) -> SemanticFingerprintValue:
         """Return one node's fingerprint in this graph snapshot."""
-        return self._evaluate()[name]
+        return self._evaluate({name})[name]
 
     def fingerprints(
         self,
@@ -482,20 +594,34 @@ class SemanticFingerprintGraph:
         target_names = list(self._specs if names is None else names)
         if not target_names:
             return {}
-        fingerprints = self._evaluate()
+        fingerprints = self._evaluate(None if names is None else target_names)
         return {
             name: fingerprints[name] for name in target_names if name in fingerprints
         }
 
-    def _evaluate(self) -> FingerprintMap:
-        if self._fingerprints is None:
-            self._fingerprints = _compute_merkle_fingerprints(
-                self._specs,
-                self._ignored_parse_errors,
-                self._parent_cache,
-                version=self._version,
-            )
-        return self._fingerprints
+    def _evaluate(self, target_names: Iterable[str] | None) -> FingerprintMap:
+        # Only the unscoped (whole-graph) result is cached.
+        if target_names is None:
+            if self._fingerprints is None:
+                self._fingerprints = _compute_merkle_fingerprints(
+                    self._specs,
+                    self._ignored_parse_errors,
+                    self._parent_cache,
+                    version=self._version,
+                    shared_fingerprints=self._shared_fingerprints,
+                )
+            return self._fingerprints
+        if self._fingerprints is not None:
+            return self._fingerprints
+        only_names, _ = _ancestor_closure(target_names, self._specs, self._parent_cache)
+        return _compute_merkle_fingerprints(
+            self._specs,
+            self._ignored_parse_errors,
+            self._parent_cache,
+            version=self._version,
+            only_names=only_names,
+            shared_fingerprints=self._shared_fingerprints,
+        )
 
 
 async def build_deployment_fingerprints(
@@ -505,17 +631,26 @@ async def build_deployment_fingerprints(
     deleted_specs: Iterable[NodeSpec],
     *,
     additional_target_names: Iterable[str] = (),
+    only_proposed_names: Iterable[str] | None = None,
     version: int = LATEST_SEMANTIC_FINGERPRINT_VERSION,
+    pre_parsed_queries: dict[str, tuple[str, ast.Query]] | None = None,
 ) -> tuple[FingerprintMap, FingerprintMap]:
+    """`only_proposed_names` limits which nodes get a fresh proposed hash."""
     proposed_specs = list(proposed_specs)
     additional_target_names = set(additional_target_names)
     deleted_names = {spec.rendered_name for spec in deleted_specs}
+    submitted_names = {spec.rendered_name for spec in proposed_specs}
+    proposed_target_names = (
+        submitted_names if only_proposed_names is None else set(only_proposed_names)
+    ) | additional_target_names
+    # Names safe to reuse (no fresh proposed hash).
+    unchanged_names = submitted_names - proposed_target_names
     proposed = _resolved_proposed_specs(
         existing_specs,
         proposed_specs,
         deleted_names,
+        unchanged_names,
     )
-    submitted_names = {spec.rendered_name for spec in proposed_specs}
     target_specs: dict[str, NodeSpec] = {}
     target_names_to_load = (
         additional_target_names - existing_specs.keys() - submitted_names
@@ -538,28 +673,56 @@ async def build_deployment_fingerprints(
         }
 
     parent_cache: ParentCandidateCache = {}
+    # Reuse ASTs propagate_impact already parsed.
+    current_seed_specs = {**existing_specs, **target_specs}
+    _seed_parent_cache_from_pre_parsed(
+        current_seed_specs,
+        parent_cache,
+        pre_parsed_queries,
+    )
+    # Seed each side's closure separately, before loading externals.
+    _current_closure_names, current_unresolved = _ancestor_closure(
+        deleted_names | additional_target_names,
+        current_seed_specs,
+        parent_cache,
+    )
+    _reuse_unchanged_query_asts(proposed, existing_specs, parent_cache)
+    _proposed_closure_names, proposed_unresolved = _ancestor_closure(
+        proposed_target_names,
+        proposed,
+        parent_cache,
+    )
     external = await _load_external_specs(
         session,
-        [*existing_specs.values(), *proposed.values(), *target_specs.values()],
+        current_unresolved | proposed_unresolved,
+        current_seed_specs.keys() | proposed.keys(),
         ignored_parse_errors=deleted_names,
         parent_cache=parent_cache,
     )
-    external.update(target_specs)
+    # target_specs need a separate copy per side so the id()-keyed
+    # shared_fingerprints cache can't cross-reuse a stale ancestor chain.
+    current_external = {**external, **target_specs}
+    proposed_external = {
+        **external,
+        **{name: spec.model_copy(deep=True) for name, spec in target_specs.items()},
+    }
+    shared_fingerprints: dict[int, SemanticFingerprintValue] = {}
     current_graph = SemanticFingerprintGraph(
-        {**external, **existing_specs},
+        {**current_external, **existing_specs},
         ignored_parse_errors=deleted_names,
         parent_cache=parent_cache,
         version=version,
+        shared_fingerprints=shared_fingerprints,
     )
     proposed_graph = SemanticFingerprintGraph(
-        {**external, **proposed},
+        {**proposed_external, **proposed},
         parent_cache=parent_cache,
         version=version,
+        shared_fingerprints=shared_fingerprints,
     )
+    # unchanged_names gives no-op nodes a current fingerprint to fall back on.
     current = current_graph.fingerprints(
-        deleted_names | additional_target_names,
+        deleted_names | additional_target_names | unchanged_names,
     )
-    proposed_hashes = proposed_graph.fingerprints(
-        submitted_names | additional_target_names,
-    )
+    proposed_hashes = proposed_graph.fingerprints(proposed_target_names)
     return current, proposed_hashes

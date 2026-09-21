@@ -1923,10 +1923,11 @@ class NodeRevision(
         )
 
     @staticmethod
-    def format_metric_alias(query: str, name: str) -> str:
+    def metric_alias_ast(query: str, name: str):
         """
-        Return a metric query with the metric aliases reassigned to
-        have the same name as the node, if they aren't already matching.
+        Parse a metric query and reassign its projection alias to the
+        node's name. Callers that only need the AST (not re-serialized
+        SQL text) should use this directly to skip a redundant re-parse.
         """
         from datajunction_server.sql.parsing import ast
         from datajunction_server.sql.parsing.backends.antlr4 import parse
@@ -1936,7 +1937,15 @@ class NodeRevision(
         tree.select.projection[0] = projection_0.set_alias(
             ast.Name(amenable_name(name)),
         )
-        return str(tree)
+        return tree
+
+    @staticmethod
+    def format_metric_alias(query: str, name: str) -> str:
+        """
+        Return a metric query with the metric aliases reassigned to
+        have the same name as the node, if they aren't already matching.
+        """
+        return str(NodeRevision.metric_alias_ast(query, name))
 
     @classmethod
     async def get_by_id(
