@@ -340,6 +340,63 @@ def test_window_agg_from_base_metrics_collapses_semi_additive_derived_parent(
     assert "SUM(base_metrics.balance)" in str(collapsed_query)
 
 
+def test_window_agg_from_base_metrics_rejects_limited_leaf_metric():
+    """Distinct metrics cannot be summed after their grain key is discarded."""
+    visitor_count = _decomposed_metric(
+        "visitor_count",
+        MetricComponent(
+            name="visitor_count",
+            expression="customer_id",
+            aggregation="COUNT",
+            rule=AggregationRule(
+                type=Aggregability.LIMITED,
+                level=["customer_id"],
+            ),
+        ),
+    )
+    visitor_count.aggregability = Aggregability.LIMITED
+    window_group = GrainGroupSQL(
+        query=parse("SELECT category FROM base_metrics"),
+        columns=[
+            ColumnMetadata(
+                name="category",
+                semantic_name="category",
+                type="string",
+                semantic_type="dimension",
+            ),
+        ],
+        grain=["category"],
+        aggregability=Aggregability.FULL,
+        metrics=[],
+        parent_name="cross_fact",
+        is_window_grain_group=True,
+        window_metrics_served=["window_metric"],
+    )
+    ctx = BuildContext(
+        session=SimpleNamespace(),
+        metrics=["window_metric"],
+        dimensions=["category"],
+    )
+    ctx.nodes = {
+        "visitor_count": visitor_count.metric_node,
+        "window_metric": _metric_node("window_metric"),
+    }
+    ctx.parent_map = {"window_metric": ["visitor_count"]}
+
+    with pytest.raises(
+        DJInvalidInputException,
+        match="no longer retains the distinct grain key",
+    ):
+        build_window_agg_cte_from_base_metrics(
+            window_group,
+            "base_metrics",
+            ctx,
+            {},
+            set(),
+            {"visitor_count": visitor_count},
+        )
+
+
 def test_generate_metrics_sql_rejects_multiple_base_grain_groups_with_reaggregate():
     """Live SQL does not allow protected-dimension fanout across base groups."""
     ctx = BuildContext(session=SimpleNamespace(), metrics=["balance"], dimensions=[])

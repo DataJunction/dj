@@ -1631,6 +1631,14 @@ def build_window_agg_cte_from_base_metrics(
                         "projected by the base metrics CTE.",
                     )
 
+        if decomposed.aggregability == Aggregability.LIMITED:
+            raise DJInvalidInputException(
+                "Unsupported distinct metric reaggregation: metric "
+                f"'{metric_name}' cannot be collapsed from the base metrics CTE "
+                "because it no longer retains the distinct grain key required "
+                "for correct reaggregation.",
+            )
+
         if decomposed.aggregability == Aggregability.NONE:  # pragma: no cover
             # NONE: non-additive (like AVG), need to recompute.
             # For AVG, we need the raw sum and count, but those are in components.

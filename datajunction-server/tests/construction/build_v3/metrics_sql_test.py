@@ -4583,12 +4583,8 @@ class TestMetricsSQLCrossFactWindow:
         - Window metric orders by weekly grain (v3.date.week)
         - Metric is cross-fact (conversion_rate = order_count / visitor_count)
 
-        Expected behavior:
-        1. Grain groups are built at daily grain (include date_id AND week)
-        2. base_metrics CTE combines facts with FULL OUTER JOIN at daily grain
-        3. A window aggregation CTE reaggregates base_metrics to weekly grain
-        4. Window CTE applies LAG on the weekly-aggregated data
-        5. Final SELECT joins daily base_metrics with weekly window results
+        Reaggregation must fail because base_metrics no longer retains the distinct
+        grain keys needed to collapse order_count and visitor_count safely.
         """
         # Create the metric locally for this test
         response = await client_with_build_v3.post(
@@ -4619,89 +4615,10 @@ class TestMetricsSQLCrossFactWindow:
             },
         )
 
-        assert response.status_code == 200, response.json()
-        result = response.json()
-
-        # Verify the SQL has the expected structure with reaggregation CTE
-        # The key is that there should be a CTE that aggregates from base_metrics
-        # to weekly grain before applying the LAG window function
-        sql = result["sql"]
-        assert_sql_equal(
-            sql,
-            """
-            WITH
-            v3_date AS (
-            SELECT  date_id,
-                week
-            FROM default.v3.dates
-            ),
-            v3_order_details AS (
-            SELECT  o.order_id,
-                o.order_date,
-                oi.product_id
-            FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
-            ),
-            v3_product AS (
-            SELECT  product_id,
-                category
-            FROM default.v3.products
-            ),
-            v3_page_views_enriched AS (
-            SELECT  customer_id,
-                page_date,
-                product_id
-            FROM default.v3.page_views
-            ),
-            order_details_0 AS (
-            SELECT  COALESCE(t1.order_date, t3.date_id) AS date_id,
-                t2.category,
-                t3.week,
-                t1.order_id
-            FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-            LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
-            GROUP BY  COALESCE(t1.order_date, t3.date_id), t2.category, t3.week, t1.order_id
-            ),
-            page_views_enriched_0 AS (
-            SELECT  COALESCE(t1.page_date, t3.date_id) AS date_id,
-                t2.category,
-                t3.week,
-                t1.customer_id
-            FROM v3_page_views_enriched t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-            LEFT OUTER JOIN v3_date t3 ON t1.page_date = t3.date_id
-            GROUP BY  COALESCE(t1.page_date, t3.date_id), t2.category, t3.week, t1.customer_id
-            ),
-            base_metrics AS (
-            SELECT  COALESCE(order_details_0.date_id, page_views_enriched_0.date_id) AS date_id,
-                COALESCE(order_details_0.category, page_views_enriched_0.category) AS category,
-                COALESCE(order_details_0.week, page_views_enriched_0.week) AS week,
-                COUNT( DISTINCT order_details_0.order_id) AS order_count,
-                COUNT( DISTINCT page_views_enriched_0.customer_id) AS visitor_count,
-                CAST(COUNT( DISTINCT order_details_0.order_id) AS DOUBLE) / NULLIF(COUNT( DISTINCT page_views_enriched_0.customer_id), 0) AS conversion_rate
-            FROM order_details_0 FULL OUTER JOIN page_views_enriched_0 ON order_details_0.date_id = page_views_enriched_0.date_id AND order_details_0.category = page_views_enriched_0.category AND order_details_0.week = page_views_enriched_0.week
-            GROUP BY  1, 2, 3
-            ),
-            order_details_week_agg AS (
-            SELECT  base_metrics.category AS category,
-                base_metrics.week AS week,
-                CAST(SUM(base_metrics.order_count) AS DOUBLE) / NULLIF(SUM(base_metrics.visitor_count), 0) AS conversion_rate
-            FROM base_metrics
-            GROUP BY  base_metrics.category, base_metrics.week
-            ),
-            order_details_week AS (
-            SELECT  order_details_week_agg.category AS category,
-                order_details_week_agg.week AS week,
-                (order_details_week_agg.conversion_rate - LAG(order_details_week_agg.conversion_rate, 1) OVER ( PARTITION BY order_details_week_agg.category
-            ORDER BY order_details_week_agg.week) ) / NULLIF(LAG(order_details_week_agg.conversion_rate, 1) OVER ( PARTITION BY order_details_week_agg.category
-            ORDER BY order_details_week_agg.week) , 0) * 100 AS wow_conversion_rate_change
-            FROM order_details_week_agg
-            )
-            SELECT  base_metrics.date_id AS date_id,
-                base_metrics.category AS category,
-                base_metrics.week AS week,
-                order_details_week.wow_conversion_rate_change AS wow_conversion_rate_change
-            FROM base_metrics LEFT OUTER JOIN order_details_week ON base_metrics.category = order_details_week.category AND base_metrics.week = order_details_week.week
-            """,
-        )
+        assert response.status_code == 422, response.json()
+        message = response.json()["message"]
+        assert "Unsupported distinct metric reaggregation" in message
+        assert "no longer retains the distinct grain key" in message
 
     @pytest.mark.asyncio
     async def test_cross_fact_window_on_derived_metric(self, client_with_build_v3):
@@ -4714,8 +4631,8 @@ class TestMetricsSQLCrossFactWindow:
         - pages_per_session = page_view_count / visitor_count (derived from page_views)
         - wow_efficiency_ratio_change = LAG(efficiency_ratio, 1) OVER (ORDER BY week)
 
-        This hits lines 1029-1055 in metrics.py where derived metrics are expanded
-        by replacing column references with parent metric expressions.
+        Expanding the derived metric reaches LIMITED leaf metrics, which cannot be
+        collapsed after base_metrics discards their distinct grain keys.
         """
         # Create the metric locally for this test
         response = await client_with_build_v3.post(
@@ -4741,92 +4658,10 @@ class TestMetricsSQLCrossFactWindow:
             },
         )
 
-        assert response.status_code == 200, response.json()
-        result = response.json()
-        sql = result["sql"]
-        assert_sql_equal(
-            sql,
-            """
-            WITH
-            v3_date AS (
-            SELECT  date_id,
-                week
-            FROM default.v3.dates
-            ),
-            v3_order_details AS (
-            SELECT  o.order_id,
-                o.order_date,
-                oi.product_id,
-                oi.quantity * oi.unit_price AS line_total
-            FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
-            ),
-            v3_product AS (
-            SELECT  product_id,
-                category
-            FROM default.v3.products
-            ),
-            v3_page_views_enriched AS (
-            SELECT  view_id,
-                session_id,
-                page_date,
-                product_id
-            FROM default.v3.page_views
-            ),
-            order_details_0 AS (
-            SELECT  COALESCE(t1.order_date, t3.date_id) AS date_id,
-                t2.category,
-                t3.week,
-                t1.order_id,
-                SUM(t1.line_total) line_total_sum_e1f61696
-            FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-            LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
-            GROUP BY  COALESCE(t1.order_date, t3.date_id), t2.category, t3.week, t1.order_id
-            ),
-            page_views_enriched_0 AS (
-            SELECT  COALESCE(t1.page_date, t3.date_id) AS date_id,
-                t2.category,
-                t3.week,
-                t1.session_id,
-                COUNT(t1.view_id) view_id_count_f41e2db4
-            FROM v3_page_views_enriched t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-            LEFT OUTER JOIN v3_date t3 ON t1.page_date = t3.date_id
-            GROUP BY  COALESCE(t1.page_date, t3.date_id), t2.category, t3.week, t1.session_id
-            ),
-            base_metrics AS (
-            SELECT  COALESCE(order_details_0.date_id, page_views_enriched_0.date_id) AS date_id,
-                COALESCE(order_details_0.category, page_views_enriched_0.category) AS category,
-                COALESCE(order_details_0.week, page_views_enriched_0.week) AS week,
-                COUNT( DISTINCT order_details_0.order_id) AS order_count,
-                SUM(page_views_enriched_0.view_id_count_f41e2db4) AS page_view_count,
-                COUNT( DISTINCT page_views_enriched_0.session_id) AS session_count,
-                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
-                SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT order_details_0.order_id), 0) AS avg_order_value,
-                SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT order_details_0.order_id), 0) / NULLIF(SUM(page_views_enriched_0.view_id_count_f41e2db4) / NULLIF(COUNT( DISTINCT page_views_enriched_0.session_id), 0), 0) AS efficiency_ratio,
-                SUM(page_views_enriched_0.view_id_count_f41e2db4) / NULLIF(COUNT( DISTINCT page_views_enriched_0.session_id), 0) AS pages_per_session
-            FROM order_details_0 FULL OUTER JOIN page_views_enriched_0 ON order_details_0.date_id = page_views_enriched_0.date_id AND order_details_0.category = page_views_enriched_0.category AND order_details_0.week = page_views_enriched_0.week
-            GROUP BY  1, 2, 3
-            ),
-            order_details_week_agg AS (
-            SELECT  base_metrics.category AS category,
-                base_metrics.week AS week,
-                SUM(base_metrics.total_revenue) / NULLIF(SUM(base_metrics.order_count), 0) / NULLIF(SUM(base_metrics.page_view_count) / NULLIF(SUM(base_metrics.session_count), 0), 0) AS efficiency_ratio
-            FROM base_metrics
-            GROUP BY  base_metrics.category, base_metrics.week
-            ),
-            order_details_week AS (
-            SELECT  order_details_week_agg.category AS category,
-                order_details_week_agg.week AS week,
-                (order_details_week_agg.efficiency_ratio - LAG(order_details_week_agg.efficiency_ratio, 1) OVER ( PARTITION BY order_details_week_agg.category
-            ORDER BY order_details_week_agg.week) ) / NULLIF(LAG(order_details_week_agg.efficiency_ratio, 1) OVER ( PARTITION BY order_details_week_agg.category
-            ORDER BY order_details_week_agg.week) , 0) * 100 AS wow_efficiency_ratio_change
-            FROM order_details_week_agg
-            )
-            SELECT  base_metrics.date_id AS date_id,
-                base_metrics.category AS category,
-                base_metrics.week AS week,
-                order_details_week.wow_efficiency_ratio_change AS wow_efficiency_ratio_change
-            FROM base_metrics LEFT OUTER JOIN order_details_week ON base_metrics.category = order_details_week.category AND base_metrics.week = order_details_week.week""",
-        )
+        assert response.status_code == 422, response.json()
+        message = response.json()["message"]
+        assert "Unsupported distinct metric reaggregation" in message
+        assert "no longer retains the distinct grain key" in message
 
     @pytest.mark.asyncio
     async def test_cross_fact_window_on_base_metrics(self, client_with_build_v3):
@@ -4839,10 +4674,12 @@ class TestMetricsSQLCrossFactWindow:
         - visitor_count is a base metric from page_views_enriched
         - Both are in grain groups (not derived metrics)
 
-        This should trigger build_window_agg_cte_from_base_metrics because:
+        This triggers build_window_agg_cte_from_base_metrics because:
         1. It's cross-fact (order_count + visitor_count span multiple facts)
         2. The base metrics ARE in grain groups (unlike derived metrics)
         3. Window ORDER BY grain (week) is coarser than requested grain (date_id)
+
+        The request must fail rather than summing the finalized distinct counts.
         """
         # Create the metric locally for this test
         response = await client_with_build_v3.post(
@@ -4870,84 +4707,10 @@ class TestMetricsSQLCrossFactWindow:
             },
         )
 
-        assert response.status_code == 200, response.json()
-        result = response.json()
-        sql = result["sql"]
-        assert_sql_equal(
-            sql,
-            """
-            WITH
-            v3_date AS (
-            SELECT  date_id,
-                week
-            FROM default.v3.dates
-            ),
-            v3_order_details AS (
-            SELECT  o.order_id,
-                o.order_date,
-                oi.product_id
-            FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
-            ),
-            v3_product AS (
-            SELECT  product_id,
-                category
-            FROM default.v3.products
-            ),
-            v3_page_views_enriched AS (
-            SELECT  customer_id,
-                page_date,
-                product_id
-            FROM default.v3.page_views
-            ),
-            order_details_0 AS (
-            SELECT  COALESCE(t1.order_date, t3.date_id) AS date_id,
-                t2.category,
-                t3.week,
-                t1.order_id
-            FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-            LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
-            GROUP BY  COALESCE(t1.order_date, t3.date_id), t2.category, t3.week, t1.order_id
-            ),
-            page_views_enriched_0 AS (
-            SELECT  COALESCE(t1.page_date, t3.date_id) AS date_id,
-                t2.category,
-                t3.week,
-                t1.customer_id
-            FROM v3_page_views_enriched t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-            LEFT OUTER JOIN v3_date t3 ON t1.page_date = t3.date_id
-            GROUP BY  COALESCE(t1.page_date, t3.date_id), t2.category, t3.week, t1.customer_id
-            ),
-            base_metrics AS (
-            SELECT  COALESCE(order_details_0.date_id, page_views_enriched_0.date_id) AS date_id,
-                COALESCE(order_details_0.category, page_views_enriched_0.category) AS category,
-                COALESCE(order_details_0.week, page_views_enriched_0.week) AS week,
-                COUNT( DISTINCT order_details_0.order_id) AS order_count,
-                COUNT( DISTINCT page_views_enriched_0.customer_id) AS visitor_count
-            FROM order_details_0 FULL OUTER JOIN page_views_enriched_0 ON order_details_0.date_id = page_views_enriched_0.date_id AND order_details_0.category = page_views_enriched_0.category AND order_details_0.week = page_views_enriched_0.week
-            GROUP BY  1, 2, 3
-            ),
-            order_details_week_agg AS (
-            SELECT  base_metrics.category AS category,
-                base_metrics.week AS week,
-                SUM(base_metrics.order_count) AS order_count,
-                SUM(base_metrics.visitor_count) AS visitor_count
-            FROM base_metrics
-            GROUP BY  base_metrics.category, base_metrics.week
-            ),
-            order_details_week AS (
-            SELECT  order_details_week_agg.category AS category,
-                order_details_week_agg.week AS week,
-                (order_details_week_agg.order_count + order_details_week_agg.visitor_count) - LAG(order_details_week_agg.order_count + order_details_week_agg.visitor_count, 1) OVER ( PARTITION BY order_details_week_agg.category
-            ORDER BY order_details_week_agg.week)  AS wow_order_and_visitor_change
-            FROM order_details_week_agg
-            )
-            SELECT  base_metrics.date_id AS date_id,
-                base_metrics.category AS category,
-                base_metrics.week AS week,
-                order_details_week.wow_order_and_visitor_change AS wow_order_and_visitor_change
-            FROM base_metrics LEFT OUTER JOIN order_details_week ON base_metrics.category = order_details_week.category AND base_metrics.week = order_details_week.week
-            """,
-        )
+        assert response.status_code == 422, response.json()
+        message = response.json()["message"]
+        assert "Unsupported distinct metric reaggregation" in message
+        assert "no longer retains the distinct grain key" in message
 
     @pytest.mark.asyncio
     async def test_multi_fact_window_metrics_same_grain(self, client_with_build_v3):
