@@ -1,7 +1,7 @@
 import logging
 import re
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -31,7 +31,8 @@ from datajunction_server.database.metricmetadata import MetricMetadata
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import MissingParent, NodeRelationship
 from datajunction_server.database.partition import Partition
-from datajunction_server.database.tag import Tag
+from datajunction_server.database.tag import Tag, TagNodeRelationship
+from datajunction_server.database.tag_type_claim import TagTypeClaim
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.errors import (
     DJError,
@@ -89,6 +90,11 @@ from datajunction_server.internal.namespaces import get_git_info_for_namespace
 from datajunction_server.internal.nodes import (
     derive_frozen_measures_bulk,
     is_non_trivial_cube_change,
+)
+from datajunction_server.internal.tag_type_claims import (
+    is_within,
+    resolve_claim_namespace,
+    upsert_tag_type_claims,
 )
 from datajunction_server.models.access import ResourceAction
 from datajunction_server.models.base import labelize
@@ -569,6 +575,9 @@ class DeploymentOrchestrator:
                         deployment_plan,
                         [],
                     )
+                # A push that only drops a tag from the manifest changes no
+                # nodes, so the reconcile has to run on this path too.
+                self.deployed_results.extend(await self._reconcile_claimed_tags())
                 return DeploymentExecuteResult(
                     results=await self._handle_no_changes(),
                     downstream_impacts=[],
@@ -634,6 +643,13 @@ class DeploymentOrchestrator:
         Setup all deployment-level resources
         """
         self.registry.set_namespaces(await self._setup_namespaces())
+        if self.deployment_spec.managed_tag_types is not None:
+            await upsert_tag_type_claims(
+                self.session,
+                self.deployment_spec.namespace,
+                self.deployment_spec.managed_tag_types,
+                current_user_id=self.context.current_user.id,
+            )
         self.registry.add_tags(await self._setup_tags())
         self.registry.add_owners(await self._setup_owners())
         self.registry.add_catalogs(await self._setup_catalogs())
@@ -1076,19 +1092,59 @@ class DeploymentOrchestrator:
                 ),
             )
 
+        new_specs = {
+            name: spec
+            for name, spec in deployment_tag_specs.items()
+            if name not in existing_tags
+        }
+        claims = await TagTypeClaim.get_owners(
+            self.session,
+            [spec.tag_type for spec in new_specs.values()],
+        )
+        if claims:
+            authority = await resolve_claim_namespace(
+                self.session,
+                self.deployment_spec.namespace,
+            )
+            for tag_name, tag_spec in new_specs.items():
+                owner = claims.get(tag_spec.tag_type)
+                if owner is not None and not is_within(authority, owner):
+                    self.errors.append(
+                        DJError(
+                            code=ErrorCode.ALREADY_EXISTS,
+                            message=(
+                                f"Tag `{tag_name}` has tag type `{tag_spec.tag_type}`, "
+                                f"which is claimed by namespace `{owner}`. Tags of this "
+                                "type can only be created by a deployment of that "
+                                "namespace."
+                            ),
+                        ),
+                    )
+
         # Upsert tags
-        tags_modified = False
+        created: list[str] = []
+        updated: list[str] = []
         for tag_name, tag_spec in deployment_tag_specs.items():
             if tag_name in existing_tags:
                 tag = existing_tags[tag_name]
                 if tag_needs_update(tag, tag_spec):
+                    logger.info(
+                        "Updating tag `%s` of type `%s`",
+                        tag_name,
+                        tag_spec.tag_type,
+                    )
                     tag.tag_type = tag_spec.tag_type
                     tag.description = tag_spec.description
                     tag.display_name = tag_spec.display_name or labelize(tag_name)
                     tag.tag_metadata = tag_spec.tag_metadata or {}
                     self.session.add(tag)
-                    tags_modified = True
+                    updated.append(tag_name)
             else:
+                logger.info(
+                    "Creating tag `%s` of type `%s`",
+                    tag_name,
+                    tag_spec.tag_type,
+                )
                 tag = Tag(
                     name=tag_name,
                     tag_type=tag_spec.tag_type,
@@ -1098,12 +1154,178 @@ class DeploymentOrchestrator:
                     created_by_id=self.context.current_user.id,
                 )
                 self.session.add(tag)
-                tags_modified = True
+                created.append(tag_name)
             existing_tags[tag_name] = tag
 
-        if tags_modified:
+        if created or updated:
+            logger.info(
+                "Tags in %s: created %d, updated %d, unchanged %d",
+                self.deployment_spec.namespace,
+                len(created),
+                len(updated),
+                len(deployment_tag_specs) - len(created) - len(updated),
+            )
             await self.session.flush()  # Get IDs but don't commit
         return existing_tags
+
+    async def _reconcile_claimed_tags(self) -> list[DeploymentResult]:
+        """
+        Delete tags of a claimed type that this manifest no longer declares.
+
+        Runs after nodes are deployed and deleted, so a tag dropped and detached
+        in one push is already unattached by the time it is checked.
+        """
+        if not self.deployment_spec.managed_tag_types:
+            return []
+        owners = await TagTypeClaim.get_owners(
+            self.session,
+            sorted(
+                {claim.tag_type for claim in self.deployment_spec.managed_tag_types},
+            ),
+        )
+        namespace = self.deployment_spec.namespace
+        tag_types = sorted(
+            tag_type
+            for tag_type, owner in owners.items()
+            if is_within(owner, namespace)
+        )
+        if not tag_types:
+            return []
+        logger.info(
+            "Reconciling tags of claimed type(s) %s for %s",
+            ", ".join(tag_types),
+            namespace,
+        )
+
+        declared = {spec.name for spec in self.deployment_spec.tags}
+        declared |= {tag for spec in self.deployment_spec.nodes for tag in spec.tags}
+        existing = await Tag.find_tags(
+            self.session,
+            tag_types=tag_types,
+            options=[load_only(Tag.id, Tag.name, Tag.tag_type), noload(Tag.nodes)],
+        )
+        obsolete = sorted(
+            (tag for tag in existing if tag.name not in declared),
+            key=lambda tag: tag.name,
+        )
+        if not obsolete:
+            return []
+
+        # Same guard as external pre-aggs: a manifest that claims a type and
+        # declares no tags is far more often a partial push than a request to
+        # drop the vocabulary.
+        if not declared and not self.deployment_spec.allow_empty:
+            message = (
+                f"{len(obsolete)} tag(s) of claimed type(s) "
+                f"{', '.join(tag_types)} were left intact because the deployment "
+                f"declares no tags. Re-run with allow_empty to delete them."
+            )
+            logger.warning(
+                "Kept %d tag(s) of claimed type(s): no tags declared and "
+                "allow_empty not set",
+                len(obsolete),
+            )
+            self.warnings.append(
+                DJError(
+                    code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                    message=message,
+                ),
+            )
+            return [
+                DeploymentResult(
+                    name=namespace,
+                    deploy_type=DeploymentResult.Type.TAG,
+                    status=DeploymentResult.Status.WARNING,
+                    operation=DeploymentResult.Operation.NOOP,
+                    message=message,
+                ),
+            ]
+
+        results: list[DeploymentResult] = []
+        holders = await self._active_nodes_by_tag([tag.id for tag in obsolete])
+        for tag in obsolete:
+            blocking = holders.get(tag.id, [])
+            if blocking:
+                logger.info(
+                    "Keeping tag `%s`: still on %d active node(s)",
+                    tag.name,
+                    len(blocking),
+                )
+                results.append(
+                    DeploymentResult(
+                        name=tag.name,
+                        deploy_type=DeploymentResult.Type.TAG,
+                        status=DeploymentResult.Status.WARNING,
+                        operation=DeploymentResult.Operation.NOOP,
+                        message=(
+                            f"Tag '{tag.name}' is no longer declared but is still "
+                            f"attached to {len(blocking)} node(s): "
+                            f"{', '.join(blocking[:5])}"
+                            f"{f' and {len(blocking) - 5} more' if len(blocking) > 5 else ''}"
+                            ". Remove the tag from these nodes to delete it."
+                        ),
+                    ),
+                )
+                continue
+            logger.info(
+                "Deleting tag `%s` of claimed type `%s`",
+                tag.name,
+                tag.tag_type,
+            )
+            self.session.add(
+                History(
+                    entity_type=EntityType.TAG,
+                    entity_name=tag.name,
+                    activity_type=ActivityType.DELETE,
+                    details={
+                        "deployment_id": self.deployment_id,
+                        "message": (
+                            f"Tag of claimed type '{tag.tag_type}' deleted because "
+                            f"namespace '{namespace}' no longer declares it."
+                        ),
+                    },
+                    user=self._history_user,
+                ),
+            )
+            await self.session.delete(tag)
+            results.append(
+                DeploymentResult(
+                    name=tag.name,
+                    deploy_type=DeploymentResult.Type.TAG,
+                    status=DeploymentResult.Status.SUCCESS,
+                    operation=DeploymentResult.Operation.DELETE,
+                    message=(
+                        f"Tag of claimed type '{tag.tag_type}' deleted: no longer "
+                        f"declared by namespace '{namespace}'."
+                    ),
+                ),
+            )
+        await self.session.flush()
+        deleted = sum(
+            result.operation == DeploymentResult.Operation.DELETE for result in results
+        )
+        logger.info(
+            "Reconciled claimed tags: deleted %d, kept %d still in use",
+            deleted,
+            len(results) - deleted,
+        )
+        return results
+
+    async def _active_nodes_by_tag(self, tag_ids: list[int]) -> dict[int, list[str]]:
+        """Names of the active nodes holding each of *tag_ids*."""
+        rows = (
+            await self.session.execute(
+                select(TagNodeRelationship.tag_id, Node.name)
+                .join(Node, Node.id == TagNodeRelationship.node_id)
+                .where(TagNodeRelationship.tag_id.in_(tag_ids))
+                .where(Node.deactivated_at.is_(None))
+                .order_by(Node.name),
+            )
+        ).all()
+        holders: dict[int, list[str]] = defaultdict(list)
+        for tag_id, node_name in rows:
+            holders[tag_id].append(node_name)
+        return holders
 
     async def _setup_hierarchies(self) -> None:
         """
@@ -1955,6 +2177,14 @@ class DeploymentOrchestrator:
                 )
                 p.append(f"{len(ns_results)} namespaces")
             self.deployed_results.extend(ns_results)
+            await self._update_deployment_status()
+
+        # Last: a tag is deletable only once the nodes holding it are gone, and
+        # this deploy may have just deleted or detached them.
+        with timer.phase("reconcile claimed tags"):
+            tag_results = await self._reconcile_claimed_tags()
+        if tag_results:
+            self.deployed_results.extend(tag_results)
             await self._update_deployment_status()
 
         return downstream

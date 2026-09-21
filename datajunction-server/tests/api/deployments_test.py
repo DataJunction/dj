@@ -44,6 +44,7 @@ from datajunction_server.models.deployment import (
     PreAggSpec,
     SourceSpec,
     TagSpec,
+    TagTypeClaimSpec,
     TransformSpec,
 )
 from datajunction_server.models.dimensionlink import JoinCardinality, JoinType
@@ -1363,6 +1364,26 @@ async def deploy_and_wait(client, deployment_spec: DeploymentSpec):
         for additive in ADDITIVE_RESULT_FIELDS:
             assert additive in result
             result.pop(additive)
+    return data
+
+
+async def impact_and_poll(client, deployment_spec: DeploymentSpec):
+    """Submit a `/deployments/impact` dry-run and poll until it terminates."""
+    response = await client.post(
+        "/deployments/impact",
+        json=deployment_payload(deployment_spec),
+        headers={"Prefer": "respond-async"},
+    )
+    assert response.status_code == 200, response.json()
+    data = response.json()
+    deployment_uuid = data["uuid"]
+    while data["status"] not in (
+        DeploymentStatus.FAILED.value,
+        DeploymentStatus.SUCCESS.value,
+    ):
+        await asyncio.sleep(1)
+        response = await client.get(f"/deployments/{deployment_uuid}")
+        data = response.json()
     return data
 
 
@@ -3546,13 +3567,11 @@ class TestDeployments:
 
         mock_qs.reset_mock()
         cube.description = "Cube for analyzing repair orders, revised"
-        response = await client.post(
-            "/deployments/impact",
-            json=deployment_payload(
-                DeploymentSpec(namespace=namespace, nodes=nodes),
-            ),
+        data = await impact_and_poll(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
         )
-        assert response.status_code == 200, response.json()
+        assert data["status"] == "success", data
         assert mock_qs.method_calls == []
 
         body = (await client.get(f"/nodes/{cube_name}/")).json()
@@ -4758,6 +4777,66 @@ class TestDeployments:
         assert [tag.name for tag in node.tags] == ["tag1"]
 
     @pytest.mark.asyncio
+    async def test_deploy_reconciles_claimed_tags(
+        self,
+        client,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        A tag of a type the namespace claims is deleted once the manifest stops
+        declaring it, on both the no-node-changes path and a full deploy.
+        """
+        namespace = "tag_reconcile_deploy"
+        default_us_state.tags = ["in_use"]
+
+        def spec(tag_names, description="US states"):
+            default_us_states.description = description
+            return DeploymentSpec(
+                namespace=namespace,
+                nodes=[default_us_states, default_us_state],
+                tags=[TagSpec(name=name, tag_type="domain") for name in tag_names],
+                managed_tag_types=[TagTypeClaimSpec(tag_type="domain")],
+            )
+
+        data = await deploy_and_wait(client, spec(["in_use", "unused", "later"]))
+        assert data["status"] == "success"
+        response = await client.get("/tags/unused/")
+        assert response.json()["owned_by_namespace"] == namespace
+
+        # Dropping a tag changes no node, so this lands on the no-changes path.
+        data = await deploy_and_wait(client, spec(["in_use", "later"]))
+        assert [
+            result for result in data["results"] if result["deploy_type"] == "tag"
+        ] == [
+            {
+                "deploy_type": "tag",
+                "name": "unused",
+                "operation": "delete",
+                "status": "success",
+                "message": (
+                    "Tag of claimed type 'domain' deleted: no longer declared by "
+                    f"namespace '{namespace}'."
+                ),
+                "changed_fields": [],
+            },
+        ]
+        response = await client.get("/tags/unused/")
+        assert response.status_code == 404
+
+        # And again on a deploy that does change a node.
+        data = await deploy_and_wait(client, spec(["in_use"], description="changed"))
+        assert [
+            result["name"]
+            for result in data["results"]
+            if result["deploy_type"] == "tag"
+        ] == ["later"]
+        response = await client.get("/tags/later/")
+        assert response.status_code == 404
+        response = await client.get("/tags/in_use/")
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
     async def test_deploy_tag_metadata(
         self,
         client,
@@ -4803,6 +4882,7 @@ class TestDeployments:
             "description": "Inventory tag",
             "tag_type": "group",
             "tag_metadata": {"order": 1, "display": {"color": "blue"}},
+            "owned_by_namespace": None,
         }
 
         # A key is added out-of-band, outside the deployment
@@ -4832,6 +4912,7 @@ class TestDeployments:
             "description": "Inventory tag",
             "tag_type": "group",
             "tag_metadata": {"order": 2, "display": {"icon": "box"}},
+            "owned_by_namespace": None,
         }
 
         # Removing tag_metadata from the spec clears it on the server
@@ -4844,6 +4925,7 @@ class TestDeployments:
             "description": "Inventory tag",
             "tag_type": "group",
             "tag_metadata": {},
+            "owned_by_namespace": None,
         }
 
     @pytest.mark.asyncio
@@ -7087,14 +7169,12 @@ class TestDeclaredCubeMaterializations:
             schedule="0 3 * * *",
             lookback_window="1 DAY",
         )
-        response = await client.post(
-            "/deployments/impact",
-            json=deployment_payload(
-                DeploymentSpec(namespace=namespace, nodes=nodes),
-            ),
+        data = await impact_and_poll(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
         )
-        assert response.status_code == 200, response.json()
-        assert self._materialization_results(response.json()) == [
+        assert data["status"] == "success", data
+        assert self._materialization_results(data) == [
             (
                 cube_name,
                 "update",
@@ -7114,14 +7194,12 @@ class TestDeclaredCubeMaterializations:
 
         # A planned teardown is reported and equally not carried out.
         cube.materialization = MaterializationAction.NONE
-        response = await client.post(
-            "/deployments/impact",
-            json=deployment_payload(
-                DeploymentSpec(namespace=namespace, nodes=nodes),
-            ),
+        data = await impact_and_poll(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
         )
-        assert response.status_code == 200, response.json()
-        assert self._materialization_results(response.json()) == [
+        assert data["status"] == "success", data
+        assert self._materialization_results(data) == [
             (
                 cube_name,
                 "delete",
@@ -10352,19 +10430,17 @@ class TestExternalPreAggDeploy:
             )
 
             async def _impact_preagg_results(preaggs, allow_empty=False):
-                impact = await client.post(
-                    "/deployments/impact",
-                    json=DeploymentSpec(
+                impact = await impact_and_poll(
+                    client,
+                    DeploymentSpec(
                         namespace="preagg_dry",
                         nodes=nodes,
                         preaggregations=preaggs,
                         allow_empty=allow_empty,
-                    ).model_dump(),
+                    ),
                 )
                 return [
-                    r
-                    for r in impact.json()["results"]
-                    if r["deploy_type"] == "preaggregation"
+                    r for r in impact["results"] if r["deploy_type"] == "preaggregation"
                 ]
 
             # Not yet registered -> planned CREATE, nothing persisted.

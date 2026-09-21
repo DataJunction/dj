@@ -299,7 +299,7 @@ class DeploymentService:
         deployment = DeploymentInfo.from_dict(data)
         if display:
             print_results(
-                "dry_run",
+                data.get("uuid", "dry_run"),
                 deployment,
                 console,
                 verbose=verbose,
@@ -589,6 +589,9 @@ class DeploymentService:
             deployment_spec["custom_metadata_schemas"] = project_metadata[
                 "custom_metadata_schemas"
             ]
+
+        if "managed_tag_types" in project_metadata:
+            deployment_spec["managed_tag_types"] = project_metadata["managed_tag_types"]
 
         # Add deployment source if available from env vars
         source = self._build_deployment_source(cwd=base_dir)

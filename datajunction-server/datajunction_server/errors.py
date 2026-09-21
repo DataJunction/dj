@@ -278,6 +278,16 @@ class DJInvalidDeploymentConfig(DJInvalidInputException):
     """
 
 
+class DJClientUpgradeRequiredException(DJException):
+    """
+    Exception raised when a client's request is missing a capability that a
+    now-required API change depends on, and the client needs to be upgraded.
+    """
+
+    dbapi_exception: DBAPIExceptions = "ProgrammingError"
+    http_status_code: int = HTTPStatus.UPGRADE_REQUIRED
+
+
 class DJNotImplementedException(DJException):
     """
     Exception raised when some functionality hasn't been implemented in DJ yet.

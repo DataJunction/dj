@@ -49,6 +49,8 @@ class TagOutput(ImmutableTagFields, MutableTagFields):
     Output tag model.
     """
 
+    owned_by_namespace: str | None = None
+
     model_config = ConfigDict(from_attributes=True)
 
 

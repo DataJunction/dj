@@ -21,6 +21,7 @@ async def deploy(
     deployment_id: str,
     deployment: DeploymentSpec,
     context: DeploymentContext,
+    dry_run: bool = False,
 ) -> DeploymentExecuteResult:
     """
     Deploy to a namespace based on the given deployment specification.
@@ -30,5 +31,6 @@ async def deploy(
         deployment_spec=deployment,
         session=session,
         context=context,
+        dry_run=dry_run,
     )
     return await orchestrator.execute()

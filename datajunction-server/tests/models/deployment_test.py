@@ -17,6 +17,8 @@ from datajunction_server.models.deployment import (
     ColumnSpec,
     CubeSpec,
     CustomMetadataSchemaSpec,
+    DeploymentCheckSpec,
+    DeploymentRulesetSpec,
     DeploymentSpec,
     DimensionJoinLinkSpec,
     DimensionReferenceLinkSpec,
@@ -32,6 +34,7 @@ from datajunction_server.models.deployment import (
     PreAggSpec,
     SourceSpec,
     TagSpec,
+    TagTypeClaimSpec,
     TransformSpec,
     bump_version,
     eq_columns,
@@ -281,6 +284,9 @@ def test_deployment_spec():
         "hierarchies": [],
         "preaggregations": [],
         "custom_metadata_schemas": None,
+        "checks": None,
+        "rulesets": None,
+        "managed_tag_types": None,
         "source": None,
         "auto_register_sources": True,
         "force": False,
@@ -1710,6 +1716,188 @@ def test_a_schema_namespace_outside_the_deployment_is_rejected(outside):
                     json_schema={"type": "object"},
                 ),
             ],
+        )
+    assert "not 'shared' or beneath it" in str(exc_info.value)
+
+
+# An invented vocabulary, matching the check-engine tests: `demo.*` names over a
+# `sample` metadata key with color/size/shape properties.
+def _check(name: str, gate: str = "warn") -> DeploymentCheckSpec:
+    return DeploymentCheckSpec(
+        name=name,
+        description=f"Something about {name}.",
+        condition="size(node.owners) >= 1",
+        gate=gate,
+    )
+
+
+def _deployment(**kwargs) -> DeploymentSpec:
+    return DeploymentSpec(namespace="shared", nodes=[], **kwargs)
+
+
+def test_a_manifest_without_checks_declares_none():
+    """Omitting both blocks changes nothing."""
+    spec = _deployment()
+    assert spec.checks is None
+    assert spec.rulesets is None
+
+
+def test_checks_and_rulesets_load():
+    spec = _deployment(
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.owner_present",
+                description="Every entity has an owner.",
+                when="node.type == 'dimension'",
+                condition="size(node.owners) >= 1",
+                gate="warn",
+            ),
+            _check("demo.color_set"),
+        ],
+        rulesets=[
+            DeploymentRulesetSpec(
+                name="baseline",
+                display_name="Baseline",
+                checks=["demo.owner_present", "demo.color_set"],
+            ),
+        ],
+    )
+    assert spec.checks[0].when == "node.type == 'dimension'"
+    assert spec.checks[1].when is None
+    assert spec.rulesets[0].display_name == "Baseline"
+    assert spec.rulesets[0].includes == []
+
+
+def test_an_unrecognized_gate_is_not_rejected_here():
+    """
+    The gate stays a string, so a typo is reported as a malformed check at config
+    load rather than raising while the manifest is parsed.
+    """
+    spec = _deployment(checks=[_check("demo.color_set", gate="blcok")])
+    assert spec.checks[0].gate == "blcok"
+
+
+def test_duplicate_check_names_are_rejected():
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        _deployment(checks=[_check("demo.color_set"), _check("demo.color_set")])
+    assert "Duplicate check name 'demo.color_set'" in str(exc_info.value)
+
+
+def test_duplicate_ruleset_names_are_rejected():
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        _deployment(
+            rulesets=[
+                DeploymentRulesetSpec(name="baseline"),
+                DeploymentRulesetSpec(name="baseline"),
+            ],
+        )
+    assert "Duplicate ruleset name 'baseline'" in str(exc_info.value)
+
+
+def test_a_ruleset_naming_an_undeclared_check_is_rejected():
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        _deployment(
+            checks=[_check("demo.color_set")],
+            rulesets=[
+                DeploymentRulesetSpec(name="baseline", checks=["demo.size_set"]),
+            ],
+        )
+    assert "names check 'demo.size_set', which is not declared" in str(exc_info.value)
+
+
+def test_a_ruleset_including_an_undeclared_ruleset_is_rejected():
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        _deployment(
+            rulesets=[DeploymentRulesetSpec(name="strict", includes=["baseline"])],
+        )
+    assert "includes ruleset 'baseline', which is not declared" in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "includes, cycle",
+    [
+        ({"baseline": ["baseline"]}, "baseline -> baseline"),
+        (
+            {"baseline": ["strict"], "strict": ["baseline"]},
+            "baseline -> strict -> baseline",
+        ),
+        (
+            {"baseline": ["strict"], "strict": ["extra"], "extra": ["baseline"]},
+            "baseline -> strict -> extra -> baseline",
+        ),
+    ],
+    ids=["self", "direct", "transitive"],
+)
+def test_a_cycle_in_includes_is_rejected(includes, cycle):
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        _deployment(
+            rulesets=[
+                DeploymentRulesetSpec(name=name, includes=included)
+                for name, included in includes.items()
+            ],
+        )
+    assert f"Ruleset includes form a cycle: {cycle}." in str(exc_info.value)
+
+
+def test_a_managed_tag_type_namespace_defaults_to_the_deployment():
+    """Omitting it claims the type for the deploying namespace."""
+    spec = DeploymentSpec(
+        namespace="shared",
+        nodes=[],
+        managed_tag_types=[TagTypeClaimSpec(tag_type="domain")],
+    )
+    assert spec.managed_tag_types[0].namespace == "shared"
+
+
+def test_a_bare_string_managed_tag_type_is_the_deploying_namespace():
+    """`managed_tag_types: [domain]` is the common case and needs no mapping."""
+    spec = DeploymentSpec(namespace="shared", nodes=[], managed_tag_types=["domain"])
+    assert spec.managed_tag_types[0].tag_type == "domain"
+    assert spec.managed_tag_types[0].namespace == "shared"
+
+
+def test_bare_and_mapped_managed_tag_types_mix():
+    """A narrowed entry stays a mapping while the rest stay bare."""
+    spec = DeploymentSpec(
+        namespace="shared",
+        nodes=[],
+        managed_tag_types=[
+            "domain",
+            TagTypeClaimSpec(tag_type="topic", namespace="shared.conformed"),
+        ],
+    )
+    assert [(c.tag_type, c.namespace) for c in spec.managed_tag_types] == [
+        ("domain", "shared"),
+        ("topic", "shared.conformed"),
+    ]
+
+
+def test_a_managed_tag_type_may_be_scoped_to_a_sub_namespace():
+    """Narrower than the deployment is a rollout choice, same as schemas."""
+    spec = DeploymentSpec(
+        namespace="shared",
+        nodes=[],
+        managed_tag_types=[
+            TagTypeClaimSpec(tag_type="domain", namespace="shared.conformed"),
+        ],
+    )
+    assert spec.managed_tag_types[0].namespace == "shared.conformed"
+
+
+@pytest.mark.parametrize(
+    "outside",
+    ["elsewhere", "shared_other", "other.shared", "sharedx"],
+)
+def test_a_managed_tag_type_namespace_outside_the_deployment_is_rejected(outside):
+    """
+    Sideways claims would let one repo govern another repo's vocabulary. The
+    prefix traps (`shared_other`, `sharedx`) are rejected too.
+    """
+    with pytest.raises(DJInvalidDeploymentConfig) as exc_info:
+        DeploymentSpec(
+            namespace="shared",
+            nodes=[],
+            managed_tag_types=[TagTypeClaimSpec(tag_type="domain", namespace=outside)],
         )
     assert "not 'shared' or beneath it" in str(exc_info.value)
 
