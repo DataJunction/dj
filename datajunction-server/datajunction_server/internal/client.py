@@ -189,9 +189,7 @@ async def python_client_create_node(
             {"primary_key": [col.name for col in node.current.primary_key()]}
             if node.type != NodeType.METRIC
             else {
-                "required_dimensions": [  # type: ignore
-                    col.name for col in node.current.required_dimensions
-                ],
+                "required_dimensions": node.current.required_dimensions_refs,  # type: ignore
                 **(
                     {
                         "direction": (  # type: ignore

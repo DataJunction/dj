@@ -327,19 +327,24 @@ class CubeRelationship(Base):
     )
 
 
-class BoundDimensionsRelationship(Base):
+class RequiredDimension(Base):
     """
-    Join table for many-to-many relationships between metric nodes
-    and parent nodes for dimensions that are required.
+    A metric's required-dimension entry.
+
+    Stores the authored reference verbatim in ``ref`` (e.g. a bare parent
+    column like ``status``, or a full role-qualified path like
+    ``date.dateint[created_date]``) so it round-trips exactly on export,
+    plus an indexed ``dimension_id`` FK to the dimension node it points at
+    (when it's a full path) for graph visibility -- mirrors the shape of
+    ``Column.dimension_id`` / ``DimensionLink.dimension_id``. A bare
+    column ref resolves locally against the metric's own parent, so it
+    carries no ``dimension_id``.
     """
 
     __tablename__ = "metric_required_dimensions"
     __table_args__ = (
         Index("ix_metric_required_dimensions_metric_id", "metric_id"),
-        Index(
-            "ix_metric_required_dimensions_bound_dimension_id",
-            "bound_dimension_id",
-        ),
+        Index("ix_metric_required_dimensions_dimension_id", "dimension_id"),
     )
 
     metric_id: Mapped[int] = mapped_column(
@@ -351,13 +356,31 @@ class BoundDimensionsRelationship(Base):
         primary_key=True,
     )
 
-    bound_dimension_id: Mapped[int] = mapped_column(
+    # The authored reference, verbatim (source of truth for export/diff).
+    ref: Mapped[str] = mapped_column(String, primary_key=True)
+
+    # The dimension node this ref points at, when it's a full `node.column`
+    # (optionally role-qualified) path. NULL for a bare column ref, which
+    # resolves against the metric's own parent rather than a dimension node.
+    # SET NULL (not CASCADE) on dimension delete: the row -- and its `ref` --
+    # stays around for visibility/audit even though the reference will fail
+    # re-validation until the metric's required_dimensions are fixed up.
+    dimension_id: Mapped[int | None] = mapped_column(
         ForeignKey(
-            "column.id",
-            name="fk_metric_required_dimensions_bound_dimension_id_column",
-            ondelete="CASCADE",
+            "node.id",
+            name="fk_metric_required_dimensions_dimension_id_node",
+            ondelete="SET NULL",
         ),
-        primary_key=True,
+    )
+    dimension: Mapped["Node | None"] = relationship(
+        "Node",
+        foreign_keys=[dimension_id],
+        lazy="joined",
+    )
+    metric: Mapped["NodeRevision"] = relationship(
+        "NodeRevision",
+        foreign_keys=[metric_id],
+        back_populates="required_dimensions",
     )
 
 
@@ -655,12 +678,8 @@ class Node(Base):
                 legacy_from_md,
             )
 
-            # Every required dimension is exported as its fully-qualified `node.column` path.
-            required_dimensions_spec: list[str] = sorted(
-                col.full_name() for col in self.current.required_dimensions
-            )
             extra_kwargs.update(
-                required_dimensions=required_dimensions_spec,
+                required_dimensions=self.current.required_dimensions_refs,
                 direction=self.current.metric_metadata.direction
                 if self.current.metric_metadata
                 else None,
@@ -1684,13 +1703,24 @@ class NodeRevision(
     schema_: Mapped[str | None] = mapped_column(String, default=None)
     table: Mapped[str | None] = mapped_column(String, default=None)
 
-    # A list of columns from the metric's parent that
-    # are required for grouping when using the metric
-    required_dimensions: Mapped[list[Column]] = relationship(
-        secondary="metric_required_dimensions",
-        primaryjoin="NodeRevision.id==BoundDimensionsRelationship.metric_id",
-        secondaryjoin="Column.id==BoundDimensionsRelationship.bound_dimension_id",
+    # Dimensions (or parent columns) that are required for grouping when
+    # using the metric. An owned association-object list (not a plain
+    # many-to-many): each row stores the authored reference verbatim, see
+    # `RequiredDimension`.
+    required_dimensions: Mapped[list["RequiredDimension"]] = relationship(
+        back_populates="metric",
+        foreign_keys="RequiredDimension.metric_id",
+        cascade="all, delete-orphan",
     )
+
+    @property
+    def required_dimensions_refs(self) -> list[str]:
+        """
+        Authored `required_dimensions` references, verbatim and sorted.
+        Shared by export (`to_spec`) and the metric API response so both
+        read the same source of truth instead of reconstructing the string.
+        """
+        return sorted(rd.ref for rd in self.required_dimensions)
 
     metric_metadata_id: Mapped[int | None] = mapped_column(
         ForeignKey(
@@ -1847,12 +1877,9 @@ class NodeRevision(
                 ),
                 joinedload(DimensionLink.node_revision),
             ),
-            selectinload(NodeRevision.required_dimensions).options(
-                # Column.node_revision back-ref is read by Column.full_name()
-                # during required-dimensions resolution; preload it so
-                # accessing it in async context doesn't trip MissingGreenlet.
-                joinedload(Column.node_revision).load_only(NodeRevision.name),
-            ),
+            # `.dimension` is a `lazy="joined"` relationship on RequiredDimension,
+            # so it's already eager-loaded as part of this selectinload.
+            selectinload(NodeRevision.required_dimensions),
             selectinload(NodeRevision.availability),
             # Load created_by for API responses (but noload in /sql/ endpoint's custom options)
             selectinload(NodeRevision.created_by),
@@ -1910,11 +1937,9 @@ class NodeRevision(
                 ),
                 joinedload(DimensionLink.node_revision),
             ),
-            selectinload(NodeRevision.required_dimensions).options(
-                # to_spec reads col.full_name() -> col.node_revision.name for
-                # off-graph required dimensions; preload it to avoid MissingGreenlet.
-                joinedload(Column.node_revision).load_only(NodeRevision.name),
-            ),
+            # to_spec reads `.required_dimensions_refs`, which only needs `.ref`;
+            # `.dimension` is `lazy="joined"` so it's eager-loaded here too.
+            selectinload(NodeRevision.required_dimensions),
             selectinload(NodeRevision.cube_elements)
             .selectinload(Column.node_revision)
             .options(

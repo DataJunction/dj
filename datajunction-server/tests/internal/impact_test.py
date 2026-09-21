@@ -13,10 +13,10 @@ from sqlalchemy import event
 from datajunction_server.database.column import Column as DBColumn
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import (
-    BoundDimensionsRelationship,
     Node,
     NodeRelationship,
     NodeRevision,
+    RequiredDimension,
 )
 from datajunction_server.database.user import User
 from datajunction_server.internal.impact import (
@@ -191,9 +191,10 @@ async def test_required_dimension_on_older_revision_is_discovered(
     )
     await _persist(
         session,
-        BoundDimensionsRelationship(
+        RequiredDimension(
             metric_id=metric_rev.id,
-            bound_dimension_id=older_dimension_rev.columns[0].id,
+            ref=f"{dimension.name}.id",
+            dimension_id=dimension.id,
         ),
     )
 

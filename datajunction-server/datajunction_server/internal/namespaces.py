@@ -1228,7 +1228,7 @@ def _metric_project_config(node: Node, namespace_requested: str) -> dict:
         "description": node.current.description,
         "query": node.current.query,
         "tags": [tag.name for tag in node.tags],
-        "required_dimensions": [dim.name for dim in node.current.required_dimensions],
+        "required_dimensions": node.current.required_dimensions_refs,
         "direction": (
             node.current.metric_metadata.direction.name.lower()
             if node.current.metric_metadata and node.current.metric_metadata.direction

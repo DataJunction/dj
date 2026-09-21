@@ -407,8 +407,19 @@ class NodeRevision:
     schema_: str | None
     table: str | None
 
-    # Only metrics will have these fields
-    required_dimensions: list[Column] | None = None
+    # Only metrics will have this field. Returns the authored references
+    # verbatim (e.g. "status" or "date.dateint[created_date]") rather than
+    # `Column` objects -- a required dimension is a string reference, not
+    # necessarily a resolvable column payload (a bare ref has no dimension
+    # node to hang column metadata off of).
+    @strawberry.field
+    def required_dimensions(self, root: DBNodeRevision) -> list[str] | None:
+        """
+        The metric's required dimension references, verbatim as authored.
+        """
+        if root.type != NodeType_.METRIC:
+            return None
+        return root.required_dimensions_refs
 
     @strawberry.field
     def primary_key(self, root: DBNodeRevision) -> list[str]:

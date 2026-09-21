@@ -44,6 +44,7 @@ from datajunction_server.database.node import (
     NodeMissingParents,
     NodeRelationship,
     NodeRevision,
+    RequiredDimension,
 )
 from datajunction_server.database.partition import Partition
 from datajunction_server.database.preaggregation import (
@@ -589,10 +590,13 @@ async def create_node_revision(
         status=NodeStatus.VALID,
         query=data.query,
         mode=data.mode,
-        required_dimensions=data.required_dimensions or [],
         created_by_id=current_user.id,
         custom_metadata=data.custom_metadata,
     )
+    # Stashed on a transient attribute, not the `required_dimensions`
+    # relationship itself -- see the matching comment in
+    # create_new_revision_from_existing for why.
+    node_revision._pending_required_dimensions = data.required_dimensions or []
     node_validator = await validate_node_data(node_revision, session)
 
     if node_validator.status == NodeStatus.INVALID:
@@ -1136,7 +1140,10 @@ async def copy_to_new_node(
         catalog=old_revision.catalog,
         schema_=old_revision.schema_,
         table=old_revision.table,
-        required_dimensions=list(old_revision.required_dimensions),
+        required_dimensions=[
+            RequiredDimension(ref=rd.ref, dimension_id=rd.dimension_id)
+            for rd in old_revision.required_dimensions
+        ],
         metric_metadata=old_revision.metric_metadata,
         cube_elements=list(old_revision.cube_elements),
         cube_filters=old_revision.cube_filters,
@@ -2513,7 +2520,10 @@ def copy_existing_node_revision(old_revision: NodeRevision, current_user: User):
         mode=old_revision.mode,
         materializations=old_revision.materializations,
         status=old_revision.status,
-        required_dimensions=list(old_revision.required_dimensions),
+        required_dimensions=[
+            RequiredDimension(ref=rd.ref, dimension_id=rd.dimension_id)
+            for rd in old_revision.required_dimensions
+        ],
         metric_metadata=old_revision.metric_metadata,
         dimension_links=[
             DimensionLink(
@@ -2734,7 +2744,7 @@ async def create_new_revision_from_existing(
     required_dim_changes = (
         data
         and isinstance(data.required_dimensions, list)
-        and {col.name for col in old_revision.required_dimensions}
+        and {rd.ref for rd in old_revision.required_dimensions}
         != set(data.required_dimensions)
     )
     major_changes = (
@@ -2800,6 +2810,14 @@ async def create_new_revision_from_existing(
             )
             for link in old_revision.dimension_links
         ],
+        # Preserve required_dimensions by default -- previously omitted here,
+        # which meant a PATCH touching unrelated fields (but not
+        # required_dimensions) silently wiped it out once validation below
+        # reassigned `new_revision.required_dimensions` from an empty list.
+        required_dimensions=[
+            RequiredDimension(ref=rd.ref, dimension_id=rd.dimension_id)
+            for rd in old_revision.required_dimensions
+        ],
         created_by_id=current_user.id,
         custom_metadata=old_revision.custom_metadata,
     )
@@ -2809,7 +2827,14 @@ async def create_new_revision_from_existing(
         col.node_revision = new_revision
 
     if data and data.required_dimensions is not None:  # type: ignore
-        new_revision.required_dimensions = data.required_dimensions  # type: ignore
+        # Stash the raw strings on a transient (non-mapped) attribute rather
+        # than the `required_dimensions` relationship itself -- it's an
+        # owned association-object list now, so assigning plain strings to
+        # it raises (SQLAlchemy tries to treat each string as a
+        # RequiredDimension to fire the `metric` backref). validate_node_data
+        # below reads this attribute and replaces `required_dimensions` with
+        # the resolved RequiredDimension rows.
+        new_revision._pending_required_dimensions = data.required_dimensions  # type: ignore
 
     if data and data.custom_metadata is not None:  # type: ignore
         new_revision.custom_metadata = data.custom_metadata
@@ -2905,8 +2930,13 @@ async def create_new_revision_from_existing(
                         ColumnAttribute(column=col, attribute_type=pk_attribute),
                     )
 
-        # Update the required dimensions if one was set in the input and the node is a metric
-        if node_validator.required_dimensions and new_revision.type == NodeType.METRIC:
+        # Replace the raw strings set above (line ~2818) with the resolved
+        # RequiredDimension rows from validation. Unconditional (not gated on
+        # truthiness): if validation resolved zero entries -- either because
+        # none were supplied or because all were invalid in draft mode -- the
+        # raw string list must still be cleared out, or it's left sitting in
+        # a relationship attribute that expects RequiredDimension rows.
+        if new_revision.type == NodeType.METRIC:
             new_revision.required_dimensions = node_validator.required_dimensions
 
         # Set the node's validity status

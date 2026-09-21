@@ -267,8 +267,16 @@ class QueryBuilder:
 
         self._filters: list[str] = []
         self._parameters: dict[str, ast.Value] = {}
+        # NOTE: build_v2 is the legacy build path (still used for cube/measures
+        # materialization SQL -- see CubeQueryBuilder below, and internal/sql.py,
+        # internal/materializations.py). It does not do the role-aware join
+        # disambiguation that build_v3 does (see construction/build_v3/dimensions.py
+        # find_join_path); a roled required_dimensions ref (e.g. "date.dateint
+        # [created_date]") is compared here as an opaque string, so it won't
+        # match a bare dimension name the way it does in v3. Fixing that is out
+        # of scope here -- flagging for anyone extending role support to v2.
         self._required_dimensions: list[str] = [
-            required.name for required in self.node_revision.required_dimensions
+            required.ref for required in self.node_revision.required_dimensions
         ]
         self._dimensions: list[str] = []
         self._orderby: list[str] = []
@@ -1171,8 +1179,11 @@ class CubeQueryBuilder:
         self.use_materialized = use_materialized
 
         self._filters: list[str] = []
+        # See the NOTE in QueryBuilder.__init__ above: build_v2 doesn't do
+        # role-aware dimension-link resolution, so a roled ref is compared
+        # as an opaque string here.
         self._required_dimensions: list[str] = [
-            required.name
+            required.ref
             for metric_node in self.metric_nodes
             for required in metric_node.current.required_dimensions
         ]

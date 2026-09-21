@@ -11441,7 +11441,7 @@ class TestRequiredDimensionsRedeployIdempotence:
         assert data["status"] == "success", data
         response = await client.get(f"/metrics/{metric_name}/")
         assert response.status_code == 200, response.json()
-        assert response.json()["required_dimensions"] == ["dateint"]
+        assert response.json()["required_dimensions"] == [f"{namespace}.rd_date_dim.dateint"]
 
         # Only the metric's description changes here, so `rd_date_dim` and
         # `rd_orders_fact` are unchanged and are not part of this update's
@@ -11469,7 +11469,7 @@ class TestRequiredDimensionsRedeployIdempotence:
 
         response = await client.get(f"/metrics/{metric_name}/")
         assert response.status_code == 200, response.json()
-        assert response.json()["required_dimensions"] == ["dateint"]
+        assert response.json()["required_dimensions"] == [f"{namespace}.rd_date_dim.dateint"]
 
     @pytest.mark.asyncio
     async def test_metadata_edit_on_qualified_metric_is_minor(self, client):

@@ -180,15 +180,17 @@ def collect_required_dimensions(
     Requires `dateint` in the grain, otherwise LAG() would see only one row
     and always return NULL.
 
-    Required dimensions are stored as Column objects on a dimension node.
-    This function reconstructs the full path: "node_name.column_name"
+    Required dimensions are stored verbatim as authored (`RequiredDimension.ref`),
+    including any role suffix (e.g. "v3.date.dateint[created_date]"), so this
+    is a direct read -- no reconstruction needed.
 
     Args:
         nodes: Dict of loaded nodes (node_name -> Node)
         metrics: List of requested metric names
 
     Returns:
-        List of required dimension references (full paths like "node.column")
+        List of required dimension references, verbatim (e.g. "node.column"
+        or "node.column[role]")
     """
     required_dims: set[str] = set()
 
@@ -197,19 +199,8 @@ def collect_required_dimensions(
         if not metric_node or not metric_node.current:
             continue
 
-        # Check required_dimensions on the metric node
-        # These are Column objects stored on dimension nodes
-        # We need to reconstruct the full path: "dimension_node.column_name"
-        if metric_node.current.required_dimensions:
-            for col in metric_node.current.required_dimensions:
-                # Get the dimension node name from the column's node_revision
-                if col.node_revision and col.node_revision.node:
-                    dim_node_name = col.node_revision.node.name
-                    full_path = f"{dim_node_name}{SEPARATOR}{col.name}"
-                    required_dims.add(full_path)
-                else:
-                    # Fallback: just use the column name (shouldn't happen)
-                    required_dims.add(col.name)  # pragma: no cover
+        for required_dim in metric_node.current.required_dimensions:
+            required_dims.add(required_dim.ref)
 
     # Sort for deterministic ordering
     return sorted(required_dims)

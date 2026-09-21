@@ -635,9 +635,7 @@ async def test_find_metric(
                     expression
                     incompatibleDruidFunctions
                 }
-                requiredDimensions {
-                    name
-                }
+                requiredDimensions
                 extractedMeasures {
                     components {
                         name

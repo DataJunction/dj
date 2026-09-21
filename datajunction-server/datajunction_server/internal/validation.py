@@ -2,12 +2,15 @@
 
 from dataclasses import dataclass, field
 
+from sqlalchemy import select
 from sqlalchemy.exc import MissingGreenlet
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import find_required_dimensions
 from datajunction_server.database import Node, NodeRevision
 from datajunction_server.database.column import Column, ColumnAttribute
+from datajunction_server.database.dimensionlink import DimensionLink
+from datajunction_server.database.node import RequiredDimension
 from datajunction_server.errors import (
     DJError,
     DJException,
@@ -69,6 +72,66 @@ def update_ast_column_types(node: ast.Node) -> None:
         update_ast_column_types(child)
 
 
+async def _dimension_links_for_required_dimensions(
+    session: AsyncSession,
+    parents: list[NodeRevision],
+) -> list[DimensionLink]:
+    """
+    Dimension links visible for required_dimensions role validation.
+
+    Fetched with a dedicated query rather than read off `parent.dimension_links`
+    -- that relationship's eager-load state is inconsistent across the
+    different ways `parents` gets populated here (AST-driven dependency
+    extraction vs. `Node.get_by_names`), so trusting it risks either a
+    MissingGreenlet or an incorrectly-empty collection.
+
+    A derived metric's direct "parents" are other metrics, which have no
+    dimension links of their own -- a roled required_dimensions entry on a
+    derived metric (including a nested one, e.g. a period-over-period metric
+    on a ratio metric on two base metrics) is only reachable through the
+    non-metric parents at the bottom of that chain, so metric parents are
+    unwound via `get_metric_parents_map` (which already recurses through
+    nested derived metrics).
+    """
+    from datajunction_server.sql.dag import get_metric_parents_map
+
+    revision_ids: set[int] = {p.id for p in parents if p.type != NodeType.METRIC}
+    metric_parent_names = [p.name for p in parents if p.type == NodeType.METRIC]
+    if metric_parent_names:
+        metric_nodes = await Node.get_by_names(session, metric_parent_names)
+        base_parents_map = await get_metric_parents_map(session, metric_nodes)
+        for base_parents in base_parents_map.values():
+            for base_parent in base_parents:
+                if base_parent.current:
+                    revision_ids.add(base_parent.current.id)
+    if not revision_ids:
+        return []
+    result = await session.execute(
+        select(DimensionLink).where(DimensionLink.node_revision_id.in_(revision_ids)),
+    )
+    return list(result.scalars().all())
+
+
+def _pending_required_dimension_strings(validated_node: NodeRevision) -> list[str]:
+    """
+    Required dimension references to resolve for this validation pass.
+
+    A raw `list[str]` payload is staged on the transient
+    `_pending_required_dimensions` attribute rather than the
+    `required_dimensions` relationship itself (which is now an owned
+    association-object list -- assigning plain strings to it raises). Falls
+    back to `.ref` on already-resolved `RequiredDimension` rows, e.g. when
+    `required_dimensions` was copied from an existing revision.
+    """
+    pending = getattr(validated_node, "_pending_required_dimensions", None)
+    if pending is not None:
+        return list(pending)
+    return [
+        rd.ref if isinstance(rd, RequiredDimension) else rd
+        for rd in validated_node.required_dimensions
+    ]
+
+
 @dataclass
 class NodeValidator:
     """
@@ -77,7 +140,7 @@ class NodeValidator:
 
     status: NodeStatus = NodeStatus.VALID
     columns: list[Column] = field(default_factory=list)
-    required_dimensions: list[Column] = field(default_factory=list)
+    required_dimensions: list["RequiredDimension"] = field(default_factory=list)
     dependencies_map: dict[NodeRevision, list[ast.Table]] = field(default_factory=dict)
     missing_parents_map: dict[str, list[ast.Table]] = field(default_factory=dict)
     type_inference_failures: list[str] = field(default_factory=list)
@@ -343,11 +406,11 @@ async def validate_node_data(
         parent_columns = [
             col for parent in dependencies_map.keys() for col in parent.columns
         ]
-        # Get required dimensions as strings (may be Column objects if already resolved)
-        required_dim_strings = [
-            col.full_name() if isinstance(col, Column) else col
-            for col in validated_node.required_dimensions
-        ]
+        parent_dimension_links = await _dimension_links_for_required_dimensions(
+            session,
+            list(dependencies_map.keys()),
+        )
+        required_dim_strings = _pending_required_dimension_strings(validated_node)
         (
             invalid_required_dimensions,
             matched_bound_columns,
@@ -355,6 +418,7 @@ async def validate_node_data(
             session,
             required_dim_strings,
             parent_columns,
+            parent_dimension_links,
         )
         node_validator.required_dimensions = matched_bound_columns
     except MissingGreenlet:
@@ -692,10 +756,11 @@ async def validate_node_data_v2(
         for parent in node_validator.dependencies_map.keys()
         for col in parent.columns
     ]
-    required_dim_strings = [
-        col.full_name() if isinstance(col, Column) else col
-        for col in validated_node.required_dimensions
-    ]
+    parent_dimension_links = await _dimension_links_for_required_dimensions(
+        session,
+        list(node_validator.dependencies_map.keys()),
+    )
+    required_dim_strings = _pending_required_dimension_strings(validated_node)
     (
         invalid_required_dimensions,
         matched_bound_columns,
@@ -703,6 +768,7 @@ async def validate_node_data_v2(
         session,
         required_dim_strings,
         parent_columns,
+        parent_dimension_links,
     )
     node_validator.required_dimensions = matched_bound_columns
 

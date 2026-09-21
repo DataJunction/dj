@@ -22,6 +22,7 @@ from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import Column, Node, NodeRevision
 from datajunction_server.database.preaggregation import PreAggregation
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.utils import SEPARATOR
 
 logger = logging.getLogger(__name__)
 
@@ -106,16 +107,10 @@ async def batch_load_nodes_with_dependencies(
                 ),
                 # NOTE: don't noload Catalog.engines — see load_dimension_links_batch.
                 joinedload(NodeRevision.catalog),
-                selectinload(NodeRevision.required_dimensions).options(
-                    # Load the node_revision and node to reconstruct full dimension path
-                    joinedload(Column.node_revision).options(
-                        noload(NodeRevision.created_by),  # Prevent User N+1 queries
-                        joinedload(NodeRevision.node).options(
-                            noload(Node.created_by),  # Prevent User N+1 queries
-                            noload(Node.tags),  # Prevent Tag selectin chain
-                        ),
-                    ),
-                ),
+                # `.ref` is the authored reference verbatim -- no reconstruction
+                # needed. `.dimension` is `lazy="joined"` so it's already
+                # eager-loaded as part of this selectinload.
+                selectinload(NodeRevision.required_dimensions),
                 joinedload(NodeRevision.availability),  # For materialization support
                 selectinload(NodeRevision.dimension_links).options(
                     # Load dimension node for link matching in temporal filters
@@ -500,11 +495,33 @@ async def load_nodes(ctx: BuildContext) -> None:
         ).all()
         ctx.reference_dimension_names = {row[0]: row[1] for row in rows}
 
-    # Collect required dimensions from metrics and add to context
-    # Required dimensions are stored as Column objects, so they don't have role info.
-    # We need to check if a user-requested dimension already covers the same (node, column).
+    # Collect required dimensions from metrics and add to context. These are
+    # stored verbatim (role included), so parse_dimension_ref below resolves
+    # the declared role exactly rather than falling back to a sort order.
+    # We still need to check if a user-requested dimension already covers the
+    # same (node, column) -- e.g. the user asked for the un-roled column.
     required_dims = collect_required_dimensions(ctx.nodes, ctx.metrics)
     for req_dim in required_dims:
+        if SEPARATOR not in req_dim:
+            # Bare column ref (resolves against a direct parent of the
+            # metric, not a separate dimension node -- see RequiredDimension).
+            # parse_dimension_ref requires a fully-qualified `node.column`
+            # path, so reconstruct one from whichever direct parent actually
+            # has this column; the *stored* ref stays bare either way.
+            resolved_ref = None
+            for metric_name in ctx.metrics:
+                for parent_name in ctx.parent_map.get(metric_name, []):
+                    parent_node = ctx.nodes.get(parent_name)
+                    if parent_node and parent_node.current and any(
+                        col.name == req_dim for col in parent_node.current.columns
+                    ):
+                        resolved_ref = f"{parent_name}{SEPARATOR}{req_dim}"
+                        break
+                if resolved_ref:
+                    break
+            if not resolved_ref:  # pragma: no cover
+                continue
+            req_dim = resolved_ref
         dim_ref = parse_dimension_ref(req_dim)
         if dim_ref.node_name:  # pragma: no branch
             target_dim_names.add(dim_ref.node_name)
