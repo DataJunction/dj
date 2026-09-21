@@ -1,5 +1,8 @@
 """Tests for reaggregation models."""
 
+import pytest
+from pydantic import ValidationError
+
 from datajunction_server.models.reaggregate import (
     DimensionReaggregateRule,
     ReaggregateSpec,
@@ -25,8 +28,6 @@ def test_dump_reaggregate_spec_from_dict():
             ],
         },
     ) == {
-        "fn": None,
-        "weight": None,
         "rules": [
             {
                 "dimension": "default.date_dim.date",
@@ -50,8 +51,6 @@ def test_dump_reaggregate_spec_from_model():
             ],
         ),
     ) == {
-        "fn": None,
-        "weight": None,
         "rules": [
             {
                 "dimension": "default.date_dim.date",
@@ -82,6 +81,28 @@ def test_parse_reaggregate_spec_from_model():
     )
 
     assert parse_reaggregate_spec(spec) is spec
+
+
+@pytest.mark.parametrize(
+    "unknown_field",
+    [
+        {"fn": "last_value"},
+        {"weight": "default.orders.quantity"},
+        {
+            "rules": [
+                {
+                    "dimension": "default.date_dim.date",
+                    "fn": "last_value",
+                    "weight": "default.orders.quantity",
+                },
+            ],
+        },
+    ],
+)
+def test_parse_reaggregate_spec_rejects_unknown_fields(unknown_field: dict):
+    """Unknown fields are rejected at both reaggregate model levels."""
+    with pytest.raises(ValidationError):
+        parse_reaggregate_spec(unknown_field)
 
 
 def test_dimension_reaggregate_rules_empty_for_none():

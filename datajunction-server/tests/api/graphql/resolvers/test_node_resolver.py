@@ -143,8 +143,6 @@ def test_reaggregate_resolver_returns_metric_spec():
     result = NodeRevision.reaggregate(NodeRevision, root=db_node_revision)
 
     assert result is not None
-    assert result.fn is None
-    assert result.weight is None
     assert len(result.rules) == 1
     assert result.rules[0].dimension == "default.date_dim.date"
     assert result.rules[0].fn == ReaggregationFunction.LAST_VALUE

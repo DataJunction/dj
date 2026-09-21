@@ -1,6 +1,6 @@
 """Models for metric reaggregation declarations."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from datajunction_server.enum import StrEnum
 
@@ -14,7 +14,6 @@ class ReaggregationFunction(StrEnum):
     NONE = "none"
     SUM = "sum"
     AVG = "avg"
-    WEIGHTED_AVG = "weighted_avg"
     LAST_VALUE = "last_value"
     FIRST_VALUE = "first_value"
     MIN = "min"
@@ -63,6 +62,8 @@ class DimensionReaggregateRule(BaseModel):
     Dimension-specific metric reaggregation rule.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     dimension: str
     fn: ReaggregationFunction
 
@@ -72,8 +73,8 @@ class ReaggregateSpec(BaseModel):
     Declaration for how a metric rolls up from its accumulation grain.
     """
 
-    fn: ReaggregationFunction | None = None
-    weight: str | None = None
+    model_config = ConfigDict(extra="forbid")
+
     rules: list[DimensionReaggregateRule] = Field(default_factory=list)
 
 

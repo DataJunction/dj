@@ -724,8 +724,6 @@ type Query {
 }
 
 type ReaggregateSpec {
-  fn: ReaggregationFunction
-  weight: String
   rules: [DimensionReaggregateRule!]!
 }
 
@@ -734,7 +732,6 @@ enum ReaggregationFunction {
   NONE
   SUM
   AVG
-  WEIGHTED_AVG
   LAST_VALUE
   FIRST_VALUE
   MIN
