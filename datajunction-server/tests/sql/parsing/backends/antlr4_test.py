@@ -9,6 +9,16 @@ from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 
 
+def test_antlr4_backend_preserves_identifier_quotes():
+    """Quoted and non-reserved identifiers retain their original spelling."""
+    query = parse("SELECT `select`, interval FROM `group`")
+
+    identifiers = {(name.name, name.quote_style) for name in query.find_all(ast.Name)}
+    assert ("select", "`") in identifiers
+    assert ("interval", "") in identifiers
+    assert ("group", "`") in identifiers
+
+
 @pytest.mark.parametrize(
     "query_string",
     [
