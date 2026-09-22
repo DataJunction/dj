@@ -1984,6 +1984,8 @@ class DeploymentInfo(BaseModel):
     namespace: str
     status: DeploymentStatus
     results: list[DeploymentResult] = Field(default_factory=list)
+    # One entry per node the governance checks ran on.
+    check_results: list[NodeCheckResults] = Field(default_factory=list)
     warnings: list[DJError] = Field(default_factory=list)
     downstream_impacts: list[DownstreamImpact] = Field(default_factory=list)
     created_at: str | None = None  # ISO datetime

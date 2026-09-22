@@ -998,3 +998,52 @@ async def test_the_summary_row_names_the_failing_checks(session, current_user):
     )
     (row,) = check_rows(orchestrator)
     assert row.message == "1 of 2 check(s) failed: demo.described."
+
+
+@pytest.mark.asyncio
+async def test_previous_reads_the_upstreams_it_was_deployed_with(
+    session,
+    current_user,
+):
+    """
+    This deploy repoints `child` from `old_parent` to `new_parent`. The check
+    reads `dependencies`, so the prior verdict has to be taken against the
+    upstream the node actually had.
+    """
+    old_parent = transform("old_parent", description="Described.")
+    new_parent = transform("new_parent")
+    child = TransformSpec(
+        name="child",
+        namespace=NAMESPACE,
+        query=f"SELECT 1 FROM {NAMESPACE}.new_parent",
+    )
+    deployed_child = TransformSpec(
+        name="child",
+        namespace=NAMESPACE,
+        query=f"SELECT 1 FROM {NAMESPACE}.old_parent",
+    )
+    orchestrator = make_orchestrator(
+        session,
+        current_user,
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.parents_described",
+                condition="dependencies.all(d, d.description != '')",
+                gate="block_on_regression",
+            ),
+        ],
+    )
+    plan = make_plan(
+        to_deploy=[child],
+        existing_specs={
+            f"{NAMESPACE}.child": deployed_child,
+            f"{NAMESPACE}.old_parent": old_parent,
+        },
+        node_graph={f"{NAMESPACE}.child": [f"{NAMESPACE}.new_parent"]},
+    )
+    with pytest.raises(DJInvalidDeploymentConfig):
+        await orchestrator._run_governance_checks(plan)
+    # It passed against `old_parent`, which is described, so repointing it at an
+    # undescribed parent is a regression and the gate closes.
+    assert verdicts(orchestrator) == {"demo.parents_described": CheckVerdict.FAILED}
+    assert "demo.parents_described" in orchestrator.errors[0].message

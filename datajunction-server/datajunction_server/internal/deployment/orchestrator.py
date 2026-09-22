@@ -5,7 +5,7 @@ from collections import Counter, defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import cast
 
 from sqlalchemy import func, or_, select, text
@@ -701,9 +701,19 @@ class DeploymentOrchestrator:
                 warnings=self.warnings,
             )
         in_flight = {spec.rendered_name: spec for spec in plan.to_deploy}
+        # The spec this deploy will write wins over the one already deployed.
+        current_specs = {**plan.existing_specs, **in_flight}
         # Only block_on_regression reads it, and projecting is not free.
         wants_previous = any(
             check.gate == CheckGate.BLOCK_ON_REGRESSION for check in loaded.checks
+        )
+        # A deploy can change a node's upstreams, so the deployed state has its
+        # own graph. Only block_on_regression reads it, and extracting it means
+        # parsing every deployed query.
+        previous_graph = (
+            extract_node_graph(list(plan.existing_specs.values()))
+            if wants_previous
+            else {}
         )
         blocked: list[str] = []
 
@@ -713,7 +723,11 @@ class DeploymentOrchestrator:
             bindings = build_bindings(
                 spec,
                 previous=previous,
-                dependencies=self._checked_dependencies(plan, name, in_flight),
+                dependencies=self._checked_dependencies(
+                    plan.node_graph,
+                    current_specs,
+                    name,
+                ),
                 operation=operation,
                 declared=declared.properties,
                 tag_types=tag_types,
@@ -723,7 +737,11 @@ class DeploymentOrchestrator:
                 previous_bindings = build_bindings(
                     previous,
                     previous=previous,
-                    dependencies=self._checked_dependencies(plan, name, {}),
+                    dependencies=self._checked_dependencies(
+                        previous_graph,
+                        plan.existing_specs,
+                        name,
+                    ),
                     operation=DeploymentResult.Operation.NOOP,
                     declared=declared.properties,
                     tag_types=tag_types,
@@ -805,14 +823,13 @@ class DeploymentOrchestrator:
 
     @staticmethod
     def _checked_dependencies(
-        plan: DeploymentPlan,
+        graph: dict[str, list[str]],
+        specs: Mapping[str, NodeSpec],
         node_name: str,
-        in_flight: dict[str, NodeSpec],
     ) -> list[tuple[str, NodeSpec | None]]:
-        """Upstreams as (name, spec), preferring the spec this deploy will write."""
+        """Upstreams as (name, spec). An upstream outside the deploy has no spec."""
         return [
-            (upstream, in_flight.get(upstream) or plan.existing_specs.get(upstream))
-            for upstream in plan.node_graph.get(node_name, [])
+            (upstream, specs.get(upstream)) for upstream in graph.get(node_name, [])
         ]
 
     @staticmethod
