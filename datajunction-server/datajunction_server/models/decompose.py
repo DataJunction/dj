@@ -62,7 +62,38 @@ class AggregationRule(BaseModel):
 
 
 class MetricComponent(BaseModel):
-    """A reusable, named building block of a metric definition."""
+    """
+    A reusable, named building block of a metric definition.
+
+    A MetricComponent represents a SQL expression that can serve as an input
+    to building a metric. It supports a two-phase aggregation model:
+
+    - Phase 1 (Accumulate): Build from raw data using `aggregation`
+      Can be a function name ("SUM") or a template ("SUM(POWER({}, 2))")
+
+    - Phase 2 (Merge): Combine pre-aggregated values using `merge` function
+      Examples: SUM, SUM (for COUNT), hll_union_agg
+
+    For most aggregations, accumulate and merge use the same function (SUM → SUM).
+    For COUNT, merge is SUM (sum up the counts).
+    For HLL sketches, they differ: hll_sketch_estimate vs hll_union_agg.
+
+    The final expression combining merged components is specified in
+    DecomposedMetric.combiner.
+
+    Attributes:
+        name: A unique name for the component, derived from its expression.
+        expression: The raw SQL expression (column/value) being aggregated.
+        aggregation: Function name or template for Phase 1. Simple cases use
+                     just the name ("SUM"), complex cases use templates with
+                     {} placeholder ("SUM(POWER({}, 2))").
+        merge: The function name for combining pre-aggregated values (Phase 2).
+        rule: Aggregation rules defining how/when the component can be aggregated.
+
+    The sketch-backed fields added alongside these -- params, merge_args,
+    serialize, serialize_targets, serialize_type -- are documented inline
+    below, where the reasoning sits next to the declaration.
+    """
 
     name: str
     expression: str
@@ -145,7 +176,30 @@ class PreAggMeasure(MetricComponent):
 
 
 class DecomposedMetric(BaseModel):
-    """A metric decomposed into its constituent components with a combining expression."""
+    """
+    A metric decomposed into its constituent components with a combining expression.
+
+    This is the result of decomposing a metric query. It specifies:
+    - components: The measures needed for pre-aggregation
+    - combiner: How to combine merged components into the final metric value
+    - derived_query: The full SQL query using the combiner
+
+    Examples:
+        SUM metric:
+            components: [{name: "revenue_sum", aggregation: "SUM", merge: "SUM"}]
+            combiner: "SUM(revenue_sum)"
+
+        AVG metric:
+            components: [
+                {name: "revenue_sum", aggregation: "SUM", merge: "SUM"},
+                {name: "revenue_count", aggregation: "COUNT", merge: "SUM"}
+            ]
+            combiner: "SUM(revenue_sum) / SUM(revenue_count)"
+
+        APPROX_COUNT_DISTINCT metric (uses Spark function names):
+            components: [{name: "user_hll", aggregation: "hll_sketch_agg", merge: "hll_union"}]
+            combiner: "hll_sketch_estimate(hll_union(user_hll))"
+    """
 
     components: list[MetricComponent]
     combiner: str  # Expression combining merged components into final value
