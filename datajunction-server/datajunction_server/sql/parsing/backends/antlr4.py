@@ -34,22 +34,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class RemoveIdentifierBackticks(antlr4.ParseTreeListener):
-    @staticmethod
-    def exitQuotedIdentifier(ctx):
-        def identity(token):
-            return token
-
-        return identity
-
-    @staticmethod
-    def enterNonReserved(ctx):
-        def add_backtick(token):
-            return f"`{token}`"
-
-        return add_backtick
-
-
 class ParseErrorListener(ErrorListener):
     def syntaxError(
         self,
@@ -125,7 +109,6 @@ def build_parser(stream, strict_mode=False, early_bail=True, prediction_mode=Non
     lexer.addErrorListener(ParseErrorListener())
     token_stream = antlr4.CommonTokenStream(lexer)
     parser = SqlBaseParser(token_stream)
-    parser.addParseListener(RemoveIdentifierBackticks())
     parser.removeErrorListeners()
     parser.addErrorListener(ParseErrorListener())
     if early_bail:
