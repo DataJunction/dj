@@ -1123,14 +1123,15 @@ def build_select_ast(
     dim_aliases, joins = build_dimension_joins(ctx, resolved_dimensions, main_alias)
     spark_hints = _collect_spark_hints(resolved_dimensions, dim_aliases)
 
-    # Add dimension columns to projection
-    # Filter-only dimensions are excluded from projection but included in GROUP BY.
-    # Internal dimensions are projected under private aliases so the metrics layer
-    # can collapse semi-additive measures without exposing those dimensions.
+    # Add dimension columns to projection. A filter-only dimension stays hidden
+    # unless it is also private grain required to collapse a reaggregate metric.
     internal_dimension_aliases = internal_dimension_aliases or {}
+    effective_filter_dimensions = ctx.filter_dimensions - set(
+        internal_dimension_aliases,
+    )
     for resolved_dim in resolved_dimensions:
         clean_alias = ctx.alias_registry.register(resolved_dim.original_ref)
-        if resolved_dim.original_ref in ctx.filter_dimensions:
+        if resolved_dim.original_ref in effective_filter_dimensions:
             continue
         if (
             output_dimension_refs is not None
@@ -1173,7 +1174,7 @@ def build_select_ast(
     projected_dim_col_names: set[str] = set()
     projected_dim_aliases: set[str] = set()
     for rd in resolved_dimensions:
-        if rd.original_ref not in ctx.filter_dimensions:
+        if rd.original_ref not in effective_filter_dimensions:
             projected_dim_col_names.add(rd.column_name)
             projected_dim_aliases.add(ctx.alias_registry.register(rd.original_ref))
     grain_col_refs: list[ast.Column] = []
@@ -1217,7 +1218,7 @@ def build_select_ast(
         main_alias,
         grain_col_specs,
         projected_dim_col_names,
-        ctx.filter_dimensions,
+        effective_filter_dimensions,
         parent_node_name=parent_node.name,
     )
 
@@ -2457,8 +2458,15 @@ def process_metric_group(
     for decomposed in metric_group.decomposed_metrics:
         components_per_metric[decomposed.metric_node.name] = len(decomposed.components)
 
-    # Analyze grain groups - split by aggregability
-    output_dimensions = list(ctx.dimensions)
+    # Filter-only dimensions must be resolved for WHERE clauses, but they are not
+    # part of the requested output grain. Treating one as output can suppress a
+    # reaggregate metric's private protected-dimension grain.
+    resolution_dimensions = list(ctx.dimensions)
+    output_dimensions = [
+        dimension
+        for dimension in resolution_dimensions
+        if dimension not in ctx.filter_dimensions
+    ]
     output_dimension_refs = set(output_dimensions)
     grain_groups = analyze_grain_groups(metric_group, output_dimensions)
 
@@ -2482,7 +2490,9 @@ def process_metric_group(
             )
             if dimension_ref not in output_dimension_refs
         ]
-        ctx.dimensions = output_dimensions + internal_dimensions
+        ctx.dimensions = list(
+            dict.fromkeys(resolution_dimensions + internal_dimensions),
+        )
         try:
             resolved_dimensions = resolve_dimensions(ctx, parent_node)
             grain_group_sql = build_grain_group_sql(

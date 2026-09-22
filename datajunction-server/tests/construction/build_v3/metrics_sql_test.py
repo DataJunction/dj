@@ -588,6 +588,41 @@ class TestMetricsSQLBasic:
         ]
 
     @pytest.mark.asyncio
+    async def test_reaggregate_filter_keeps_protected_dimension_as_private_grain(
+        self,
+        client_with_build_v3,
+    ):
+        """Filtering protected grain must not make a reaggregate metric additive."""
+        await self._create_daily_balance_metric(client_with_build_v3)
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.daily_balance"],
+                "dimensions": ["v3.product.category"],
+                "filters": ["v3.date.date_id[order] >= 20260101"],
+                "use_materialized": "false",
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        sql = response.json()["sql"]
+        normalized_sql = " ".join(sql.split())
+        assert "WHERE o.order_date >= 20260101" in normalized_sql
+        assert "t1.order_date" in normalized_sql
+        assert "date_id_order" in normalized_sql
+        assert "GROUP BY t2.category, t1.order_date" in normalized_sql
+        assert "MAX_BY(" in sql
+        assert (
+            "SUM(order_details_0.line_total_sum_e1f61696) AS daily_balance"
+            not in normalized_sql
+        )
+        assert [column["name"] for column in response.json()["columns"]] == [
+            "category",
+            "daily_balance",
+        ]
+
+    @pytest.mark.asyncio
     async def test_reaggregate_with_limited_metric_keeps_protected_grain(
         self,
         client_with_build_v3,
