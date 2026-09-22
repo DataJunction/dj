@@ -814,6 +814,21 @@ def test_a_subclass_without_a_field_still_projects_it_empty():
     assert set(metric) == set(dimension) == set(project_node(None, {}, {}))
     assert metric["dimension_links"] == []
     assert metric["catalog"] == ""
+    # A number defaults to null, not "": `'' >= 1` has no overload, so a
+    # comparison would fail rather than answer.
+    assert metric["significant_digits"] is None
+
+
+def test_a_node_projects_its_own_namespace_not_the_manifests():
+    """
+    The spec's `namespace` is the manifest's root, so a nested node has to read
+    its namespace off the rendered name.
+    """
+    spec = TransformSpec(name="sub.deep.orders", namespace="top", query="SELECT 1")
+    projected = project_node(spec, {}, {})
+    assert projected["name"] == "top.sub.deep.orders"
+    assert projected["namespace"] == "top.sub.deep"
+    assert project_node(None, {}, {})["namespace"] == ""
 
 
 def _linked(*links) -> DimensionSpec:

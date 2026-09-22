@@ -5,7 +5,7 @@ entity, from the node spec and the plan's `existing_specs` and `node_graph`.
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, get_args, get_origin
+from typing import Any, Literal, get_args, get_origin
 
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,6 +41,7 @@ from datajunction_server.models.deployment import (
     TransformSpec,
 )
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.utils import get_namespace_from_name
 
 
 def _is_sequence_field(annotation: Any) -> bool:
@@ -48,6 +49,45 @@ def _is_sequence_field(annotation: Any) -> bool:
     if get_origin(annotation) is list:
         return True
     return any(get_origin(arg) is list for arg in get_args(annotation))
+
+
+def _is_string_field(annotation: Any) -> bool:
+    """True when a field holds a string, including an enum of them."""
+    for candidate in (annotation, *get_args(annotation)):
+        if isinstance(candidate, type) and issubclass(candidate, str):
+            return True
+        if get_origin(candidate) is Literal:
+            return any(isinstance(value, str) for value in get_args(candidate))
+    return False
+
+
+def _is_mapping_field(annotation: Any) -> bool:
+    for candidate in (annotation, *get_args(annotation)):
+        if get_origin(candidate) is dict or candidate is dict:
+            return True
+    return False
+
+
+def _empty_for(annotation: Any) -> Any:
+    """
+    What CEL reads for a field this node spec does not have.
+
+    A list stays a list so `.all()` passes trivially, and a string stays a
+    string so `!= ''` reads false. Anything else is null: a number defaulted to
+    '' has no `>=` overload, which fails the comparison rather than answering
+    it.
+    """
+    if _is_sequence_field(annotation):
+        return []
+    if _is_mapping_field(annotation):
+        return {}
+    if _is_string_field(annotation):
+        return ""
+    return None
+
+
+# Most structural wins, so a check that iterates never lands on a scalar.
+_EMPTY_PRECEDENCE: list[Any] = [None, "", {}, []]
 
 
 def _spec_defaults(base: type[BaseModel], skip: frozenset[str]) -> dict[str, Any]:
@@ -61,9 +101,10 @@ def _spec_defaults(base: type[BaseModel], skip: frozenset[str]) -> dict[str, Any
         for name, info in cls.model_fields.items():
             if name in skip:
                 continue
-            empty: Any = [] if _is_sequence_field(info.annotation) else ""
-            # A list default wins: one subclass typing it as a list is enough.
-            if defaults.get(name) != []:
+            empty = _empty_for(info.annotation)
+            if name not in defaults or _EMPTY_PRECEDENCE.index(
+                empty,
+            ) > _EMPTY_PRECEDENCE.index(defaults[name]):
                 defaults[name] = empty
         pending.extend(cls.__subclasses__())
     return defaults
@@ -190,9 +231,13 @@ def project_node(
         name: _cel_safe(dumped.get(name), empty)
         for name, empty in _NODE_DEFAULTS.items()
     }
-    # Both are excluded from the dump, so they are read off the spec.
-    projected["name"] = spec.rendered_name if spec is not None else ""
-    projected["namespace"] = (spec.namespace or "") if spec is not None else ""
+    # Both are excluded from the dump, so they are read off the spec. The
+    # spec's own `namespace` is the manifest's, not this node's.
+    rendered = spec.rendered_name if spec is not None else ""
+    projected["name"] = rendered
+    projected["namespace"] = (
+        get_namespace_from_name(rendered) if "." in rendered else ""
+    )
     projected["custom_metadata"] = custom_metadata(
         dumped.get("custom_metadata"),
         declared,

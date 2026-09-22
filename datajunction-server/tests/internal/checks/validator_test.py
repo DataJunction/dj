@@ -242,3 +242,32 @@ def test_fixtures_are_built_from_the_declared_properties():
     }
     assert populated["node"]["custom_metadata"]["other"]["weight"] == "fixture-weight"
     assert populated["change"] == {"kind": "delete"}
+
+
+def test_a_null_guarded_numeric_field_loads():
+    """
+    A number projects as null rather than '', so the guard the author writes is
+    the one that runs.
+    """
+    result = load_checks(
+        [
+            CheckSpec(
+                "demo.digits",
+                "node.significant_digits == null || node.significant_digits >= 1",
+                "warn",
+                when="node.node_type == 'metric'",
+            ),
+        ],
+        build_fixtures(DECLARED_PROPERTIES),
+    )
+    assert result.ok, [vars(issue) for issue in result.malformed]
+
+
+def test_an_unguarded_numeric_comparison_is_refused():
+    # `null >= 1` has no overload, so the guard is not optional.
+    result = load_checks(
+        [CheckSpec("demo.digits", "node.significant_digits >= 1", "warn")],
+        build_fixtures(DECLARED_PROPERTIES),
+    )
+    assert not result.ok
+    assert "No matching overloads" in result.malformed[0].problem
