@@ -18,6 +18,7 @@ from datajunction_server.internal.checks.context import (
     Bindings,
     Change,
     DeclaredProperties,
+    ColumnProjection,
     LinkProjection,
     NodeProjection,
     TagProjection,
@@ -105,6 +106,8 @@ _PROJECTED_DIRECTLY = frozenset(
 )
 _NODE_DEFAULTS = _spec_defaults(NodeSpec, _PROJECTED_DIRECTLY)
 _LINK_DEFAULTS = _spec_defaults(DimensionLinkSpec, frozenset())
+# `project_column` reads `order` off the spec, since the dump excludes it.
+_COLUMN_DEFAULTS = _spec_defaults(ColumnSpec, frozenset({"order"}))
 
 _UNCHANGED_OPERATIONS = frozenset(
     {DeploymentResult.Operation.NOOP, DeploymentResult.Operation.DELETE},
@@ -203,6 +206,17 @@ def project_link(link: DimensionLinkSpec) -> LinkProjection:
     return projected
 
 
+def project_column(column: ColumnSpec) -> ColumnProjection:
+    """One column, carrying every field the spec declares."""
+    dumped = column.model_dump()
+    projected = {
+        name: _cel_safe(dumped.get(name), empty)
+        for name, empty in _COLUMN_DEFAULTS.items()
+    }
+    projected["order"] = column.order
+    return projected
+
+
 def project_tags(names: Sequence[str], tag_types: TagTypes) -> list[TagProjection]:
     """A node's tags, each with the type the deploy resolved for it."""
     return [
@@ -237,6 +251,10 @@ def project_node(
     projected["tags"] = project_tags(dumped.get("tags") or [], tag_types)
     projected["dimension_links"] = [
         project_link(link) for link in getattr(spec, "dimension_links", None) or []
+    ]
+    # Metrics exclude `columns` from the dump, so read it off the spec too.
+    projected["columns"] = [
+        project_column(column) for column in getattr(spec, "columns", None) or []
     ]
     return projected
 

@@ -11,6 +11,7 @@ from datajunction_server.internal.custom_metadata import upsert_schema_specs
 from datajunction_server.internal.deployment.checks import (
     DeclaredSchemas,
     build_fixtures,
+    project_column,
     project_link,
     project_node,
     resolve_declared_schemas,
@@ -24,6 +25,7 @@ from datajunction_server.internal.deployment.orchestrator import (
 from datajunction_server.internal.deployment.utils import DeploymentContext
 from datajunction_server.models.deployment import (
     CheckVerdict,
+    ColumnSpec,
     DeploymentCheckSpec,
     DeploymentResult,
     DeploymentRulesetSpec,
@@ -1056,3 +1058,36 @@ async def test_previous_reads_the_upstreams_it_was_deployed_with(
         "demo.parents_described": CheckVerdict.FAILED,
     }
     assert "demo.parents_described" in orchestrator.errors[0].message
+
+
+def test_a_column_carries_every_field_the_spec_declares():
+    """
+    `order` is excluded from the dump, so without reading it off the spec a
+    check naming it would hit a missing key rather than an empty value.
+    """
+    spec = DimensionSpec(
+        name="d",
+        node_type="dimension",
+        query="SELECT 1",
+        columns=[ColumnSpec(name="first", type="string", order=2)],
+    )
+    (column,) = project_node(spec, {}, {})["columns"]
+    assert set(column) == set(ColumnSpec.model_fields)
+    assert column["order"] == 2
+    assert project_column(ColumnSpec(name="c", type="string"))["order"] is None
+
+
+def test_a_metrics_columns_are_projected():
+    """
+    MetricSpec excludes `columns` from the dump, so a column rule used to read
+    an empty list on every metric and pass vacuously.
+    """
+    spec = MetricSpec(
+        name="m",
+        node_type="metric",
+        query="SELECT 1",
+        columns=[ColumnSpec(name="first", type="string")],
+    )
+    assert [column["name"] for column in project_node(spec, {}, {})["columns"]] == [
+        "first",
+    ]

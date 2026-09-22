@@ -24,6 +24,9 @@ NodeProjection = dict[str, Any]
 # One dimension link, its keys unioned across the link specs.
 LinkProjection = dict[str, Any]
 
+# One column, its keys taken from the column spec.
+ColumnProjection = dict[str, Any]
+
 # Tag name -> the type the deploy resolved for it.
 TagTypes = Mapping[str, str]
 
