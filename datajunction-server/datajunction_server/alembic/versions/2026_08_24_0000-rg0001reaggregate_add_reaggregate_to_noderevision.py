@@ -11,7 +11,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "rg0001reaggregate"
-down_revision = "cm0003dropowner"
+down_revision = "tt0001claims"
 branch_labels = None
 depends_on = None
 
