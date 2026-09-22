@@ -11,6 +11,7 @@ from datajunction_server.internal.deployment.utils import (
     extract_node_graph,
     extract_upstream_candidates,
 )
+from datajunction_server.internal.impact import ReusableQuery
 from datajunction_server.models.deployment import (
     CubeSpec,
     DimensionSpec,
@@ -147,18 +148,18 @@ def _seed_parent_cache_entry(
 def _seed_parent_cache_from_pre_parsed(
     specs: dict[str, NodeSpec],
     parent_cache: ParentCandidateCache,
-    pre_parsed_queries: dict[str, tuple[str, ast.Query]] | None,
+    pre_parsed_queries: dict[str, ReusableQuery] | None,
 ) -> None:
     """Reuse ASTs already parsed elsewhere (e.g. impact propagation)."""
     if not pre_parsed_queries:
         return
-    for name, (query_text, query_ast) in pre_parsed_queries.items():
+    for name, reusable in pre_parsed_queries.items():
         spec = specs.get(name)
         if not isinstance(spec, (TransformSpec, DimensionSpec)):
             continue
-        if spec.rendered_query != query_text:
+        if spec.rendered_query != reusable.text:
             continue
-        _seed_parent_cache_entry(spec, parent_cache, query_ast)
+        _seed_parent_cache_entry(spec, parent_cache, reusable.parsed)
 
 
 def _reuse_unchanged_query_asts(
@@ -633,7 +634,7 @@ async def build_deployment_fingerprints(
     additional_target_names: Iterable[str] = (),
     only_proposed_names: Iterable[str] | None = None,
     version: int = LATEST_SEMANTIC_FINGERPRINT_VERSION,
-    pre_parsed_queries: dict[str, tuple[str, ast.Query]] | None = None,
+    pre_parsed_queries: dict[str, ReusableQuery] | None = None,
 ) -> tuple[FingerprintMap, FingerprintMap]:
     """`only_proposed_names` limits which nodes get a fresh proposed hash."""
     proposed_specs = list(proposed_specs)

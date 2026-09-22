@@ -14,6 +14,7 @@ from datajunction_server.internal.deployment.fingerprints import (
     _seed_parent_cache_from_pre_parsed,
     build_deployment_fingerprints,
 )
+from datajunction_server.internal.impact import ReusableQuery
 from datajunction_server.models.deployment import (
     ColumnSpec,
     CubeSpec,
@@ -739,8 +740,11 @@ def test_seed_parent_cache_from_pre_parsed_skips_non_reusable_and_stale_entries(
     specs = spec_map(metric, transform)
     cache: dict = {}
     pre_parsed = {
-        metric.rendered_name: (metric.rendered_query, MagicMock()),
-        transform.rendered_name: ("SELECT this text does not match", MagicMock()),
+        metric.rendered_name: ReusableQuery(metric.rendered_query, MagicMock()),
+        transform.rendered_name: ReusableQuery(
+            "SELECT this text does not match",
+            MagicMock(),
+        ),
     }
 
     _seed_parent_cache_from_pre_parsed(specs, cache, pre_parsed)

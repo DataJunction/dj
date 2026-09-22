@@ -70,7 +70,7 @@ from datajunction_server.internal.deployment.validation import (
     bulk_validate_node_data,
 )
 from datajunction_server.internal.history import EntityType
-from datajunction_server.internal.impact import propagate_impact
+from datajunction_server.internal.impact import ReusableQuery, propagate_impact
 from datajunction_server.internal.materializations import (
     CubeMaterializationSwap,
     CubeMaterializationSwapOutcome,
@@ -919,7 +919,7 @@ class DeploymentOrchestrator:
         self,
         plan: DeploymentPlan,
         downstream: list,
-        reusable_asts: dict | None = None,
+        reusable_queries: dict[str, ReusableQuery] | None = None,
     ) -> None:
         target_names = {impact.name for impact in downstream} | {
             spec.rendered_name for spec in plan.to_delete
@@ -931,7 +931,7 @@ class DeploymentOrchestrator:
             plan.deletable_specs,
             additional_target_names=target_names,
             only_proposed_names={spec.rendered_name for spec in plan.to_deploy},
-            pre_parsed_queries=reusable_asts,
+            pre_parsed_queries=reusable_queries,
         )
         self._current_semantic_fingerprints = current
         self._proposed_semantic_fingerprints = proposed
@@ -2148,7 +2148,7 @@ class DeploymentOrchestrator:
         }
         plan.delete_references = await self._validate_node_deletion(plan.to_delete)
         with timer.phase("propagate impact") as p:
-            downstream, reusable_asts = await propagate_impact(
+            propagation_result = await propagate_impact(
                 session=self.session,
                 namespace=self.deployment_spec.namespace,
                 changed_node_names=changed_names,
@@ -2157,12 +2157,13 @@ class DeploymentOrchestrator:
                 ),
                 changed_link_node_names=changed_link_names,
             )
+            downstream = propagation_result.impacts
             p.append(f"{len(downstream)} downstream")
         with timer.phase("build downstream semantic fingerprints"):
             await self._build_and_apply_semantic_fingerprints(
                 plan,
                 downstream,
-                reusable_asts,
+                propagation_result.reusable_queries,
             )
 
         # Hard-delete after impact propagation (cascade-deletes
