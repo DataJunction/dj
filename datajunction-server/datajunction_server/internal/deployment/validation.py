@@ -791,9 +791,6 @@ class NodeSpecBulkValidator:
         """
         Batch-fetch DimensionLink rows for every dependency node referenced by
         a metric spec with required_dimensions, keyed by dependency node name.
-
-        A dedicated query, not `dep_node.current.dimension_links` -- see the
-        comment on `self._parent_dimension_links` in __init__.
         """
         dep_names: set[str] = set()
         for spec in specs:

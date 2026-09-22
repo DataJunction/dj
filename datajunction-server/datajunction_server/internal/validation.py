@@ -112,20 +112,19 @@ async def _dimension_links_for_required_dimensions(
     return list(result.scalars().all())
 
 
-def _pending_required_dimension_strings(validated_node: NodeRevision) -> list[str]:
+def _required_dimension_strings(
+    validated_node: NodeRevision,
+    override: list[str] | None,
+) -> list[str]:
     """
     Required dimension references to resolve for this validation pass.
 
-    A raw `list[str]` payload is staged on the transient
-    `_pending_required_dimensions` attribute rather than the
-    `required_dimensions` relationship itself (which is now an owned
-    association-object list -- assigning plain strings to it raises). Falls
-    back to `.ref` on already-resolved `RequiredDimension` rows, e.g. when
-    `required_dimensions` was copied from an existing revision.
+    `override`, if given, takes precedence (new raw input to validate).
+    Otherwise falls back to `.ref` on already-resolved `RequiredDimension`
+    rows (or raw strings, for a fresh `NodeRevision(**data.model_dump())`).
     """
-    pending = getattr(validated_node, "_pending_required_dimensions", None)
-    if pending is not None:
-        return list(pending)
+    if override is not None:
+        return list(override)
     return [
         rd.ref if isinstance(rd, RequiredDimension) else rd
         for rd in validated_node.required_dimensions
@@ -166,16 +165,23 @@ class NodeValidator:
 
 @timed(
     "dj.node_validation.ms",
-    lambda data, session: {"node_type": str(data.type)},
+    lambda data, session, **_kwargs: {"node_type": str(data.type)},
 )
 async def validate_node_data(
     data: NodeRevisionBase | NodeRevision,
     session: AsyncSession,
+    *,
+    required_dimensions: list[str] | None = None,
 ) -> NodeValidator:
     """
     Validate a node. This function should never raise any errors.
     It will build the lists of issues (including errors) and return them all
     for the caller to decide what to do.
+
+    `required_dimensions`, if given, overrides whatever's already resolvable
+    off `data` (raw input strings to (re)validate); otherwise falls back to
+    `data.required_dimensions` (raw strings for fresh input, or `.ref` off
+    already-resolved `RequiredDimension` rows when copy-forwarding a revision).
     """
     node_validator = NodeValidator()
 
@@ -410,7 +416,10 @@ async def validate_node_data(
             session,
             list(dependencies_map.keys()),
         )
-        required_dim_strings = _pending_required_dimension_strings(validated_node)
+        required_dim_strings = _required_dimension_strings(
+            validated_node,
+            required_dimensions,
+        )
         (
             invalid_required_dimensions,
             matched_bound_columns,
@@ -557,11 +566,13 @@ def _build_columns_from_output(
 
 @timed(
     "dj.node_validation.v2.ms",
-    lambda data, session: {"node_type": str(data.type)},
+    lambda data, session, **_kwargs: {"node_type": str(data.type)},
 )
 async def validate_node_data_v2(
     data: NodeRevisionBase | NodeRevision,
     session: AsyncSession,
+    *,
+    required_dimensions: list[str] | None = None,
 ) -> NodeValidator:
     """
     New node validator — shares primitives (extract_upstream_candidates,
@@ -760,7 +771,10 @@ async def validate_node_data_v2(
         session,
         list(node_validator.dependencies_map.keys()),
     )
-    required_dim_strings = _pending_required_dimension_strings(validated_node)
+    required_dim_strings = _required_dimension_strings(
+        validated_node,
+        required_dimensions,
+    )
     (
         invalid_required_dimensions,
         matched_bound_columns,

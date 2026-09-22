@@ -1006,12 +1006,11 @@ async def test_validate_node_data_v2_flags_invalid_required_dimensions(
         query="SELECT COUNT(id) FROM test.v2_req_dim_parent",
         status=NodeStatus.VALID,
     )
-    # Staged on the transient attribute, not the `required_dimensions`
-    # relationship itself -- it's an owned association-object list now, so
-    # assigning plain strings to it directly raises. See the matching
-    # comment in internal/nodes.py::create_node_revision.
-    child._pending_required_dimensions = ["test.v2_dim_tiny.ghost_col"]
-    validator = await validate_node_data_v2(child, session)
+    validator = await validate_node_data_v2(
+        child,
+        session,
+        required_dimensions=["test.v2_dim_tiny.ghost_col"],
+    )
     assert validator.status == NodeStatus.INVALID
     assert any(
         err.code == ErrorCode.INVALID_COLUMN and "required dimensions" in err.message

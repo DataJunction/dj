@@ -265,10 +265,8 @@ async def _propagate_via_parent_graph(
         ).all()
 
         metric_revision = aliased(NodeRevision)
-        # A bare-column required dimension (`dimension_id` NULL) resolves
-        # against the metric's own parent, which is already covered by the
-        # NodeRelationship edge above -- only full-path refs (pointing at a
-        # dimension node) need a propagation edge here.
+        # Bare-column refs have `dimension_id` NULL, so they're naturally
+        # excluded by the `in_(frontier_ids)` filter below.
         required_dimension_rows = (
             await session.execute(
                 select(metric_revision.node_id, RequiredDimension.dimension_id)

@@ -593,11 +593,11 @@ async def create_node_revision(
         created_by_id=current_user.id,
         custom_metadata=data.custom_metadata,
     )
-    # Stashed on a transient attribute, not the `required_dimensions`
-    # relationship itself -- see the matching comment in
-    # create_new_revision_from_existing for why.
-    node_revision._pending_required_dimensions = data.required_dimensions or []
-    node_validator = await validate_node_data(node_revision, session)
+    node_validator = await validate_node_data(
+        node_revision,
+        session,
+        required_dimensions=data.required_dimensions or [],
+    )
 
     if node_validator.status == NodeStatus.INVALID:
         if node_revision.mode == NodeMode.DRAFT:
@@ -2826,22 +2826,22 @@ async def create_new_revision_from_existing(
     for col in new_revision.columns:
         col.node_revision = new_revision
 
-    if data and data.required_dimensions is not None:  # type: ignore
-        # Stash the raw strings on a transient (non-mapped) attribute rather
-        # than the `required_dimensions` relationship itself -- it's an
-        # owned association-object list now, so assigning plain strings to
-        # it raises (SQLAlchemy tries to treat each string as a
-        # RequiredDimension to fire the `metric` backref). validate_node_data
-        # below reads this attribute and replaces `required_dimensions` with
-        # the resolved RequiredDimension rows.
-        new_revision._pending_required_dimensions = data.required_dimensions  # type: ignore
+    required_dimensions_override = (
+        data.required_dimensions  # type: ignore
+        if data and data.required_dimensions is not None  # type: ignore
+        else None
+    )
 
     if data and data.custom_metadata is not None:  # type: ignore
         new_revision.custom_metadata = data.custom_metadata
 
     # Link the new revision to its parents if a new revision was created and update its status
     if new_revision.type != NodeType.SOURCE:
-        node_validator = await validate_node_data(new_revision, session)
+        node_validator = await validate_node_data(
+            new_revision,
+            session,
+            required_dimensions=required_dimensions_override,
+        )
         new_revision.columns = node_validator.columns
         new_revision.status = node_validator.status
 
