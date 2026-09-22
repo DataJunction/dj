@@ -30,13 +30,16 @@ from datajunction_server.internal.checks.validator import MalformedCheck
 from datajunction_server.internal.custom_metadata import resolve_schemas
 from datajunction_server.models.deployment import (
     ColumnSpec,
+    CubeSpec,
     DeploymentResult,
     DimensionJoinLinkSpec,
     DimensionLinkSpec,
     DimensionReferenceLinkSpec,
     DimensionSpec,
+    MetricSpec,
     NodeSpec,
     RulesetVerdict,
+    SourceSpec,
     TagSpec,
     TransformSpec,
 )
@@ -289,29 +292,50 @@ def build_bindings(
     )
 
 
-def build_fixtures(declared: DeclaredSchemas) -> list[Bindings]:
+# A node type's spec class, and the fields it needs to be valid at all.
+_FIXTURE_CLASSES: dict[NodeType, tuple[type[NodeSpec], dict[str, Any]]] = {
+    NodeType.SOURCE: (
+        SourceSpec,
+        {"catalog": "fixture", "schema_": "fixture", "table": "fixture"},
+    ),
+    NodeType.TRANSFORM: (TransformSpec, {"query": "SELECT 1"}),
+    NodeType.DIMENSION: (DimensionSpec, {"query": "SELECT 1"}),
+    NodeType.METRIC: (MetricSpec, {"query": "SELECT 1"}),
+    NodeType.CUBE: (CubeSpec, {}),
+}
+
+
+def _fixture_spec(node_type: NodeType, name: str, **fields: Any) -> NodeSpec:
+    """A valid spec of this type, carrying whatever of `fields` it declares."""
+    spec_class, required = _FIXTURE_CLASSES[node_type]
+    accepted = {
+        key: value for key, value in fields.items() if key in spec_class.model_fields
+    }
+    return spec_class(name=name, namespace="fixture", **required, **accepted)
+
+
+def build_fixtures(
+    declared: DeclaredSchemas,
+    node_types: Iterable[NodeType],
+) -> list[Bindings]:
     """
-    Two synthetic nodes for `load_checks` to evaluate every clause against.
+    A bare and a fully populated node of every type the deploy touches.
+
+    Every type is covered so that a clause guarded to one of them, like
+    `when: node.node_type == 'metric'`, still has a node to be evaluated
+    against.
     """
     populated_metadata = {
         key: dict(placeholders)
         for key, placeholders in declared.placeholders.items()
         if placeholders
     }
-    bare = TransformSpec(
-        name="bare",
-        namespace="fixture",
-        query="SELECT 1",
-    )
-    populated = DimensionSpec(
-        name="populated",
-        namespace="fixture",
-        query="SELECT 1",
-        display_name="Populated",
-        description="A fully populated fixture.",
-        owners=["fixture_owner"],
-        tags=["fixture_tag"],
-        columns=[
+    populated_fields: dict[str, Any] = {
+        "display_name": "Populated",
+        "description": "A fully populated fixture.",
+        "owners": ["fixture_owner"],
+        "tags": ["fixture_tag"],
+        "columns": [
             ColumnSpec(
                 name="first",
                 type="string",
@@ -320,10 +344,10 @@ def build_fixtures(declared: DeclaredSchemas) -> list[Bindings]:
                 attributes=["primary_key"],
             ),
         ],
-        primary_key=["first"],
+        "primary_key": ["first"],
         # One of each kind, so a clause reading join fields is exercised
         # against a reference link too.
-        dimension_links=[
+        "dimension_links": [
             DimensionReferenceLinkSpec(
                 node_column="first",
                 dimension="fixture.other.attribute",
@@ -333,27 +357,39 @@ def build_fixtures(declared: DeclaredSchemas) -> list[Bindings]:
                 node_column="first",
             ),
         ],
-        custom_metadata=populated_metadata,
-    )
+        "custom_metadata": populated_metadata,
+    }
     tag_types = {"fixture_tag": "fixture_tag_type"}
-    return [
-        build_bindings(
-            bare,
-            previous=None,
-            dependencies=[],
-            operation=DeploymentResult.Operation.CREATE,
-            declared=declared.properties,
-            tag_types=tag_types,
-        ),
-        build_bindings(
-            populated,
-            previous=populated,
-            dependencies=[("fixture.parent", bare)],
-            operation=DeploymentResult.Operation.DELETE,
-            declared=declared.properties,
-            tag_types=tag_types,
-        ),
-    ]
+
+    fixtures: list[Bindings] = []
+    for node_type in sorted(set(node_types)):
+        bare = _fixture_spec(node_type, f"bare_{node_type}")
+        populated = _fixture_spec(
+            node_type,
+            f"populated_{node_type}",
+            **populated_fields,
+        )
+        fixtures.append(
+            build_bindings(
+                bare,
+                previous=None,
+                dependencies=[],
+                operation=DeploymentResult.Operation.CREATE,
+                declared=declared.properties,
+                tag_types=tag_types,
+            ),
+        )
+        fixtures.append(
+            build_bindings(
+                populated,
+                previous=populated,
+                dependencies=[(f"fixture.parent_{node_type}", bare)],
+                operation=DeploymentResult.Operation.DELETE,
+                declared=declared.properties,
+                tag_types=tag_types,
+            ),
+        )
+    return fixtures
 
 
 @dataclass

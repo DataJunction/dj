@@ -761,7 +761,7 @@ def test_fixtures_cover_both_an_empty_and_a_populated_entity():
         properties={"sample": ("color",)},
         placeholders={"sample": {"color": "placeholder"}},
     )
-    bare, populated = build_fixtures(declared)
+    bare, populated = build_fixtures(declared, [NodeType.TRANSFORM])
     assert bare["node"]["custom_metadata"]["sample"]["color"] is None
     assert populated["node"]["custom_metadata"]["sample"]["color"] == "placeholder"
     assert bare["change"] == {"kind": "create"}

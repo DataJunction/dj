@@ -13,7 +13,6 @@ from datajunction_server.internal.checks import allowlist
 from datajunction_server.internal.checks.context import Bindings, build_env
 
 _BOOLEAN_RETURN_TYPES = ("BOOL", "DYN")
-_CLAUSES = ("when", "condition")
 
 
 class CheckGate(StrEnum):
@@ -80,25 +79,21 @@ def load_checks(
     result = LoadedChecks()
 
     for spec in checks:
-        compiled: dict[str, cel.Expression] = {}
-        failed = False
-        for clause in _CLAUSES:
-            source = getattr(spec, clause)
-            if source is None:
-                continue
-            issue, expression = _compile_clause(
-                env,
-                spec.name,
-                clause,
-                source,
-                fixtures,
-            )
+        when = None
+        if spec.when is not None:
+            issue, when = _compile_clause(env, spec.name, "when", spec.when, fixtures)
             if issue:
                 result.malformed.append(issue)
-                failed = True
-            else:
-                compiled[clause] = expression
-        if failed:
+                continue
+        issue, condition = _compile_clause(
+            env,
+            spec.name,
+            "condition",
+            spec.condition,
+            _applicable(when, fixtures),
+        )
+        if issue:
+            result.malformed.append(issue)
             continue
         try:
             gate = CheckGate(spec.gate)
@@ -111,12 +106,34 @@ def load_checks(
             CompiledCheck(
                 name=spec.name,
                 gate=gate,
-                condition=compiled["condition"],
-                when=compiled.get("when"),
+                condition=condition,
+                when=when,
                 description=spec.description,
             ),
         )
     return result
+
+
+def _applicable(
+    when: cel.Expression | None,
+    fixtures: Sequence[Bindings],
+) -> Sequence[Bindings]:
+    """
+    The fixtures a guarded condition is judged against.
+
+    A condition only has to hold where its `when` does, so judging it on a
+    fixture the guard excludes rejects checks that would never have run. When
+    no fixture satisfies the guard the condition is judged against all of them,
+    since evaluating it somewhere is what catches a misspelled property.
+    """
+    if when is None:
+        return fixtures
+    admitted = [
+        fixture
+        for fixture in fixtures
+        if str((value := when.eval(data=fixture)).type()) == "BOOL" and value.value()
+    ]
+    return admitted or fixtures
 
 
 def _compile_clause(

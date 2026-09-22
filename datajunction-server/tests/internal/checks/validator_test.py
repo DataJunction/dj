@@ -6,9 +6,14 @@ from datajunction_server.internal.checks.context import build_env
 from datajunction_server.internal.checks.validator import (
     CheckGate,
     CheckSpec,
+    _applicable,
     load_checks,
 )
-from tests.internal.checks.conftest import DECLARED_PROPERTIES, build_fixtures
+from tests.internal.checks.conftest import (
+    DECLARED_PROPERTIES,
+    build_fixtures,
+    fixture_pair,
+)
 
 # An invented corpus, exercising every binding without borrowing any real
 # governance vocabulary.
@@ -181,7 +186,7 @@ def test_unknown_gate_is_refused():
 
 
 def test_prefill_makes_an_unset_property_false_not_an_error():
-    empty, _ = build_fixtures(DECLARED_PROPERTIES)
+    empty, _ = fixture_pair()
     compiled = build_env().compile("node.custom_metadata.sample.color != null")
     value = compiled.eval(data=empty)
     assert str(value.type()) == "BOOL"
@@ -195,7 +200,7 @@ def test_unschematized_paths_are_reachable_with_stepwise_guards():
     short-circuiting, which makes that safe.
     """
     env = build_env()
-    empty, _ = build_fixtures(DECLARED_PROPERTIES)
+    empty, _ = fixture_pair()
     present = dict(empty)
     present["node"] = dict(
         empty["node"],
@@ -229,13 +234,13 @@ def test_guards_cannot_be_written_with_optional_chaining(unsupported):
 def test_has_is_true_for_a_present_but_null_property():
     # Why "has a value" must be written as `!= null`: the prefilled properties
     # are present, so has() cannot distinguish them from authored ones.
-    empty, _ = build_fixtures(DECLARED_PROPERTIES)
+    empty, _ = fixture_pair()
     compiled = build_env().compile("has(node.custom_metadata.sample.color)")
     assert compiled.eval(data=empty).value() is True
 
 
 def test_fixtures_are_built_from_the_declared_properties():
-    empty, populated = build_fixtures({"sample": ("color",), "other": ("weight",)})
+    empty, populated = fixture_pair({"sample": ("color",), "other": ("weight",)})
     assert empty["node"]["custom_metadata"] == {
         "sample": {"color": None},
         "other": {"weight": None},
@@ -271,3 +276,57 @@ def test_an_unguarded_numeric_comparison_is_refused():
     )
     assert not result.ok
     assert "No matching overloads" in result.malformed[0].problem
+
+
+def test_a_guarded_condition_is_judged_only_where_its_guard_holds():
+    """
+    A condition only has to hold where its guard does, so it is judged against
+    those nodes and not the rest.
+    """
+    guard = build_env().compile("node.node_type == 'metric'")
+    admitted = _applicable(guard, build_fixtures(DECLARED_PROPERTIES))
+    assert [fixture["node"]["name"] for fixture in admitted] == [
+        "fixture.bare_metric",
+        "fixture.populated_metric",
+    ]
+
+
+def test_an_unguarded_condition_is_judged_everywhere():
+    fixtures = build_fixtures(DECLARED_PROPERTIES)
+    assert _applicable(None, fixtures) == fixtures
+
+
+def test_a_guarded_condition_is_still_judged_on_its_own_node_type():
+    # The bare metric has no significant_digits, so the guard does not excuse
+    # an unguarded comparison.
+    result = load_checks(
+        [
+            CheckSpec(
+                "demo.digits",
+                "node.significant_digits >= 1",
+                "warn",
+                when="node.node_type == 'metric'",
+            ),
+        ],
+        build_fixtures(DECLARED_PROPERTIES),
+    )
+    assert not result.ok
+    assert "No matching overloads" in result.malformed[0].problem
+
+
+def test_an_unsatisfiable_guard_falls_back_to_every_fixture():
+    # No fixture carries this color, so the condition is judged everywhere --
+    # otherwise a misspelled property behind such a guard is never caught.
+    result = load_checks(
+        [
+            CheckSpec(
+                "demo.typo",
+                "node.custom_metadata.sample.colur != null",
+                "warn",
+                when="node.custom_metadata.sample.color == 'chartreuse'",
+            ),
+        ],
+        build_fixtures(DECLARED_PROPERTIES),
+    )
+    assert not result.ok
+    assert "evaluated to ERROR" in result.malformed[0].problem

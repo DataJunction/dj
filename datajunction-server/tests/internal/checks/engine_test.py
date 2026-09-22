@@ -8,7 +8,12 @@ from datajunction_server.internal.checks.validator import (
     CheckSpec,
     load_checks,
 )
-from tests.internal.checks.conftest import DECLARED_PROPERTIES, build_fixtures
+from datajunction_server.models.node_type import NodeType
+from tests.internal.checks.conftest import (
+    DECLARED_PROPERTIES,
+    build_fixtures,
+    fixture_pair,
+)
 
 CHECKS = [
     CheckSpec("demo.color_set", "node.custom_metadata.sample.color != null", "warn"),
@@ -36,7 +41,8 @@ def checks():
 
 @pytest.fixture
 def fixtures():
-    return build_fixtures(DECLARED_PROPERTIES)
+    """The bare and populated dimension, so the dimension-only check applies."""
+    return fixture_pair(node_type=NodeType.DIMENSION)
 
 
 def _by_name(results):
@@ -75,10 +81,11 @@ def test_a_passing_check_never_blocks(checks, fixtures):
     )
 
 
-def test_a_guard_skips_an_inapplicable_entity(checks, fixtures):
-    # The bare fixture is a transform, so the dimension-only check is skipped
-    # and asserts nothing either way.
-    skipped = _by_name(evaluate(checks, fixtures[0]))["demo.dimension_shape_set"]
+def test_a_guard_skips_an_inapplicable_entity(checks):
+    # A transform, so the dimension-only check is skipped and asserts nothing
+    # either way.
+    transform, _ = fixture_pair(node_type=NodeType.TRANSFORM)
+    skipped = _by_name(evaluate(checks, transform))["demo.dimension_shape_set"]
     assert skipped.skipped is True
     assert skipped.passed is None
     assert skipped.blocked is False
@@ -109,12 +116,13 @@ def test_block_on_regression_tolerates_a_pre_existing_failure(checks, fixtures):
 
 
 def test_block_on_regression_skips_a_guard_that_did_not_apply_before(checks, fixtures):
-    bare, populated = fixtures
+    _, populated = fixtures
     # A transform before and a dimension now, so the guarded check has no prior
     # verdict to regress from.
+    before, _ = fixture_pair(node_type=NodeType.TRANSFORM)
     now = _without(populated, "shape")
     result = _by_name(
-        evaluate(checks, now, previous_bindings=bare),
+        evaluate(checks, now, previous_bindings=before),
     )["demo.dimension_shape_set"]
     assert result.passed is False
     assert result.blocked is False

@@ -671,17 +671,18 @@ class DeploymentOrchestrator:
             self.deployment_spec.rulesets,
         )
         entities = self._checked_entities(plan)
+        node_types = {spec.node_type for spec, _ in entities}
         declared = await resolve_declared_schemas(
             self.session,
             self.deployment_spec.namespace,
-            {spec.node_type for spec, _ in entities},
+            node_types,
         )
         tag_types = await resolve_tag_types(
             self.session,
             self.deployment_spec.tags,
             {tag for spec, _ in entities for tag in spec.tags},
         )
-        loaded = load_checks(manifest.checks, build_fixtures(declared))
+        loaded = load_checks(manifest.checks, build_fixtures(declared, node_types))
         malformed = loaded.malformed + unsupported_ruleset_guards(manifest.rulesets)
         if malformed:
             for problem in malformed:
