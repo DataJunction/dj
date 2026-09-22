@@ -218,36 +218,7 @@ async def get_measures_sql_v3(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> MeasuresSQLResponse:
-    """
-    Generate pre-aggregated measures SQL for the requested metrics.
-
-    Measures SQL represents the first stage of metric computation - it decomposes
-    each metric into its atomic aggregation components (e.g., SUM(amount), COUNT(*))
-    and produces SQL that computes these components at the requested dimensional grain.
-
-    Metrics are separated into grain groups, which represent sets of metrics that can be
-    computed together at a common grain. Each grain group produces its own SQL query, which
-    can be materialized independently to produce intermediate tables that are then queried
-    to compute final metric values.
-
-    Returns:
-        One or more `GrainGroupSQL` objects, each containing:
-        - SQL query computing metric components at the specified grain
-        - Column metadata with semantic types
-        - Component details for downstream re-aggregation
-
-    Args:
-        cube: Optional cube node name. When provided, the cube's stored filters are
-            automatically prepended to the query filters.
-        use_materialized: If True (default), use materialized tables when available.
-            Set to False when generating SQL for materialization refresh to avoid
-            circular references.
-        include_temporal_filters: If True, checks if metrics+dimensions resolve to
-            a cube with temporal partitions, and applies partition filters if so.
-        lookback_window: Lookback window for temporal filters when applicable.
-
-    See also: `/sql/metrics/v3/` for the final combined query with metric expressions.
-    """
+    """Generate pre-aggregated measures SQL for the requested metrics."""
     merged_filters = list(filters)
     cube_node = None
     if cube:
@@ -440,38 +411,7 @@ async def get_combined_measures_sql_v3(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> CombinedMeasuresSQLResponse:
-    """
-    Generate combined pre-aggregated measures SQL for the requested metrics.
-
-    This endpoint combines multiple grain groups into a single SQL query using
-    FULL OUTER JOIN on shared dimensions. Dimension columns are wrapped with
-    COALESCE to handle NULLs from non-matching rows.
-
-    This is useful for:
-    - Druid cube materialization where a single combined table is needed
-    - Simplifying downstream queries that need data from multiple fact tables
-    - Pre-computing joined aggregations for dashboards
-
-    The combined SQL contains:
-    - CTEs for each grain group's pre-aggregated data
-    - FULL OUTER JOIN between grain groups on shared dimensions
-    - COALESCE on dimension columns to handle NULL values
-    - All measure columns from all grain groups
-
-    Args:
-        metrics: List of metric names to include
-        dimensions: List of dimensions to group by (the grain)
-        filters: Optional filters to apply
-        use_preagg_tables: If False (default), compute from scratch using source tables.
-            If True, read from pre-aggregation tables.
-
-    Returns:
-        Combined SQL query with column metadata and grain information.
-
-    See also:
-        - `/sql/measures/v3/` for individual grain group queries
-        - `/sql/metrics/v3/` for final metric computations with combiner expressions
-    """
+    """Generate combined pre-aggregated measures SQL for the requested metrics."""
     _t0 = time.monotonic()
     if use_preagg_tables:
         # Generate SQL that reads from pre-agg tables (deterministic names)
@@ -610,40 +550,7 @@ async def get_metrics_sql_v3(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> V3TranslatedSQL:
-    """
-    Generate final metrics SQL with fully computed metric expressions for the
-    requested metrics, dimensions, and filters using the specified dialect.
-
-    Metrics SQL is the second (and final) stage of metric computation - it takes
-    the pre-aggregated components from Measures SQL and applies combiner expressions
-    to produce the actual metric values requested.
-
-    - Metric components are re-aggregated as needed to match the requested
-    dimensional grain.
-
-    - Derived metrics (defined as expressions over other metrics)
-    (e.g., `conversion_rate = order_count / visitor_count`) are computed by
-    substituting component references with their re-aggregated expressions.
-
-    - When metrics come from different fact tables, their
-    grain groups are FULL OUTER JOINed on the common dimensions, with COALESCE
-    for dimension columns to handle NULLs from non-matching rows.
-
-    - Dimension references in metric expressions are resolved to their
-    final column aliases.
-
-    Args:
-        metrics: List of metric names to include
-        dimensions: List of dimensions to group by (the grain)
-        filters: Optional filters to apply
-        cube: Optional cube node name. When provided, the cube's stored filters are
-            prepended and the cube is passed directly to avoid a redundant lookup.
-        dialect: SQL dialect for the generated query. If not specified, auto-resolves
-            based on cube availability (uses Druid if cube exists, else metric's catalog).
-        use_materialized: If True (default), use materialized tables when available.
-            Set to False when generating SQL for materialization refresh to avoid
-            circular references.
-    """
+    """Generate final metrics SQL with fully computed metric expressions."""
     # Shared metrics-SQL core (cube pinning, cube_filters prepend, dialect
     # auto-resolve, build_metrics_sql, and the build-latency metrics + [SQL] log).
     # Also used by the semantic-layer endpoint.

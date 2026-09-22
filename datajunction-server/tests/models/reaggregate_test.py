@@ -160,13 +160,15 @@ def test_params_accepted_for_parameterized_function(monkeypatch):
     assert dump_reaggregate_spec(spec)["params"] == {"compression": 200}
 
 
-def test_no_function_is_parameterized_today():
+def test_only_sketch_families_are_parameterized():
     """
-    Every currently supported function is fully specified by its name.
+    Only a sketch family takes tuning parameters.
     """
-    assert not any(
-        is_parameterized_reaggregate_function(fn) for fn in ReaggregationFunction
-    )
+    parameterized = {
+        fn for fn in ReaggregationFunction if is_parameterized_reaggregate_function(fn)
+    }
+
+    assert parameterized == {ReaggregationFunction.TDIGEST}
 
 
 def test_params_round_trip_through_parse():

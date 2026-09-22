@@ -342,30 +342,7 @@ class DeploymentService:
         default_owner: str | None = None,
         exclude_dirs: list[str] | None = None,
     ) -> int:
-        """
-        Generate a CODEOWNERS file from the owners fields in DJ node YAML files.
-
-        Walks base_dir recursively, reads every *.yaml file (skipping dj.yaml),
-        and maps each file path to its owners list.  Files with no owners are
-        omitted.  Paths in the output are relative to base_dir and prefixed with
-        / so GitHub resolves them from the repo root.
-
-        If github_api_url is provided (and GITHUB_TOKEN / github_token_env is set),
-        email addresses in owners fields are resolved to GitHub usernames via the
-        search API.  Unresolvable emails are emitted as-is with a warning comment.
-
-        ``default_owner``, when set, emits a leading ``* <default_owner>`` rule so
-        unmatched files (and any excluded directories) fall through to it. Because
-        CODEOWNERS is last-match-wins, the per-file rules below it still take
-        precedence for the files they name.
-
-        ``exclude_dirs`` lists directories (relative to base_dir) whose nodes are
-        NOT given per-file owners — they fall through to ``default_owner`` instead.
-        This is for machine-generated trees (e.g. ``nodes/generated``) that have no
-        individual human owner and should be team-owned as a block.
-
-        Returns the number of per-file entries written (excludes the default rule).
-        """
+        """Generate a CODEOWNERS file from the owners fields in DJ node YAML files."""
         base = Path(base_dir).resolve()
         excluded_dirs = [(base / d).resolve() for d in (exclude_dirs or [])]
 

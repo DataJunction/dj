@@ -1604,29 +1604,6 @@ class TableExpression(Aliasable, Expression):
         """
         Add column referenced from this table. Returns True if the table has the column
         and False otherwise.
-
-        This function handles the following cases:
-
-        Regular columns. For example:
-        (1) non-aliased columns
-          `SELECT country_id AS country1 FROM countries` should match the `country_id`
-          column in the table `countries`
-        (2) aliased columns
-          `SELECT C.country_id AS country1 FROM countries C` should match the `country_id`
-          column in the table `countries` with the column namespace/table alias `C`
-
-        Struct columns. For example:
-        (1) non-aliased struct columns
-          `countries` has column `identifiers` with type:
-                STRUCT<country_name STR, country_code STR>
-          `SELECT identifiers.country_name AS name FROM countries` should match the
-          `identifier` -> `country_name` column in the table `countries`
-        (2) aliased struct columns
-          `countries` has column `identifiers` with type:
-                STRUCT<country_name STR, country_code STR>
-          `SELECT C.identifiers.country_name AS name FROM countries C` should match the
-          `identifier` -> `country_name` column in the table `countries` with the column namespace/
-          table alias `C`
         """
         if not self._columns:
             if ctx is None:
