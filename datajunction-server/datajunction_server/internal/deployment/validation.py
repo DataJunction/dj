@@ -813,9 +813,11 @@ class NodeSpecBulkValidator:
             ),
         )
         for link in result.scalars().all():
-            dep_name = revision_id_to_name.get(link.node_revision_id)
-            if dep_name:
-                self._parent_dimension_links.setdefault(dep_name, []).append(link)
+            resolved_dep_name = revision_id_to_name.get(link.node_revision_id)
+            if resolved_dep_name:
+                self._parent_dimension_links.setdefault(resolved_dep_name, []).append(
+                    link,
+                )
 
     def _check_required_dimensions(self, spec: NodeSpec) -> DJError | None:
         """

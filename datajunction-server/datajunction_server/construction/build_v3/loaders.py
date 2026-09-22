@@ -509,8 +509,12 @@ async def load_nodes(ctx: BuildContext) -> None:
             for metric_name in ctx.metrics:
                 for parent_name in ctx.parent_map.get(metric_name, []):
                     parent_node = ctx.nodes.get(parent_name)
-                    if parent_node and parent_node.current and any(
-                        col.name == req_dim for col in parent_node.current.columns
+                    if (
+                        parent_node
+                        and parent_node.current
+                        and any(
+                            col.name == req_dim for col in parent_node.current.columns
+                        )
                     ):
                         resolved_ref = f"{parent_name}{SEPARATOR}{req_dim}"
                         break
