@@ -1,17 +1,7 @@
 """metric_required_dimensions: store authored ref instead of a bound Column
 
-Replaces the `metric_required_dimensions` join table (metric_id,
-bound_dimension_id -> column.id) with a normalized shape that stores the
-authored reference string verbatim (`ref`), plus an indexed FK to the
-dimension node it points at (`dimension_id`, nullable). This is what lets a
-role-qualified required dimension (e.g. "date.dateint[created_date]") round
-trip exactly instead of having its role silently stripped.
-
-The backfill can't recover a role that was already stripped at write time
-(that's the bug being fixed); it reconstructs the best available `ref` for
-each existing row: the bare column name if the bound column's node is a
-direct parent of the metric, else the bound column's `node.column` full
-path (with `dimension_id` set to that node).
+Replaces (metric_id, bound_dimension_id) with (metric_id, ref, dimension_id)
+so a roled ref is stored with its role, instead of getting stripped.
 
 Revision ID: rd0001refcol
 Revises: tt0001claims
@@ -47,8 +37,7 @@ def upgrade():
         ),
         sa.PrimaryKeyConstraint("metric_id", "ref"),
     )
-    # Suffixed to avoid colliding with the old table's still-live indexes;
-    # renamed to their final names below once the old table is dropped.
+    # Suffixed to avoid colliding with the old table's indexes; renamed below.
     op.create_index(
         "ix_metric_required_dimensions_metric_id_new",
         "metric_required_dimensions_new",
@@ -60,13 +49,8 @@ def upgrade():
         ["dimension_id"],
     )
 
-    # Backfill: for each existing (metric_id, bound_dimension_id) row, compute
-    # `ref` using the same logic Column.full_name() callers relied on --
-    # bare column name if the bound column's owning node is a direct parent
-    # of the metric, else the owning node's fully-qualified `node.column`
-    # path (role information was already lost at write time, so it can't be
-    # recovered here; that's the bug this migration exists to fix going
-    # forward).
+    # Backfill: bare column name if the bound column's node is a direct
+    # parent, else `node.column` (role already lost, can't be recovered).
     op.execute(
         """
         INSERT INTO metric_required_dimensions_new (metric_id, ref, dimension_id)
@@ -136,10 +120,8 @@ def downgrade():
         ["bound_dimension_id"],
     )
 
-    # Best-effort: only bare-column refs (dimension_id IS NULL) can be mapped
-    # back to a Column unambiguously (the metric's own parent). Full-path
-    # refs, including any role suffix, have no Column to bind to anymore
-    # (that's the whole point of this migration) and are dropped on downgrade.
+    # Best-effort: only bare-column refs map back to a Column; full-path/
+    # roled refs have none to bind to and are dropped on downgrade.
     op.execute(
         """
         INSERT INTO metric_required_dimensions_old (metric_id, bound_dimension_id)
