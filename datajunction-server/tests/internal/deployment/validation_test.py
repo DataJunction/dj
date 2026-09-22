@@ -854,6 +854,36 @@ class TestRequiredDimensions:
         assert ErrorCode.INVALID_COLUMN not in error_codes
 
     @pytest.mark.asyncio
+    async def test_reaggregate_on_derived_metric_is_invalid(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """Deployment validation rejects metric-level policy on derived metrics."""
+        context = self._make_context(session, parent_node)
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT test.base_metric * 2",
+            reaggregate={
+                "rules": [
+                    {
+                        "dimension": "test.date.date_id",
+                        "fn": "last_value",
+                    },
+                ],
+            },
+        )
+        validator = NodeSpecBulkValidator(context)
+
+        result = validator.validate_query_node(spec)
+
+        assert result.status == NodeStatus.INVALID
+        error = next(
+            error for error in result.errors if error.code == ErrorCode.INVALID_METRIC
+        )
+        assert "only supported on base metrics" in error.message
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "dimension",
         ["test.dim.nonexistent_col", "value"],

@@ -1097,6 +1097,61 @@ async def test_validate_node_data_v2_flags_invalid_reaggregate_dimensions(
 
 
 @pytest.mark.asyncio
+async def test_validate_node_data_v2_rejects_reaggregate_on_derived_metric(
+    session: AsyncSession,
+    user: User,
+):
+    """Derived metrics cannot declare their own reaggregation policy."""
+    from datajunction_server.errors import ErrorCode
+    from datajunction_server.internal.validation import validate_node_data_v2
+
+    base = Node(
+        name="test.v2_base_balance",
+        type=NodeType.METRIC,
+        created_by_id=user.id,
+        current_version="v1.0",
+    )
+    base_revision = NodeRevision(
+        name=base.name,
+        display_name="base balance",
+        type=NodeType.METRIC,
+        query="SELECT SUM(balance) FROM test.balance_source",
+        status=NodeStatus.VALID,
+        version="v1.0",
+        node=base,
+        columns=[Column(name=base.name, type=ct.DoubleType(), order=0)],
+        created_by_id=user.id,
+    )
+    session.add_all([base, base_revision])
+    await session.commit()
+
+    derived = NodeRevision(
+        name="test.v2_double_balance",
+        display_name="double balance",
+        type=NodeType.METRIC,
+        query="SELECT test.v2_base_balance * 2",
+        status=NodeStatus.VALID,
+        reaggregate={
+            "rules": [
+                {
+                    "dimension": "test.date.date_id",
+                    "fn": "last_value",
+                },
+            ],
+        },
+    )
+
+    validator = await validate_node_data_v2(derived, session)
+
+    assert validator.status == NodeStatus.INVALID
+    assert any(
+        error.code == ErrorCode.INVALID_METRIC
+        and "only supported on base metrics" in error.message
+        for error in validator.errors
+    )
+
+
+@pytest.mark.asyncio
 async def test_validate_node_data_v2_flags_unsupported_reaggregate_function(
     session: AsyncSession,
     user: User,

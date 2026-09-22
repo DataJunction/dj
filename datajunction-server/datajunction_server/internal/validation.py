@@ -25,6 +25,7 @@ from datajunction_server.models.base import labelize
 from datajunction_server.models.node import NodeRevisionBase, NodeStatus
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.reaggregate import (
+    ReaggregateSpec,
     parse_reaggregate_spec,
     unsupported_dimension_reaggregate_functions,
 )
@@ -47,6 +48,24 @@ def invalid_reaggregate_dimension_references(dimensions: list[str]) -> set[str]:
         except DJInvalidInputException:
             invalid.add(dimension)
     return invalid
+
+
+def derived_metric_reaggregate_error(
+    metric_name: str,
+    is_derived_metric: bool,
+    reaggregate: ReaggregateSpec | dict | None,
+) -> DJError | None:
+    """Reject metric-level reaggregation declarations on derived metrics."""
+    reaggregate_spec = parse_reaggregate_spec(reaggregate)
+    if not (is_derived_metric and reaggregate_spec and reaggregate_spec.rules):
+        return None
+    return DJError(
+        code=ErrorCode.INVALID_METRIC,
+        message=(
+            "Reaggregate declarations are only supported on base metrics. "
+            f"Derived metric `{metric_name}` declares reaggregate."
+        ),
+    )
 
 
 def _reparse_parent_column_types(dependencies_map: dict) -> None:
@@ -630,6 +649,14 @@ async def validate_node_data_v2(
 
     # --- Step 4: classify parents (SHARED with deployment) ---
     is_derived_metric = is_metric and query_ast.select.from_ is None
+    reaggregate_metric_error = derived_metric_reaggregate_error(
+        validated_node.name,
+        is_derived_metric,
+        validated_node.reaggregate,
+    )
+    if reaggregate_metric_error:
+        node_validator.status = NodeStatus.INVALID
+        node_validator.errors.append(reaggregate_metric_error)
     parents, missing = classify_parents(
         is_derived_metric,
         candidates,
