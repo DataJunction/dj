@@ -377,6 +377,7 @@ async def batch_load_extracted_measures(
                             DBNodeRevision.id,
                             DBNodeRevision.name,
                             DBNodeRevision.query,
+                            DBNodeRevision.reaggregate,
                         ),
                     ),
                 )
