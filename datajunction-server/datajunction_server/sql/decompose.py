@@ -963,11 +963,12 @@ class MetricComponentExtractor:
 
         Args:
             node_revision_id: ID of the metric node revision
-            dialect: Dialect the combiner will be rendered for. Combiners are
-                mostly dialect-neutral, but a sketch family whose engines expose
-                different function shapes needs the target -- Druid fuses a
-                t-digest's merge and combine, where Spark and Trino keep them
-                separate.
+            dialect: Dialect the combiner will be rendered for. Every dialect
+                gets a combiner -- whether one exists at all is a property of
+                the aggregation function, not the engine -- but its shape can
+                differ: a sketch family whose engines expose different function
+                shapes needs the target, as Druid fuses a t-digest's merge and
+                combine where Spark and Trino keep them separate.
 
                 Defaults to Spark, which is right for the callers that render
                 for display or for frozen measures. Only the build_v3 path,
