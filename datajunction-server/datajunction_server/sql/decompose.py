@@ -929,7 +929,14 @@ class MetricComponentExtractor:
                 )
             else:
                 # True base metric - decompose aggregations
-                base_ast = parse(base_metric.query)
+                # A non-derived metric is its own sole base metric, so its query
+                # was already parsed above. Reuse that AST rather than parsing
+                # the same SQL a second time.
+                base_ast = (
+                    query_ast
+                    if not metric_data.is_derived
+                    else parse(base_metric.query)
+                )
                 base_components, derived_ast = self._extract_base(base_ast)
 
             for comp in base_components:
