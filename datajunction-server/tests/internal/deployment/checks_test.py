@@ -1034,16 +1034,25 @@ async def test_previous_reads_the_upstreams_it_was_deployed_with(
         ],
     )
     plan = make_plan(
-        to_deploy=[child],
+        to_deploy=[child, new_parent],
         existing_specs={
             f"{NAMESPACE}.child": deployed_child,
             f"{NAMESPACE}.old_parent": old_parent,
         },
-        node_graph={f"{NAMESPACE}.child": [f"{NAMESPACE}.new_parent"]},
+        node_graph={
+            f"{NAMESPACE}.child": [f"{NAMESPACE}.new_parent"],
+            f"{NAMESPACE}.new_parent": [],
+        },
     )
     with pytest.raises(DJInvalidDeploymentConfig):
         await orchestrator._run_governance_checks(plan)
     # It passed against `old_parent`, which is described, so repointing it at an
     # undescribed parent is a regression and the gate closes.
-    assert verdicts(orchestrator) == {"demo.parents_described": CheckVerdict.FAILED}
+    by_node = {
+        results.node: {verdict.check: verdict.verdict for verdict in results.checks}
+        for results in orchestrator.check_results
+    }
+    assert by_node[f"{NAMESPACE}.child"] == {
+        "demo.parents_described": CheckVerdict.FAILED,
+    }
     assert "demo.parents_described" in orchestrator.errors[0].message
