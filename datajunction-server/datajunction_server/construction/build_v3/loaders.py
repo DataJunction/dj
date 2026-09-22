@@ -107,9 +107,6 @@ async def batch_load_nodes_with_dependencies(
                 ),
                 # NOTE: don't noload Catalog.engines — see load_dimension_links_batch.
                 joinedload(NodeRevision.catalog),
-                # `.ref` is the authored reference verbatim -- no reconstruction
-                # needed. `.dimension` is `lazy="joined"` so it's already
-                # eager-loaded as part of this selectinload.
                 selectinload(NodeRevision.required_dimensions),
                 joinedload(NodeRevision.availability),  # For materialization support
                 selectinload(NodeRevision.dimension_links).options(

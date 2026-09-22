@@ -23,6 +23,7 @@ from datajunction_server.construction.build import (
     validate_shared_dimensions,
 )
 from datajunction_server.construction.build_v2 import FullColumnName
+from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
 from datajunction_server.database.attributetype import AttributeType
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column
@@ -317,13 +318,8 @@ def _resolve_required_dimensions(
     Called by find_required_dimensions (after its DB fetch) and by the bulk
     deployment validator (with its batch-prefetched _all_dim_nodes cache).
 
-    `ref` is preserved verbatim (including any role suffix) on the returned
-    `RequiredDimension` rows, so export/diff round-trips exactly. Role
-    validation only checks reachability from a *direct* parent (one hop) --
-    a role declared reachable only via a multi-hop dimension chain is not
-    currently validated here (see build_v3/dimensions.py's
-    `roles_reaching_dimension`/`find_join_path`, which do handle multi-hop
-    roles, but require a full query BuildContext not available at write time).
+    Role validation only checks reachability from a direct (one-hop) parent;
+    a role reachable only via a multi-hop dimension chain isn't validated here.
 
     Returns:
         Tuple of (invalid dimension paths, resolved RequiredDimension rows)
@@ -344,14 +340,9 @@ def _resolve_required_dimensions(
 
     for required_dim in required_dimensions:
         if SEPARATOR in required_dim:
-            dim_node_name, col_part = required_dim.rsplit(SEPARATOR, 1)
-            role: str | None = None
-            col_name = col_part
-            if "[" in col_part:
-                col_name, role_part = col_part.split("[", 1)
-                role = role_part.rstrip("]")
-            full_paths.setdefault(dim_node_name, []).append(
-                (required_dim, col_name, role),
+            dim_ref = parse_dimension_ref(required_dim)
+            full_paths.setdefault(dim_ref.node_name, []).append(
+                (required_dim, dim_ref.column_name, dim_ref.role),
             )
         else:
             short_names.append(required_dim)
@@ -359,8 +350,7 @@ def _resolve_required_dimensions(
     for short_name in short_names:
         matches = parent_cols_by_name.get(short_name, [])
         if len(matches) == 1:
-            # Bare column ref: resolves locally against the metric's own
-            # parent, so there's no separate dimension node to point at.
+            # Resolves locally against metric's own parent.
             resolved.append(RequiredDimension(ref=short_name, dimension_id=None))
         else:
             # No match, or the same short name exists on more than one direct
