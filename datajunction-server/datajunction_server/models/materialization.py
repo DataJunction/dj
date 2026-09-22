@@ -77,7 +77,7 @@ def register_druid_aggregator(
 
     Args:
         column_type: Measures-table column type, e.g. "binary"
-        merge_func: Phase-2 merge function name, e.g. "nflx_tdigest_agg"
+        merge_func: Phase-2 merge function name, e.g. "acme_tdigest_agg"
         aggregator: Druid aggregator type, e.g. "tDigestSketch"
         default_config: Extra metricsSpec keys and their defaults, e.g.
             ``{"compression": 200}``. Marks the aggregator as parameterized.

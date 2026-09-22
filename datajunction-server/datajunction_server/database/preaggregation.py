@@ -125,7 +125,7 @@ def measure_identity_token(
 
     Parameters extend that reasoning to sketches: a t-digest accumulated at
     ``compression=100`` is not interchangeable with one at ``compression=1000``,
-    though both are ``nflx_tdigest_agg`` over the same expression. The segment is
+    though both are ``acme_tdigest_agg`` over the same expression. The segment is
     appended **only** when params are present, so tokens for the overwhelming
     majority of components -- plain ``SUM``, ``COUNT``, ``MAX`` -- are byte-identical
     to what this returned before params existed. Stored ``preagg_hash`` values are
