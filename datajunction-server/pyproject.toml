@@ -61,7 +61,7 @@ dependencies = [
     "redis<5.0.0,>=4.5.4",
 
     # Query parsing
-    "antlr4-python3-runtime==4.13.1",
+    "antlr4-python3-runtime==4.13.2",
 
     # SQL transpilation — required: DJ transpiles generated SQL per dialect and
     # has no fallback (see datajunction_server/transpilation.py).
