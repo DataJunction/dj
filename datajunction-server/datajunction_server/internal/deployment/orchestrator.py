@@ -55,7 +55,6 @@ from datajunction_server.internal.checks.manifest import to_manifest_checks
 from datajunction_server.internal.checks.validator import CheckGate, load_checks
 from datajunction_server.internal.custom_metadata import upsert_schema_specs
 from datajunction_server.internal.deployment.checks import (
-    RulesetOutcome,
     build_bindings,
     build_fixtures,
     resolve_declared_schemas,
@@ -788,7 +787,7 @@ class DeploymentOrchestrator:
                 DeploymentResult(
                     name=name,
                     deploy_type=DeploymentResult.Type.CHECK,
-                    status=self._node_check_status(results, outcomes),
+                    status=self._node_check_status(results),
                     operation=DeploymentResult.Operation.NOOP,
                     message=self._node_check_message(results),
                 ),
@@ -835,7 +834,6 @@ class DeploymentOrchestrator:
     @staticmethod
     def _node_check_status(
         results: Sequence[CheckResult],
-        outcomes: Sequence[RulesetOutcome],
     ) -> DeploymentResult.Status:
         """The worst verdict across a node's checks."""
         ran = [result for result in results if not result.skipped]

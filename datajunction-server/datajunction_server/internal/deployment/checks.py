@@ -64,13 +64,6 @@ def _is_string_field(annotation: Any) -> bool:
     return False
 
 
-def _is_mapping_field(annotation: Any) -> bool:
-    for candidate in (annotation, *get_args(annotation)):
-        if get_origin(candidate) is dict or candidate is dict:
-            return True
-    return False
-
-
 def _empty_for(annotation: Any) -> Any:
     """
     What CEL reads for a field this node spec does not have.
@@ -82,15 +75,9 @@ def _empty_for(annotation: Any) -> Any:
     """
     if _is_sequence_field(annotation):
         return []
-    if _is_mapping_field(annotation):
-        return {}
     if _is_string_field(annotation):
         return ""
     return None
-
-
-# Most structural wins, so a check that iterates never lands on a scalar.
-_EMPTY_PRECEDENCE: list[Any] = [None, "", {}, []]
 
 
 def _spec_defaults(base: type[BaseModel], skip: frozenset[str]) -> dict[str, Any]:
@@ -105,16 +92,18 @@ def _spec_defaults(base: type[BaseModel], skip: frozenset[str]) -> dict[str, Any
             if name in skip:
                 continue
             empty = _empty_for(info.annotation)
-            if name not in defaults or _EMPTY_PRECEDENCE.index(
-                empty,
-            ) > _EMPTY_PRECEDENCE.index(defaults[name]):
+            # A list default wins: one subclass typing it as a list is enough.
+            if defaults.get(name) != []:
                 defaults[name] = empty
         pending.extend(cls.__subclasses__())
     return defaults
 
 
-# custom_metadata and tags are projected per node instead.
-_NODE_DEFAULTS = _spec_defaults(NodeSpec, frozenset({"custom_metadata", "tags"}))
+# `project_node` sets each of these itself, so a default would be discarded.
+_PROJECTED_DIRECTLY = frozenset(
+    {"name", "namespace", "custom_metadata", "tags", "dimension_links"},
+)
+_NODE_DEFAULTS = _spec_defaults(NodeSpec, _PROJECTED_DIRECTLY)
 _LINK_DEFAULTS = _spec_defaults(DimensionLinkSpec, frozenset())
 
 _UNCHANGED_OPERATIONS = frozenset(

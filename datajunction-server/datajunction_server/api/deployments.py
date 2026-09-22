@@ -271,7 +271,7 @@ class InProcessExecutor(DeploymentExecutor):
                     d.model_dump() for d in downstream_impacts
                 ]
             if check_results is not None:
-                deployment.check_results = [r.model_dump() for r in check_results]
+                deployment.deployment_check_results = check_results
             await session.commit()
 
     async def _run_deployment(
