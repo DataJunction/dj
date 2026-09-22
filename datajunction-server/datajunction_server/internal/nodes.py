@@ -909,14 +909,7 @@ async def _derive_frozen_measures_impl(
         if frozen_measure:
             _raise_if_frozen_measure_conflicts(frozen_measure, measure)
         if not frozen_measure and measure.aggregation:
-            frozen_measure = FrozenMeasure(
-                name=measure.name,
-                upstream_revision_id=upstream_revision_id,
-                expression=measure.expression,
-                aggregation=measure.aggregation,
-                rule=measure.rule,
-                used_by_node_revisions=[],
-            )
+            frozen_measure = _new_frozen_measure(measure, upstream_revision_id)
             session.add(frozen_measure)
         if frozen_measure:
             frozen_measure.used_by_node_revisions.append(node_revision)
@@ -1036,14 +1029,7 @@ async def derive_frozen_measures_bulk(
             if frozen_measure is None:
                 if not measure.aggregation:
                     continue
-                frozen_measure = FrozenMeasure(
-                    name=measure.name,
-                    upstream_revision_id=upstream_revision_id,
-                    expression=measure.expression,
-                    aggregation=measure.aggregation,
-                    rule=_frozen_measure_rule(measure.rule),
-                    used_by_node_revisions=[],
-                )
+                frozen_measure = _new_frozen_measure(measure, upstream_revision_id)
                 session.add(frozen_measure)
                 fm_by_name[measure.name] = frozen_measure
             else:
@@ -1061,6 +1047,23 @@ def _frozen_measure_rule(rule: DecomposeAggregationRule) -> DecomposeAggregation
     Return the metric-independent rule persisted on a shared frozen measure.
     """
     return rule.model_copy(update={"reaggregate": None})
+
+
+def _new_frozen_measure(
+    measure: MetricComponent,
+    upstream_revision_id: int,
+) -> FrozenMeasure:
+    """Construct a shared frozen measure without metric-level policy."""
+    if not measure.aggregation:  # pragma: no cover
+        raise ValueError("Frozen measures require an aggregation")
+    return FrozenMeasure(
+        name=measure.name,
+        upstream_revision_id=upstream_revision_id,
+        expression=measure.expression,
+        aggregation=measure.aggregation,
+        rule=_frozen_measure_rule(measure.rule),
+        used_by_node_revisions=[],
+    )
 
 
 def _raise_if_frozen_measure_conflicts(

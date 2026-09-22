@@ -1,9 +1,6 @@
 """
-Unit tests for ``derive_frozen_measures_bulk`` — the batched derivation path
-used by the deployment orchestrator. Exercises the cache-construction branches
-(derived-metric expansion, deep-chain iterative expansion) and edge cases
-(empty list, shared measures across metrics) that aren't reachable through
-the per-metric ``derive_frozen_measures`` entry point.
+Unit tests for frozen-measure derivation. Exercises both the per-metric path used
+by direct node creation and the batched path used by the deployment orchestrator.
 """
 
 import pytest
@@ -18,6 +15,7 @@ from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.nodes import (
+    _derive_frozen_measures_impl,
     _raise_if_frozen_measure_conflicts,
     derive_frozen_measures_bulk,
 )
@@ -222,6 +220,43 @@ async def test_reaggregate_rule_is_not_persisted_on_shared_frozen_measure(
     assert all(
         fm.rule.reaggregate is None for fm in reaggregate.current.frozen_measures
     )
+
+
+@pytest.mark.asyncio
+async def test_direct_derivation_does_not_persist_reaggregate_rule(
+    session: AsyncSession,
+    user: User,
+):
+    """Direct metric creation persists only metric-independent measure rules."""
+    src = await _make_source(
+        session,
+        user,
+        "src_direct_reaggregate_storage",
+        [Column(name="balance", type=ct.DoubleType(), order=0)],
+    )
+    metric = await _make_metric(
+        session,
+        user,
+        "m.current_balance",
+        "SELECT SUM(balance) FROM src_direct_reaggregate_storage",
+        [src],
+        reaggregate={
+            "rules": [
+                {
+                    "dimension": "default.date_dim.date",
+                    "fn": "last_value",
+                },
+            ],
+        },
+    )
+    await session.refresh(metric, ["current"])
+
+    frozen_measures = await _derive_frozen_measures_impl(metric.current.id, session)
+    await session.commit()
+
+    assert metric.current.reaggregate is not None
+    assert frozen_measures
+    assert all(fm.rule.reaggregate is None for fm in frozen_measures)
 
 
 def test_frozen_measure_conflict_rejects_different_measure_identity():
