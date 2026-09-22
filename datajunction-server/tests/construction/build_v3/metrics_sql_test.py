@@ -1664,7 +1664,7 @@ class TestMetricsSQLCrossFact:
             "(base_metrics) that isn't in scope for that subquery. Needs a "
             "fix in construction/build_v3/cte.py's dimension_refs "
             "construction/lookup for roled-vs-bare dimension collisions; "
-            "out of scope for the required_dimensions storage fix.",
+            "out of scope for the required_dimensions storage fix."
         ),
         strict=False,
     )

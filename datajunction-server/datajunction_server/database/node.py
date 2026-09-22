@@ -372,12 +372,12 @@ class RequiredDimension(Base):
             ondelete="SET NULL",
         ),
     )
-    dimension: Mapped["Node | None"] = relationship(
+    dimension: Mapped[Node | None] = relationship(
         "Node",
         foreign_keys=[dimension_id],
         lazy="joined",
     )
-    metric: Mapped["NodeRevision"] = relationship(
+    metric: Mapped[NodeRevision] = relationship(
         "NodeRevision",
         foreign_keys=[metric_id],
         back_populates="required_dimensions",
@@ -1707,7 +1707,7 @@ class NodeRevision(
     # using the metric. An owned association-object list (not a plain
     # many-to-many): each row stores the authored reference verbatim, see
     # `RequiredDimension`.
-    required_dimensions: Mapped[list["RequiredDimension"]] = relationship(
+    required_dimensions: Mapped[list[RequiredDimension]] = relationship(
         back_populates="metric",
         foreign_keys="RequiredDimension.metric_id",
         cascade="all, delete-orphan",
