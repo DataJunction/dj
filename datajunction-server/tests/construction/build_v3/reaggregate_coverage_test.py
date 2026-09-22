@@ -340,7 +340,10 @@ def test_window_agg_from_base_metrics_collapses_semi_additive_derived_parent(
     assert "SUM(base_metrics.balance)" in str(collapsed_query)
 
 
-def test_window_agg_from_base_metrics_rejects_limited_leaf_metric():
+@pytest.mark.parametrize("component_count", [1, 2])
+def test_window_agg_from_base_metrics_rejects_limited_leaf_metric(
+    component_count: int,
+):
     """Distinct metrics cannot be summed after their grain key is discarded."""
     visitor_count = _decomposed_metric(
         "visitor_count",
@@ -354,6 +357,15 @@ def test_window_agg_from_base_metrics_rejects_limited_leaf_metric():
             ),
         ),
     )
+    if component_count == 2:
+        visitor_count.components.append(
+            MetricComponent(
+                name="order_total",
+                expression="order_amount",
+                aggregation="SUM",
+                rule=AggregationRule(type=Aggregability.FULL),
+            ),
+        )
     visitor_count.aggregability = Aggregability.LIMITED
     window_group = GrainGroupSQL(
         query=parse("SELECT category FROM base_metrics"),
