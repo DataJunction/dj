@@ -44,7 +44,7 @@ def parse_filter(filter_str: str) -> ast.Expression:
         # Returns ast.BinaryOp with comparison
     """
     # Parse as "SELECT 1 WHERE <filter>" and extract the WHERE clause
-    query = parse(f"SELECT 1 WHERE {filter_str}")
+    query = parse(f"SELECT 1 WHERE {filter_str}", from_request=True)
     if query.select.where is None:  # pragma: no cover
         raise DJInvalidInputException(f"Failed to parse filter: {filter_str}")
     return query.select.where

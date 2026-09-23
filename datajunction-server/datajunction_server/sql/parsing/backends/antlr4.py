@@ -200,15 +200,18 @@ def tree_to_strings(tree, indent=0):
     return result
 
 
-#: How many ANTLR parse trees to keep. Each entry retains its parser and token
-#: stream, so this trades memory for parse time.
+# Each entry retains its parser and token stream.
 ANTLR_TREE_CACHE_SIZE = 512
+
+# Request SQL is unbounded, so it gets a small cache of its own. Sharing one
+# with node definitions would let filter churn evict them.
+REQUEST_TREE_CACHE_SIZE = 64
 
 
 @lru_cache(maxsize=ANTLR_TREE_CACHE_SIZE)
 def cached_antlr_tree(sql: str, rule: str):
     """
-    Parse a string into an ANTLR tree, caching the result.
+    Parse a node definition into an ANTLR tree, caching the result.
 
     The tree is safe to share: ``visit`` only reads it, and the mutable DJ AST
     is rebuilt on every call.
@@ -216,13 +219,53 @@ def cached_antlr_tree(sql: str, rule: str):
     return parse_sql_with_sll_fallback(sql, rule)
 
 
-def parse_rule(sql: str, rule: str) -> Union[ast.Node, "ColumnType"]:
+@lru_cache(maxsize=REQUEST_TREE_CACHE_SIZE)
+def cached_request_tree(sql: str, rule: str):
+    """
+    Parse request-supplied SQL into an ANTLR tree, caching the result.
+
+    Filters and orderby clauses are parsed many times within one request but
+    vary freely across requests, so this cache is kept small.
+    """
+    return parse_sql_with_sll_fallback(sql, rule)
+
+
+def report_parse_cache_stats() -> None:
+    """
+    Report tree cache size and hit counts.
+
+    Misses rising while ``size`` sits at ``max_size`` means the cache is too
+    small and entries are being evicted.
+    """
+    from datajunction_server.instrumentation.provider import (  # noqa: PLC0415
+        get_metrics_provider,
+    )
+
+    provider = get_metrics_provider()
+    caches = {"definitions": cached_antlr_tree, "requests": cached_request_tree}
+    for name, cache in caches.items():
+        info = cache.cache_info()
+        tags = {"cache": name}
+        provider.gauge("dj.sql.parse_cache.hits", info.hits, tags)
+        provider.gauge("dj.sql.parse_cache.misses", info.misses, tags)
+        provider.gauge("dj.sql.parse_cache.size", info.currsize, tags)
+        provider.gauge("dj.sql.parse_cache.max_size", info.maxsize, tags)
+
+
+def parse_rule(
+    sql: str,
+    rule: str,
+    from_request: bool = False,
+) -> Union[ast.Node, "ColumnType"]:
     """
     Parse a string into a DJ ast using the ANTLR4 backend.
 
-    Uses SLL mode first (faster), falls back to LL mode if needed.
+    Uses SLL mode first (faster), falls back to LL mode if needed. Set
+    ``from_request`` for SQL that came from a request, so that its unbounded
+    variety cannot evict cached node definitions.
     """
-    antlr_tree = cached_antlr_tree(sql, rule)
+    tree_cache = cached_request_tree if from_request else cached_antlr_tree
+    antlr_tree = tree_cache(sql, rule)
     ast_tree = visit(antlr_tree)
     return ast_tree
 
@@ -235,9 +278,11 @@ def _cached_parse(sql: str | None) -> ast.Query:
     return parse(sql)
 
 
-def parse(sql: str | None) -> ast.Query:
+def parse(sql: str | None, from_request: bool = False) -> ast.Query:
     """
     Parse a string sql query into a DJ ast Query
+
+    Set ``from_request`` for SQL that came from a request (filters, orderby).
     """
     import time as _time  # noqa: PLC0415
 
@@ -246,7 +291,7 @@ def parse(sql: str | None) -> ast.Query:
         if not sql:
             raise DJParseException("Empty query provided!")
         try:
-            return cast(ast.Query, parse_rule(sql, "singleStatement"))
+            return cast(ast.Query, parse_rule(sql, "singleStatement", from_request))
         except SqlParsingError as exc:
             raise DJParseException(message=f"Error parsing SQL `{sql}`: {exc}") from exc
         except DJParseException:

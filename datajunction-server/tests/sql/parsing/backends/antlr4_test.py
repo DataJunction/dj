@@ -8,7 +8,9 @@ import pytest
 from datajunction_server.sql.parsing.backends.antlr4 import (
     ast,
     cached_antlr_tree,
+    cached_request_tree,
     parse,
+    report_parse_cache_stats,
 )
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 
@@ -320,3 +322,41 @@ def test_cached_antlr_tree_yields_independent_asts():
     assert str(second) == str(parse(sql))
     assert "SUM(amount)" in str(second)
     assert "mutated" not in str(second)
+
+
+def test_request_sql_uses_its_own_cache():
+    """Request SQL must not take slots from the node definition cache."""
+    cached_antlr_tree.cache_clear()
+    cached_request_tree.cache_clear()
+
+    parse("SELECT 1 WHERE colx = 'a'", from_request=True)
+    parse("SELECT 1 WHERE colx = 'b'", from_request=True)
+    parse("SELECT defn_col FROM defn_tbl")
+
+    assert cached_request_tree.cache_info().currsize == 2
+    assert cached_antlr_tree.cache_info().currsize == 1
+
+
+def test_report_parse_cache_stats_emits_gauges(mocker):
+    """Both caches report hits, misses and size under their own tag."""
+    provider = mocker.MagicMock()
+    mocker.patch(
+        "datajunction_server.instrumentation.provider.get_metrics_provider",
+        return_value=provider,
+    )
+
+    report_parse_cache_stats()
+
+    reported = {
+        (call.args[0], call.args[2]["cache"]) for call in provider.gauge.call_args_list
+    }
+    assert reported == {
+        (name, cache)
+        for name in (
+            "dj.sql.parse_cache.hits",
+            "dj.sql.parse_cache.misses",
+            "dj.sql.parse_cache.size",
+            "dj.sql.parse_cache.max_size",
+        )
+        for cache in ("definitions", "requests")
+    }

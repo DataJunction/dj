@@ -182,7 +182,7 @@ def apply_orderby_limit(
 
         # Parse the orderby expressions
         orderby_str = ",".join(orderby)
-        parsed = parse(f"SELECT 1 ORDER BY {orderby_str}")
+        parsed = parse(f"SELECT 1 ORDER BY {orderby_str}", from_request=True)
         sort_items = (
             parsed.select.organization.order if parsed.select.organization else []
         )

@@ -37,6 +37,7 @@ from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.errors import DJException, DJInvalidInputException
 from datajunction_server.instrumentation.provider import get_metrics_provider
+from datajunction_server.sql.parsing.backends.antlr4 import report_parse_cache_stats
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
     AccessDenialMode,
@@ -281,6 +282,7 @@ async def generate_metrics_sql(
     provider = get_metrics_provider()
     provider.timer("dj.sql.build_latency_ms", elapsed_ms, _tags)
     provider.counter("dj.sql.requests", tags=_tags)
+    report_parse_cache_stats()
     if result.warnings:
         provider.counter("dj.sql.build_warnings", tags=_tags)
     logger.info(
