@@ -12,6 +12,7 @@ Key concepts:
 from pydantic import BaseModel
 
 from datajunction_server.enum import StrEnum
+from datajunction_server.models.reaggregate import DimensionReaggregateRule
 
 
 class Aggregability(StrEnum):
@@ -54,6 +55,7 @@ class AggregationRule(BaseModel):
 
     type: Aggregability = Aggregability.NONE
     level: list[str] | None = None
+    reaggregate: DimensionReaggregateRule | None = None
 
 
 class MetricComponent(BaseModel):

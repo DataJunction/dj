@@ -10,6 +10,23 @@ import { labelize } from '../../../utils/form';
 SyntaxHighlighter.registerLanguage('sql', sql);
 foundation.hljs['padding'] = '2rem';
 
+const dimensionNodePath = dimension => {
+  if (!dimension) {
+    return null;
+  }
+  const dimensionWithoutRole = dimension.replace(/\[[^\]]+\]$/, '');
+  const parts = dimensionWithoutRole.split('.');
+  if (parts.length <= 1) {
+    return null;
+  }
+  return parts.slice(0, -1).join('.');
+};
+
+const reaggregateFunctionLabel = func =>
+  func ? labelize(func.toLowerCase()) : null;
+
+const firstReaggregateRule = reaggregate => reaggregate?.rules?.[0];
+
 // interface MetricInfo {
 //   name: string;
 //   current: MetricRevision;
@@ -59,6 +76,7 @@ export default function NodeInfoTab({ node }) {
         expression: metric.current.metricMetadata?.expression,
         incompatible_druid_functions:
           metric.current.metricMetadata?.incompatibleDruidFunctions || [],
+        reaggregate: metric.current.reaggregate,
       });
     };
     if (node.type === 'metric') {
@@ -265,6 +283,39 @@ export default function NodeInfoTab({ node }) {
               aria-label="SignificantDigits"
             >
               {metricInfo?.metric_metadata?.significantDigits || 'None'}
+            </p>
+          </div>
+          <div style={{ marginRight: '2rem' }}>
+            <h6 className="mb-0 w-100">Semi-Additive</h6>
+            <p
+              className="mb-0 opacity-75"
+              role="dialog"
+              aria-hidden="false"
+              aria-label="Reaggregate"
+            >
+              {firstReaggregateRule(metricInfo?.reaggregate) ? (
+                <>
+                  {reaggregateFunctionLabel(
+                    firstReaggregateRule(metricInfo.reaggregate).fn,
+                  )}
+                  {' on '}
+                  {dimensionNodePath(
+                    firstReaggregateRule(metricInfo.reaggregate).dimension,
+                  ) ? (
+                    <a
+                      href={`/nodes/${dimensionNodePath(
+                        firstReaggregateRule(metricInfo.reaggregate).dimension,
+                      )}`}
+                    >
+                      {firstReaggregateRule(metricInfo.reaggregate).dimension}
+                    </a>
+                  ) : (
+                    firstReaggregateRule(metricInfo.reaggregate).dimension
+                  )}
+                </>
+              ) : (
+                'None'
+              )}
             </p>
           </div>
         </div>

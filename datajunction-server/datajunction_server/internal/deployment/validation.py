@@ -19,7 +19,11 @@ from datajunction_server.errors import (
     ErrorCode,
 )
 from datajunction_server.internal.deployment.type_inference import validate_node_query
-from datajunction_server.internal.validation import validate_metric_query
+from datajunction_server.internal.validation import (
+    derived_metric_reaggregate_error,
+    invalid_reaggregate_dimension_references,
+    validate_metric_query,
+)
 from datajunction_server.models.deployment import (
     ColumnSpec,
     DimensionJoinLinkSpec,
@@ -33,6 +37,9 @@ from datajunction_server.models.dimensionlink import (
     missing_join_on_message,
 )
 from datajunction_server.models.node import NodeStatus, NodeType
+from datajunction_server.models.reaggregate import (
+    unsupported_dimension_reaggregate_functions,
+)
 from datajunction_server.sql.dag import get_dimensions
 from datajunction_server.sql.parsing.ast import fast_parse_mode
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse_rule
@@ -157,7 +164,7 @@ class NodeSpecBulkValidator:
                 specs_needing_parse.append(spec)
                 spec_indices.append(i)
 
-        # Pre-fetch dimension nodes for required_dimensions validation
+        # Pre-fetch dimension nodes for metric dimension-reference validation
         await self._prefetch_required_dimension_nodes(specs_needing_parse)
 
         # Pre-fetch dimension sets for cross-fact derived metric validation
@@ -523,6 +530,10 @@ class NodeSpecBulkValidator:
             if req_dim_error is not None:
                 errors.append(req_dim_error)
 
+            reaggregate_error = self._check_reaggregate_dimension(spec)
+            if reaggregate_error is not None:
+                errors.append(reaggregate_error)
+
             cross_fact_error = self._check_cross_fact_dimensions(spec)
             if cross_fact_error is not None:
                 errors.append(cross_fact_error)  # pragma: no cover
@@ -688,9 +699,9 @@ class NodeSpecBulkValidator:
         specs: list[NodeSpec],
     ) -> None:
         """
-        Collect all dimension node names referenced via required_dimensions across the
-        batch, fetch any not already in dependency_nodes in a single DB query, and
-        store the combined map in self._all_dim_nodes.
+        Collect all dimension node names referenced via metric-only dimension
+        declarations across the batch, fetch any not already in dependency_nodes in a
+        single DB query, and store the combined map in self._all_dim_nodes.
         """
         req_dim_node_names: set[str] = set()
         for spec in specs:
@@ -700,6 +711,12 @@ class NodeSpecBulkValidator:
                 if SEPARATOR in req_dim:
                     dim_node_name = req_dim.rsplit(SEPARATOR, 1)[0]
                     req_dim_node_names.add(dim_node_name)
+            reaggregate = getattr(spec, "rendered_reaggregate", None)
+            if reaggregate:
+                for rule in reaggregate.rules:
+                    if SEPARATOR in rule.dimension:
+                        dim_node_name = rule.dimension.rsplit(SEPARATOR, 1)[0]
+                        req_dim_node_names.add(dim_node_name)
 
         self._all_dim_nodes = dict(self.context.dependency_nodes)
 
@@ -811,6 +828,68 @@ class NodeSpecBulkValidator:
                 "required dimensions that are not on parent nodes."
             ),
             debug={"invalid_required_dimensions": list(invalid)},
+        )
+
+    def _check_reaggregate_dimension(self, spec: NodeSpec) -> DJError | None:
+        """
+        Validate that reaggregate rule dimensions resolve to real columns.
+        """
+        reaggregate = getattr(spec, "rendered_reaggregate", None)
+        if not reaggregate or not reaggregate.rules:
+            return None
+
+        metric_type_error = derived_metric_reaggregate_error(
+            spec.rendered_name,
+            spec.node_type == NodeType.METRIC
+            and spec.query_ast is not None
+            and spec.query_ast.select.from_ is None,
+            reaggregate,
+        )
+        if metric_type_error:
+            return metric_type_error
+
+        invalid_functions = unsupported_dimension_reaggregate_functions(reaggregate)
+        if invalid_functions:
+            return DJError(
+                code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                message=(
+                    "Node definition contains unsupported dimension "
+                    "reaggregate function(s)."
+                ),
+                debug={
+                    "invalid_reaggregate_functions": invalid_functions,
+                },
+            )
+
+        dep_names = self.context.node_graph.get(spec.rendered_name, [])
+        parent_columns = [
+            col
+            for dep_name in dep_names
+            for dep_node in [self.context.dependency_nodes.get(dep_name)]
+            if dep_node and dep_node.current
+            for col in dep_node.current.columns
+        ]
+
+        reaggregate_dimensions = [rule.dimension for rule in reaggregate.rules]
+        invalid, _ = _resolve_required_dimensions(
+            reaggregate_dimensions,
+            parent_columns,
+            self._all_dim_nodes,
+        )
+        invalid.update(
+            invalid_reaggregate_dimension_references(reaggregate_dimensions),
+        )
+
+        if not invalid:
+            return None
+
+        return DJError(
+            code=ErrorCode.INVALID_COLUMN,
+            message=(
+                "Node definition contains references to columns as "
+                "reaggregate dimensions that are not on parent nodes."
+            ),
+            debug={"invalid_reaggregate_dimensions": list(invalid)},
         )
 
     async def _prefetch_metric_dimensions(

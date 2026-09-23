@@ -11,6 +11,7 @@ from datajunction_server.database.column import Column, ColumnAttribute
 from datajunction_server.errors import (
     DJError,
     DJException,
+    DJInvalidInputException,
     DJInvalidMetricQueryException,
     ErrorCode,
 )
@@ -23,10 +24,48 @@ from datajunction_server.internal.deployment.utils import (
 from datajunction_server.models.base import labelize
 from datajunction_server.models.node import NodeRevisionBase, NodeStatus
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.reaggregate import (
+    ReaggregateSpec,
+    parse_reaggregate_spec,
+    unsupported_dimension_reaggregate_functions,
+)
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.sql.parsing.types import ListType, MapType, StructType
+
+
+def invalid_reaggregate_dimension_references(dimensions: list[str]) -> set[str]:
+    """Return reaggregate dimensions that are not fully qualified."""
+    from datajunction_server.construction.build_v3.dimensions import (
+        parse_dimension_ref,
+    )
+
+    invalid: set[str] = set()
+    for dimension in dimensions:
+        try:
+            parse_dimension_ref(dimension)
+        except DJInvalidInputException:
+            invalid.add(dimension)
+    return invalid
+
+
+def derived_metric_reaggregate_error(
+    metric_name: str,
+    is_derived_metric: bool,
+    reaggregate: ReaggregateSpec | dict | None,
+) -> DJError | None:
+    """Reject metric-level reaggregation declarations on derived metrics."""
+    reaggregate_spec = parse_reaggregate_spec(reaggregate)
+    if not (is_derived_metric and reaggregate_spec and reaggregate_spec.rules):
+        return None
+    return DJError(
+        code=ErrorCode.INVALID_METRIC,
+        message=(
+            "Reaggregate declarations are only supported on base metrics. "
+            f"Derived metric `{metric_name}` declares reaggregate."
+        ),
+    )
 
 
 def _reparse_parent_column_types(dependencies_map: dict) -> None:
@@ -357,11 +396,38 @@ async def validate_node_data(
             parent_columns,
         )
         node_validator.required_dimensions = matched_bound_columns
+        reaggregate_spec = parse_reaggregate_spec(validated_node.reaggregate)
+        invalid_reaggregate_dimensions: set[str] = set()
+        invalid_reaggregate_functions: list[str] = []
+        if reaggregate_spec and reaggregate_spec.rules:
+            reaggregate_dimensions = [rule.dimension for rule in reaggregate_spec.rules]
+            (
+                invalid_reaggregate_dimensions,
+                _,
+            ) = await find_required_dimensions(
+                session,
+                reaggregate_dimensions,
+                parent_columns,
+            )
+            invalid_reaggregate_dimensions.update(
+                invalid_reaggregate_dimension_references(reaggregate_dimensions),
+            )
+            invalid_reaggregate_functions = unsupported_dimension_reaggregate_functions(
+                reaggregate_spec,
+            )
     except MissingGreenlet:
         invalid_required_dimensions = set()
+        invalid_reaggregate_dimensions = set()
+        invalid_reaggregate_functions = []
         node_validator.required_dimensions = []
 
-    if missing_parents_map or type_inference_failures or invalid_required_dimensions:
+    if (
+        missing_parents_map
+        or type_inference_failures
+        or invalid_required_dimensions
+        or invalid_reaggregate_dimensions
+        or invalid_reaggregate_functions
+    ):
         # update status
         node_validator.status = NodeStatus.INVALID
         # build errors
@@ -410,10 +476,46 @@ async def validate_node_data(
             if invalid_required_dimensions
             else []
         )
+        invalid_reaggregate_dimensions_error = (
+            [
+                DJError(
+                    code=ErrorCode.INVALID_COLUMN,
+                    message=(
+                        "Node definition contains references to columns as "
+                        "reaggregate dimensions that are not on parent nodes."
+                    ),
+                    debug={
+                        "invalid_reaggregate_dimensions": list(
+                            invalid_reaggregate_dimensions,
+                        ),
+                    },
+                ),
+            ]
+            if invalid_reaggregate_dimensions
+            else []
+        )
+        invalid_reaggregate_functions_error = (
+            [
+                DJError(
+                    code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                    message=(
+                        "Node definition contains unsupported dimension "
+                        "reaggregate function(s)."
+                    ),
+                    debug={
+                        "invalid_reaggregate_functions": invalid_reaggregate_functions,
+                    },
+                ),
+            ]
+            if invalid_reaggregate_functions
+            else []
+        )
         errors = (
             missing_parents_error
             + type_inference_error
             + invalid_required_dimensions_error
+            + invalid_reaggregate_dimensions_error
+            + invalid_reaggregate_functions_error
         )
         node_validator.errors.extend(errors)
 
@@ -547,6 +649,14 @@ async def validate_node_data_v2(
 
     # --- Step 4: classify parents (SHARED with deployment) ---
     is_derived_metric = is_metric and query_ast.select.from_ is None
+    reaggregate_metric_error = derived_metric_reaggregate_error(
+        validated_node.name,
+        is_derived_metric,
+        validated_node.reaggregate,
+    )
+    if reaggregate_metric_error:
+        node_validator.status = NodeStatus.INVALID
+        node_validator.errors.append(reaggregate_metric_error)
     parents, missing = classify_parents(
         is_derived_metric,
         candidates,
@@ -705,10 +815,34 @@ async def validate_node_data_v2(
         parent_columns,
     )
     node_validator.required_dimensions = matched_bound_columns
+    reaggregate_spec = parse_reaggregate_spec(validated_node.reaggregate)
+    invalid_reaggregate_dimensions: set[str] = set()
+    invalid_reaggregate_functions: list[str] = []
+    if reaggregate_spec and reaggregate_spec.rules:
+        reaggregate_dimensions = [rule.dimension for rule in reaggregate_spec.rules]
+        (
+            invalid_reaggregate_dimensions,
+            _,
+        ) = await find_required_dimensions(
+            session,
+            reaggregate_dimensions,
+            parent_columns,
+        )
+        invalid_reaggregate_dimensions.update(
+            invalid_reaggregate_dimension_references(reaggregate_dimensions),
+        )
+        invalid_reaggregate_functions = unsupported_dimension_reaggregate_functions(
+            reaggregate_spec,
+        )
 
     # --- Step 12: final error assembly for missing parents + invalid required
     #              dims (matches legacy code shapes).
-    if node_validator.missing_parents_map or invalid_required_dimensions:
+    if (
+        node_validator.missing_parents_map
+        or invalid_required_dimensions
+        or invalid_reaggregate_dimensions
+        or invalid_reaggregate_functions
+    ):
         node_validator.status = NodeStatus.INVALID
         if node_validator.missing_parents_map:
             node_validator.errors.append(
@@ -737,6 +871,34 @@ async def validate_node_data_v2(
                         "invalid_required_dimensions": list(
                             invalid_required_dimensions,
                         ),
+                    },
+                ),
+            )
+        if invalid_reaggregate_dimensions:
+            node_validator.errors.append(
+                DJError(
+                    code=ErrorCode.INVALID_COLUMN,
+                    message=(
+                        "Node definition contains references to columns as "
+                        "reaggregate dimensions that are not on parent nodes."
+                    ),
+                    debug={
+                        "invalid_reaggregate_dimensions": list(
+                            invalid_reaggregate_dimensions,
+                        ),
+                    },
+                ),
+            )
+        if invalid_reaggregate_functions:
+            node_validator.errors.append(
+                DJError(
+                    code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                    message=(
+                        "Node definition contains unsupported dimension "
+                        "reaggregate function(s)."
+                    ),
+                    debug={
+                        "invalid_reaggregate_functions": invalid_reaggregate_functions,
                     },
                 ),
             )

@@ -12,7 +12,10 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datajunction_server.api.cubes import _resolve_cube_partition_output_column
+from datajunction_server.api.cubes import (
+    _resolve_cube_partition_output_column,
+    _validate_cube_reaggregate_materialization,
+)
 from datajunction_server.construction.build_v3.combiners import (
     PreAggSourceInfo,
     TemporalPartitionInfo,
@@ -26,6 +29,7 @@ from datajunction_server.errors import (
     ErrorCode,
 )
 from datajunction_server.models.cube import CubeElementMetadata
+from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.materialization import (
     MaterializationInfo,
     MaterializationStrategy,
@@ -37,6 +41,69 @@ from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.utils import get_query_service_client
 from tests.construction.build_v3 import assert_sql_equal
 from tests.sql.utils import compare_query_strings
+
+
+@pytest.mark.asyncio
+async def test_cube_reaggregate_validation_skips_decomposition_without_reaggregate(
+    mocker,
+):
+    """Ordinary cube materializations avoid full metric decomposition."""
+    session = mocker.MagicMock(spec=AsyncSession)
+    cube = mocker.MagicMock()
+    cube.current.cube_node_metrics = ["default.total_revenue"]
+    has_reaggregate = mocker.patch(
+        "datajunction_server.api.cubes._metric_graph_has_reaggregate",
+        new=mocker.AsyncMock(return_value=False),
+    )
+    setup_build_context = mocker.patch(
+        "datajunction_server.construction.build_v3.builder.setup_build_context",
+        new=mocker.AsyncMock(),
+    )
+
+    await _validate_cube_reaggregate_materialization(session, cube)
+
+    has_reaggregate.assert_awaited_once_with(
+        session,
+        ["default.total_revenue"],
+    )
+    setup_build_context.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cube_reaggregate_validation_decomposes_reaggregate_graph(mocker):
+    """Reaggregate metric graphs still receive full safety validation."""
+    session = mocker.MagicMock(spec=AsyncSession)
+    cube = mocker.MagicMock()
+    cube.current.cube_node_metrics = ["default.balance_index"]
+    cube.current.cube_node_dimensions = ["default.product.category"]
+    cube.current.cube_filters = []
+    mocker.patch(
+        "datajunction_server.api.cubes._metric_graph_has_reaggregate",
+        new=mocker.AsyncMock(return_value=True),
+    )
+    context = mocker.MagicMock()
+    setup_build_context = mocker.patch(
+        "datajunction_server.construction.build_v3.builder.setup_build_context",
+        new=mocker.AsyncMock(return_value=context),
+    )
+    validate = mocker.patch(
+        "datajunction_server.api.cubes.validate_cube_reaggregate_materialization",
+    )
+
+    await _validate_cube_reaggregate_materialization(session, cube)
+
+    setup_build_context.assert_awaited_once_with(
+        session=session,
+        metrics=["default.balance_index"],
+        dimensions=["default.product.category"],
+        filters=None,
+        dialect=Dialect.SPARK,
+        use_materialized=False,
+    )
+    validate.assert_called_once_with(
+        cube.current,
+        decomposed_metrics=context.decomposed_metrics,
+    )
 
 
 def test_cube_partition_output_prefers_exact_unqualified_match():
@@ -3588,6 +3655,7 @@ async def test_cube_materialization_metadata(
                     "name": "count_c8e42e74",
                     "rule": {
                         "level": None,
+                        "reaggregate": None,
                         "type": "full",
                     },
                 },
@@ -3599,6 +3667,7 @@ async def test_cube_materialization_metadata(
                     "name": "discount_sum_30b84e6c",
                     "rule": {
                         "level": None,
+                        "reaggregate": None,
                         "type": "full",
                     },
                 },
@@ -3610,6 +3679,7 @@ async def test_cube_materialization_metadata(
                     "name": "price_count_935e7117",
                     "rule": {
                         "level": None,
+                        "reaggregate": None,
                         "type": "full",
                     },
                 },
@@ -3621,6 +3691,7 @@ async def test_cube_materialization_metadata(
                     "name": "price_discount_sum_e4ba5456",
                     "rule": {
                         "level": None,
+                        "reaggregate": None,
                         "type": "full",
                     },
                 },
@@ -3632,6 +3703,7 @@ async def test_cube_materialization_metadata(
                     "name": "price_sum_935e7117",
                     "rule": {
                         "level": None,
+                        "reaggregate": None,
                         "type": "full",
                     },
                 },
@@ -3643,6 +3715,7 @@ async def test_cube_materialization_metadata(
                     "name": "repair_order_id_count_bd241964",
                     "rule": {
                         "level": None,
+                        "reaggregate": None,
                         "type": "full",
                     },
                 },
@@ -3654,6 +3727,7 @@ async def test_cube_materialization_metadata(
                     "name": "total_repair_cost_sum_67874507",
                     "rule": {
                         "level": None,
+                        "reaggregate": None,
                         "type": "full",
                     },
                 },
@@ -3773,6 +3847,7 @@ async def test_cube_materialization_metadata(
                     "name": "price_sum_252381cf",
                     "rule": {
                         "level": None,
+                        "reaggregate": None,
                         "type": "full",
                     },
                 },
@@ -4025,7 +4100,7 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "COUNT",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None},
+                    "rule": {"type": "full", "level": None, "reaggregate": None},
                 },
                 {
                     "name": "discount_sum_30b84e6c",
@@ -4033,7 +4108,7 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "SUM",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None},
+                    "rule": {"type": "full", "level": None, "reaggregate": None},
                 },
                 {
                     "name": "price_count_935e7117",
@@ -4041,7 +4116,7 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "COUNT",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None},
+                    "rule": {"type": "full", "level": None, "reaggregate": None},
                 },
                 {
                     "name": "price_discount_sum_e4ba5456",
@@ -4049,7 +4124,7 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "SUM",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None},
+                    "rule": {"type": "full", "level": None, "reaggregate": None},
                 },
                 {
                     "name": "price_sum_935e7117",
@@ -4057,7 +4132,7 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "SUM",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None},
+                    "rule": {"type": "full", "level": None, "reaggregate": None},
                 },
                 {
                     "name": "repair_order_id_count_bd241964",
@@ -4065,7 +4140,7 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "COUNT",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None},
+                    "rule": {"type": "full", "level": None, "reaggregate": None},
                 },
                 {
                     "name": "total_repair_cost_sum_67874507",
@@ -4073,7 +4148,7 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "SUM",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None},
+                    "rule": {"type": "full", "level": None, "reaggregate": None},
                 },
                 {
                     "name": "price_sum_252381cf",
@@ -4081,7 +4156,7 @@ async def test_cube_materialization_metadata(
                     "grain_alias": None,
                     "aggregation": "SUM",
                     "merge": "SUM",
-                    "rule": {"type": "full", "level": None},
+                    "rule": {"type": "full", "level": None, "reaggregate": None},
                 },
             ],
             "timestamp_column": "hire_date",
@@ -4803,6 +4878,133 @@ class TestCubeMaterializeV2SuccessPaths:
     These tests mock build_combiner_sql_from_preaggs to return valid results,
     and mock the query service client to test the full endpoint flow.
     """
+
+    @pytest.fixture(autouse=True)
+    def _preserve_app_dependency_overrides(
+        self,
+        client_with_repairs_cube: AsyncClient,
+    ):
+        """Protect module-scoped client overrides from function-scoped clients."""
+        original_overrides = dict(client_with_repairs_cube.app.dependency_overrides)
+        yield
+        client_with_repairs_cube.app.dependency_overrides.clear()
+        client_with_repairs_cube.app.dependency_overrides.update(original_overrides)
+
+    @pytest.mark.asyncio
+    async def test_materialize_reaggregate_cube_without_protected_dimension_fails(
+        self,
+        client_with_build_v3: AsyncClient,
+        mocker,
+    ):
+        """Druid cube materialization refuses to bake in collapsed
+        semi-additive metrics without the protected dimension."""
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.daily_balance",
+                "description": "Semi-additive balance measured by order date",
+                "query": "SELECT SUM(line_total) FROM v3.order_details",
+                "mode": "published",
+                "reaggregate": {
+                    "rules": [
+                        {
+                            "dimension": "v3.date.date_id[order]",
+                            "fn": "last_value",
+                        },
+                    ],
+                },
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+        cube_name = "v3.test_daily_balance_materialization_guard"
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": cube_name,
+                "metrics": ["v3.daily_balance"],
+                "dimensions": ["v3.product.category"],
+                "mode": "published",
+                "description": "Unsafe semi-additive materialization",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        combiner = mocker.patch(
+            "datajunction_server.api.cubes.build_combiner_sql_from_preaggs",
+        )
+
+        response = await client_with_build_v3.post(
+            f"/cubes/{cube_name}/materialize",
+            json={"strategy": "full", "schedule": "0 0 * * *"},
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "protected dimension" in response.json()["message"]
+        combiner.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_materialize_derived_reaggregate_cube_without_protected_dimension_fails(
+        self,
+        client_with_build_v3: AsyncClient,
+        mocker,
+    ):
+        """Druid cube materialization also refuses derived metrics whose base
+        metric has an omitted semi-additive protected dimension."""
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.daily_balance",
+                "description": "Semi-additive balance measured by order date",
+                "query": "SELECT SUM(line_total) FROM v3.order_details",
+                "mode": "published",
+                "reaggregate": {
+                    "rules": [
+                        {
+                            "dimension": "v3.date.date_id[order]",
+                            "fn": "last_value",
+                        },
+                    ],
+                },
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.daily_balance_index",
+                "description": "Derived semi-additive balance index",
+                "query": "SELECT 10.0 / v3.daily_balance",
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+        cube_name = "v3.test_daily_balance_index_materialization_guard"
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": cube_name,
+                "metrics": ["v3.daily_balance_index"],
+                "dimensions": ["v3.product.category"],
+                "mode": "published",
+                "description": "Unsafe derived semi-additive materialization",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        combiner = mocker.patch(
+            "datajunction_server.api.cubes.build_combiner_sql_from_preaggs",
+        )
+
+        response = await client_with_build_v3.post(
+            f"/cubes/{cube_name}/materialize",
+            json={"strategy": "full", "schedule": "0 0 * * *"},
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "protected dimension" in response.json()["message"]
+        combiner.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_materialize_cube_full_strategy_success(
@@ -5596,6 +5798,12 @@ class TestCubeMaterializeV2SuccessPaths:
         mock_qs_client.materialize_cube_v2.return_value = mocker.MagicMock(
             urls=["http://workflow/test-cube"],
         )
+        had_query_service_override = get_query_service_client in (
+            client.app.dependency_overrides
+        )
+        original_query_service_override = client.app.dependency_overrides.get(
+            get_query_service_client,
+        )
         client.app.dependency_overrides[get_query_service_client] = lambda: (
             mock_qs_client
         )
@@ -5783,8 +5991,12 @@ class TestCubeMaterializeV2SuccessPaths:
             ]
         finally:
             # Clean up dependency override
-            if get_query_service_client in client.app.dependency_overrides:
-                del client.app.dependency_overrides[get_query_service_client]
+            if had_query_service_override:
+                client.app.dependency_overrides[get_query_service_client] = (
+                    original_query_service_override
+                )
+            else:
+                client.app.dependency_overrides.pop(get_query_service_client, None)
 
 
 class TestCubeDeactivateSuccessPaths:
@@ -6020,6 +6232,12 @@ class TestCubeDeactivateWithStoredWorkflowNames:
             urls=["http://workflow/cube-workflow"],
             workflow_names=["cube_wf_name_1"],
         )
+        had_query_service_override = get_query_service_client in (
+            client.app.dependency_overrides
+        )
+        original_query_service_override = client.app.dependency_overrides.get(
+            get_query_service_client,
+        )
         client.app.dependency_overrides[get_query_service_client] = lambda: (
             mock_qs_client
         )
@@ -6047,8 +6265,12 @@ class TestCubeDeactivateWithStoredWorkflowNames:
             # The old path should NOT have been called
             mock_qs_client.deactivate_cube_workflow.assert_not_called()
         finally:
-            if get_query_service_client in client.app.dependency_overrides:
-                del client.app.dependency_overrides[get_query_service_client]
+            if had_query_service_override:
+                client.app.dependency_overrides[get_query_service_client] = (
+                    original_query_service_override
+                )
+            else:
+                client.app.dependency_overrides.pop(get_query_service_client, None)
 
 
 class TestCubeBackfillSuccessPaths:
