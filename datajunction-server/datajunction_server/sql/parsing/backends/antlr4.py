@@ -200,39 +200,34 @@ def tree_to_strings(tree, indent=0):
     return result
 
 
-# Each entry retains its parser and token stream.
-ANTLR_TREE_CACHE_SIZE = 512
-
-# Request SQL is unbounded, so it gets a small cache of its own. Sharing one
-# with node definitions would let filter churn evict them.
-REQUEST_TREE_CACHE_SIZE = 64
-
-
-@lru_cache(maxsize=ANTLR_TREE_CACHE_SIZE)
-def cached_antlr_tree(sql: str, rule: str):
+@lru_cache(maxsize=1)
+def _request_tree_parser():
     """
-    Parse a node definition into an ANTLR tree, caching the result.
-
-    The tree is safe to share: ``visit`` only reads it, and the mutable DJ AST
-    is rebuilt on every call.
+    Build the request SQL cache, sized from settings on first use.
     """
-    return parse_sql_with_sll_fallback(sql, rule)
+    from datajunction_server.utils import get_settings  # noqa: PLC0415
+
+    @lru_cache(maxsize=get_settings().request_parse_cache_size)
+    def _parse(sql: str, rule: str):
+        return parse_sql_with_sll_fallback(sql, rule)
+
+    return _parse
 
 
-@lru_cache(maxsize=REQUEST_TREE_CACHE_SIZE)
 def cached_request_tree(sql: str, rule: str):
     """
     Parse request-supplied SQL into an ANTLR tree, caching the result.
 
-    Filters and orderby clauses are parsed many times within one request but
-    vary freely across requests, so this cache is kept small.
+    One request parses the same filter many times over, so this removes work
+    the build would otherwise repeat. The tree is safe to share: ``visit``
+    only reads it, and the mutable DJ AST is rebuilt on every call.
     """
-    return parse_sql_with_sll_fallback(sql, rule)
+    return _request_tree_parser()(sql, rule)
 
 
 def report_parse_cache_stats() -> None:
     """
-    Report tree cache size and hit counts.
+    Report request SQL cache size and hit counts.
 
     Misses rising while ``size`` sits at ``max_size`` means the cache is too
     small and entries are being evicted.
@@ -242,14 +237,11 @@ def report_parse_cache_stats() -> None:
     )
 
     provider = get_metrics_provider()
-    caches = {"definitions": cached_antlr_tree, "requests": cached_request_tree}
-    for name, cache in caches.items():
-        info = cache.cache_info()
-        tags = {"cache": name}
-        provider.gauge("dj.sql.parse_cache.hits", info.hits, tags)
-        provider.gauge("dj.sql.parse_cache.misses", info.misses, tags)
-        provider.gauge("dj.sql.parse_cache.size", info.currsize, tags)
-        provider.gauge("dj.sql.parse_cache.max_size", info.maxsize, tags)
+    info = _request_tree_parser().cache_info()
+    provider.gauge("dj.sql.parse_cache.hits", info.hits)
+    provider.gauge("dj.sql.parse_cache.misses", info.misses)
+    provider.gauge("dj.sql.parse_cache.size", info.currsize)
+    provider.gauge("dj.sql.parse_cache.max_size", info.maxsize)
 
 
 def parse_rule(
@@ -261,13 +253,15 @@ def parse_rule(
     Parse a string into a DJ ast using the ANTLR4 backend.
 
     Uses SLL mode first (faster), falls back to LL mode if needed. Set
-    ``from_request`` for SQL that came from a request, so that its unbounded
-    variety cannot evict cached node definitions.
+    ``from_request`` for filters and orderby clauses, which one request
+    parses repeatedly.
     """
-    tree_cache = cached_request_tree if from_request else cached_antlr_tree
-    antlr_tree = tree_cache(sql, rule)
-    ast_tree = visit(antlr_tree)
-    return ast_tree
+    antlr_tree = (
+        cached_request_tree(sql, rule)
+        if from_request
+        else parse_sql_with_sll_fallback(sql, rule)
+    )
+    return visit(antlr_tree)
 
 
 @lru_cache(maxsize=128)

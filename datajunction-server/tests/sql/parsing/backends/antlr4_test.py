@@ -6,8 +6,8 @@ Tests for custom antlr4 parser
 import pytest
 
 from datajunction_server.sql.parsing.backends.antlr4 import (
+    _request_tree_parser,
     ast,
-    cached_antlr_tree,
     cached_request_tree,
     parse,
     report_parse_cache_stats,
@@ -298,47 +298,42 @@ def test_unsupported_grammar_branch_surfaces_djparse():
         parse(bad_sql)
 
 
-def test_antlr_tree_is_cached_between_parses():
-    """The same (sql, rule) reuses one ANTLR tree instead of re-parsing."""
-    sql = "SELECT cached_col FROM cached_tbl WHERE cached_col > 1"
-    cached_antlr_tree.cache_clear()
+def test_request_sql_tree_is_cached_between_parses():
+    """The same request filter reuses one ANTLR tree instead of re-parsing."""
+    _request_tree_parser().cache_clear()
+    sql = "SELECT 1 WHERE colx = 'cached'"
 
-    first = cached_antlr_tree(sql, "singleStatement")
-    second = cached_antlr_tree(sql, "singleStatement")
+    first = cached_request_tree(sql, "singleStatement")
+    second = cached_request_tree(sql, "singleStatement")
 
     assert first is second
-    assert cached_antlr_tree(sql, "singleStatement").getText() == first.getText()
+    assert _request_tree_parser().cache_info().hits == 1
 
 
-def test_cached_antlr_tree_yields_independent_asts():
-    """Each parse gets a fresh AST, so mutating one cannot corrupt the next."""
-    sql = "SELECT SUM(amount) AS total FROM payments"
+def test_node_definitions_are_not_cached():
+    """Node SQL is parsed fresh; only request SQL is cached."""
+    _request_tree_parser().cache_clear()
 
-    first = parse(sql)
-    first.select.projection[0].alias.name = "mutated"
-    first.select.projection[0].child.name.name = "MAX"
-
-    second = parse(sql)
-    assert str(second) == str(parse(sql))
-    assert "SUM(amount)" in str(second)
-    assert "mutated" not in str(second)
-
-
-def test_request_sql_uses_its_own_cache():
-    """Request SQL must not take slots from the node definition cache."""
-    cached_antlr_tree.cache_clear()
-    cached_request_tree.cache_clear()
-
-    parse("SELECT 1 WHERE colx = 'a'", from_request=True)
-    parse("SELECT 1 WHERE colx = 'b'", from_request=True)
+    parse("SELECT defn_col FROM defn_tbl")
     parse("SELECT defn_col FROM defn_tbl")
 
-    assert cached_request_tree.cache_info().currsize == 2
-    assert cached_antlr_tree.cache_info().currsize == 1
+    assert _request_tree_parser().cache_info().currsize == 0
+
+
+def test_cached_request_tree_yields_independent_asts():
+    """Each parse gets a fresh AST, so mutating one cannot corrupt the next."""
+    sql = "SELECT 1 WHERE amount = 5"
+
+    first = parse(sql, from_request=True)
+    first.select.where.right.value = 99
+
+    second = parse(sql, from_request=True)
+    assert str(second) == str(parse(sql, from_request=True))
+    assert "99" not in str(second)
 
 
 def test_report_parse_cache_stats_emits_gauges(mocker):
-    """Both caches report hits, misses and size under their own tag."""
+    """The request cache reports hits, misses and size."""
     provider = mocker.MagicMock()
     mocker.patch(
         "datajunction_server.instrumentation.provider.get_metrics_provider",
@@ -347,16 +342,18 @@ def test_report_parse_cache_stats_emits_gauges(mocker):
 
     report_parse_cache_stats()
 
-    reported = {
-        (call.args[0], call.args[2]["cache"]) for call in provider.gauge.call_args_list
-    }
+    reported = {call.args[0] for call in provider.gauge.call_args_list}
     assert reported == {
-        (name, cache)
-        for name in (
-            "dj.sql.parse_cache.hits",
-            "dj.sql.parse_cache.misses",
-            "dj.sql.parse_cache.size",
-            "dj.sql.parse_cache.max_size",
-        )
-        for cache in ("definitions", "requests")
+        "dj.sql.parse_cache.hits",
+        "dj.sql.parse_cache.misses",
+        "dj.sql.parse_cache.size",
+        "dj.sql.parse_cache.max_size",
     }
+
+
+def test_request_parse_cache_size_comes_from_settings(settings):
+    """The cache is sized from settings, not a hardcoded constant."""
+    _request_tree_parser.cache_clear()
+    assert (
+        _request_tree_parser().cache_info().maxsize == settings.request_parse_cache_size
+    )
