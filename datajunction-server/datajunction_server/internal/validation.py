@@ -69,6 +69,23 @@ def derived_metric_reaggregate_error(
     )
 
 
+def derived_metric_fixed_grain_error(
+    metric_name: str,
+    is_derived_metric: bool,
+    fixed_grain: list[str] | None,
+) -> DJError | None:
+    """Reject fixed-grain declarations on derived metrics."""
+    if not (is_derived_metric and fixed_grain is not None):
+        return None
+    return DJError(
+        code=ErrorCode.INVALID_METRIC,
+        message=(
+            "Fixed-grain declarations are only supported on base metrics. "
+            f"Derived metric `{metric_name}` declares fixed_grain."
+        ),
+    )
+
+
 def _reparse_parent_column_types(dependencies_map: dict) -> None:
     """Re-parse string column types on parent nodes before type inference.
 
@@ -250,6 +267,14 @@ async def validate_node_data(
         if metric_parents:
             # This is a derived metric - nested derived metrics are supported
             # via inline expansion during decomposition
+            fixed_grain_metric_error = derived_metric_fixed_grain_error(
+                validated_node.name,
+                True,
+                validated_node.fixed_grain,
+            )
+            if fixed_grain_metric_error:
+                node_validator.status = NodeStatus.INVALID
+                node_validator.errors.append(fixed_grain_metric_error)
             if len(metric_parents) > 1:
                 # For cross-fact derived metrics, validate that there are shared dimensions
                 # between all referenced base metrics
@@ -713,6 +738,14 @@ async def validate_node_data_v2(
     if reaggregate_metric_error:
         node_validator.status = NodeStatus.INVALID
         node_validator.errors.append(reaggregate_metric_error)
+    fixed_grain_metric_error = derived_metric_fixed_grain_error(
+        validated_node.name,
+        is_derived_metric,
+        validated_node.fixed_grain,
+    )
+    if fixed_grain_metric_error:
+        node_validator.status = NodeStatus.INVALID
+        node_validator.errors.append(fixed_grain_metric_error)
     parents, missing = classify_parents(
         is_derived_metric,
         candidates,

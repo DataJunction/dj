@@ -897,7 +897,10 @@ async def _derive_frozen_measures_impl(
     # Extract components using the node revision ID.
     # The extractor auto-detects base vs derived metrics.
     extractor = MetricComponentExtractor(node_revision.id)
-    measures, derived_sql = await extractor.extract(session)
+    measures, derived_sql = await extractor.extract(
+        session,
+        validate_fixed_grain_windows=False,
+    )
 
     node_revision.derived_expression = str(derived_sql)
 
@@ -1000,6 +1003,7 @@ async def derive_frozen_measures_bulk(
             nodes_cache=nodes_cache,
             parent_map=parent_map,
             metric_node=rev.node,
+            validate_fixed_grain_windows=False,
         )
         rev.derived_expression = str(derived_sql)
         extraction_results.append((rev, measures))
@@ -4538,7 +4542,11 @@ async def revalidate_node(
 
     # For metric nodes, derive frozen measures (ensures they exist even for
     # metrics created via deployment or updated after initial creation)
-    if current_node_revision.type == NodeType.METRIC and background_tasks:
+    if (
+        current_node_revision.type == NodeType.METRIC
+        and node_validator.status == NodeStatus.VALID
+        and background_tasks
+    ):
         background_tasks.add_task(
             derive_frozen_measures,
             node.current.id,  # type: ignore

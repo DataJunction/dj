@@ -654,7 +654,10 @@ async def test_attach_git_info_empty_list_short_circuits():
 
 
 @pytest.mark.asyncio
-async def test_extraction_survives_a_cold_session(session, session_factory):
+async def test_fixed_grain_extraction_survives_a_cold_session(
+    session,
+    session_factory,
+):
     """The batch loader must not need a warm identity map to succeed.
 
     Its `load_only` has to name every field `_build_metric_data_from_cache`

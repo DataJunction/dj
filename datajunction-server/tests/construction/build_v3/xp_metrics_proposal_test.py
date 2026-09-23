@@ -63,7 +63,6 @@ async def test_population_metric_at_unit_grain_is_refused(client_with_build_v3):
         "v3.xp_allocated_units",
         "SELECT COUNT(DISTINCT customer_id) FROM v3.page_views_enriched",
         fixed_grain=[UNIT],
-        reaggregate={"fn": "sum"},
     )
     assert created.status_code == 422
     assert created.json()["message"] == (
@@ -93,7 +92,6 @@ async def test_cross_fact_ratio_at_unit_grain_is_refused(client_with_build_v3):
         "v3.xp_activity",
         "SELECT SUM(line_total) FROM v3.order_details",
         fixed_grain=[UNIT],
-        reaggregate={"fn": "sum"},
     )
     created = await create_metric(
         client,
@@ -151,43 +149,48 @@ async def test_global_grain_ratio_builds_but_is_a_different_number(
         """
         WITH
         v3_date AS (
-        SELECT  date_id,
-        	month 
-         FROM default.v3.dates
+        SELECT date_id,
+            month
+        FROM default.v3.dates
         ),
         v3_order_details AS (
-        SELECT  o.order_date,
-        	oi.quantity * oi.unit_price AS line_total 
-         FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+        SELECT o.order_date,
+            oi.quantity * oi.unit_price AS line_total
+        FROM default.v3.orders o
+        JOIN default.v3.order_items oi ON o.order_id = oi.order_id
         ),
         v3_page_views_enriched AS (
-        SELECT  customer_id,
-        	page_date 
-         FROM default.v3.page_views
+        SELECT customer_id,
+            page_date
+        FROM default.v3.page_views
         ),
         order_details_0 AS (
-        SELECT  t2.month,
-        	SUM(t1.line_total) line_total_sum_e1f61696 
-         FROM v3_order_details t1 LEFT OUTER JOIN v3_date t2 ON t1.order_date = t2.date_id 
-         GROUP BY  t2.month
+        SELECT t2.month,
+            SUM(t1.line_total) line_total_sum_e1f61696
+        FROM v3_order_details t1
+        LEFT OUTER JOIN v3_date t2 ON t1.order_date = t2.date_id
+        GROUP BY t2.month
         ),
         page_views_enriched_0 AS (
-        SELECT  t2.month,
-        	t1.customer_id 
-         FROM v3_page_views_enriched t1 LEFT OUTER JOIN v3_date t2 ON t1.page_date = t2.date_id 
-         GROUP BY  t2.month, t1.customer_id
+        SELECT t2.month,
+            t1.customer_id
+        FROM v3_page_views_enriched t1
+        LEFT OUTER JOIN v3_date t2 ON t1.page_date = t2.date_id
+        GROUP BY t2.month, t1.customer_id
         ),
         base_metrics AS (
-        SELECT  COALESCE(order_details_0.month, page_views_enriched_0.month) AS month,
-        	COUNT( DISTINCT page_views_enriched_0.customer_id) AS visitor_count,
-        	SUM(SUM(order_details_0.line_total_sum_e1f61696)) OVER ()  AS xp_activity_global 
-         FROM order_details_0 FULL OUTER JOIN page_views_enriched_0 ON order_details_0.month = page_views_enriched_0.month 
-         GROUP BY  1
+        SELECT COALESCE(order_details_0.month, page_views_enriched_0.month) AS month,
+            COUNT(DISTINCT page_views_enriched_0.customer_id) AS visitor_count,
+            SUM(SUM(order_details_0.line_total_sum_e1f61696)) OVER () AS xp_activity_global
+        FROM order_details_0
+        FULL OUTER JOIN page_views_enriched_0
+            ON order_details_0.month = page_views_enriched_0.month
+        GROUP BY 1
         )
 
-        SELECT  base_metrics.month AS month,
-        	base_metrics.xp_activity_global / base_metrics.visitor_count AS xp_avg_global 
-         FROM base_metrics
+        SELECT base_metrics.month AS month,
+            base_metrics.xp_activity_global / base_metrics.visitor_count AS xp_avg_global
+        FROM base_metrics
         """,
         normalize_aliases=True,
     )
@@ -210,7 +213,6 @@ async def test_activity_at_unit_grain_without_the_unit_is_refused(
         "v3.xp_activity_private",
         "SELECT SUM(line_total) FROM v3.order_details",
         fixed_grain=[UNIT],
-        reaggregate={"fn": "sum"},
     )
 
     response = await build_sql(client, "v3.xp_activity_private")

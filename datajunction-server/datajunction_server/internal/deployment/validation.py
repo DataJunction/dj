@@ -21,6 +21,7 @@ from datajunction_server.errors import (
 )
 from datajunction_server.internal.deployment.type_inference import validate_node_query
 from datajunction_server.internal.validation import (
+    derived_metric_fixed_grain_error,
     derived_metric_reaggregate_error,
     invalid_reaggregate_dimension_references,
     validate_metric_query,
@@ -958,6 +959,16 @@ class NodeSpecBulkValidator:
         query = getattr(spec, "rendered_query", None)
         if fixed_grain is None or not query:
             return None
+
+        metric_type_error = derived_metric_fixed_grain_error(
+            spec.rendered_name,
+            spec.node_type == NodeType.METRIC
+            and spec.query_ast is not None
+            and spec.query_ast.select.from_ is None,
+            fixed_grain,
+        )
+        if metric_type_error:
+            return metric_type_error
 
         try:
             validate_fixed_grain_shape(query, list(fixed_grain))

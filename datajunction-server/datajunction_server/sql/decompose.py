@@ -980,6 +980,7 @@ class MetricComponentExtractor:
         parent_map: dict[str, list[str]] | None = None,
         metric_node: "Node | None" = None,
         _visited: set[str] | None = None,
+        validate_fixed_grain_windows: bool = True,
     ) -> tuple[list[MetricComponent], ast.Query]:
         """
         Extract metric components from the query.
@@ -996,6 +997,10 @@ class MetricComponentExtractor:
                 Required if nodes_cache is provided.
             metric_node: Optional metric Node object.
                 Required if nodes_cache is provided.
+            validate_fixed_grain_windows: Whether to reject windows that
+                accumulate broadcast values. Frozen-measure derivation disables
+                this query-shape check because it extracts metric-independent
+                components rather than executable query SQL.
         """
         # Use cache if available, otherwise query DB
         if (
@@ -1093,6 +1098,7 @@ class MetricComponentExtractor:
                     parent_map=parent_map,
                     metric_node=parent_node,
                     _visited=_visited,
+                    validate_fixed_grain_windows=validate_fixed_grain_windows,
                 )
             else:
                 # True base metric - decompose aggregations
@@ -1151,7 +1157,11 @@ class MetricComponentExtractor:
                     for func in parse(base_metric.query).find_all(ast.Function)
                 )
 
-            if windowed_over_the_grain and effective_fixed_grains:
+            if (
+                validate_fixed_grain_windows
+                and windowed_over_the_grain
+                and effective_fixed_grains
+            ):
                 if metric_data.is_derived:
                     message = (
                         f"Metric `{base_metric.name}` declares `fixed_grain` (or "

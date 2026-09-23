@@ -2083,7 +2083,7 @@ def build_grain_group_sql(
     for _, component in grain_group.components:
         for dimension_ref in component.rule.fixed_grain or []:
             fixed_grain_partition_aliases[dimension_ref] = ctx.alias_registry.register(
-                dimension_ref
+                dimension_ref,
             )
 
     for metric_node, component in grain_group.components:

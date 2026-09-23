@@ -884,6 +884,29 @@ class TestRequiredDimensions:
         assert "only supported on base metrics" in error.message
 
     @pytest.mark.asyncio
+    async def test_fixed_grain_on_derived_metric_is_invalid(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """Deployment validation rejects a derived metric's fixed grain."""
+        context = self._make_context(session, parent_node)
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT test.base_metric * 2",
+            fixed_grain=[],
+        )
+        validator = NodeSpecBulkValidator(context)
+
+        result = validator.validate_query_node(spec)
+
+        assert result.status == NodeStatus.INVALID
+        error = next(
+            error for error in result.errors if error.code == ErrorCode.INVALID_METRIC
+        )
+        assert "only supported on base metrics" in error.message
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "dimension",
         ["test.dim.nonexistent_col", "value"],

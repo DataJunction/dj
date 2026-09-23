@@ -1513,19 +1513,8 @@ async def test_derived_metric_cannot_declare_a_grain(client_with_build_v3):
             "mode": "published",
         },
     )
-    # Creation succeeds because the write path cannot classify this as derived
-    # without loading and traversing its metric parents.
-    assert response.status_code == 201, response.json()
-
-    response = await client_with_build_v3.get(
-        "/sql/metrics/v3/",
-        params={
-            "metrics": ["v3.derived_with_grain"],
-            "dimensions": ["v3.order_details.order_id"],
-        },
-    )
     assert response.status_code == 422, response.json()
-    assert "A grain must be declared on a base metric" in response.json()["message"]
+    assert "only supported on base metrics" in response.json()["message"]
 
 
 @pytest.mark.asyncio
