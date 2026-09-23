@@ -3,6 +3,7 @@ Tests for ``datajunction_server.sql.decompose``.
 """
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
@@ -1811,6 +1812,93 @@ def test_derived_metric_reaggregate_not_supported_cache_load():
             },
             {"default.double_balance": ["default.balance"]},
         )
+
+
+@pytest.mark.asyncio
+async def test_fixed_grain_refused_on_an_already_windowed_base_aggregate():
+    """Broadcasting cannot add a second window to a base metric's aggregate."""
+    metric_node = SimpleNamespace(
+        name="default.windowed_total",
+        type=NodeType.METRIC,
+        current=SimpleNamespace(
+            query="SELECT SUM(amount) OVER () FROM parent_node",
+            reaggregate=None,
+            fixed_grain=[],
+        ),
+    )
+    source_node = SimpleNamespace(name="parent_node", type=NodeType.SOURCE)
+
+    with pytest.raises(
+        DJInvalidInputException,
+        match="its own aggregate is already windowed",
+    ):
+        await MetricComponentExtractor(0).extract(
+            None,  # type: ignore[arg-type]
+            nodes_cache={
+                metric_node.name: metric_node,
+                source_node.name: source_node,
+            },
+            parent_map={metric_node.name: [source_node.name]},
+            metric_node=metric_node,
+        )
+
+
+def test_derived_metric_fixed_grain_not_supported_cache_load():
+    """Cached extraction rejects even an empty, global derived-metric grain."""
+    base_node = SimpleNamespace(
+        name="default.revenue",
+        type=NodeType.METRIC,
+        current=SimpleNamespace(
+            query="SELECT SUM(amount) FROM parent_node",
+            reaggregate=None,
+            fixed_grain=None,
+        ),
+    )
+    derived_node = SimpleNamespace(
+        name="default.double_revenue",
+        type=NodeType.METRIC,
+        current=SimpleNamespace(
+            query="SELECT default.revenue * 2",
+            reaggregate=None,
+            fixed_grain=[],
+        ),
+    )
+
+    with pytest.raises(
+        DJInvalidInputException,
+        match="Derived metric `default.double_revenue` declares fixed_grain",
+    ):
+        MetricComponentExtractor(0)._build_metric_data_from_cache(
+            derived_node,
+            {
+                base_node.name: base_node,
+                derived_node.name: derived_node,
+            },
+            {derived_node.name: [base_node.name]},
+        )
+
+
+@pytest.mark.asyncio
+async def test_derived_metric_fixed_grain_not_supported_db_load():
+    """Uncached extraction enforces the same base-metric-only constraint."""
+    parent_result = SimpleNamespace(all=lambda: [SimpleNamespace()])
+    metric_result = SimpleNamespace(
+        one=lambda: SimpleNamespace(
+            name="default.double_revenue",
+            query="SELECT default.revenue * 2",
+            reaggregate=None,
+            fixed_grain=[],
+        ),
+    )
+    session = SimpleNamespace(
+        execute=AsyncMock(side_effect=[parent_result, metric_result]),
+    )
+
+    with pytest.raises(
+        DJInvalidInputException,
+        match="Derived metric `default.double_revenue` declares fixed_grain",
+    ):
+        await MetricComponentExtractor(1)._load_metric_data(session)
 
 
 def test_normalize_aliases_leaves_other_namespaces_qualified():

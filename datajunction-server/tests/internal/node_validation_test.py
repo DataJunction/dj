@@ -1097,11 +1097,36 @@ async def test_validate_node_data_v2_flags_invalid_reaggregate_dimensions(
 
 
 @pytest.mark.asyncio
-async def test_validate_node_data_v2_rejects_reaggregate_on_derived_metric(
+@pytest.mark.parametrize(
+    ("declaration", "message"),
+    [
+        (
+            {
+                "reaggregate": {
+                    "rules": [
+                        {
+                            "dimension": "test.date.date_id",
+                            "fn": "last_value",
+                        },
+                    ],
+                },
+            },
+            "only supported on base metrics",
+        ),
+        (
+            {"fixed_grain": []},
+            "Derived metric `test.v2_double_balance` declares fixed_grain",
+        ),
+    ],
+    ids=["reaggregate", "fixed-grain"],
+)
+async def test_validate_node_data_v2_rejects_base_metric_declarations_on_derived(
     session: AsyncSession,
     user: User,
+    declaration: dict,
+    message: str,
 ):
-    """Derived metrics cannot declare their own reaggregation policy."""
+    """Derived metrics cannot declare policies that belong to base metrics."""
     from datajunction_server.errors import ErrorCode
     from datajunction_server.internal.validation import validate_node_data_v2
 
@@ -1131,22 +1156,14 @@ async def test_validate_node_data_v2_rejects_reaggregate_on_derived_metric(
         type=NodeType.METRIC,
         query="SELECT test.v2_base_balance * 2",
         status=NodeStatus.VALID,
-        reaggregate={
-            "rules": [
-                {
-                    "dimension": "test.date.date_id",
-                    "fn": "last_value",
-                },
-            ],
-        },
+        **declaration,
     )
 
     validator = await validate_node_data_v2(derived, session)
 
     assert validator.status == NodeStatus.INVALID
     assert any(
-        error.code == ErrorCode.INVALID_METRIC
-        and "only supported on base metrics" in error.message
+        error.code == ErrorCode.INVALID_METRIC and message in error.message
         for error in validator.errors
     )
 
