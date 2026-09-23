@@ -8,8 +8,12 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, get_args, get_origin
 
 from pydantic import BaseModel
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only, noload
+
+from datajunction_server.database.deployment import Deployment
+from datajunction_server.database.node import Node
 
 from datajunction_server.database.tag import Tag
 
@@ -25,19 +29,29 @@ from datajunction_server.internal.checks.context import (
     TagTypes,
     custom_metadata,
 )
-from datajunction_server.internal.checks.engine import CheckResult
-from datajunction_server.internal.checks.manifest import ResolvedRuleset
-from datajunction_server.internal.checks.validator import MalformedCheck
+from datajunction_server.internal.checks.engine import CheckResult, evaluate
+from datajunction_server.internal.checks.manifest import (
+    ManifestChecks,
+    ResolvedRuleset,
+    to_manifest_checks,
+)
+from datajunction_server.internal.checks.validator import MalformedCheck, load_checks
 from datajunction_server.internal.custom_metadata import resolve_schemas
 from datajunction_server.models.deployment import (
+    CheckVerdict,
     ColumnSpec,
     CubeSpec,
     DeploymentResult,
+    DeploymentSpec,
+    DeploymentStatus,
     DimensionJoinLinkSpec,
     DimensionLinkSpec,
     DimensionReferenceLinkSpec,
     DimensionSpec,
     MetricSpec,
+    NodeCheckResults,
+    NodeCheckVerdict,
+    NodeRulesetVerdict,
     NodeSpec,
     RulesetVerdict,
     SourceSpec,
@@ -450,3 +464,85 @@ def unsupported_ruleset_guards(
         for name, ruleset in sorted(rulesets.items())
         if ruleset.when is not None
     ]
+
+
+async def governing_manifest(
+    session: AsyncSession,
+    node_name: str,
+) -> ManifestChecks | None:
+    """
+    The checks governing a node, from the deployment whose namespace covers it.
+
+    One repo owns a namespace and everything under it, so the nearest enclosing
+    deployment is the one whose rules apply.
+    """
+    candidates = [
+        node_name.rsplit(".", index)[0] for index in range(1, node_name.count(".") + 1)
+    ]
+    deployment = (
+        await session.execute(
+            select(Deployment)
+            .where(
+                Deployment.namespace.in_(candidates),
+                Deployment.status == DeploymentStatus.SUCCESS,
+            )
+            .order_by(
+                func.length(Deployment.namespace).desc(),
+                Deployment.created_at.desc(),
+            )
+            .limit(1),
+        )
+    ).scalar_one_or_none()
+    if deployment is None or not (deployment.spec or {}).get("checks"):
+        return None
+    spec = DeploymentSpec(**deployment.spec)
+    return to_manifest_checks(spec.checks, spec.rulesets)
+
+
+async def check_node(session: AsyncSession, node: Node) -> NodeCheckResults | None:
+    """
+    Evaluate a node against the checks governing it, as it stands now.
+
+    Nothing is being deployed, so the node is its own previous state and the
+    change is a noop -- transition and removal checks skip.
+    """
+    manifest = await governing_manifest(session, node.name)
+    if manifest is None:
+        return None
+
+    spec = await node.to_spec(session)
+    declared = await resolve_declared_schemas(session, node.namespace, [node.type])
+    tag_types = await resolve_tag_types(session, [], [tag.name for tag in node.tags])
+    loaded = load_checks(manifest.checks, build_fixtures(declared, [node.type]))
+    bindings = build_bindings(
+        spec,
+        previous=spec,
+        # Upstreams carry only their name here: resolving each one's spec is a
+        # query per parent, and no rule has needed more yet.
+        dependencies=[(parent.name, None) for parent in node.current.parents],
+        operation=DeploymentResult.Operation.NOOP,
+        declared=declared.properties,
+        tag_types=tag_types,
+    )
+    results = evaluate(loaded.checks, bindings)
+    return NodeCheckResults(
+        node=node.name,
+        checks=[
+            NodeCheckVerdict(
+                check=result.check,
+                verdict=(
+                    CheckVerdict.SKIPPED
+                    if result.skipped
+                    else CheckVerdict.PASSED
+                    if result.passed
+                    else CheckVerdict.FAILED
+                ),
+                gate=str(result.gate),
+            )
+            for result in results
+        ],
+        rulesets=[
+            NodeRulesetVerdict(ruleset=outcome.ruleset, verdict=outcome.verdict)
+            for outcome in roll_up(manifest.rulesets, results)
+        ],
+    )

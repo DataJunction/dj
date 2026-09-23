@@ -12289,3 +12289,82 @@ async def test_check_results_survive_to_the_deployment_endpoint(
         "demo.metrics_only": "skipped",
     }
     assert bare["rulesets"] == [{"ruleset": "baseline", "verdict": "failed"}]
+
+
+@pytest.mark.asyncio
+async def test_node_checks_endpoint_evaluates_the_current_node(
+    module__client_with_roads,
+):
+    """
+    The node endpoint evaluates against the node as it stands, so a removal
+    check skips and the rest report on live state.
+    """
+    namespace = f"nodechecks{uuid.uuid4().hex[:8]}"
+    spec = DeploymentSpec(
+        namespace=namespace,
+        tags=[TagSpec(name=f"{namespace}_sales", tag_type="domain")],
+        nodes=[
+            TransformSpec(
+                name="described",
+                query="SELECT 1 AS one",
+                description="Described.",
+                tags=[f"{namespace}_sales"],
+            ),
+            TransformSpec(name="bare", query="SELECT 1 AS one"),
+        ],
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.described",
+                condition="node.description != ''",
+                gate="warn",
+            ),
+            DeploymentCheckSpec(
+                name="demo.domain_tagged",
+                condition="node.tags.exists(t, t.tag_type == 'domain')",
+                gate="warn",
+            ),
+            DeploymentCheckSpec(
+                name="demo.wound_down",
+                when="change.kind == 'delete'",
+                condition="node.description != ''",
+                gate="block",
+            ),
+        ],
+        rulesets=[
+            DeploymentRulesetSpec(
+                name="baseline",
+                checks=["demo.described", "demo.domain_tagged"],
+            ),
+        ],
+    )
+    await deploy_and_poll(module__client_with_roads, spec)
+
+    response = await module__client_with_roads.get(
+        f"/nodes/{namespace}.described/checks/",
+    )
+    data = response.json()
+    assert data["node"] == f"{namespace}.described"
+    assert {v["check"]: v["verdict"] for v in data["checks"]} == {
+        "demo.described": "passed",
+        "demo.domain_tagged": "passed",
+        # Nothing is being deployed, so a removal check asserts nothing.
+        "demo.wound_down": "skipped",
+    }
+    assert data["rulesets"] == [{"ruleset": "baseline", "verdict": "passed"}]
+
+    response = await module__client_with_roads.get(f"/nodes/{namespace}.bare/checks/")
+    assert {v["check"]: v["verdict"] for v in response.json()["checks"]} == {
+        "demo.described": "failed",
+        "demo.domain_tagged": "failed",
+        "demo.wound_down": "skipped",
+    }
+
+
+@pytest.mark.asyncio
+async def test_node_checks_endpoint_is_null_without_a_governing_manifest(
+    module__client_with_roads,
+):
+    response = await module__client_with_roads.get(
+        "/nodes/default.repair_orders_fact/checks/",
+    )
+    assert response.json() is None
