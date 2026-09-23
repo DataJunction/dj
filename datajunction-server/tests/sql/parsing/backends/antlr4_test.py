@@ -6,6 +6,7 @@ Tests for custom antlr4 parser
 import pytest
 
 from datajunction_server.sql.parsing.backends.antlr4 import (
+    _definition_tree_parser,
     _request_tree_parser,
     ast,
     cached_request_tree,
@@ -310,14 +311,16 @@ def test_request_sql_tree_is_cached_between_parses():
     assert _request_tree_parser().cache_info().hits == 1
 
 
-def test_node_definitions_are_not_cached():
-    """Node SQL is parsed fresh; only request SQL is cached."""
+def test_node_definitions_use_their_own_cache():
+    """Node SQL and request SQL are cached separately."""
+    _definition_tree_parser().cache_clear()
     _request_tree_parser().cache_clear()
 
     parse("SELECT defn_col FROM defn_tbl")
-    parse("SELECT defn_col FROM defn_tbl")
+    parse("SELECT 1 WHERE colx = 'a'", from_request=True)
 
-    assert _request_tree_parser().cache_info().currsize == 0
+    assert _definition_tree_parser().cache_info().currsize == 1
+    assert _request_tree_parser().cache_info().currsize == 1
 
 
 def test_cached_request_tree_yields_independent_asts():
@@ -342,12 +345,18 @@ def test_report_parse_cache_stats_emits_gauges(mocker):
 
     report_parse_cache_stats()
 
-    reported = {call.args[0] for call in provider.gauge.call_args_list}
+    reported = {
+        (call.args[0], call.args[2]["cache"]) for call in provider.gauge.call_args_list
+    }
     assert reported == {
-        "dj.sql.parse_cache.hits",
-        "dj.sql.parse_cache.misses",
-        "dj.sql.parse_cache.size",
-        "dj.sql.parse_cache.max_size",
+        (name, cache)
+        for name in (
+            "dj.sql.parse_cache.hits",
+            "dj.sql.parse_cache.misses",
+            "dj.sql.parse_cache.size",
+            "dj.sql.parse_cache.max_size",
+        )
+        for cache in ("definitions", "requests")
     }
 
 

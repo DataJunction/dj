@@ -201,6 +201,20 @@ def tree_to_strings(tree, indent=0):
 
 
 @lru_cache(maxsize=1)
+def _definition_tree_parser():
+    """
+    Build the node definition cache, sized from settings on first use.
+    """
+    from datajunction_server.utils import get_settings  # noqa: PLC0415
+
+    @lru_cache(maxsize=get_settings().definition_parse_cache_size)
+    def _parse(sql: str, rule: str):
+        return parse_sql_with_sll_fallback(sql, rule)
+
+    return _parse
+
+
+@lru_cache(maxsize=1)
 def _request_tree_parser():
     """
     Build the request SQL cache, sized from settings on first use.
@@ -212,6 +226,17 @@ def _request_tree_parser():
         return parse_sql_with_sll_fallback(sql, rule)
 
     return _parse
+
+
+def cached_definition_tree(sql: str, rule: str):
+    """
+    Parse a node definition into an ANTLR tree, caching the result.
+
+    Node SQL repeats across requests, so this keeps the parse. The tree is
+    safe to share: ``visit`` only reads it, and the mutable DJ AST is rebuilt
+    on every call.
+    """
+    return _definition_tree_parser()(sql, rule)
 
 
 def cached_request_tree(sql: str, rule: str):
@@ -227,7 +252,7 @@ def cached_request_tree(sql: str, rule: str):
 
 def report_parse_cache_stats() -> None:
     """
-    Report request SQL cache size and hit counts.
+    Report parse cache sizes and hit counts, per cache.
 
     Misses rising while ``size`` sits at ``max_size`` means the cache is too
     small and entries are being evicted.
@@ -237,11 +262,17 @@ def report_parse_cache_stats() -> None:
     )
 
     provider = get_metrics_provider()
-    info = _request_tree_parser().cache_info()
-    provider.gauge("dj.sql.parse_cache.hits", info.hits)
-    provider.gauge("dj.sql.parse_cache.misses", info.misses)
-    provider.gauge("dj.sql.parse_cache.size", info.currsize)
-    provider.gauge("dj.sql.parse_cache.max_size", info.maxsize)
+    caches = {
+        "definitions": _definition_tree_parser(),
+        "requests": _request_tree_parser(),
+    }
+    for name, cache in caches.items():
+        info = cache.cache_info()
+        tags = {"cache": name}
+        provider.gauge("dj.sql.parse_cache.hits", info.hits, tags)
+        provider.gauge("dj.sql.parse_cache.misses", info.misses, tags)
+        provider.gauge("dj.sql.parse_cache.size", info.currsize, tags)
+        provider.gauge("dj.sql.parse_cache.max_size", info.maxsize, tags)
 
 
 def parse_rule(
@@ -259,7 +290,7 @@ def parse_rule(
     antlr_tree = (
         cached_request_tree(sql, rule)
         if from_request
-        else parse_sql_with_sll_fallback(sql, rule)
+        else cached_definition_tree(sql, rule)
     )
     return visit(antlr_tree)
 
