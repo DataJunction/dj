@@ -11,6 +11,7 @@ from datajunction_server.database.user import User
 from datajunction_server.errors import DJError, ErrorCode
 from datajunction_server.models.deployment import (
     DeploymentResult,
+    NodeCheckResults,
     DeploymentSpec,
     DeploymentStatus,
 )
@@ -44,6 +45,7 @@ class Deployment(Base):
     results: Mapped[dict] = mapped_column(JSON, default={})
     warnings: Mapped[list | None] = mapped_column(JSON, default=list)
     downstream_impacts: Mapped[list | None] = mapped_column(JSON, default=list)
+    check_results: Mapped[list | None] = mapped_column(JSON, default=list)
 
     created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_by: Mapped[User] = relationship("User", lazy="selectin")
@@ -73,6 +75,14 @@ class Deployment(Base):
     @deployment_results.setter
     def deployment_results(self, value: list[DeploymentResult]):
         self.results = [result.model_dump() for result in value]  # pragma: no cover
+
+    @property
+    def deployment_check_results(self) -> list[NodeCheckResults]:
+        return [NodeCheckResults(**item) for item in (self.check_results or [])]
+
+    @deployment_check_results.setter
+    def deployment_check_results(self, value: list[NodeCheckResults]):
+        self.check_results = [item.model_dump() for item in value]
 
     @property
     def deployment_warnings(self) -> list[DJError]:

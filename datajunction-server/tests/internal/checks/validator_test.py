@@ -6,9 +6,14 @@ from datajunction_server.internal.checks.context import build_env
 from datajunction_server.internal.checks.validator import (
     CheckGate,
     CheckSpec,
+    _applicable,
     load_checks,
 )
-from tests.internal.checks.conftest import DECLARED_PROPERTIES, build_fixtures
+from tests.internal.checks.conftest import (
+    DECLARED_PROPERTIES,
+    build_fixtures,
+    fixture_pair,
+)
 
 # An invented corpus, exercising every binding without borrowing any real
 # governance vocabulary.
@@ -21,24 +26,37 @@ CHECKS = [
     ),
     CheckSpec(
         name="demo.owner_present",
-        description="At least one owner, with a resolvable email.",
-        condition=(
-            "size(node.owners) >= 1"
-            " && node.owners.all(o, o.email != null && o.email != '')"
-        ),
+        description="At least one owner, each a non-empty username.",
+        condition="size(node.owners) >= 1 && node.owners.all(o, o != '')",
         gate=CheckGate.WARN,
     ),
     CheckSpec(
         name="demo.primary_key_set",
         description="Dimensions declare a primary key.",
-        when="node.type == 'dimension'",
+        when="node.node_type == 'dimension'",
         condition="size(node.primary_key) >= 1",
         gate=CheckGate.BLOCK,
     ),
     CheckSpec(
-        name="demo.flavour_tagged",
-        description="A flavour tag is set.",
-        condition="node.tags.exists(t, t.tag_type == 'flavour')",
+        name="demo.flavor_tagged",
+        description="A tag of type flavor is set.",
+        condition="node.tags.exists(t, t.tag_type == 'flavor')",
+        gate=CheckGate.WARN,
+    ),
+    CheckSpec(
+        name="demo.left_joins_or_default",
+        description="Every join link is a left join or carries a default.",
+        condition=(
+            "node.dimension_links.all(l,"
+            " l.join_type != 'inner' || l.default_value != '')"
+        ),
+        gate=CheckGate.WARN,
+    ),
+    CheckSpec(
+        name="demo.retiring_names_a_successor",
+        description="An entity being retired names what replaces it.",
+        when="node.custom_metadata.sample.color in ['amber', 'red']",
+        condition="node.custom_metadata.sample.shape != null",
         gate=CheckGate.WARN,
     ),
     CheckSpec(
@@ -57,9 +75,25 @@ CHECKS = [
         gate=CheckGate.BLOCK_ON_REGRESSION,
     ),
     CheckSpec(
+        name="demo.no_retired_dependencies",
+        description="Not depending on anything retired.",
+        condition=(
+            "dependencies.all(d,"
+            " !(d.custom_metadata.sample.shape in ['retired', 'archived']))"
+        ),
+        gate=CheckGate.BLOCK,
+    ),
+    CheckSpec(
+        name="demo.wound_down_before_removal",
+        description="An entity is wound down before it is removed.",
+        when="change.kind == 'delete'",
+        condition="previous.custom_metadata.sample.color in ['amber', 'red']",
+        gate=CheckGate.BLOCK,
+    ),
+    CheckSpec(
         name="demo.shape_before_removal",
         description="A shape is recorded before an entity is removed.",
-        when="change.is_removal",
+        when="change.kind == 'delete'",
         condition="previous.custom_metadata.sample.shape != null",
         gate=CheckGate.BLOCK,
     ),
@@ -152,7 +186,7 @@ def test_unknown_gate_is_refused():
 
 
 def test_prefill_makes_an_unset_property_false_not_an_error():
-    empty, _ = build_fixtures(DECLARED_PROPERTIES)
+    empty, _ = fixture_pair()
     compiled = build_env().compile("node.custom_metadata.sample.color != null")
     value = compiled.eval(data=empty)
     assert str(value.type()) == "BOOL"
@@ -166,7 +200,7 @@ def test_unschematized_paths_are_reachable_with_stepwise_guards():
     short-circuiting, which makes that safe.
     """
     env = build_env()
-    empty, _ = build_fixtures(DECLARED_PROPERTIES)
+    empty, _ = fixture_pair()
     present = dict(empty)
     present["node"] = dict(
         empty["node"],
@@ -200,17 +234,99 @@ def test_guards_cannot_be_written_with_optional_chaining(unsupported):
 def test_has_is_true_for_a_present_but_null_property():
     # Why "has a value" must be written as `!= null`: the prefilled properties
     # are present, so has() cannot distinguish them from authored ones.
-    empty, _ = build_fixtures(DECLARED_PROPERTIES)
+    empty, _ = fixture_pair()
     compiled = build_env().compile("has(node.custom_metadata.sample.color)")
     assert compiled.eval(data=empty).value() is True
 
 
 def test_fixtures_are_built_from_the_declared_properties():
-    empty, populated = build_fixtures({"sample": ("color",), "other": ("weight",)})
+    empty, populated = fixture_pair({"sample": ("color",), "other": ("weight",)})
     assert empty["node"]["custom_metadata"] == {
         "sample": {"color": None},
         "other": {"weight": None},
     }
     assert populated["node"]["custom_metadata"]["other"]["weight"] == "fixture-weight"
-    assert populated["previous"]["exists"] is True
-    assert populated["change"] == {"is_new": False, "is_removal": True}
+    assert populated["change"] == {"kind": "delete"}
+
+
+def test_a_null_guarded_numeric_field_loads():
+    """
+    A number projects as null rather than '', so the guard the author writes is
+    the one that runs.
+    """
+    result = load_checks(
+        [
+            CheckSpec(
+                "demo.digits",
+                "node.significant_digits == null || node.significant_digits >= 1",
+                "warn",
+                when="node.node_type == 'metric'",
+            ),
+        ],
+        build_fixtures(DECLARED_PROPERTIES),
+    )
+    assert result.ok, [vars(issue) for issue in result.malformed]
+
+
+def test_an_unguarded_numeric_comparison_is_refused():
+    # `null >= 1` has no overload, so the guard is not optional.
+    result = load_checks(
+        [CheckSpec("demo.digits", "node.significant_digits >= 1", "warn")],
+        build_fixtures(DECLARED_PROPERTIES),
+    )
+    assert not result.ok
+    assert "No matching overloads" in result.malformed[0].problem
+
+
+def test_a_guarded_condition_is_judged_only_where_its_guard_holds():
+    """
+    A condition only has to hold where its guard does, so it is judged against
+    those nodes and not the rest.
+    """
+    guard = build_env().compile("node.node_type == 'metric'")
+    admitted = _applicable(guard, build_fixtures(DECLARED_PROPERTIES))
+    assert [fixture["node"]["name"] for fixture in admitted] == [
+        "fixture.bare_metric",
+        "fixture.populated_metric",
+    ]
+
+
+def test_an_unguarded_condition_is_judged_everywhere():
+    fixtures = build_fixtures(DECLARED_PROPERTIES)
+    assert _applicable(None, fixtures) == fixtures
+
+
+def test_a_guarded_condition_is_still_judged_on_its_own_node_type():
+    # The bare metric has no significant_digits, so the guard does not excuse
+    # an unguarded comparison.
+    result = load_checks(
+        [
+            CheckSpec(
+                "demo.digits",
+                "node.significant_digits >= 1",
+                "warn",
+                when="node.node_type == 'metric'",
+            ),
+        ],
+        build_fixtures(DECLARED_PROPERTIES),
+    )
+    assert not result.ok
+    assert "No matching overloads" in result.malformed[0].problem
+
+
+def test_an_unsatisfiable_guard_falls_back_to_every_fixture():
+    # No fixture carries this color, so the condition is judged everywhere --
+    # otherwise a misspelled property behind such a guard is never caught.
+    result = load_checks(
+        [
+            CheckSpec(
+                "demo.typo",
+                "node.custom_metadata.sample.colur != null",
+                "warn",
+                when="node.custom_metadata.sample.color == 'chartreuse'",
+            ),
+        ],
+        build_fixtures(DECLARED_PROPERTIES),
+    )
+    assert not result.ok
+    assert "evaluated to ERROR" in result.malformed[0].problem

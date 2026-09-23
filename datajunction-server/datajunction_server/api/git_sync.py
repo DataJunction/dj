@@ -973,6 +973,7 @@ async def sync_namespace_from_git(
         namespace=namespace,
         status=DeploymentStatus.SUCCESS,
         results=execute_result.results,
+        check_results=execute_result.check_results,
         warnings=execute_result.warnings,
         downstream_impacts=execute_result.downstream_impacts,
         source=GitDeploymentSource(

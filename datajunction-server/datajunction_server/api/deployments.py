@@ -254,6 +254,7 @@ class InProcessExecutor(DeploymentExecutor):
         results: list[DeploymentResult] | None = None,
         downstream_impacts: list | None = None,
         warnings: list[DJError] | None = None,
+        check_results: list | None = None,
     ):
         async with session_context() as session:
             deployment = await session.get(Deployment, deployment_uuid)
@@ -269,6 +270,8 @@ class InProcessExecutor(DeploymentExecutor):
                 deployment.downstream_impacts = [
                     d.model_dump() for d in downstream_impacts
                 ]
+            if check_results is not None:
+                deployment.deployment_check_results = check_results
             await session.commit()
 
     async def _run_deployment(
@@ -310,6 +313,7 @@ class InProcessExecutor(DeploymentExecutor):
                     results,
                     downstream_impacts=execute_result.downstream_impacts,
                     warnings=execute_result.warnings,
+                    check_results=execute_result.check_results,
                 )
                 if final_status == DeploymentStatus.SUCCESS and not dry_run:
                     await _maybe_autolock_git_namespace(deployment_spec)
@@ -416,6 +420,7 @@ async def create_deployment(
         namespace=deployment.namespace,
         status=deployment.status.value,
         results=deployment.deployment_results,
+        check_results=deployment.deployment_check_results,
         warnings=deployment.deployment_warnings,
         downstream_impacts=deployment.deployment_downstream_impacts,
     )
@@ -436,6 +441,7 @@ async def get_deployment_status(
         namespace=deployment.namespace,
         status=deployment.status.value,
         results=deployment.deployment_results,
+        check_results=deployment.deployment_check_results,
         warnings=deployment.deployment_warnings,
         downstream_impacts=deployment.deployment_downstream_impacts,
     )
@@ -469,6 +475,7 @@ async def list_deployments(  # pragma: no cover
                 namespace=deployment.namespace,
                 status=deployment.status,
                 results=deployment.deployment_results,
+                check_results=deployment.deployment_check_results,
                 warnings=deployment.deployment_warnings,
                 created_at=deployment.created_at.isoformat()
                 if deployment.created_at
@@ -558,6 +565,7 @@ async def preview_deployment_impact(
         namespace=deployment.namespace,
         status=deployment.status.value,
         results=deployment.deployment_results,
+        check_results=deployment.deployment_check_results,
         warnings=deployment.deployment_warnings,
         downstream_impacts=deployment.deployment_downstream_impacts,
     )

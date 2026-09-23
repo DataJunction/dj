@@ -1563,6 +1563,52 @@ class DeploymentCheckSpec(BaseModel):
     description: str = ""
 
 
+class CheckVerdict(str, Enum):
+    """What a check concluded for one node."""
+
+    PASSED = "passed"
+    FAILED = "failed"
+    # The check's `when` guard excluded this node, so it asserted nothing.
+    SKIPPED = "skipped"
+
+
+class RulesetVerdict(str, Enum):
+    """What a ruleset's member checks add up to for one node."""
+
+    PASSED = "passed"
+    FAILED = "failed"
+    # Every member was skipped, so the bundle asserted nothing. Not the same
+    # as vacuously passing.
+    NOT_APPLICABLE = "not_applicable"
+
+
+class NodeCheckVerdict(BaseModel):
+    """One check's verdict for one node."""
+
+    check: str
+    verdict: CheckVerdict
+    gate: str
+
+
+class NodeRulesetVerdict(BaseModel):
+    """One ruleset's verdict for one node."""
+
+    ruleset: str
+    verdict: RulesetVerdict
+
+
+class NodeCheckResults(BaseModel):
+    """
+    Every verdict for one node.
+
+    Returned by a deploy and, evaluated the same way, by a node on its own.
+    """
+
+    node: str
+    checks: list[NodeCheckVerdict] = Field(default_factory=list)
+    rulesets: list[NodeRulesetVerdict] = Field(default_factory=list)
+
+
 class DeploymentRulesetSpec(BaseModel):
     """
     Specification for a named bundle of checks.
@@ -1914,6 +1960,7 @@ class DeploymentResult(BaseModel):
         PREAGG = "preaggregation"
         MATERIALIZATION = "materialization"
         GENERAL = "general"
+        CHECK = "check"
 
     name: str
     deploy_type: Type
@@ -1937,6 +1984,8 @@ class DeploymentInfo(BaseModel):
     namespace: str
     status: DeploymentStatus
     results: list[DeploymentResult] = Field(default_factory=list)
+    # One entry per node the governance checks ran on.
+    check_results: list[NodeCheckResults] = Field(default_factory=list)
     warnings: list[DJError] = Field(default_factory=list)
     downstream_impacts: list[DownstreamImpact] = Field(default_factory=list)
     created_at: str | None = None  # ISO datetime
