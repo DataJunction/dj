@@ -200,13 +200,29 @@ def tree_to_strings(tree, indent=0):
     return result
 
 
+#: How many ANTLR parse trees to keep. Each entry retains its parser and token
+#: stream, so this trades memory for parse time.
+ANTLR_TREE_CACHE_SIZE = 512
+
+
+@lru_cache(maxsize=ANTLR_TREE_CACHE_SIZE)
+def cached_antlr_tree(sql: str, rule: str):
+    """
+    Parse a string into an ANTLR tree, caching the result.
+
+    The tree is safe to share: ``visit`` only reads it, and the mutable DJ AST
+    is rebuilt on every call.
+    """
+    return parse_sql_with_sll_fallback(sql, rule)
+
+
 def parse_rule(sql: str, rule: str) -> Union[ast.Node, "ColumnType"]:
     """
     Parse a string into a DJ ast using the ANTLR4 backend.
 
     Uses SLL mode first (faster), falls back to LL mode if needed.
     """
-    antlr_tree = parse_sql_with_sll_fallback(sql, rule)
+    antlr_tree = cached_antlr_tree(sql, rule)
     ast_tree = visit(antlr_tree)
     return ast_tree
 

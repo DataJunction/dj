@@ -5,7 +5,11 @@ Tests for custom antlr4 parser
 
 import pytest
 
-from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
+from datajunction_server.sql.parsing.backends.antlr4 import (
+    ast,
+    cached_antlr_tree,
+    parse,
+)
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 
 
@@ -290,3 +294,29 @@ def test_unsupported_grammar_branch_surfaces_djparse():
     bad_sql = "SELECT * FROM foo CROSS JOIN ()"
     with pytest.raises(DJParseException):
         parse(bad_sql)
+
+
+def test_antlr_tree_is_cached_between_parses():
+    """The same (sql, rule) reuses one ANTLR tree instead of re-parsing."""
+    sql = "SELECT cached_col FROM cached_tbl WHERE cached_col > 1"
+    cached_antlr_tree.cache_clear()
+
+    first = cached_antlr_tree(sql, "singleStatement")
+    second = cached_antlr_tree(sql, "singleStatement")
+
+    assert first is second
+    assert cached_antlr_tree(sql, "singleStatement").getText() == first.getText()
+
+
+def test_cached_antlr_tree_yields_independent_asts():
+    """Each parse gets a fresh AST, so mutating one cannot corrupt the next."""
+    sql = "SELECT SUM(amount) AS total FROM payments"
+
+    first = parse(sql)
+    first.select.projection[0].alias.name = "mutated"
+    first.select.projection[0].child.name.name = "MAX"
+
+    second = parse(sql)
+    assert str(second) == str(parse(sql))
+    assert "SUM(amount)" in str(second)
+    assert "mutated" not in str(second)
