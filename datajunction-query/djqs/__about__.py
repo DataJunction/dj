@@ -2,4 +2,4 @@
 Version for Hatch
 """
 
-__version__ = "0.0.248"
+__version__ = "0.0.249"
