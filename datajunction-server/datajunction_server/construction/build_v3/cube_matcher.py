@@ -630,13 +630,18 @@ async def validate_pinned_cube_covers_filters(
             http_status_code=422,
         )
 
+    metric_names = metrics or [
+        metric_revision.name
+        for metric_revision in cube.metric_node_revisions()
+        if metric_revision
+    ]
     validate_cube_covers_reaggregate_dimensions(
         cube,
-        metrics or cube.cube_node_metrics,
+        metric_names,
         dimensions,
         additional_requirements=await _reaggregate_requirements_for_metrics_if_needed(
             session,
-            metrics or cube.cube_node_metrics,
+            metric_names,
             dimensions,
         ),
         usage="Pinned cube",

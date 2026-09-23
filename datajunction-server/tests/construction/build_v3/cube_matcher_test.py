@@ -128,6 +128,34 @@ async def test_resolve_dialect_requires_metric_or_dimension():
         )
 
 
+@pytest.mark.asyncio
+async def test_pinned_cube_validation_uses_loaded_metric_revisions(monkeypatch):
+    """Pinned validation must not lazy-load each metric revision's node."""
+
+    async def no_reaggregate_requirements(*_args, **_kwargs):
+        return []
+
+    monkeypatch.setattr(
+        "datajunction_server.construction.build_v3.cube_matcher."
+        "_reaggregate_requirements_for_metrics_if_needed",
+        no_reaggregate_requirements,
+    )
+    cube = SimpleNamespace(
+        name="v3.test_cube",
+        cube_dimensions=lambda: [],
+        metric_node_revisions=lambda: [
+            SimpleNamespace(name="v3.total_revenue", reaggregate=None),
+        ],
+    )
+
+    await validate_pinned_cube_covers_filters(
+        session=None,  # type: ignore[arg-type]
+        cube=cube,
+        dimensions=[],
+        filters=[],
+    )
+
+
 class TestExtractFilterDimensionRefs:
     """Unit tests for the shared filter-dimension extraction helper.
 
