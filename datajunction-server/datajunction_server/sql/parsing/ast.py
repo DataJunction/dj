@@ -15,7 +15,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field, fields
 import difflib
 from enum import Enum
-from functools import reduce
+from functools import lru_cache, reduce
 from itertools import chain, zip_longest
 import re
 from sqlglot import Dialect as SQLGlotDialect
@@ -341,6 +341,19 @@ class CompileContext:
 TNode = TypeVar("TNode", bound="Node")
 
 
+@lru_cache(maxsize=None)
+def field_names(node_type: type) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """
+    Field names of a node class as (all, public).
+
+    Dataclass fields are fixed once the class exists, but ``dataclasses.fields``
+    rebuilds its tuple on every call, so resolve the names one time per class.
+    """
+    all_names = tuple(node_field.name for node_field in fields(node_type))
+    public = tuple(name for name in all_names if not name.startswith("_"))
+    return all_names, public
+
+
 class Node(ABC):
     """Base class for all DJ AST nodes.
 
@@ -499,22 +512,22 @@ class Node(ABC):
                 and optional flattening (by default Iterator[Node])
         """
 
+        all_names, public_names = field_names(type(self))
+        names = all_names if obfuscated else public_names
+        attributes = self.__dict__
+
         def make_child_generator():
             """
             Makes a generator enclosing self to return
             not obfuscated fields (fields without starting `_`)
             """
-            for self_field in fields(self):
-                if (
-                    not self_field.name.startswith("_") if not obfuscated else True
-                ) and (self_field.name in self.__dict__):
-                    value = self.__dict__[self_field.name]
-                    values = [value]
-                    if flat:
-                        values = flatten(value)
+            for name in names:
+                if name in attributes:
+                    value = attributes[name]
+                    values = flatten(value) if flat else [value]
                     for value in values:
                         if named:
-                            yield (self_field.name, value)
+                            yield (name, value)
                         else:
                             yield value
 
@@ -592,7 +605,7 @@ class Node(ABC):
         if func(self):
             yield self
 
-        yield from chain(*[child.filter(func) for child in self.children])
+        yield from chain.from_iterable(child.filter(func) for child in self.children)
 
     def contains(self, other: Node) -> bool:
         """
