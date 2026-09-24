@@ -358,11 +358,6 @@ def _upsert_from_materialization(
 ) -> UpsertCubeMaterialization | UpsertMaterialization:
     """
     Recover the user's materialization intent from a persisted materialization.
-
-    Only the intent -- job type, strategy, schedule, lookback window, retention,
-    declared coverage and the author's Druid, Spark and platform settings -- is
-    carried over; everything else in a stored config is generated content derived
-    from the revision it was built against.
     """
     config = materialization.config if isinstance(materialization.config, dict) else {}
     lookback_window = config.get("lookback_window")
@@ -373,8 +368,6 @@ def _upsert_from_materialization(
             strategy=materialization.strategy,
             schedule=materialization.schedule,
             lookback_window=lookback_window,
-            # Same default as the export: a config persisted before `retention`
-            # existed rebuilds with the value that export already reports.
             retention=config.get("retention", DEFAULT_CUBE_RETENTION),
             coverage=config.get("coverage"),
             druid=config.get("druid"),
