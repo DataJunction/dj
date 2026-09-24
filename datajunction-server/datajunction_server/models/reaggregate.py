@@ -108,6 +108,7 @@ class ReaggregateSpec(BaseModel):
     # materialization adapter validates the supported keys for its aggregator.
     params: dict[str, Any] | None = None
 
+
 def dump_reaggregate_spec(
     spec: ReaggregateSpec | dict | None,
 ) -> dict | None:

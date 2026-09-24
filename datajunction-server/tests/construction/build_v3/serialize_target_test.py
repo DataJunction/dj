@@ -128,7 +128,7 @@ class TestSerializeDeclaration:
         """
         A component declaring a conversion but no targets never applies it.
 
-        Defaulting to "no targets" rather than "all targets" prevents 
+        Defaulting to "no targets" rather than "all targets" prevents
         half-finished declarations from silently rewriting measures tables.
         """
         component = _component(
