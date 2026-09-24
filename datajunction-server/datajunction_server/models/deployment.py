@@ -216,10 +216,37 @@ class HierarchySpec(NamespacedSpec):
 class PreAggSpec(NamespacedSpec):
     """
     Specification for an externally-built pre-aggregation table adopted at deploy
-    time. ``name`` is a stable handle used for reconciliation.
+    time (equivalent to POST /preaggs/register). ``name`` is a stable handle used
+    for reconciliation and availability callbacks. Metric/dimension references may
+    use ``${prefix}`` or be fully qualified; they are rendered against the
+    deployment namespace.
 
-    Every metric and dimension is declared together with its physical column
-    in the external table.
+    Every metric and every dimension is declared together with the physical
+    column of the external table that holds it, as a map::
+
+        metrics:
+          ${prefix}paid_members: paid_members_sum
+        dimensions:
+          ${prefix}country_dim.country_iso: country
+          ${prefix}date_dim.utc_date: utc_date
+
+    Both maps require a value for every key -- including a dimension whose
+    physical column happens to match its DJ column name, which is written out
+    rather than left empty. An optional value would make the map not really a
+    mapping, a trailing colon is easy to write by accident, and spelling the
+    physical name out documents the table in the file that declares it.
+
+    What goes under ``metrics`` are the measures the table stores. A derived
+    metric (a ratio of two others, say) is not listed and cannot be: it has no
+    column of its own. It is covered anyway, because both registration and
+    query-time matching work on decomposed measure identities rather than metric
+    names, so any metric that decomposes into the stored measures resolves to
+    this table.
+
+    The earlier four-field form -- ``metrics``/``dimensions`` as lists alongside
+    separate ``measure_columns``/``dimension_columns`` maps -- is no longer
+    accepted, and a spec still using it is rejected with a message describing
+    what to write instead.
     """
 
     # Metric/dimension reference -> the physical column of the external table
@@ -334,7 +361,16 @@ class PartitionSpec(BaseModel):
 
 
 class MaterializationSpec(BaseModel):
-    """Declarative materialization config for a cube."""
+    """
+    Declarative materialization config for a cube.
+
+    Deliberately carries only what the author decides: when to build, how, how far
+    back to look, how much of history to serve, how long the result is kept, and the
+    Druid, Spark and platform settings their own site needs. The backend that runs it
+    (and everything it derives -- the measures queries, combiner SQL, the rest of the
+    Druid spec, output tables) is DJ's choice, so no `job` field is exposed here and
+    the block stays portable if that choice changes.
+    """
 
     schedule: str
     strategy: MaterializationStrategy = MaterializationStrategy.INCREMENTAL_TIME
@@ -1278,11 +1314,20 @@ class CubeSpec(NodeSpec):
     filters: list[str] | None = None
     columns: list[ColumnSpec] | None = None
     # Tri-state. A spec materializes the cube on the schedule it names; the `none`
-    # sentinel tears down whatever the cube has materialized; absent means the cube's
-    # materialization is not managed here and whatever exists is left alone.
+    # sentinel tears down whatever the cube has materialized; absent -- and null,
+    # which is what serializing an absent field produces -- means the cube's
+    # materialization is not managed here and whatever exists is left alone. Only a
+    # value can carry intent through serialization, so removal is spelled
+    # `materialization: none` rather than inferred from a key being present.
     #
-    # A list declares more than one (e.g. incremental + full). `strategy` is what tells
-    # two entries apart, so two entries sharing one are rejected below.
+    # A list declares more than one, which a cube legitimately needs: an
+    # `incremental_time` build for freshness alongside a periodic `full` rebuild
+    # that corrects late-arriving data, out-of-order events and dimension
+    # backfills. `strategy` is what tells two entries apart -- `job` is not
+    # authorable (see `MaterializationSpec`) and everything else is a knob rather
+    # than an identity -- so two entries sharing one are rejected below. The scalar
+    # form stays valid and means exactly what it always did; nothing has to be
+    # rewritten as a one-element list.
     materialization: (
         MaterializationSpec | list[MaterializationSpec] | MaterializationAction | None
     ) = None
@@ -1299,8 +1344,18 @@ class CubeSpec(NodeSpec):
         # Only user-authored partition config is compared here (see __eq__);
         # everything else about cube columns is auto-derived.
         "columns": ChangeTier.MAJOR,
-        # Materialization is not part of a cube's definition, so changing it
-        # does not mint a new node revision.
+        # Materialization is not part of a cube's definition. Configuring one
+        # through `POST /nodes/{name}/materialization/` has never created a node
+        # revision, and a YAML-declared schedule has to behave the same way, or
+        # the same edit would cut a version through one door and not the other.
+        # Because `materialization` is also excluded from `__eq__`, a
+        # materialization-only edit leaves the cube in the deployment's skip list
+        # and never reaches the classifier at all; NONE records that intent rather
+        # than describing a reachable code path. Nothing is lost by the exclusion:
+        # reconciling the declared block against the persisted config is a separate
+        # concern that runs over every declared cube whether or not the node
+        # changed, which is also what catches a materialization changed outside
+        # YAML.
         "materialization": ChangeTier.NONE,
     }
 

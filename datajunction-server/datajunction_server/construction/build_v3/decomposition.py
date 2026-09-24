@@ -331,9 +331,12 @@ def get_base_metrics_for_derived(ctx: BuildContext, metric_node: Node) -> list[N
             return
         visited.add(node.name)
 
-        # Recurse through metric parents. A node with any metric parent is derived;
-        # a node with no metric parent is a base metric. Checking for metric parents
-        # avoids dropping base metrics that are defined directly on dimension nodes.
+        # Recurse through metric parents. A node with any metric parent is itself
+        # derived; a node with no metric parent is a base metric -- regardless of
+        # whether its data source is a fact/transform or a dimension node (a base
+        # metric can be defined directly on a dimension node). Classifying by
+        # "has a metric parent" avoids mistaking a dimension-sourced base metric
+        # for a bare required-dimension reference, which would drop its grain group.
         has_metric_parent = False
         for parent_name in ctx.parent_map.get(node.name, []):
             parent = ctx.nodes.get(parent_name)
@@ -642,7 +645,8 @@ def merge_grain_groups(grain_groups: list[GrainGroup]) -> list[GrainGroup]:
     """
     # Group by parent node name first, then by the internal grain needed for
     # semi-additive collapse. LIMITED/NONE groups must not be merged into a
-    # semi-additive FULL group, as extra grain columns would corrupt MAX_BY/MIN_BY.
+    # semi-additive FULL group, because their extra grain columns would make the
+    # protected-dimension bucket contain multiple rows and corrupt MAX_BY/MIN_BY.
     by_parent: dict[str, list[GrainGroup]] = defaultdict(list)
     for gg in grain_groups:
         by_parent[gg.parent_node.name].append(gg)
@@ -656,7 +660,8 @@ def merge_grain_groups(grain_groups: list[GrainGroup]) -> list[GrainGroup]:
         elif any(group.reaggregate_component_dimensions for group in parent_groups):
             # Keep semi-additive groups isolated. Merging a protected-dimension
             # group with another grain can add rows inside the protected bucket,
-            # corrupting the already-aggregated value for MAX_BY/MIN_BY.
+            # which makes MAX_BY/MIN_BY pick one lower-grain row instead of the
+            # already-aggregated value at that protected grain.
             merged_groups.extend(parent_groups)
         else:
             # Multiple groups for same parent - merge them
@@ -706,8 +711,10 @@ def _merge_parent_grain_groups(groups: list[GrainGroup]) -> GrainGroup:
             gg.reaggregate_component_dimensions,
         )
 
-    # Carry over non-decomposable metrics from every contributing group to prevent them
-    # from being silently dropped when merging a NONE group into a FULL/LIMITED neighbor.
+    # Carry over non-decomposable metrics from every contributing group.
+    # Without this, merging a NONE group into a FULL/LIMITED neighbor
+    # silently drops the non-decomposable metric expressions and the
+    # response loses those metrics entirely.
     all_non_decomposable: list[DecomposedMetricInfo] = []
     for gg in groups:
         all_non_decomposable.extend(gg.non_decomposable_metrics)
