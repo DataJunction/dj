@@ -360,3 +360,21 @@ def test_resolve_required_dimensions_role_not_reachable():
 
     assert invalid_dims == {"v3.date.week[shipping]"}
     assert resolved == []
+
+
+def test_resolve_required_dimensions_bare_ref_with_dotted_role():
+    """
+    A bare column ref can't carry a role at all -- a short name that has a
+    bracketed suffix containing `.` must be flagged invalid rather than
+    misrouted into full-path parsing, which would raise uncaught.
+    """
+    status_column = Column(name="status")
+
+    invalid_dims, resolved = _resolve_required_dimensions(
+        required_dimensions=["status[a.b]"],
+        parent_columns=[status_column],
+        dim_nodes={},
+    )
+
+    assert invalid_dims == {"status[a.b]"}
+    assert resolved == []

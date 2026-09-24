@@ -23,6 +23,9 @@ from datajunction_server.construction.build import (
     validate_shared_dimensions,
 )
 from datajunction_server.construction.build_v2 import FullColumnName
+from datajunction_server.construction.build_v3.dimension_refs import (
+    split_dimension_ref,
+)
 from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
 from datajunction_server.database.attributetype import AttributeType
 from datajunction_server.database.catalog import Catalog
@@ -339,7 +342,12 @@ def _resolve_required_dimensions(
     short_names: list[str] = []
 
     for required_dim in required_dimensions:
-        if SEPARATOR in required_dim:
+        # A role can itself contain `.` (e.g. a multi-hop role path), so the
+        # full-path/short-name split is decided on the ref with any bracketed
+        # role stripped off first -- testing the raw string would misroute a
+        # bare short name like `status[a.b]` into the full-path branch.
+        dim_part, _ = split_dimension_ref(required_dim)
+        if SEPARATOR in dim_part:
             dim_ref = parse_dimension_ref(required_dim)
             full_paths.setdefault(dim_ref.node_name, []).append(
                 (required_dim, dim_ref.column_name, dim_ref.role),
@@ -403,11 +411,15 @@ async def find_required_dimensions(
     Returns:
         Tuple of (invalid dimension paths, resolved RequiredDimension rows)
     """
-    # Collect dim node names from full-path entries so we can batch-fetch them
+    # Collect dim node names from full-path entries so we can batch-fetch them.
+    # Strip any bracketed role first -- it can itself contain `.`, so testing
+    # the raw string would misroute a bare short name like `status[a.b]` into
+    # a (bogus) full-path node name.
     dim_node_names: set[str] = set()
     for required_dim in required_dimensions:
-        if SEPARATOR in required_dim:
-            dim_node_names.add(required_dim.rsplit(SEPARATOR, 1)[0])
+        dim_part, _ = split_dimension_ref(required_dim)
+        if SEPARATOR in dim_part:
+            dim_node_names.add(dim_part.rsplit(SEPARATOR, 1)[0])
 
     dim_nodes: dict[str, Node] = {}
     if dim_node_names:

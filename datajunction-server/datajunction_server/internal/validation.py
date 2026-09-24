@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import MissingGreenlet
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -157,10 +157,30 @@ async def _dimension_links_for_required_dimensions(
     if metric_parent_names:
         metric_nodes = await Node.get_by_names(session, metric_parent_names)
         base_parents_map = await get_metric_parents_map(session, metric_nodes)
-        for base_parents in base_parents_map.values():
-            for base_parent in base_parents:
-                if base_parent.current:  # pragma: no branch
-                    revision_ids.add(base_parent.current.id)
+        # get_metric_parents_map only eager-loads id/name/type/current_version
+        # on these Nodes (see its docstring) -- `.current` is never loaded, so
+        # reading it here would risk a MissingGreenlet. Resolve the current
+        # revision ids with a batch query on (name, current_version) instead.
+        base_parent_versions = {
+            (base_parent.name, base_parent.current_version)
+            for base_parents in base_parents_map.values()
+            for base_parent in base_parents
+        }
+        if base_parent_versions:
+            revision_rows = await session.execute(
+                select(NodeRevision.id).where(
+                    or_(
+                        *[
+                            and_(
+                                NodeRevision.name == name,
+                                NodeRevision.version == version,
+                            )
+                            for name, version in base_parent_versions
+                        ],
+                    ),
+                ),
+            )
+            revision_ids.update(row[0] for row in revision_rows)
     if not revision_ids:
         return []
     result = await session.execute(
@@ -958,73 +978,80 @@ async def validate_node_data_v2(
         )
         node_validator.status = NodeStatus.INVALID
 
-    # --- Step 11: required dimensions. Parents come from Node.get_by_names's
-    # default_load_options which eagerly loads NodeRevision.columns, so the
-    # `parent.columns` access here doesn't trigger a lazy load. Let any real
-    # MissingGreenlet propagate rather than silently swallowing it — that
-    # would hide a genuine eager-load regression.
-    parent_columns = [
-        col
-        for parent in node_validator.dependencies_map.keys()
-        for col in parent.columns
-    ]
-    parent_dimension_links = await _dimension_links_for_required_dimensions(
-        session,
-        list(node_validator.dependencies_map.keys()),
-    )
-    required_dim_strings = _required_dimension_strings(
-        validated_node,
-        required_dimensions,
-    )
-    (
-        invalid_required_dimensions,
-        matched_bound_columns,
-    ) = await find_required_dimensions(
-        session,
-        required_dim_strings,
-        parent_columns,
-        parent_dimension_links,
-    )
-    node_validator.required_dimensions = matched_bound_columns
-    reaggregate_spec = parse_reaggregate_spec(validated_node.reaggregate)
+    # --- Step 11: required dimensions. Metric-only, like Step 9 -- these
+    # fields are always empty for other node types, so skip the DB round
+    # trips (dimension-link lookup, metric-parents resolution) entirely.
+    invalid_required_dimensions: set[str] = set()
     invalid_reaggregate_dimensions: set[str] = set()
     invalid_reaggregate_functions: list[str] = []
     invalid_fixed_grain_dimensions: set[str] = set()
-    if reaggregate_spec and reaggregate_spec.rules:
-        reaggregate_dimensions = [rule.dimension for rule in reaggregate_spec.rules]
+    unsupported_fixed_grain_shape: str | None = None
+    if is_metric:
+        # Parents come from Node.get_by_names's default_load_options which
+        # eagerly loads NodeRevision.columns, so the `parent.columns` access
+        # here doesn't trigger a lazy load. Let any real MissingGreenlet
+        # propagate rather than silently swallowing it — that would hide a
+        # genuine eager-load regression.
+        parent_columns = [
+            col
+            for parent in node_validator.dependencies_map.keys()
+            for col in parent.columns
+        ]
+        parent_dimension_links = await _dimension_links_for_required_dimensions(
+            session,
+            list(node_validator.dependencies_map.keys()),
+        )
+        required_dim_strings = _required_dimension_strings(
+            validated_node,
+            required_dimensions,
+        )
         (
-            invalid_reaggregate_dimensions,
-            _,
+            invalid_required_dimensions,
+            matched_bound_columns,
         ) = await find_required_dimensions(
             session,
-            reaggregate_dimensions,
+            required_dim_strings,
             parent_columns,
+            parent_dimension_links,
         )
-        invalid_reaggregate_dimensions.update(
-            invalid_reaggregate_dimension_references(reaggregate_dimensions),
-        )
-        invalid_reaggregate_functions = unsupported_dimension_reaggregate_functions(
-            reaggregate_spec,
-        )
-    # Truthiness, not `is not None`: `[]` is the global grain.
-    if validated_node.fixed_grain:
-        invalid_fixed_grain_dimensions, _ = await find_required_dimensions(
-            session,
-            list(validated_node.fixed_grain),
-            parent_columns,
-        )
-    # `is not None` here: unlike the dimension check above, `[]` still needs
-    # its shape checked -- e.g. COUNT(DISTINCT ...) with `[]` has no
-    # dimension to resolve but still can't carry a broadcast.
-    unsupported_fixed_grain_shape: str | None = None
-    if validated_node.fixed_grain is not None:
-        try:
-            validate_fixed_grain_shape(
-                validated_node.query,  # type: ignore
-                list(validated_node.fixed_grain),
+        node_validator.required_dimensions = matched_bound_columns
+        reaggregate_spec = parse_reaggregate_spec(validated_node.reaggregate)
+        if reaggregate_spec and reaggregate_spec.rules:
+            reaggregate_dimensions = [
+                rule.dimension for rule in reaggregate_spec.rules
+            ]
+            (
+                invalid_reaggregate_dimensions,
+                _,
+            ) = await find_required_dimensions(
+                session,
+                reaggregate_dimensions,
+                parent_columns,
             )
-        except DJInvalidInputException as exc:
-            unsupported_fixed_grain_shape = str(exc)
+            invalid_reaggregate_dimensions.update(
+                invalid_reaggregate_dimension_references(reaggregate_dimensions),
+            )
+            invalid_reaggregate_functions = (
+                unsupported_dimension_reaggregate_functions(reaggregate_spec)
+            )
+        # Truthiness, not `is not None`: `[]` is the global grain.
+        if validated_node.fixed_grain:
+            invalid_fixed_grain_dimensions, _ = await find_required_dimensions(
+                session,
+                list(validated_node.fixed_grain),
+                parent_columns,
+            )
+        # `is not None` here: unlike the dimension check above, `[]` still
+        # needs its shape checked -- e.g. COUNT(DISTINCT ...) with `[]` has
+        # no dimension to resolve but still can't carry a broadcast.
+        if validated_node.fixed_grain is not None:
+            try:
+                validate_fixed_grain_shape(
+                    validated_node.query,  # type: ignore
+                    list(validated_node.fixed_grain),
+                )
+            except DJInvalidInputException as exc:
+                unsupported_fixed_grain_shape = str(exc)
 
     # --- Step 12: final error assembly for missing parents + invalid required
     #              dims (matches legacy code shapes).
