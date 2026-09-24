@@ -12516,6 +12516,28 @@ async def test_node_checks_endpoint_is_null_without_a_governing_manifest(
 
 
 @pytest.mark.asyncio
+async def test_node_checks_endpoint_is_null_when_the_manifest_declares_none(
+    module__client_with_roads,
+):
+    """
+    A namespace that deploys without checks is not governed, and does not
+    inherit from further up: its own manifest is the answer.
+    """
+    namespace = f"nochecks{uuid.uuid4().hex[:8]}"
+    await deploy_and_poll(
+        module__client_with_roads,
+        DeploymentSpec(
+            namespace=namespace,
+            nodes=[TransformSpec(name="bare", query="SELECT 1 AS one")],
+        ),
+    )
+    response = await module__client_with_roads.get(
+        f"/nodes/{namespace}.bare/checks/",
+    )
+    assert response.json() is None
+
+
+@pytest.mark.asyncio
 async def test_copying_a_namespace_carries_its_governance(
     module__client_with_roads,
     module__session,
