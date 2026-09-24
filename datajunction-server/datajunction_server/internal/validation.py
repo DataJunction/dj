@@ -1017,9 +1017,7 @@ async def validate_node_data_v2(
         node_validator.required_dimensions = matched_bound_columns
         reaggregate_spec = parse_reaggregate_spec(validated_node.reaggregate)
         if reaggregate_spec and reaggregate_spec.rules:
-            reaggregate_dimensions = [
-                rule.dimension for rule in reaggregate_spec.rules
-            ]
+            reaggregate_dimensions = [rule.dimension for rule in reaggregate_spec.rules]
             (
                 invalid_reaggregate_dimensions,
                 _,
@@ -1031,8 +1029,8 @@ async def validate_node_data_v2(
             invalid_reaggregate_dimensions.update(
                 invalid_reaggregate_dimension_references(reaggregate_dimensions),
             )
-            invalid_reaggregate_functions = (
-                unsupported_dimension_reaggregate_functions(reaggregate_spec)
+            invalid_reaggregate_functions = unsupported_dimension_reaggregate_functions(
+                reaggregate_spec,
             )
         # Truthiness, not `is not None`: `[]` is the global grain.
         if validated_node.fixed_grain:

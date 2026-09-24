@@ -1212,9 +1212,7 @@ async def copy_to_new_node(
         catalog=old_revision.catalog,
         schema_=old_revision.schema_,
         table=old_revision.table,
-        required_dimensions=[
-            rd.copy() for rd in old_revision.required_dimensions
-        ],
+        required_dimensions=[rd.copy() for rd in old_revision.required_dimensions],
         metric_metadata=old_revision.metric_metadata,
         reaggregate=old_revision.reaggregate,
         fixed_grain=old_revision.fixed_grain,
@@ -2593,9 +2591,7 @@ def copy_existing_node_revision(old_revision: NodeRevision, current_user: User):
         mode=old_revision.mode,
         materializations=old_revision.materializations,
         status=old_revision.status,
-        required_dimensions=[
-            rd.copy() for rd in old_revision.required_dimensions
-        ],
+        required_dimensions=[rd.copy() for rd in old_revision.required_dimensions],
         metric_metadata=old_revision.metric_metadata,
         reaggregate=old_revision.reaggregate,
         fixed_grain=old_revision.fixed_grain,
@@ -2918,9 +2914,7 @@ async def create_new_revision_from_existing(
         # which meant a PATCH touching unrelated fields (but not
         # required_dimensions) silently wiped it out once validation below
         # reassigned `new_revision.required_dimensions` from an empty list.
-        required_dimensions=[
-            rd.copy() for rd in old_revision.required_dimensions
-        ],
+        required_dimensions=[rd.copy() for rd in old_revision.required_dimensions],
         created_by_id=current_user.id,
         custom_metadata=old_revision.custom_metadata,
     )
