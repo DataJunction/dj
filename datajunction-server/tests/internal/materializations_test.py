@@ -14,8 +14,13 @@ from datajunction_server.database.column import Column
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.partition import Partition
+from datajunction_server.models.materialization import (
+    DEFAULT_CUBE_RETENTION,
+    MaterializationStrategy,
+)
 from datajunction_server.internal.materializations import (
     CoverageBackfill,
+    _upsert_from_materialization,
     CubeMaterializationSwap,
     CubeMaterializationSwapOutcome,
     NodeMaterializationTeardown,
@@ -1039,3 +1044,34 @@ async def test_apply_cube_swap_backfills_a_missing_row(session):
             request_headers=None,
         ),
     ]
+
+
+def _cube_materialization(config: dict) -> Materialization:
+    """A stored cube materialization row carrying the given config."""
+    return Materialization(
+        name="druid_cube__incremental_time",
+        job="DruidCubeMaterializationJob",
+        strategy=MaterializationStrategy.INCREMENTAL_TIME,
+        schedule="0 6 * * *",
+        config=config,
+    )
+
+
+def test_a_rebuild_keeps_the_stored_retention():
+    """
+    A revision swap rebuilds from the stored config, so a retention the author
+    set has to survive it -- otherwise the rebuilt row silently reverts to the
+    default and Druid starts dropping data the cube is meant to serve.
+    """
+    upsert = _upsert_from_materialization(
+        _cube_materialization({"lookback_window": "1 DAY", "retention": "5000 DAYS"}),
+    )
+    assert upsert.retention == "5000 DAYS"
+
+
+def test_a_rebuild_of_a_config_predating_retention_uses_the_default():
+    """Matches what `Node.to_spec` already reports for such a config."""
+    upsert = _upsert_from_materialization(
+        _cube_materialization({"lookback_window": "1 DAY"}),
+    )
+    assert upsert.retention == DEFAULT_CUBE_RETENTION
