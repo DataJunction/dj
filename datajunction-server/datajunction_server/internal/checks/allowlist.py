@@ -26,8 +26,6 @@ ALLOWED_OVERLOADS = frozenset(
         "size_map",
         "size_string",
         "size_bytes",
-        # RE2, so a pattern cannot backtrack into a hang. Needed for rules
-        # about the text of a name, which have no other way to be written.
         "matches_string",
         "multiply_int64",
         "add_int64",
