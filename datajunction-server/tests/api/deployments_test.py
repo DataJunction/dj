@@ -1966,6 +1966,7 @@ class TestDeployments:
             },
         ]
 
+    @pytest.mark.parametrize("default_value", ["Unknown", 0, True])
     @pytest.mark.asyncio
     async def test_redeploy_is_noop_for_join_link_with_default_value(
         self,
@@ -1973,14 +1974,18 @@ class TestDeployments:
         default_hard_hats,
         default_us_states,
         default_us_state,
+        default_value,
     ):
         """
         A join link with a `default_value` must redeploy as a noop, since
         nothing about it changed. `DimensionLink.to_spec()` must include
         `default_value` -- otherwise the exported spec always reports it as
         None and never compares equal to the one it was authored from.
+
+        The value's type must survive the round trip too, or a number comes
+        back as a string and every redeploy reports a change.
         """
-        namespace = "join_link_default_value_noop"
+        namespace = f"join_link_default_value_noop_{str(default_value).lower()}"
         dim_spec = DimensionSpec(
             name="default.hard_hat",
             description="Hard hat dimension",
@@ -1997,15 +2002,12 @@ class TestDeployments:
                     dimension_node="${prefix}default.us_state",
                     join_type="left",
                     join_on="${prefix}default.hard_hat.state = ${prefix}default.us_state.state_short",
-                    default_value="Unknown",
+                    default_value=default_value,
                 ),
             ],
         )
         nodes_list = [dim_spec, default_hard_hats, default_us_states, default_us_state]
-        link_name = (
-            "join_link_default_value_noop.default.hard_hat -> "
-            "join_link_default_value_noop.default.us_state"
-        )
+        link_name = f"{namespace}.default.hard_hat -> {namespace}.default.us_state"
 
         data = await deploy_and_wait(
             client,
@@ -2033,13 +2035,12 @@ class TestDeployments:
         assert [
             result
             for result in data["results"]
-            if result["name"]
-            in (link_name, "join_link_default_value_noop.default.hard_hat")
+            if result["name"] in (link_name, f"{namespace}.default.hard_hat")
         ] == [
             {
                 "deploy_type": "node",
                 "message": "Unchanged",
-                "name": "join_link_default_value_noop.default.hard_hat",
+                "name": f"{namespace}.default.hard_hat",
                 "operation": "noop",
                 "changed_fields": [],
                 "status": "skipped",

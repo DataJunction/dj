@@ -479,6 +479,23 @@ def test_dimension_join_link_spec_with_default_value():
     assert hash(link_spec) != hash(different_default)
 
 
+@pytest.mark.parametrize(
+    "default_value",
+    [0, -1, 1.5, True, False, "Unknown"],
+)
+def test_dimension_join_link_spec_default_value_types(default_value):
+    """A default value keeps the type it was authored with."""
+    link_spec = DimensionJoinLinkSpec(
+        dimension_node="some.dimension.users",
+        join_type="left",
+        join_on="events.user_id = some.dimension.users.id",
+        default_value=default_value,
+    )
+    assert link_spec.default_value == default_value
+    assert type(link_spec.default_value) is type(default_value)
+    assert hash(link_spec) == hash(link_spec)
+
+
 def test_dimension_join_link_spec_with_join_cardinality():
     """Test DimensionJoinLinkSpec join_cardinality default, equality, and hashing."""
     from datajunction_server.models.dimensionlink import JoinCardinality

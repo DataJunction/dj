@@ -20,6 +20,7 @@ from datajunction_server.errors import (
     DJInvalidInputException,
 )
 from datajunction_server.models.dimensionlink import (
+    DimensionLinkDefault,
     JoinCardinality,
     JoinType,
     LinkType,
@@ -535,7 +536,7 @@ class DimensionJoinLinkSpec(DimensionLinkSpec):
     join_type: JoinType = JoinType.LEFT
     join_cardinality: JoinCardinality = JoinCardinality.MANY_TO_ONE
     join_on: str | None = None
-    default_value: str | None = None
+    default_value: DimensionLinkDefault | None = None
     spark_hints: SparkJoinStrategy | None = None
 
     @property

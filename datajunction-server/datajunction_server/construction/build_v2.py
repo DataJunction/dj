@@ -14,7 +14,10 @@ from sqlalchemy import bindparam, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, noload, selectinload
 
-from datajunction_server.construction.utils import to_namespaced_name
+from datajunction_server.construction.utils import (
+    dimension_link_default_literal,
+    to_namespaced_name,
+)
 from datajunction_server.database import Engine
 from datajunction_server.database.attributetype import ColumnAttribute
 from datajunction_server.database.column import Column
@@ -1931,7 +1934,13 @@ def build_dimension_attribute(
                 if link.default_value is not None:  # pragma: no cover
                     coalesce_expr = ast.Function(
                         ast.Name("COALESCE"),
-                        args=[column, ast.String(f"'{link.default_value}'")],
+                        args=[
+                            column,
+                            dimension_link_default_literal(
+                                link.default_value,
+                                str(col.type) if col.type else None,  # type: ignore
+                            ),
+                        ],
                     )
                     if alias:
                         aliased = coalesce_expr.set_alias(ast.Name(alias))
