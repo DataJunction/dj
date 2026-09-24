@@ -23,6 +23,7 @@ from datajunction_server.database.queryrequest import QueryBuildType
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.instrumentation.provider import get_metrics_provider
+from datajunction_server.sql.parsing.backends.antlr4 import report_parse_cache_stats
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.caching.cachelib_cache import get_cache
 from datajunction_server.internal.caching.interface import Cache
@@ -291,6 +292,7 @@ async def get_measures_sql_v3(
         _tags,
     )
     get_metrics_provider().counter("dj.sql.requests", tags=_tags)
+    report_parse_cache_stats()
     if result.warnings:
         get_metrics_provider().counter("dj.sql.build_warnings", tags=_tags)
 
@@ -529,6 +531,7 @@ async def get_combined_measures_sql_v3(
         _tags,
     )
     get_metrics_provider().counter("dj.sql.requests", tags=_tags)
+    report_parse_cache_stats()
     if combined_result.warnings:
         get_metrics_provider().counter("dj.sql.build_warnings", tags=_tags)
 

@@ -5,7 +5,14 @@ Tests for custom antlr4 parser
 
 import pytest
 
-from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
+from datajunction_server.sql.parsing.backends.antlr4 import (
+    _definition_tree_parser,
+    _request_tree_parser,
+    ast,
+    cached_request_tree,
+    parse,
+    report_parse_cache_stats,
+)
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 
 
@@ -290,3 +297,72 @@ def test_unsupported_grammar_branch_surfaces_djparse():
     bad_sql = "SELECT * FROM foo CROSS JOIN ()"
     with pytest.raises(DJParseException):
         parse(bad_sql)
+
+
+def test_request_sql_tree_is_cached_between_parses():
+    """The same request filter reuses one ANTLR tree instead of re-parsing."""
+    _request_tree_parser().cache_clear()
+    sql = "SELECT 1 WHERE colx = 'cached'"
+
+    first = cached_request_tree(sql, "singleStatement")
+    second = cached_request_tree(sql, "singleStatement")
+
+    assert first is second
+    assert _request_tree_parser().cache_info().hits == 1
+
+
+def test_node_definitions_use_their_own_cache():
+    """Node SQL and request SQL are cached separately."""
+    _definition_tree_parser().cache_clear()
+    _request_tree_parser().cache_clear()
+
+    parse("SELECT defn_col FROM defn_tbl")
+    parse("SELECT 1 WHERE colx = 'a'", from_request=True)
+
+    assert _definition_tree_parser().cache_info().currsize == 1
+    assert _request_tree_parser().cache_info().currsize == 1
+
+
+def test_cached_request_tree_yields_independent_asts():
+    """Each parse gets a fresh AST, so mutating one cannot corrupt the next."""
+    sql = "SELECT 1 WHERE amount = 5"
+
+    first = parse(sql, from_request=True)
+    first.select.where.right.value = 99
+
+    second = parse(sql, from_request=True)
+    assert str(second) == str(parse(sql, from_request=True))
+    assert "99" not in str(second)
+
+
+def test_report_parse_cache_stats_emits_gauges(mocker):
+    """The request cache reports hits, misses and size."""
+    provider = mocker.MagicMock()
+    mocker.patch(
+        "datajunction_server.instrumentation.provider.get_metrics_provider",
+        return_value=provider,
+    )
+
+    report_parse_cache_stats()
+
+    reported = {
+        (call.args[0], call.args[2]["cache"]) for call in provider.gauge.call_args_list
+    }
+    assert reported == {
+        (name, cache)
+        for name in (
+            "dj.sql.parse_cache.hits",
+            "dj.sql.parse_cache.misses",
+            "dj.sql.parse_cache.size",
+            "dj.sql.parse_cache.max_size",
+        )
+        for cache in ("definitions", "requests")
+    }
+
+
+def test_request_parse_cache_size_comes_from_settings(settings):
+    """The cache is sized from settings, not a hardcoded constant."""
+    _request_tree_parser.cache_clear()
+    assert (
+        _request_tree_parser().cache_info().maxsize == settings.request_parse_cache_size
+    )

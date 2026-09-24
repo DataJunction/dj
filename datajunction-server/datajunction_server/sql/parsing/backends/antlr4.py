@@ -200,15 +200,99 @@ def tree_to_strings(tree, indent=0):
     return result
 
 
-def parse_rule(sql: str, rule: str) -> Union[ast.Node, "ColumnType"]:
+@lru_cache(maxsize=1)
+def _definition_tree_parser():
+    """
+    Build the node definition cache, sized from settings on first use.
+    """
+    from datajunction_server.utils import get_settings  # noqa: PLC0415
+
+    @lru_cache(maxsize=get_settings().definition_parse_cache_size)
+    def _parse(sql: str, rule: str):
+        return parse_sql_with_sll_fallback(sql, rule)
+
+    return _parse
+
+
+@lru_cache(maxsize=1)
+def _request_tree_parser():
+    """
+    Build the request SQL cache, sized from settings on first use.
+    """
+    from datajunction_server.utils import get_settings  # noqa: PLC0415
+
+    @lru_cache(maxsize=get_settings().request_parse_cache_size)
+    def _parse(sql: str, rule: str):
+        return parse_sql_with_sll_fallback(sql, rule)
+
+    return _parse
+
+
+def cached_definition_tree(sql: str, rule: str):
+    """
+    Parse a node definition into an ANTLR tree, caching the result.
+
+    Node SQL repeats across requests, so this keeps the parse. The tree is
+    safe to share: ``visit`` only reads it, and the mutable DJ AST is rebuilt
+    on every call.
+    """
+    return _definition_tree_parser()(sql, rule)
+
+
+def cached_request_tree(sql: str, rule: str):
+    """
+    Parse request-supplied SQL into an ANTLR tree, caching the result.
+
+    One request parses the same filter many times over, so this removes work
+    the build would otherwise repeat. The tree is safe to share: ``visit``
+    only reads it, and the mutable DJ AST is rebuilt on every call.
+    """
+    return _request_tree_parser()(sql, rule)
+
+
+def report_parse_cache_stats() -> None:
+    """
+    Report parse cache sizes and hit counts, per cache.
+
+    Misses rising while ``size`` sits at ``max_size`` means the cache is too
+    small and entries are being evicted.
+    """
+    from datajunction_server.instrumentation.provider import (  # noqa: PLC0415
+        get_metrics_provider,
+    )
+
+    provider = get_metrics_provider()
+    caches = {
+        "definitions": _definition_tree_parser(),
+        "requests": _request_tree_parser(),
+    }
+    for name, cache in caches.items():
+        info = cache.cache_info()
+        tags = {"cache": name}
+        provider.gauge("dj.sql.parse_cache.hits", info.hits, tags)
+        provider.gauge("dj.sql.parse_cache.misses", info.misses, tags)
+        provider.gauge("dj.sql.parse_cache.size", info.currsize, tags)
+        provider.gauge("dj.sql.parse_cache.max_size", info.maxsize, tags)
+
+
+def parse_rule(
+    sql: str,
+    rule: str,
+    from_request: bool = False,
+) -> Union[ast.Node, "ColumnType"]:
     """
     Parse a string into a DJ ast using the ANTLR4 backend.
 
-    Uses SLL mode first (faster), falls back to LL mode if needed.
+    Uses SLL mode first (faster), falls back to LL mode if needed. Set
+    ``from_request`` for filters and orderby clauses, which one request
+    parses repeatedly.
     """
-    antlr_tree = parse_sql_with_sll_fallback(sql, rule)
-    ast_tree = visit(antlr_tree)
-    return ast_tree
+    antlr_tree = (
+        cached_request_tree(sql, rule)
+        if from_request
+        else cached_definition_tree(sql, rule)
+    )
+    return visit(antlr_tree)
 
 
 @lru_cache(maxsize=128)
@@ -219,9 +303,11 @@ def _cached_parse(sql: str | None) -> ast.Query:
     return parse(sql)
 
 
-def parse(sql: str | None) -> ast.Query:
+def parse(sql: str | None, from_request: bool = False) -> ast.Query:
     """
     Parse a string sql query into a DJ ast Query
+
+    Set ``from_request`` for SQL that came from a request (filters, orderby).
     """
     import time as _time  # noqa: PLC0415
 
@@ -230,7 +316,7 @@ def parse(sql: str | None) -> ast.Query:
         if not sql:
             raise DJParseException("Empty query provided!")
         try:
-            return cast(ast.Query, parse_rule(sql, "singleStatement"))
+            return cast(ast.Query, parse_rule(sql, "singleStatement", from_request))
         except SqlParsingError as exc:
             raise DJParseException(message=f"Error parsing SQL `{sql}`: {exc}") from exc
         except DJParseException:
