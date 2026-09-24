@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, get_args, get_origin
 
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only, noload
 
@@ -483,29 +483,33 @@ async def governing_check_specs(
     The checks governing a namespace, from the manifest of the nearest
     enclosing deployment.
     """
-    row = (
-        await session.execute(
-            select(
-                Deployment.spec["checks"].label("checks"),
-                Deployment.spec["rulesets"].label("rulesets"),
+    for candidate in _enclosing_namespaces(namespace):
+        row = (
+            await session.execute(
+                select(
+                    Deployment.spec["checks"].label("checks"),
+                    Deployment.spec["rulesets"].label("rulesets"),
+                )
+                .where(
+                    Deployment.namespace == candidate,
+                    Deployment.status == DeploymentStatus.SUCCESS,
+                )
+                .order_by(Deployment.created_at.desc())
+                .limit(1),
             )
-            .where(
-                Deployment.namespace.in_(_enclosing_namespaces(namespace)),
-                Deployment.status == DeploymentStatus.SUCCESS,
-            )
-            .order_by(
-                func.length(Deployment.namespace).desc(),
-                Deployment.created_at.desc(),
-            )
-            .limit(1),
+        ).one_or_none()
+        if row is None:
+            continue
+        # The nearest deployment answers for the namespace, checks or not:
+        # a manifest that declares none is not a reason to inherit from
+        # further up.
+        if not row.checks:
+            return [], []
+        return (
+            [DeploymentCheckSpec(**check) for check in row.checks],
+            [DeploymentRulesetSpec(**ruleset) for ruleset in row.rulesets or []],
         )
-    ).one_or_none()
-    if row is None or not row.checks:
-        return [], []
-    return (
-        [DeploymentCheckSpec(**check) for check in row.checks],
-        [DeploymentRulesetSpec(**ruleset) for ruleset in row.rulesets or []],
-    )
+    return [], []
 
 
 async def governing_manifest(
