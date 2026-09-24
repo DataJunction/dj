@@ -272,8 +272,18 @@ def add_dimensions_from_metric_expressions(
     existing_dims = set(ctx.dimensions)
     for metric_name, decomposed in decomposed_metrics.items():
         combiner_ast = decomposed.combiner_ast
+        # A declared partition is carried as private grain, added after the
+        # output dimensions are fixed. Promoting it here would put a column the
+        # caller never asked for into the result.
+        partition_dims = {
+            dimension
+            for component in decomposed.components
+            for dimension in component.rule.fixed_grain or []
+        }
         for col in combiner_ast.find_all(ast.Column):
             full_name = get_column_full_name(col)
+            if full_name in partition_dims:
+                continue
             _try_add_dim_to_ctx(full_name, ctx, existing_dims, "metric expression")
 
         # Also scan the original metric query for window function ORDER BY dimension refs.

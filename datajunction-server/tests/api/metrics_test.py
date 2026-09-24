@@ -470,6 +470,7 @@ async def test_read_metrics(module__client_with_roads: AsyncClient) -> None:
             "rule": {
                 "level": None,
                 "reaggregate": None,
+                "fixed_grain": None,
                 "type": "full",
             },
         },
@@ -482,6 +483,7 @@ async def test_read_metrics(module__client_with_roads: AsyncClient) -> None:
             "rule": {
                 "level": None,
                 "reaggregate": None,
+                "fixed_grain": None,
                 "type": "full",
             },
         },

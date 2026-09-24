@@ -16,10 +16,12 @@ from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.errors import (
     DJError,
+    DJInvalidInputException,
     ErrorCode,
 )
 from datajunction_server.internal.deployment.type_inference import validate_node_query
 from datajunction_server.internal.validation import (
+    derived_metric_fixed_grain_error,
     derived_metric_reaggregate_error,
     invalid_reaggregate_dimension_references,
     validate_metric_query,
@@ -41,6 +43,7 @@ from datajunction_server.models.reaggregate import (
     unsupported_dimension_reaggregate_functions,
 )
 from datajunction_server.sql.dag import get_dimensions
+from datajunction_server.sql.decompose import validate_fixed_grain_shape
 from datajunction_server.sql.parsing.ast import fast_parse_mode
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse_rule
 from datajunction_server.sql.parsing.types import ListType, MapType, StructType
@@ -534,6 +537,14 @@ class NodeSpecBulkValidator:
             if reaggregate_error is not None:
                 errors.append(reaggregate_error)
 
+            fixed_grain_error = self._check_fixed_grain_dimensions(spec)
+            if fixed_grain_error is not None:
+                errors.append(fixed_grain_error)
+
+            fixed_grain_shape_error = self._check_fixed_grain_shape(spec)
+            if fixed_grain_shape_error is not None:
+                errors.append(fixed_grain_shape_error)
+
             cross_fact_error = self._check_cross_fact_dimensions(spec)
             if cross_fact_error is not None:
                 errors.append(cross_fact_error)  # pragma: no cover
@@ -717,6 +728,10 @@ class NodeSpecBulkValidator:
                     if SEPARATOR in rule.dimension:
                         dim_node_name = rule.dimension.rsplit(SEPARATOR, 1)[0]
                         req_dim_node_names.add(dim_node_name)
+            for grain_dim in getattr(spec, "rendered_fixed_grain", None) or []:
+                if SEPARATOR in grain_dim:
+                    dim_node_name = grain_dim.rsplit(SEPARATOR, 1)[0]
+                    req_dim_node_names.add(dim_node_name)
 
         self._all_dim_nodes = dict(self.context.dependency_nodes)
 
@@ -891,6 +906,75 @@ class NodeSpecBulkValidator:
             ),
             debug={"invalid_reaggregate_dimensions": list(invalid)},
         )
+
+    def _check_fixed_grain_dimensions(self, spec: NodeSpec) -> DJError | None:
+        """
+        Validate that a declared fixed grain resolves to real dimensions.
+
+        `[]` is a legitimate declaration (the global grain) with nothing to
+        resolve.
+        """
+        fixed_grain = getattr(spec, "rendered_fixed_grain", None)
+        if not fixed_grain:
+            return None
+
+        dep_names = self.context.node_graph.get(spec.rendered_name, [])
+        parent_columns = [
+            col
+            for dep_name in dep_names
+            for dep_node in [self.context.dependency_nodes.get(dep_name)]
+            if dep_node and dep_node.current
+            for col in dep_node.current.columns
+        ]
+
+        invalid, _ = _resolve_required_dimensions(
+            list(fixed_grain),
+            parent_columns,
+            self._all_dim_nodes,
+        )
+
+        if not invalid:
+            return None
+
+        return DJError(
+            code=ErrorCode.INVALID_COLUMN,
+            message=(
+                "Node definition declares a fixed grain referencing "
+                "dimension columns that could not be resolved."
+            ),
+            debug={"invalid_fixed_grain_dimensions": list(invalid)},
+        )
+
+    def _check_fixed_grain_shape(self, spec: NodeSpec) -> DJError | None:
+        """
+        Validate that a declared fixed grain can attach to the metric's own
+        aggregate (e.g. rejects `COUNT(DISTINCT ...)` with a fixed_grain).
+
+        `is not None`, not truthiness: `[]` still needs its shape checked --
+        it has no dimension to resolve but can still name an unsupported
+        aggregate. A derived metric's query has no aggregate of its own, so
+        it is left to query time (see `validate_fixed_grain_shape`).
+        """
+        fixed_grain = getattr(spec, "rendered_fixed_grain", None)
+        query = getattr(spec, "rendered_query", None)
+        if fixed_grain is None or not query:
+            return None
+
+        metric_type_error = derived_metric_fixed_grain_error(
+            spec.rendered_name,
+            spec.node_type == NodeType.METRIC
+            and spec.query_ast is not None
+            and spec.query_ast.select.from_ is None,
+            fixed_grain,
+        )
+        if metric_type_error:
+            return metric_type_error
+
+        try:
+            validate_fixed_grain_shape(query, list(fixed_grain))
+        except DJInvalidInputException as exc:
+            return DJError(code=ErrorCode.INVALID_METRIC, message=str(exc))
+        return None
 
     async def _prefetch_metric_dimensions(
         self,

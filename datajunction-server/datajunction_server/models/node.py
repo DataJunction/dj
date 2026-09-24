@@ -879,6 +879,8 @@ class MetricNodeFields(BaseModel):
     """
 
     required_dimensions: list[str] | None = None
+    # Grain the aggregate is computed at; omitted means the query grain.
+    fixed_grain: list[str] | None = None
     reaggregate: ReaggregateSpec | None = None
     metric_metadata: MetricMetadataInput | None = None
 
@@ -1035,6 +1037,7 @@ class NodeRevisionOutput(BaseModel):
     materializations: list[MaterializationConfigOutput]
     parents: list[NodeNameOutput]
     metric_metadata: MetricMetadataOutput | None = None
+    fixed_grain: list[str] | None = None
     reaggregate: ReaggregateSpec | None = None
     dimension_links: list[LinkDimensionOutput] | None = None
     custom_metadata: dict | None = None
@@ -1068,6 +1071,7 @@ class NodeOutput(GenericNodeOutputModel):
     materializations: list[MaterializationConfigOutput]
     parents: list[NodeNameOutput]
     metric_metadata: MetricMetadataOutput | None = None
+    fixed_grain: list[str] | None = None
     reaggregate: ReaggregateSpec | None = None
     dimension_links: list[LinkDimensionOutput] = Field(default_factory=list)
     created_at: UTCDatetime

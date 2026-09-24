@@ -1230,6 +1230,7 @@ def _metric_project_config(node: Node, namespace_requested: str) -> dict:
         "tags": [tag.name for tag in node.tags],
         "required_dimensions": [dim.name for dim in node.current.required_dimensions],
         "reaggregate": node.current.reaggregate,
+        "fixed_grain": node.current.fixed_grain,
         "direction": (
             node.current.metric_metadata.direction.name.lower()
             if node.current.metric_metadata and node.current.metric_metadata.direction
@@ -1642,6 +1643,18 @@ async def get_node_specs_for_export(
                         namespace_suffixes,
                     )
                     for required_dim in metric_spec.required_dimensions
+                ]
+            if metric_spec.fixed_grain:
+                # Parameterized so a copied namespace partitions on its own
+                # dimension rather than the parent's.
+                metric_spec.fixed_grain = [
+                    _inject_prefix_for_cube_ref(
+                        dim,
+                        namespace,
+                        parent_namespace,
+                        namespace_suffixes,
+                    )
+                    for dim in metric_spec.fixed_grain
                 ]
             if metric_spec.reaggregate:
                 for rule in metric_spec.reaggregate.rules:
@@ -2302,8 +2315,14 @@ def _node_spec_to_yaml_dict(node_spec, include_all_columns=False) -> dict:
         ):
             data[list_key] = sorted(data[list_key])
 
-    # Remove empty lists/dicts for cleaner YAML
-    data = {k: v for k, v in data.items() if v or v == 0 or v is False}
+    # Remove empty lists/dicts for cleaner YAML. `fixed_grain` is exempt: `[]`
+    # is the global grain and absent is the query grain, so dropping an empty
+    # one rewrites the metric into a different number under the same name.
+    data = {
+        k: v
+        for k, v in data.items()
+        if v or v == 0 or v is False or (k == "fixed_grain" and v is not None)
+    }
 
     # Clean up multiline strings by stripping trailing whitespace from each line
     # Use LiteralScalarString to force literal block style (|) for multiline queries

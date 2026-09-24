@@ -3,6 +3,7 @@ Tests for ``datajunction_server.sql.decompose``.
 """
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
@@ -1813,6 +1814,93 @@ def test_derived_metric_reaggregate_not_supported_cache_load():
         )
 
 
+@pytest.mark.asyncio
+async def test_fixed_grain_refused_on_an_already_windowed_base_aggregate():
+    """Broadcasting cannot add a second window to a base metric's aggregate."""
+    metric_node = SimpleNamespace(
+        name="default.windowed_total",
+        type=NodeType.METRIC,
+        current=SimpleNamespace(
+            query="SELECT SUM(amount) OVER () FROM parent_node",
+            reaggregate=None,
+            fixed_grain=[],
+        ),
+    )
+    source_node = SimpleNamespace(name="parent_node", type=NodeType.SOURCE)
+
+    with pytest.raises(
+        DJInvalidInputException,
+        match="its own aggregate is already windowed",
+    ):
+        await MetricComponentExtractor(0).extract(
+            None,  # type: ignore[arg-type]
+            nodes_cache={
+                metric_node.name: metric_node,
+                source_node.name: source_node,
+            },
+            parent_map={metric_node.name: [source_node.name]},
+            metric_node=metric_node,
+        )
+
+
+def test_derived_metric_fixed_grain_not_supported_cache_load():
+    """Cached extraction rejects even an empty, global derived-metric grain."""
+    base_node = SimpleNamespace(
+        name="default.revenue",
+        type=NodeType.METRIC,
+        current=SimpleNamespace(
+            query="SELECT SUM(amount) FROM parent_node",
+            reaggregate=None,
+            fixed_grain=None,
+        ),
+    )
+    derived_node = SimpleNamespace(
+        name="default.double_revenue",
+        type=NodeType.METRIC,
+        current=SimpleNamespace(
+            query="SELECT default.revenue * 2",
+            reaggregate=None,
+            fixed_grain=[],
+        ),
+    )
+
+    with pytest.raises(
+        DJInvalidInputException,
+        match="Derived metric `default.double_revenue` declares fixed_grain",
+    ):
+        MetricComponentExtractor(0)._build_metric_data_from_cache(
+            derived_node,
+            {
+                base_node.name: base_node,
+                derived_node.name: derived_node,
+            },
+            {derived_node.name: [base_node.name]},
+        )
+
+
+@pytest.mark.asyncio
+async def test_derived_metric_fixed_grain_not_supported_db_load():
+    """Uncached extraction enforces the same base-metric-only constraint."""
+    parent_result = SimpleNamespace(all=lambda: [SimpleNamespace()])
+    metric_result = SimpleNamespace(
+        one=lambda: SimpleNamespace(
+            name="default.double_revenue",
+            query="SELECT default.revenue * 2",
+            reaggregate=None,
+            fixed_grain=[],
+        ),
+    )
+    session = SimpleNamespace(
+        execute=AsyncMock(side_effect=[parent_result, metric_result]),
+    )
+
+    with pytest.raises(
+        DJInvalidInputException,
+        match="Derived metric `default.double_revenue` declares fixed_grain",
+    ):
+        await MetricComponentExtractor(1)._load_metric_data(session)
+
+
 def test_normalize_aliases_leaves_other_namespaces_qualified():
     """
     Alias normalization only strips the primary parent alias from column refs.
@@ -2676,3 +2764,63 @@ async def test_sum_abs_decomposes(session: AsyncSession, create_metric):
     assert comp.rule.type == Aggregability.FULL
     assert "ABS" in comp.expression
     assert_sql_equal(str(derived_sql), f"SELECT SUM({comp.name}) FROM parent_node")
+
+
+def _combiner(component_name: str = "amount_sum"):
+    """A parsed combiner the broadcast can be written into."""
+    from datajunction_server.sql.parsing.backends.antlr4 import parse
+
+    return parse(f"SELECT SUM({component_name}) FROM parent_node")
+
+
+def _component(name: str, *, aggregability=Aggregability.FULL, merge="SUM"):
+    """A minimal decomposed measure for fixed-grain attachment tests."""
+    return MetricComponent(
+        name=name,
+        expression="amount",
+        aggregation="SUM",
+        merge=merge,
+        rule=AggregationRule(type=aggregability),
+    )
+
+
+def test_fixed_grain_attaches_to_a_single_full_component():
+    """The declaration lands on the one measure the builder will broadcast."""
+    extractor = MetricComponentExtractor(1)
+    components = [_component("amount_sum")]
+
+    extractor._attach_fixed_grain_spec(components, [], _combiner())
+
+    assert components[0].rule.fixed_grain == []
+
+
+def test_fixed_grain_refused_on_multiple_components():
+    """Broadcasting re-applies one merge, so the target must be unambiguous."""
+    extractor = MetricComponentExtractor(1)
+    components = [_component("amount_sum"), _component("other_sum")]
+
+    with pytest.raises(DJInvalidInputException) as exc:
+        extractor._attach_fixed_grain_spec(components, [], _combiner())
+
+    assert "exactly one component" in str(exc.value)
+    assert all(comp.rule.fixed_grain is None for comp in components)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"aggregability": Aggregability.LIMITED},
+        {"merge": None},
+    ],
+    ids=["not-fully-aggregatable", "no-merge-function"],
+)
+def test_fixed_grain_refused_on_a_component_that_cannot_re_merge(kwargs):
+    """A measure that cannot be merged twice cannot be broadcast."""
+    extractor = MetricComponentExtractor(1)
+    components = [_component("amount_sum", **kwargs)]
+
+    with pytest.raises(DJInvalidInputException) as exc:
+        extractor._attach_fixed_grain_spec(components, [], _combiner())
+
+    assert "fully-aggregatable" in str(exc.value)
+    assert components[0].rule.fixed_grain is None

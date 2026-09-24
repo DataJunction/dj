@@ -293,6 +293,7 @@ async def test_list_frozen_measures(
             "rule": {
                 "level": None,
                 "reaggregate": None,
+                "fixed_grain": None,
                 "type": "full",
             },
             "upstream_revision": {
