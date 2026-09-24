@@ -28,6 +28,8 @@ from datajunction_server.construction.build_v3.measures import (
 )
 from datajunction_server.models.decompose import AggregationRule, MetricComponent
 from datajunction_server.models.materialization import MaterializationTarget
+from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing import types as ct
 
 
 def _parent(column_type: str = "double"):
@@ -87,6 +89,23 @@ class TestMultiArgumentTypes:
             )
             is None
         )
+
+    def test_declines_when_an_argument_has_multiple_possible_types(self, monkeypatch):
+        """Table-valued/lambda-style results cannot type a scalar argument."""
+        call = ast.Function(
+            name=ast.Name("test_accumulate"),
+            args=[
+                SimpleNamespace(type=[ct.IntegerType(), ct.StringType()]),
+                SimpleNamespace(type=ct.IntegerType()),
+            ],
+        )
+        parsed = SimpleNamespace(select=SimpleNamespace(projection=[call]))
+        monkeypatch.setattr(
+            "datajunction_server.construction.build_v3.measures.parse",
+            lambda _: parsed,
+        )
+
+        assert _multi_argument_accumulate_types("ignored", _parent()) is None
 
 
 class TestInferredColumnType:
