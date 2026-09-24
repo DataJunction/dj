@@ -833,7 +833,7 @@ class NodeSpecBulkValidator:
         revision_id_to_name: dict[int, str] = {}
         for dep_name in dep_names:
             dep_node = self.context.dependency_nodes.get(dep_name)
-            if dep_node and dep_node.current:
+            if dep_node and dep_node.current:  # pragma: no branch
                 revision_id_to_name[dep_node.current.id] = dep_name
 
         if not revision_id_to_name:
@@ -845,9 +845,8 @@ class NodeSpecBulkValidator:
             ),
         )
         for link in result.scalars().all():
-            dep_name = revision_id_to_name.get(link.node_revision_id)
-            if dep_name:
-                self._parent_dimension_links.setdefault(dep_name, []).append(link)
+            link_dep_name = revision_id_to_name[link.node_revision_id]
+            self._parent_dimension_links.setdefault(link_dep_name, []).append(link)
 
     def _check_required_dimensions(self, spec: NodeSpec) -> DJError | None:
         """

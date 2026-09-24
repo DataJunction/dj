@@ -159,7 +159,7 @@ async def _dimension_links_for_required_dimensions(
         base_parents_map = await get_metric_parents_map(session, metric_nodes)
         for base_parents in base_parents_map.values():
             for base_parent in base_parents:
-                if base_parent.current:
+                if base_parent.current:  # pragma: no branch
                     revision_ids.add(base_parent.current.id)
     if not revision_ids:
         return []
@@ -509,6 +509,7 @@ async def validate_node_data(
                 session,
                 reaggregate_dimensions,
                 parent_columns,
+                parent_dimension_links,
             )
             invalid_reaggregate_dimensions.update(
                 invalid_reaggregate_dimension_references(reaggregate_dimensions),
@@ -523,6 +524,7 @@ async def validate_node_data(
                 session,
                 list(validated_node.fixed_grain),
                 parent_columns,
+                parent_dimension_links,
             )
         # `is not None` here: unlike the dimension check above, `[]` still
         # needs its shape checked -- e.g. COUNT(DISTINCT ...) with `[]` has

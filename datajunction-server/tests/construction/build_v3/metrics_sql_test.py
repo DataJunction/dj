@@ -7415,3 +7415,39 @@ class TestMetricOnDimensionNode:
             GROUP BY product_0.category
             """,
         )
+
+
+class TestBareRequiredDimension:
+    """A required dimension stored as a bare column name, not a full path."""
+
+    @pytest.mark.asyncio
+    async def test_bare_required_dimension_resolves_against_owning_parent(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        A bare required dimension names a column on the metric's own parent,
+        so the loader reconstructs a full path by scanning parents. Pairing it
+        with a metric on another fact table exercises the scan past a parent
+        that does not have the column.
+        """
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.revenue_by_bare_status",
+                "description": "Revenue requiring the bare status column",
+                "query": "SELECT SUM(line_total) FROM v3.order_details",
+                "required_dimensions": ["status"],
+                "mode": "published",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.avg_order_value", "v3.revenue_by_bare_status"],
+                "dimensions": [],
+            },
+        )
+        assert response.status_code == 200, response.json()

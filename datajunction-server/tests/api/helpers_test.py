@@ -337,3 +337,26 @@ def test_resolve_required_dimensions_short_name_ambiguous_across_parents():
 
     assert invalid_dims == {"currency_code"}
     assert matched_cols == []
+
+
+def test_resolve_required_dimensions_role_not_reachable():
+    """
+    A declared role that no direct parent's dimension link can reach must be
+    flagged invalid, not resolved against the un-roled column.
+    """
+    date_node = Node(name="v3.date", id=42)
+    date_node.current = NodeRevision(
+        name="v3.date",
+        columns=[Column(name="week")],
+    )
+    order_link = DimensionLink(role="order", dimension=date_node)
+
+    invalid_dims, resolved = _resolve_required_dimensions(
+        required_dimensions=["v3.date.week[shipping]"],
+        parent_columns=[],
+        dim_nodes={"v3.date": date_node},
+        parent_dimension_links=[order_link],
+    )
+
+    assert invalid_dims == {"v3.date.week[shipping]"}
+    assert resolved == []
