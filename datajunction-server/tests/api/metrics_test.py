@@ -536,6 +536,7 @@ async def test_metric_reaggregate_roundtrip_and_validation(
     )
     assert response.status_code in (200, 201), response.json()
     assert response.json()["reaggregate"] == {
+        "fn": None,
         "params": None,
         "rules": [
             {
@@ -548,6 +549,7 @@ async def test_metric_reaggregate_roundtrip_and_validation(
     response = await client_with_roads.get(f"/nodes/{metric_name}/")
     assert response.status_code == 200
     assert response.json()["reaggregate"] == {
+        "fn": None,
         "params": None,
         "rules": [
             {
@@ -560,6 +562,7 @@ async def test_metric_reaggregate_roundtrip_and_validation(
     response = await client_with_roads.get(f"/metrics/{metric_name}/")
     assert response.status_code == 200
     assert response.json()["reaggregate"] == {
+        "fn": None,
         "params": None,
         "rules": [
             {
