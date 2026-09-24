@@ -5,6 +5,7 @@ from collections import Counter, defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from collections.abc import Mapping, Sequence
 from typing import cast
 
 from sqlalchemy import func, or_, select, text
@@ -48,7 +49,19 @@ from datajunction_server.internal.access.authorization import (
     AccessDenialMode,
 )
 from datajunction_server.internal.access.authorization.context import AuthContext
+from datajunction_server.internal.checks.engine import CheckResult
+from datajunction_server.internal.checks.engine import evaluate as evaluate_checks
+from datajunction_server.internal.checks.manifest import to_manifest_checks
+from datajunction_server.internal.checks.validator import CheckGate, load_checks
 from datajunction_server.internal.custom_metadata import upsert_schema_specs
+from datajunction_server.internal.deployment.checks import (
+    build_bindings,
+    build_fixtures,
+    resolve_declared_schemas,
+    resolve_tag_types,
+    roll_up,
+    unsupported_ruleset_guards,
+)
 from datajunction_server.internal.deployment.dimension_reachability import (
     DimensionReachability,
 )
@@ -70,7 +83,7 @@ from datajunction_server.internal.deployment.validation import (
     bulk_validate_node_data,
 )
 from datajunction_server.internal.history import EntityType
-from datajunction_server.internal.impact import propagate_impact
+from datajunction_server.internal.impact import ReusableQuery, propagate_impact
 from datajunction_server.internal.materializations import (
     CubeMaterializationSwap,
     CubeMaterializationSwapOutcome,
@@ -100,6 +113,7 @@ from datajunction_server.models.access import ResourceAction
 from datajunction_server.models.base import labelize
 from datajunction_server.models.deployment import (
     ChangeTier,
+    CheckVerdict,
     ColumnSpec,
     CubeSpec,
     DeploymentResult,
@@ -111,6 +125,9 @@ from datajunction_server.models.deployment import (
     MaterializationAction,
     MaterializationSpec,
     MetricSpec,
+    NodeCheckResults,
+    NodeCheckVerdict,
+    NodeRulesetVerdict,
     NodeSpec,
     SourceSpec,
     TagSpec,
@@ -137,6 +154,7 @@ from datajunction_server.models.node import (
     NodeStatus,
     NodeType,
 )
+from datajunction_server.models.reaggregate import dump_reaggregate_spec
 from datajunction_server.models.unit import (
     AtomicUnit,
     CompoundUnit,
@@ -155,6 +173,8 @@ from datajunction_server.utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+# A ruleset verdict reports only; what blocks is the member checks' gates.
 
 
 def _version_key(version: str) -> tuple[int, int]:
@@ -282,6 +302,12 @@ class DeploymentTimer:
         logger.info("\n".join(lines))
 
 
+def _check_verdict(result: CheckResult) -> CheckVerdict:
+    if result.skipped:
+        return CheckVerdict.SKIPPED
+    return CheckVerdict.PASSED if result.passed else CheckVerdict.FAILED
+
+
 @dataclass
 class DeploymentExecuteResult:
     """Return value of DeploymentOrchestrator.execute()."""
@@ -289,6 +315,8 @@ class DeploymentExecuteResult:
     results: list  # list[DeploymentResult]
     downstream_impacts: list  # list[ImpactedNode]
     warnings: list = field(default_factory=list)  # list[DJError]
+    # One entry per node the governance checks ran on.
+    check_results: list = field(default_factory=list)  # list[NodeCheckResults]
 
 
 @dataclass
@@ -382,6 +410,7 @@ class DeploymentOrchestrator:
         self.errors: list[DJError] = []
         self.warnings: list[DJError] = []
         self.deployed_results: list[DeploymentResult] = []
+        self.check_results: list[NodeCheckResults] = []
         self._timer = DeploymentTimer()
         self._cube_materialization_swaps: list[CubeMaterializationSwap] = []
         self._materialization_teardowns: list[NodeMaterializationTeardown] = []
@@ -548,6 +577,9 @@ class DeploymentOrchestrator:
         # SAVEPOINT, so setup-phase writes roll back too.
         await self._authorize_deployment_plan(deployment_plan)
 
+        with self._timer.phase("governance checks"):
+            await self._run_governance_checks(deployment_plan)
+
         if deployment_plan.is_empty() and not self.deployment_spec.hierarchies:
             # Pre-aggregations still need reconciling on an otherwise-empty
             # deploy: to register specs, or to delete external pre-aggs that were
@@ -587,6 +619,7 @@ class DeploymentOrchestrator:
         return DeploymentExecuteResult(
             results=self.deployed_results,
             downstream_impacts=downstream,
+            check_results=self.check_results,
         )
 
     async def _authorize_deployment_plan(self, plan: DeploymentPlan) -> None:
@@ -623,6 +656,211 @@ class DeploymentOrchestrator:
             access_checker.add_namespace(namespace, ResourceAction.DELETE)
 
         await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+    async def _run_governance_checks(self, plan: DeploymentPlan) -> None:
+        """
+        Compile the manifest's checks once, then evaluate them against every node
+        the deploy declares or removes. Runs before the plan is applied, so a
+        blocking failure refuses the deploy rather than undoing it.
+        """
+        if not self.deployment_spec.checks:
+            return
+
+        manifest = to_manifest_checks(
+            self.deployment_spec.checks,
+            self.deployment_spec.rulesets,
+        )
+        entities = self._checked_entities(plan)
+        node_types = {spec.node_type for spec, _ in entities}
+        declared = await resolve_declared_schemas(
+            self.session,
+            self.deployment_spec.namespace,
+            node_types,
+        )
+        tag_types = await resolve_tag_types(
+            self.session,
+            self.deployment_spec.tags,
+            {tag for spec, _ in entities for tag in spec.tags},
+        )
+        loaded = load_checks(manifest.checks, build_fixtures(declared, node_types))
+        malformed = loaded.malformed + unsupported_ruleset_guards(manifest.rulesets)
+        if malformed:
+            for problem in malformed:
+                self.errors.append(
+                    DJError(
+                        code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                        message=(
+                            f"Check '{problem.check}': its `{problem.clause}` "
+                            f"clause {problem.problem}."
+                        ),
+                    ),
+                )
+            raise DJInvalidDeploymentConfig(
+                message="Invalid governance checks",
+                errors=self.errors,
+                warnings=self.warnings,
+            )
+        in_flight = {spec.rendered_name: spec for spec in plan.to_deploy}
+        # The spec this deploy will write wins over the one already deployed.
+        current_specs = {**plan.existing_specs, **in_flight}
+        # Only block_on_regression reads it, and projecting is not free.
+        wants_previous = any(
+            check.gate == CheckGate.BLOCK_ON_REGRESSION for check in loaded.checks
+        )
+        # A deploy can change a node's upstreams, so the deployed state has its
+        # own graph. Only block_on_regression reads it, and extracting it means
+        # parsing every deployed query.
+        previous_graph = (
+            extract_node_graph(list(plan.existing_specs.values()))
+            if wants_previous
+            else {}
+        )
+        blocked: list[str] = []
+
+        for spec, operation in entities:
+            name = spec.rendered_name
+            previous = plan.existing_specs.get(name)
+            bindings = build_bindings(
+                spec,
+                previous=previous,
+                dependencies=self._checked_dependencies(
+                    plan.node_graph,
+                    current_specs,
+                    name,
+                ),
+                operation=operation,
+                declared=declared.properties,
+                tag_types=tag_types,
+            )
+            previous_bindings = None
+            if wants_previous and previous is not None:
+                previous_bindings = build_bindings(
+                    previous,
+                    previous=previous,
+                    dependencies=self._checked_dependencies(
+                        previous_graph,
+                        plan.existing_specs,
+                        name,
+                    ),
+                    operation=DeploymentResult.Operation.NOOP,
+                    declared=declared.properties,
+                    tag_types=tag_types,
+                )
+            results = evaluate_checks(loaded.checks, bindings, previous_bindings)
+            for result in results:
+                if result.skipped:
+                    continue
+                message = self._check_message(name, result)
+                if result.blocked:
+                    blocked.append(message)
+                    self.errors.append(
+                        DJError(
+                            code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                            message=message,
+                        ),
+                    )
+                elif not result.passed:
+                    self.warnings.append(
+                        DJError(
+                            code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                            message=message,
+                        ),
+                    )
+
+            outcomes = roll_up(manifest.rulesets, results)
+            node_results = NodeCheckResults(
+                node=name,
+                checks=[
+                    NodeCheckVerdict(
+                        check=result.check,
+                        verdict=_check_verdict(result),
+                        gate=str(result.gate),
+                    )
+                    for result in results
+                ],
+                rulesets=[
+                    NodeRulesetVerdict(ruleset=outcome.ruleset, verdict=outcome.verdict)
+                    for outcome in outcomes
+                ],
+            )
+            self.check_results.append(node_results)
+            self.deployed_results.append(
+                DeploymentResult(
+                    name=name,
+                    deploy_type=DeploymentResult.Type.CHECK,
+                    status=self._node_check_status(results),
+                    operation=DeploymentResult.Operation.NOOP,
+                    message=self._node_check_message(results),
+                ),
+            )
+
+        if blocked:
+            raise DJInvalidDeploymentConfig(
+                message=f"Deployment blocked by {len(blocked)} failing check(s)",
+                errors=self.errors,
+                warnings=self.warnings,
+            )
+
+    @staticmethod
+    def _checked_entities(
+        plan: DeploymentPlan,
+    ) -> list[tuple[NodeSpec, DeploymentResult.Operation]]:
+        """Every node the deploy touches, with what it is doing to each."""
+        operation = DeploymentResult.Operation
+        return [
+            *(
+                (
+                    spec,
+                    operation.UPDATE
+                    if spec.rendered_name in plan.existing_specs
+                    else operation.CREATE,
+                )
+                for spec in plan.to_deploy
+            ),
+            *((spec, operation.NOOP) for spec in plan.to_skip),
+            *((spec, operation.DELETE) for spec in plan.to_delete),
+        ]
+
+    @staticmethod
+    def _checked_dependencies(
+        graph: dict[str, list[str]],
+        specs: Mapping[str, NodeSpec],
+        node_name: str,
+    ) -> list[tuple[str, NodeSpec | None]]:
+        """Upstreams as (name, spec). An upstream outside the deploy has no spec."""
+        return [
+            (upstream, specs.get(upstream)) for upstream in graph.get(node_name, [])
+        ]
+
+    @staticmethod
+    def _node_check_status(
+        results: Sequence[CheckResult],
+    ) -> DeploymentResult.Status:
+        """The worst verdict across a node's checks."""
+        ran = [result for result in results if not result.skipped]
+        if any(result.blocked for result in ran):
+            return DeploymentResult.Status.FAILED
+        if any(not result.passed for result in ran):
+            return DeploymentResult.Status.WARNING
+        if not ran:
+            return DeploymentResult.Status.SKIPPED
+        return DeploymentResult.Status.SUCCESS
+
+    @staticmethod
+    def _node_check_message(results: Sequence[CheckResult]) -> str:
+        ran = [result for result in results if not result.skipped]
+        if not ran:
+            return f"No check applied here; {len(results)} skipped."
+        failed = [result.check for result in ran if not result.passed]
+        if not failed:
+            return f"{len(ran)} check(s) passed."
+        return (
+            f"{len(failed)} of {len(ran)} check(s) failed: {', '.join(sorted(failed))}."
+        )
+
+    @staticmethod
+    def _check_message(node: str, result: CheckResult) -> str:
+        return f"Check '{result.check}' failed on {node}."
 
     async def _update_deployment_status(self):
         """
@@ -905,17 +1143,21 @@ class DeploymentOrchestrator:
         for result in self.deployed_results:
             if result.deploy_type != DeploymentResult.Type.NODE:
                 continue
-            fingerprints = (
-                self._current_semantic_fingerprints
-                if result.operation == DeploymentResult.Operation.DELETE
-                else self._proposed_semantic_fingerprints
-            )
-            result.semantic_fingerprint = fingerprints.get(result.name)
+            if result.operation == DeploymentResult.Operation.DELETE:
+                result.semantic_fingerprint = self._current_semantic_fingerprints.get(
+                    result.name,
+                )
+                continue
+            # Unchanged nodes have no fresh proposed value; fall back.
+            result.semantic_fingerprint = self._proposed_semantic_fingerprints.get(
+                result.name,
+            ) or self._current_semantic_fingerprints.get(result.name)
 
     async def _build_and_apply_semantic_fingerprints(
         self,
         plan: DeploymentPlan,
         downstream: list,
+        reusable_queries: dict[str, ReusableQuery] | None = None,
     ) -> None:
         target_names = {impact.name for impact in downstream} | {
             spec.rendered_name for spec in plan.to_delete
@@ -926,6 +1168,8 @@ class DeploymentOrchestrator:
             self.deployment_spec.nodes,
             plan.deletable_specs,
             additional_target_names=target_names,
+            only_proposed_names={spec.rendered_name for spec in plan.to_deploy},
+            pre_parsed_queries=reusable_queries,
         )
         self._current_semantic_fingerprints = current
         self._proposed_semantic_fingerprints = proposed
@@ -2142,7 +2386,7 @@ class DeploymentOrchestrator:
         }
         plan.delete_references = await self._validate_node_deletion(plan.to_delete)
         with timer.phase("propagate impact") as p:
-            downstream = await propagate_impact(
+            propagation_result = await propagate_impact(
                 session=self.session,
                 namespace=self.deployment_spec.namespace,
                 changed_node_names=changed_names,
@@ -2151,9 +2395,14 @@ class DeploymentOrchestrator:
                 ),
                 changed_link_node_names=changed_link_names,
             )
+            downstream = propagation_result.impacts
             p.append(f"{len(downstream)} downstream")
         with timer.phase("build downstream semantic fingerprints"):
-            await self._build_and_apply_semantic_fingerprints(plan, downstream)
+            await self._build_and_apply_semantic_fingerprints(
+                plan,
+                downstream,
+                propagation_result.reusable_queries,
+            )
 
         # Hard-delete after impact propagation (cascade-deletes
         # NodeRelationship rows that were needed for the BFS above).
@@ -2258,16 +2507,22 @@ class DeploymentOrchestrator:
         # parent classification — these are ordering edges, not parents.
         ordering_graph = {name: list(deps) for name, deps in plan.node_graph.items()}
         for node_spec in plan.to_deploy:
-            if isinstance(node_spec, MetricSpec) and node_spec.required_dimensions:
-                for required_dim in node_spec.rendered_required_dimensions:
-                    if SEPARATOR not in required_dim:
-                        continue
-                    dim_node = required_dim.rsplit(SEPARATOR, 1)[0]
-                    if dim_node == node_spec.rendered_name:  # pragma: no cover
-                        continue
-                    deps = ordering_graph.setdefault(node_spec.rendered_name, [])
-                    if dim_node not in deps:
-                        deps.append(dim_node)
+            if not isinstance(node_spec, MetricSpec):
+                continue
+            # A fixed grain names dimensions the same way, and needs them to
+            # exist for the same reason.
+            ordering_dims = list(node_spec.rendered_required_dimensions or []) + list(
+                node_spec.rendered_fixed_grain or [],
+            )
+            for required_dim in ordering_dims:
+                if SEPARATOR not in required_dim:
+                    continue
+                dim_node = required_dim.rsplit(SEPARATOR, 1)[0]
+                if dim_node == node_spec.rendered_name:  # pragma: no cover
+                    continue
+                deps = ordering_graph.setdefault(node_spec.rendered_name, [])
+                if dim_node not in deps:
+                    deps.append(dim_node)
 
         # Each linked dimension is an ordering edge too, so a link onto a column
         # this same push adds to an existing dimension validates against the new
@@ -5767,6 +6022,10 @@ class DeploymentOrchestrator:
                     parent_dimension_links,
                 )
                 new_revision.required_dimensions = resolved_required_dims
+            new_revision.reaggregate = dump_reaggregate_spec(
+                metric_spec.rendered_reaggregate,
+            )
+            new_revision.fixed_grain = metric_spec.rendered_fixed_grain
         return new_revision
 
     def _resolve_metric_unit(

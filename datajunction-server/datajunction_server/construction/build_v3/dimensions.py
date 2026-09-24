@@ -17,6 +17,9 @@ from datajunction_server.construction.build_v3.decomposition import (
     get_base_metrics_for_derived,
     is_derived_metric,
 )
+from datajunction_server.construction.build_v3.dimension_refs import (
+    split_dimension_ref,
+)
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
     DimensionRef,
@@ -65,13 +68,7 @@ def parse_dimension_ref(dim_ref: str) -> DimensionRef:
     """
     from datajunction_server.errors import DJInvalidInputException
 
-    # Extract role if present
-    role = None
-    if "[" in dim_ref:
-        dim_part, role_part = dim_ref.rsplit("[", 1)
-        role = role_part.rstrip("]")
-    else:
-        dim_part = dim_ref
+    dim_part, role = split_dimension_ref(dim_ref)
 
     # Split into node and column
     parts = dim_part.rsplit(SEPARATOR, 1)

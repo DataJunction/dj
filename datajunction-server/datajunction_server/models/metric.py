@@ -16,6 +16,7 @@ from datajunction_server.models.node import (
     MetricMetadataOutput,
 )
 from datajunction_server.models.query import ColumnMetadata, V3ColumnMetadata
+from datajunction_server.models.reaggregate import ReaggregateSpec
 from datajunction_server.models.sql import ScanEstimate, TranspiledSQL
 from datajunction_server.models.unit import unit_to_dict
 from datajunction_server.sql.decompose import MetricComponentExtractor
@@ -50,6 +51,8 @@ class Metric(BaseModel):
     # going forward. `None` when no unit is set, regardless of input shape.
     unit: dict | None = None
     required_dimensions: list[str]
+    reaggregate: ReaggregateSpec | None = None
+    fixed_grain: list[str] | None = None
 
     # Whether the metric is a single aggregation call (a "measure") that can map
     # 1:1 to a column in an externally-built pre-aggregation table. Derived/ratio
@@ -104,6 +107,8 @@ class Metric(BaseModel):
                 node.current.columns[0].unit if node.current.columns else None,
             ),
             required_dimensions=node.current.required_dimensions_refs,
+            reaggregate=node.current.reaggregate,
+            fixed_grain=node.current.fixed_grain,
             is_measure=node.current.is_measure,
             incompatible_druid_functions=incompatible_druid_functions,
             measures=measures,

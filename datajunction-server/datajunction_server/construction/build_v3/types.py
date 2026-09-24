@@ -316,6 +316,14 @@ class GrainGroupSQL:
     # Used by metrics SQL to correctly reference component columns
     component_aliases: dict[str, str] = field(default_factory=dict)
 
+    # Active semi-additive components that need collapse in the metrics layer.
+    # Maps component.name -> protected dimension column alias emitted by this CTE.
+    reaggregate_dimension_aliases: dict[str, str] = field(default_factory=dict)
+
+    # Column alias for every declared partition dimension. For metrics.py to
+    # reference when building the broadcast window.
+    fixed_grain_partition_aliases: dict[str, str] = field(default_factory=dict)
+
     # Merge tracking: when True, aggregations happen in final SELECT, not in CTE
     is_merged: bool = False
 
@@ -617,6 +625,8 @@ class BaseMetricsResult:
     all_metrics: set[str]  # All metric names in grain groups
     metric_exprs: dict[str, MetricExprInfo]  # metric_name -> expression info
     component_refs: dict[str, ColumnRef]  # component_name -> column reference
+    # Semi-additive base metrics collapsed before being projected by base_metrics.
+    precollapsed_reaggregate_metrics: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -742,6 +752,10 @@ class GrainGroup:
     # For LIMITED grain groups this is component.name, ensuring consistent naming
     # between decompose.py component identifiers and measures.py SQL aliases.
     grain_col_aliases: dict[str, str] = field(default_factory=dict)
+
+    # Active semi-additive components that require an internal protected dimension
+    # in this grain group. Maps component.name -> protected dimension ref.
+    reaggregate_component_dimensions: dict[str, str] = field(default_factory=dict)
 
     # Non-decomposable metrics that couldn't be broken into components
     # These need their raw metric expression applied in the final SELECT

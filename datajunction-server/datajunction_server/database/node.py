@@ -87,6 +87,7 @@ from datajunction_server.internal.custom_metadata import custom_metadata_clause
 from datajunction_server.models.custom_metadata import CustomMetadataFilter
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionType
+from datajunction_server.models.reaggregate import parse_reaggregate_spec
 from datajunction_server.models.unit import (
     AtomicUnit,
     CompoundUnit,
@@ -680,6 +681,8 @@ class Node(Base):
 
             extra_kwargs.update(
                 required_dimensions=self.current.required_dimensions_refs,
+                reaggregate=parse_reaggregate_spec(self.current.reaggregate),
+                fixed_grain=self.current.fixed_grain,
                 direction=self.current.metric_metadata.direction
                 if self.current.metric_metadata
                 else None,
@@ -1734,6 +1737,21 @@ class NodeRevision(
         uselist=False,
     )
 
+    # Omitted means the query grain; `[]` means the global grain.
+    fixed_grain: Mapped[list[str] | None] = mapped_column(
+        JSON,
+        nullable=True,
+        default=None,
+    )
+
+    # Declares how a metric should roll up across dimensions.
+    # Stored as JSON here and validated at the API/deployment boundaries.
+    reaggregate: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON,
+        nullable=True,
+        default=None,
+    )
+
     # Filters that are always applied when generating SQL for a cube node
     cube_filters: Mapped[list[str] | None] = mapped_column(
         JSON,
@@ -1948,10 +1966,11 @@ class NodeRevision(
         )
 
     @staticmethod
-    def format_metric_alias(query: str, name: str) -> str:
+    def metric_alias_ast(query: str, name: str):
         """
-        Return a metric query with the metric aliases reassigned to
-        have the same name as the node, if they aren't already matching.
+        Parse a metric query and reassign its projection alias to the
+        node's name. Callers that only need the AST (not re-serialized
+        SQL text) should use this directly to skip a redundant re-parse.
         """
         from datajunction_server.sql.parsing import ast
         from datajunction_server.sql.parsing.backends.antlr4 import parse
@@ -1961,7 +1980,15 @@ class NodeRevision(
         tree.select.projection[0] = projection_0.set_alias(
             ast.Name(amenable_name(name)),
         )
-        return str(tree)
+        return tree
+
+    @staticmethod
+    def format_metric_alias(query: str, name: str) -> str:
+        """
+        Return a metric query with the metric aliases reassigned to
+        have the same name as the node, if they aren't already matching.
+        """
+        return str(NodeRevision.metric_alias_ast(query, name))
 
     @classmethod
     async def get_by_id(
@@ -2073,6 +2100,18 @@ class NodeRevision(
             raise DJInvalidInputException(
                 f"Node {self.name} of type {self.type} cannot have "
                 "bound dimensions which are only for metrics.",
+            )
+
+        if self.type != NodeType.METRIC and self.fixed_grain is not None:
+            raise DJInvalidInputException(
+                f"Node {self.name} of type {self.type} cannot have "
+                "a fixed_grain, which is only for metrics.",
+            )
+
+        if self.type != NodeType.METRIC and self.reaggregate:
+            raise DJInvalidInputException(
+                f"Node {self.name} of type {self.type} cannot have "
+                "reaggregate settings which are only for metrics.",
             )
 
         if self.type == NodeType.METRIC:

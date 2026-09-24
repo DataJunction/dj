@@ -47,6 +47,23 @@ from datajunction_server.utils import SEPARATOR
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class ReusableQuery:
+    """A query already parsed during impact propagation, kept for reuse by fingerprinting."""
+
+    text: str
+    parsed: ast.Query
+
+
+@dataclass
+class ImpactPropagationResult:
+    """Result of downstream impact propagation."""
+
+    impacts: list[DownstreamImpact]
+    # Non-metric queries already parsed here, reusable by the fingerprint pass.
+    reusable_queries: dict[str, ReusableQuery] = field(default_factory=dict)
+
+
 @dataclass
 class PropagationContext:
     """Shared state across all propagation phases."""
@@ -71,7 +88,7 @@ async def propagate_impact(
     changed_node_names: set[str],
     deleted_node_names: frozenset[str] = frozenset(),
     changed_link_node_names: set[str] | None = None,
-) -> list[DownstreamImpact]:
+) -> ImpactPropagationResult:
     """BFS downstream impact analysis with revalidation.
 
     Must be called inside the caller's active transaction (inside a SAVEPOINT for
@@ -88,12 +105,13 @@ async def propagate_impact(
         changed_link_node_names: Names of nodes whose dimension links changed.
 
     Returns:
-        List of DownstreamImpact describing each affected downstream node.
+        The downstream impacts, plus non-metric queries already parsed here,
+        reusable by the fingerprint pass.
     """
     start = time.perf_counter()
     all_root_names = changed_node_names | deleted_node_names
     if not all_root_names and not changed_link_node_names:
-        return []
+        return ImpactPropagationResult(impacts=[])
 
     ctx = await _build_propagation_context(
         session,
@@ -117,10 +135,10 @@ async def propagate_impact(
     all_impacts = _merge_impacts(parent_graph_impacts, link_impacts)
 
     # Phase 3: revalidate all downstream nodes and apply status changes
-    results = await _revalidate_and_apply(session, ctx, all_impacts)
+    result = await _revalidate_and_apply(session, ctx, all_impacts)
 
-    _emit_metrics(start, results)
-    return results
+    _emit_metrics(start, result.impacts)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -433,7 +451,7 @@ async def _revalidate_and_apply(
     session: AsyncSession,
     ctx: PropagationContext,
     impacts: list[DownstreamImpact],
-) -> list[DownstreamImpact]:
+) -> ImpactPropagationResult:
     """Revalidate all downstream nodes and apply status changes.
 
     Every downstream node is revalidated using validate_node_query.
@@ -449,7 +467,7 @@ async def _revalidate_and_apply(
         by_depth[impact.depth].append(impact)
 
     if not by_depth:
-        return results
+        return ImpactPropagationResult(impacts=results)
 
     # Collect queries to pre-parse from nodes we already visited in Phase 1
     visited_by_name = {n.name: n for n in ctx.visited_nodes_by_id.values()}
@@ -528,7 +546,16 @@ async def _revalidate_and_apply(
             loaded_nodes,
         )
 
-    return results
+    # Non-metric queries only, paired with the text parsed for equality checks.
+    reusable_queries = {
+        name: ReusableQuery(text=queries_to_parse[name], parsed=parsed)
+        for name, parsed in pre_parsed.items()
+        if not isinstance(parsed, Exception)
+        and (node := visited_by_name.get(name)) is not None
+        and node.type not in (NodeType.SOURCE, NodeType.METRIC)
+    }
+
+    return ImpactPropagationResult(impacts=results, reusable_queries=reusable_queries)
 
 
 async def _check_cube_dimension_reachability(

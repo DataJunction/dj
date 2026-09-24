@@ -1,9 +1,6 @@
 """
-Unit tests for ``derive_frozen_measures_bulk`` — the batched derivation path
-used by the deployment orchestrator. Exercises the cache-construction branches
-(derived-metric expansion, deep-chain iterative expansion) and edge cases
-(empty list, shared measures across metrics) that aren't reachable through
-the per-metric ``derive_frozen_measures`` entry point.
+Unit tests for frozen-measure derivation. Exercises both the per-metric path used
+by direct node creation and the batched path used by the deployment orchestrator.
 """
 
 import pytest
@@ -16,7 +13,17 @@ from datajunction_server.database.column import Column
 from datajunction_server.database.measure import FrozenMeasure
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import OAuthProvider, User
-from datajunction_server.internal.nodes import derive_frozen_measures_bulk
+from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.internal.nodes import (
+    _derive_frozen_measures_impl,
+    _raise_if_frozen_measure_conflicts,
+    derive_frozen_measures_bulk,
+)
+from datajunction_server.models.decompose import (
+    Aggregability,
+    AggregationRule,
+    MetricComponent,
+)
 from datajunction_server.models.node import NodeStatus
 from datajunction_server.models.node_type import NodeType
 
@@ -62,6 +69,8 @@ async def _make_metric(
     name: str,
     query: str,
     parents: list[Node],
+    reaggregate: dict[str, object] | None = None,
+    fixed_grain: list[str] | None = None,
 ) -> Node:
     node = Node(
         name=name,
@@ -75,6 +84,8 @@ async def _make_metric(
         type=NodeType.METRIC,
         version="v1.0",
         query=query,
+        reaggregate=reaggregate,
+        fixed_grain=fixed_grain,
         status=NodeStatus.VALID,
         parents=parents,
         created_by_id=user.id,
@@ -121,6 +132,244 @@ async def test_base_metric_populates_derived_expression_and_measure(
     assert metric.current.derived_expression is not None
     assert len(metric.current.frozen_measures) >= 1
     assert any(fm.aggregation == "SUM" for fm in metric.current.frozen_measures)
+
+
+@pytest.mark.asyncio
+async def test_frozen_measure_name_collision_allows_reaggregate_only_difference(
+    session: AsyncSession,
+    user: User,
+):
+    """Metric-level reaggregate metadata does not change measure identity."""
+    src = await _make_source(
+        session,
+        user,
+        "src_reaggregate_collision",
+        [Column(name="semi_amount", type=ct.DoubleType(), order=0)],
+    )
+    reaggregate = await _make_metric(
+        session,
+        user,
+        "m.semi_amount_eod",
+        "SELECT SUM(semi_amount) FROM src_reaggregate_collision",
+        [src],
+        reaggregate={
+            "rules": [
+                {
+                    "dimension": "default.date_dim.date",
+                    "fn": "last_value",
+                },
+            ],
+        },
+    )
+    additive = await _make_metric(
+        session,
+        user,
+        "m.semi_amount_total",
+        "SELECT SUM(semi_amount) FROM src_reaggregate_collision",
+        [src],
+    )
+    await session.refresh(reaggregate, ["current"])
+    await session.refresh(additive, ["current"])
+
+    await derive_frozen_measures_bulk(session, [additive.current.id])
+    await session.commit()
+
+    await session.refresh(additive.current, ["frozen_measures"])
+    assert all(fm.rule.reaggregate is None for fm in additive.current.frozen_measures)
+
+    await derive_frozen_measures_bulk(session, [reaggregate.current.id])
+    await session.commit()
+    await session.refresh(reaggregate.current, ["frozen_measures"])
+
+    assert {fm.name for fm in additive.current.frozen_measures} == {
+        fm.name for fm in reaggregate.current.frozen_measures
+    }
+
+
+@pytest.mark.asyncio
+async def test_reaggregate_rule_is_not_persisted_on_shared_frozen_measure(
+    session: AsyncSession,
+    user: User,
+):
+    """FrozenMeasure.rule stays metric-independent even for semi-additive metrics."""
+    src = await _make_source(
+        session,
+        user,
+        "src_reaggregate_storage",
+        [Column(name="semi_amount", type=ct.DoubleType(), order=0)],
+    )
+    reaggregate = await _make_metric(
+        session,
+        user,
+        "m.semi_amount_snapshot",
+        "SELECT SUM(semi_amount) FROM src_reaggregate_storage",
+        [src],
+        reaggregate={
+            "rules": [
+                {
+                    "dimension": "default.date_dim.date",
+                    "fn": "last_value",
+                },
+            ],
+        },
+    )
+    await session.refresh(reaggregate, ["current"])
+
+    await derive_frozen_measures_bulk(session, [reaggregate.current.id])
+    await session.commit()
+
+    await session.refresh(reaggregate.current, ["frozen_measures"])
+    assert all(
+        fm.rule.reaggregate is None for fm in reaggregate.current.frozen_measures
+    )
+
+
+@pytest.mark.asyncio
+async def test_direct_derivation_does_not_persist_reaggregate_rule(
+    session: AsyncSession,
+    user: User,
+):
+    """Direct metric creation persists only metric-independent measure rules."""
+    src = await _make_source(
+        session,
+        user,
+        "src_direct_reaggregate_storage",
+        [Column(name="balance", type=ct.DoubleType(), order=0)],
+    )
+    metric = await _make_metric(
+        session,
+        user,
+        "m.current_balance",
+        "SELECT SUM(balance) FROM src_direct_reaggregate_storage",
+        [src],
+        reaggregate={
+            "rules": [
+                {
+                    "dimension": "default.date_dim.date",
+                    "fn": "last_value",
+                },
+            ],
+        },
+    )
+    await session.refresh(metric, ["current"])
+
+    frozen_measures = await _derive_frozen_measures_impl(metric.current.id, session)
+    await session.commit()
+
+    assert metric.current.reaggregate is not None
+    assert frozen_measures
+    assert all(fm.rule.reaggregate is None for fm in frozen_measures)
+
+
+async def test_fixed_grain_is_not_persisted_on_shared_frozen_measure(
+    session: AsyncSession,
+    user: User,
+):
+    """A shared FrozenMeasure.rule must not depend on which metric created it.
+
+    The fixed-grain metric is derived FIRST here: if the declaration were
+    persisted, the ordinary metric would later reuse a measure whose stored rule
+    claims a global grain, because identity comparison ignores the field.
+    """
+    src = await _make_source(
+        session,
+        user,
+        "src_fixed_grain_storage",
+        [Column(name="fg_amount", type=ct.DoubleType(), order=0)],
+    )
+    global_grain = await _make_metric(
+        session,
+        user,
+        "m.fg_amount_global",
+        "SELECT SUM(fg_amount) FROM src_fixed_grain_storage",
+        [src],
+        fixed_grain=[],
+    )
+    ordinary = await _make_metric(
+        session,
+        user,
+        "m.fg_amount_total",
+        "SELECT SUM(fg_amount) FROM src_fixed_grain_storage",
+        [src],
+    )
+    await session.refresh(global_grain, ["current"])
+    await session.refresh(ordinary, ["current"])
+
+    await derive_frozen_measures_bulk(session, [global_grain.current.id])
+    await session.commit()
+    await session.refresh(global_grain.current, ["frozen_measures"])
+
+    assert global_grain.current.frozen_measures
+    assert all(
+        fm.rule.fixed_grain is None for fm in global_grain.current.frozen_measures
+    )
+
+    await derive_frozen_measures_bulk(session, [ordinary.current.id])
+    await session.commit()
+    await session.refresh(ordinary.current, ["frozen_measures"])
+
+    assert {fm.name for fm in ordinary.current.frozen_measures} == {
+        fm.name for fm in global_grain.current.frozen_measures
+    }
+    assert all(fm.rule.fixed_grain is None for fm in ordinary.current.frozen_measures)
+
+
+@pytest.mark.asyncio
+async def test_singular_path_also_strips_metric_level_rule_fields(
+    session: AsyncSession,
+    user: User,
+):
+    """The singular path must strip the same fields as the bulk path.
+
+    The two build `FrozenMeasure` at separate call sites; fixing only the bulk
+    one leaves the create/update path persisting a metric-level declaration onto
+    a measure other metrics go on to share.
+    """
+    src = await _make_source(
+        session,
+        user,
+        "src_singular_strip",
+        [Column(name="sing_amount", type=ct.DoubleType(), order=0)],
+    )
+    declared = await _make_metric(
+        session,
+        user,
+        "m.sing_amount_global",
+        "SELECT SUM(sing_amount) FROM src_singular_strip",
+        [src],
+        fixed_grain=[],
+        reaggregate={
+            "rules": [{"dimension": "default.date_dim.date", "fn": "last_value"}],
+        },
+    )
+    await session.refresh(declared, ["current"])
+
+    frozen = await _derive_frozen_measures_impl(declared.current.id, session)
+    await session.commit()
+
+    assert frozen
+    assert all(fm.rule.fixed_grain is None for fm in frozen)
+    assert all(fm.rule.reaggregate is None for fm in frozen)
+
+
+def test_frozen_measure_conflict_rejects_different_measure_identity():
+    """FrozenMeasure name collisions fail when the metric-independent rule differs."""
+    frozen_measure = FrozenMeasure(
+        name="amount_sum",
+        upstream_revision_id=1,
+        expression="amount",
+        aggregation="SUM",
+        rule=AggregationRule(type=Aggregability.FULL),
+    )
+    measure = MetricComponent(
+        name="amount_sum",
+        expression="discounted_amount",
+        aggregation="SUM",
+        rule=AggregationRule(type=Aggregability.FULL),
+    )
+
+    with pytest.raises(DJInvalidInputException, match="already exists"):
+        _raise_if_frozen_measure_conflicts(frozen_measure, measure)
 
 
 @pytest.mark.asyncio

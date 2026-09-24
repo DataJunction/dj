@@ -191,6 +191,11 @@ async def python_client_create_node(
             else {
                 "required_dimensions": node.current.required_dimensions_refs,  # type: ignore
                 **(
+                    {"reaggregate": node.current.reaggregate}  # type: ignore
+                    if node.current.reaggregate
+                    else {}
+                ),
+                **(
                     {
                         "direction": (  # type: ignore
                             f"MetricDirection.{node.current.metric_metadata.direction.upper()}"

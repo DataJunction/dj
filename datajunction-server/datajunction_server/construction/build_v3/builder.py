@@ -21,6 +21,8 @@ from datajunction_server.construction.build_v3.cube_matcher import (
 )
 from datajunction_server.construction.build_v3.decomposition import (
     decompose_and_group_metrics,
+    missing_fixed_grain_dimensions,
+    missing_reaggregate_dimensions,
 )
 from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
 from datajunction_server.construction.build_v3.filters import (
@@ -182,7 +184,7 @@ def apply_orderby_limit(
 
         # Parse the orderby expressions
         orderby_str = ",".join(orderby)
-        parsed = parse(f"SELECT 1 ORDER BY {orderby_str}")
+        parsed = parse(f"SELECT 1 ORDER BY {orderby_str}", from_request=True)
         sort_items = (
             parsed.select.organization.order if parsed.select.organization else []
         )
@@ -318,6 +320,20 @@ async def setup_build_context(
 
     # Add dimensions referenced in metric expressions (e.g., LAG ORDER BY)
     add_dimensions_from_metric_expressions(ctx, ctx.decomposed_metrics)
+    output_dimensions_after_expression_scan = list(ctx.dimensions)
+    internal_reaggregate_dimensions = missing_reaggregate_dimensions(
+        ctx.decomposed_metrics.values(),
+        output_dimensions_after_expression_scan,
+    )
+    # Appended only so `load_nodes` pulls in the join path: `ctx.dimensions` is
+    # reset below and the dimension travels on the grain group instead.
+    internal_fixed_grain_dimensions = missing_fixed_grain_dimensions(
+        ctx.decomposed_metrics.values(),
+        output_dimensions_after_expression_scan,
+    )
+    for dimension in internal_reaggregate_dimensions + internal_fixed_grain_dimensions:
+        if dimension not in ctx.dimensions:
+            ctx.dimensions.append(dimension)
 
     # A second load_nodes pass is needed when either:
     # 1. metric expressions introduced dimension nodes not yet in ctx.nodes, OR
@@ -331,8 +347,16 @@ async def setup_build_context(
     }
     missing_dim_nodes = dim_roots_after - ctx.nodes.keys()
     internally_added_roots = dim_roots_after - dim_roots_before_load
-    if missing_dim_nodes or internally_added_roots:
-        await load_nodes(ctx)
+    try:
+        if (
+            missing_dim_nodes
+            or internally_added_roots
+            or internal_reaggregate_dimensions
+            or internal_fixed_grain_dimensions
+        ):
+            await load_nodes(ctx)
+    finally:
+        ctx.dimensions = output_dimensions_after_expression_scan
 
     # Classify filters into dimension filters (WHERE) and metric filters (HAVING)
     # This MUST happen AFTER all nodes are loaded so we can correctly identify

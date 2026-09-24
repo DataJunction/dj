@@ -28,6 +28,8 @@ from datajunction_server.models import access
 from datajunction_server.models.deployment import (
     ColumnSpec,
     CubeSpec,
+    DeploymentCheckSpec,
+    DeploymentRulesetSpec,
     DeploymentSpec,
     DeploymentStatus,
     DimensionJoinLinkSpec,
@@ -1339,6 +1341,10 @@ ADDITIVE_RESULT_FIELDS = (
     "revalidation_only",
 )
 
+# Top-level fields added to DeploymentInfo since these expectations were
+# written. `deploy_and_poll` keeps them; a test that cares asserts on them.
+ADDITIVE_INFO_FIELDS = ("check_results",)
+
 
 async def deploy_and_poll(client, deployment_spec: DeploymentSpec):
     """Deploy and wait, keeping every field the API returned."""
@@ -1360,6 +1366,9 @@ async def deploy_and_poll(client, deployment_spec: DeploymentSpec):
 
 async def deploy_and_wait(client, deployment_spec: DeploymentSpec):
     data = await deploy_and_poll(client, deployment_spec)
+    for additive in ADDITIVE_INFO_FIELDS:
+        assert additive in data
+        data.pop(additive)
     for result in data.get("results", []):
         for additive in ADDITIVE_RESULT_FIELDS:
             assert additive in result
@@ -2578,6 +2587,46 @@ class TestDeployments:
             "changed_fields": [],
             "status": "skipped",
         }
+
+    def test_deploy_fixed_grain_metric_updates(self):
+        """Declaring, changing and clearing a grain each register as a change."""
+        from datajunction_server.models.deployment import ChangeTier, MetricSpec
+
+        query = "SELECT SUM(price) FROM foo.bar.orders"
+        query_grain = MetricSpec(name="m", namespace="foo.bar", query=query)
+        global_grain = MetricSpec(
+            name="m",
+            namespace="foo.bar",
+            query=query,
+            fixed_grain=[],
+        )
+        by_region = MetricSpec(
+            name="m",
+            namespace="foo.bar",
+            query=query,
+            fixed_grain=["foo.bar.region_dim.region"],
+        )
+
+        assert MetricSpec.field_change_tier("fixed_grain") == ChangeTier.MAJOR
+
+        assert "fixed_grain" in query_grain.diff(global_grain)
+        assert "fixed_grain" in global_grain.diff(by_region)
+        assert "fixed_grain" in global_grain.diff(query_grain)
+
+        # Reordering is not a change: a grain is a partition.
+        reordered = MetricSpec(
+            name="m",
+            namespace="foo.bar",
+            query=query,
+            fixed_grain=["b", "a"],
+        )
+        ordered = MetricSpec(
+            name="m",
+            namespace="foo.bar",
+            query=query,
+            fixed_grain=["a", "b"],
+        )
+        assert "fixed_grain" not in ordered.diff(reordered)
 
     @pytest.mark.asyncio
     async def test_deploy_metric_with_update(
@@ -12212,3 +12261,71 @@ class TestDimensionAttributeAddedInSamePush:
                 "changed_fields": [],
             },
         ]
+
+
+@pytest.mark.asyncio
+async def test_check_results_survive_to_the_deployment_endpoint(
+    module__client_with_roads,
+):
+    """
+    The verdicts are read back from the stored deployment, not just returned by
+    the orchestrator in-process.
+    """
+    namespace = f"checkresults{uuid.uuid4().hex[:8]}"
+    spec = DeploymentSpec(
+        namespace=namespace,
+        tags=[TagSpec(name=f"{namespace}_sales", tag_type="domain")],
+        nodes=[
+            TransformSpec(
+                name="described",
+                query="SELECT 1 AS one",
+                description="Described.",
+                tags=[f"{namespace}_sales"],
+            ),
+            TransformSpec(name="bare", query="SELECT 1 AS one"),
+        ],
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.described",
+                condition="node.description != ''",
+                gate="warn",
+            ),
+            DeploymentCheckSpec(
+                name="demo.domain_tagged",
+                condition="node.tags.exists(t, t.tag_type == 'domain')",
+                gate="warn",
+            ),
+            DeploymentCheckSpec(
+                name="demo.metrics_only",
+                when="node.node_type == 'metric'",
+                condition="size(node.primary_key) >= 1",
+                gate="warn",
+            ),
+        ],
+        rulesets=[
+            DeploymentRulesetSpec(
+                name="baseline",
+                checks=["demo.described", "demo.domain_tagged"],
+            ),
+        ],
+    )
+    data = await deploy_and_poll(module__client_with_roads, spec)
+    by_node = {entry["node"]: entry for entry in data["check_results"]}
+    assert set(by_node) == {f"{namespace}.described", f"{namespace}.bare"}
+
+    described = by_node[f"{namespace}.described"]
+    assert {v["check"]: v["verdict"] for v in described["checks"]} == {
+        "demo.described": "passed",
+        "demo.domain_tagged": "passed",
+        # Guarded to metrics, so it asserted nothing here and says so.
+        "demo.metrics_only": "skipped",
+    }
+    assert described["rulesets"] == [{"ruleset": "baseline", "verdict": "passed"}]
+
+    bare = by_node[f"{namespace}.bare"]
+    assert {v["check"]: v["verdict"] for v in bare["checks"]} == {
+        "demo.described": "failed",
+        "demo.domain_tagged": "failed",
+        "demo.metrics_only": "skipped",
+    }
+    assert bare["rulesets"] == [{"ruleset": "baseline", "verdict": "failed"}]

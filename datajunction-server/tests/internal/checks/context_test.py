@@ -4,6 +4,7 @@ import pytest
 
 from datajunction_server.internal.checks.context import (
     VARIABLES,
+    Bindings,
     build_env,
     custom_metadata,
 )
@@ -12,6 +13,11 @@ from tests.internal.checks.conftest import DECLARED_PROPERTIES
 
 def test_only_the_declared_bindings_exist():
     assert set(VARIABLES) == {"node", "dependencies", "previous", "change"}
+
+
+def test_the_bindings_supply_every_declared_name():
+    # A name declared but never bound evaluates to an error, not to null.
+    assert set(Bindings.__annotations__) == set(VARIABLES)
 
 
 def test_undeclared_binding_is_a_compile_error():

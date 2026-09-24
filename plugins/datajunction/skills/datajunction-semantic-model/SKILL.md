@@ -297,6 +297,7 @@ Same shape for MoM (`month_code`), QoQ (`quarter_code`), YoY (`year`).
 | `direction` | ❌ Optional | `higher_is_better` / `lower_is_better` / `neutral` | Indicates performance direction |
 | `unit` | ❌ Optional | `dollar` / `unitless` / **⚠️ NOT `count`** | Server rejects `count` — use `unitless` |
 | `mode` | ❌ Optional | `draft` / `published` | Default: `published` |
+| `fixed_grain` | ❌ Optional | List of dimension names | Grain the aggregate is computed at; omit for query grain, `[]` for global |
 | `required_dimensions` | ❌ Optional | List of dimension names | For time-based / windowed metrics |
 | `owners` | ❌ Optional but strongly recommended | List of email addresses | Prefer team emails |
 

@@ -1,3 +1,5 @@
+import time
+
 import pytest
 
 from . import assert_sql_equal
@@ -367,6 +369,686 @@ class TestMetricsSQLBasic:
                 "semantic_type": "metric",
             },
         ]
+
+    @staticmethod
+    async def _create_daily_balance_metric(client_with_build_v3):
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.daily_balance",
+                "description": "Semi-additive balance measured by order date",
+                "query": "SELECT SUM(line_total) FROM v3.order_details",
+                "mode": "published",
+                "reaggregate": {
+                    "rules": [
+                        {
+                            "dimension": "v3.date.date_id[order]",
+                            "fn": "last_value",
+                        },
+                    ],
+                },
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+    @staticmethod
+    async def _create_scaled_daily_balance_metric(client_with_build_v3):
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.scaled_daily_balance",
+                "description": "Scaled semi-additive balance measured by order date",
+                "query": "SELECT SUM(line_total) / 100 FROM v3.order_details",
+                "mode": "published",
+                "reaggregate": {
+                    "rules": [
+                        {
+                            "dimension": "v3.date.date_id[order]",
+                            "fn": "last_value",
+                        },
+                    ],
+                },
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+    @staticmethod
+    async def _create_first_daily_balance_metric(client_with_build_v3):
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.first_daily_balance",
+                "description": "Semi-additive balance measured by first order date",
+                "query": "SELECT SUM(line_total) FROM v3.order_details",
+                "mode": "published",
+                "reaggregate": {
+                    "rules": [
+                        {
+                            "dimension": "v3.date.date_id[order]",
+                            "fn": "first_value",
+                        },
+                    ],
+                },
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+    @staticmethod
+    async def _create_daily_balance_index_metric(client_with_build_v3):
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.daily_balance_index",
+                "description": "Derived semi-additive balance index",
+                "query": "SELECT 10.0 / v3.daily_balance",
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+    @staticmethod
+    async def _create_wow_daily_balance_index_metric(client_with_build_v3):
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.wow_daily_balance_index",
+                "description": "Week-over-week daily balance index change",
+                "query": """
+                    SELECT
+                        (v3.daily_balance_index - LAG(v3.daily_balance_index, 1)
+                         OVER (ORDER BY v3.date.week[order]))
+                        / NULLIF(
+                            LAG(v3.daily_balance_index, 1)
+                            OVER (ORDER BY v3.date.week[order]),
+                            0
+                        ) * 100
+                """,
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+    @staticmethod
+    async def _create_product_balance_metric(client_with_build_v3):
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.product_balance",
+                "description": "Semi-additive balance protected by product",
+                "query": "SELECT SUM(line_total) FROM v3.order_details",
+                "mode": "published",
+                "reaggregate": {
+                    "rules": [
+                        {
+                            "dimension": "v3.product.product_id",
+                            "fn": "last_value",
+                        },
+                    ],
+                },
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+    @staticmethod
+    async def _create_product_balance_index_metric(client_with_build_v3):
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.product_balance_index",
+                "description": "Derived semi-additive product balance index",
+                "query": "SELECT 10.0 / v3.product_balance",
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+    @staticmethod
+    async def _create_wow_product_balance_index_metric(client_with_build_v3):
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.wow_product_balance_index",
+                "description": "Week-over-week product balance index change",
+                "query": """
+                    SELECT
+                        (v3.product_balance_index - LAG(v3.product_balance_index, 1)
+                         OVER (ORDER BY v3.date.week[order]))
+                        / NULLIF(
+                            LAG(v3.product_balance_index, 1)
+                            OVER (ORDER BY v3.date.week[order]),
+                            0
+                        ) * 100
+                """,
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+    @pytest.mark.asyncio
+    async def test_reaggregate_collapses_when_protected_dimension_omitted(
+        self,
+        client_with_build_v3,
+    ):
+        """A semi-additive metric keeps its protected dimension as private grain."""
+        await self._create_daily_balance_metric(client_with_build_v3)
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.daily_balance"],
+                "dimensions": ["v3.product.category"],
+                "use_materialized": "false",
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT o.order_date, oi.product_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            ),
+            order_details_0 AS (
+                SELECT t2.category,
+                       t1.order_date AS date_id_order,
+                       SUM(t1.line_total) AS line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                GROUP BY t2.category, t1.order_date
+            )
+            SELECT order_details_0.category AS category,
+                   MAX_BY(
+                       order_details_0.line_total_sum_e1f61696,
+                       order_details_0.date_id_order
+                   ) AS daily_balance
+            FROM order_details_0
+            GROUP BY order_details_0.category
+            """,
+        )
+        assert response.json()["columns"] == [
+            {
+                "name": "category",
+                "type": "string",
+                "semantic_entity": "v3.product.category",
+                "semantic_type": "dimension",
+            },
+            {
+                "name": "daily_balance",
+                "type": "double",
+                "semantic_entity": "v3.daily_balance",
+                "semantic_type": "metric",
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_reaggregate_filter_keeps_protected_dimension_as_private_grain(
+        self,
+        client_with_build_v3,
+    ):
+        """Filtering protected grain must not make a reaggregate metric additive."""
+        await self._create_daily_balance_metric(client_with_build_v3)
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.daily_balance"],
+                "dimensions": ["v3.product.category"],
+                "filters": ["v3.date.date_id[order] >= 20260101"],
+                "use_materialized": "false",
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        sql = response.json()["sql"]
+        normalized_sql = " ".join(sql.split())
+        assert "WHERE o.order_date >= 20260101" in normalized_sql
+        assert "t1.order_date" in normalized_sql
+        assert "date_id_order" in normalized_sql
+        assert "GROUP BY t2.category, t1.order_date" in normalized_sql
+        assert "MAX_BY(" in sql
+        assert (
+            "SUM(order_details_0.line_total_sum_e1f61696) AS daily_balance"
+            not in normalized_sql
+        )
+        assert [column["name"] for column in response.json()["columns"]] == [
+            "category",
+            "daily_balance",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_reaggregate_with_limited_metric_keeps_protected_grain(
+        self,
+        client_with_build_v3,
+    ):
+        """Merged metric queries must not add limited grain to the collapse CTE."""
+        await self._create_daily_balance_metric(client_with_build_v3)
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.daily_balance", "v3.order_count"],
+                "dimensions": ["v3.product.category"],
+                "use_materialized": "false",
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        sql = response.json()["sql"]
+        normalized_sql = " ".join(sql.split())
+        assert "order_details_0 AS" in sql
+        assert "GROUP BY t2.category, t1.order_date" in normalized_sql
+        assert "GROUP BY t2.category, t1.order_date, t1.order_id" not in normalized_sql
+        assert "order_details_1_agg AS" in sql
+        assert "COUNT( DISTINCT order_id)" in normalized_sql
+        assert "MAX_BY(" in sql
+        assert "order_details_0.date_id_order" in sql
+
+    @pytest.mark.asyncio
+    async def test_reaggregate_preserves_single_component_combiner_wrapper(
+        self,
+        client_with_build_v3,
+    ):
+        """Semi-additive collapse preserves arithmetic around the aggregate."""
+        await self._create_scaled_daily_balance_metric(client_with_build_v3)
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.scaled_daily_balance"],
+                "dimensions": ["v3.product.category"],
+                "use_materialized": "false",
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        sql = response.json()["sql"]
+        normalized_sql = " ".join(sql.split())
+        assert "MAX_BY(" in sql
+        assert "order_details_0.date_id_order" in sql
+        assert "/ 100 AS scaled_daily_balance" in normalized_sql
+        assert (
+            "MAX_BY(order_details_0.line_total_sum_e1f61696, order_details_0.date_id_order) / 100"
+            in normalized_sql
+        )
+
+    @pytest.mark.asyncio
+    async def test_reaggregate_druid_uses_latest_by_for_last_value(
+        self,
+        client_with_build_v3,
+    ):
+        """Druid live SQL uses Druid-native collapse functions."""
+        await self._create_daily_balance_metric(client_with_build_v3)
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.daily_balance"],
+                "dimensions": ["v3.product.category"],
+                "dialect": "druid",
+                "use_materialized": "false",
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["dialect"] == "druid"
+
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT o.order_date, oi.product_id, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            v3_product AS (
+                SELECT product_id, category
+                FROM default.v3.products
+            ),
+            order_details_0 AS (
+                SELECT t2.category,
+                       t1.order_date AS date_id_order,
+                       SUM(t1.line_total) AS line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                GROUP BY t2.category, t1.order_date
+            )
+            SELECT order_details_0.category AS category,
+                   LATEST_BY(
+                       order_details_0.line_total_sum_e1f61696,
+                       order_details_0.date_id_order
+                   ) AS daily_balance
+            FROM order_details_0
+            GROUP BY order_details_0.category
+            """,
+        )
+        assert "MAX_BY" not in response.json()["sql"]
+        assert "ARG_MAX" not in response.json()["sql"]
+
+    @pytest.mark.asyncio
+    async def test_reaggregate_auto_routed_druid_uses_latest_by(
+        self,
+        client_with_build_v3,
+    ):
+        """Auto-routed Druid cube SQL uses Druid-native collapse functions."""
+        await self._create_daily_balance_metric(client_with_build_v3)
+
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.daily_balance_category_cube",
+                "metrics": ["v3.daily_balance"],
+                "dimensions": ["v3.product.category"],
+                "mode": "published",
+                "description": "Category-only decoy cube",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        response = await client_with_build_v3.post(
+            "/data/v3.daily_balance_category_cube/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "analytics",
+                "table": "daily_balance_category_cube",
+                "valid_through_ts": int(time.time() * 1000),
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        response = await client_with_build_v3.post(
+            "/nodes/cube/",
+            json={
+                "name": "v3.daily_balance_cube",
+                "metrics": ["v3.daily_balance"],
+                "dimensions": [
+                    "v3.product.category",
+                    "v3.date.date_id[order]",
+                ],
+                "mode": "published",
+                "description": "Daily balance cube at protected grain",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        response = await client_with_build_v3.post(
+            "/data/v3.daily_balance_cube/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "analytics",
+                "table": "daily_balance_cube",
+                "valid_through_ts": int(time.time() * 1000),
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.daily_balance"],
+                "dimensions": ["v3.product.category"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["dialect"] == "druid"
+
+        sql = response.json()["sql"]
+        assert "FROM daily_balance_cube" in sql
+        assert "daily_balance_category_cube" not in sql
+        assert "LATEST_BY(" in sql
+        assert "date_id_order" in sql
+        assert "MAX_BY" not in sql
+        assert "ARG_MAX" not in sql
+
+    @pytest.mark.asyncio
+    async def test_reaggregate_druid_uses_earliest_by_for_first_value(
+        self,
+        client_with_build_v3,
+    ):
+        """Druid first-value collapse renders as EARLIEST_BY."""
+        await self._create_first_daily_balance_metric(client_with_build_v3)
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.first_daily_balance"],
+                "dimensions": ["v3.product.category"],
+                "dialect": "druid",
+                "use_materialized": "false",
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        sql = response.json()["sql"]
+        assert "EARLIEST_BY(" in sql
+        assert "MIN_BY" not in sql
+        assert "ARG_MIN" not in sql
+
+    @pytest.mark.asyncio
+    async def test_reaggregate_derived_metric_uses_collapsed_base(
+        self,
+        client_with_build_v3,
+    ):
+        """Derived metrics inline semi-additive collapse in denominator position."""
+        await self._create_daily_balance_metric(client_with_build_v3)
+        await self._create_daily_balance_index_metric(client_with_build_v3)
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.daily_balance_index"],
+                "dimensions": ["v3.product.category"],
+                "use_materialized": "false",
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        sql = response.json()["sql"]
+        assert "MAX_BY(" in sql
+        assert "order_details_0.date_id_order" in sql
+        assert "MAX_BY" in sql.split(" AS daily_balance_index")[0]
+        assert "10.0 / NULLIF(MAX_BY(" in sql
+        assert "10.0 / NULLIF(SUM(" not in sql
+
+    @pytest.mark.asyncio
+    async def test_reaggregate_derived_metric_preserves_requested_protected_dimension(
+        self,
+        client_with_build_v3,
+    ):
+        """Derived metrics use normal aggregation when the protected dimension is requested."""
+        await self._create_daily_balance_metric(client_with_build_v3)
+        await self._create_daily_balance_index_metric(client_with_build_v3)
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.daily_balance_index"],
+                "dimensions": ["v3.date.date_id[order]"],
+                "use_materialized": "false",
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        sql = response.json()["sql"]
+        assert "10.0 / NULLIF(SUM(" in sql
+        assert "date_id_order" in sql
+        assert "MAX_BY(" not in sql
+
+    @pytest.mark.asyncio
+    async def test_reaggregate_nested_window_metric_reaggregates_with_collapse(
+        self,
+        client_with_build_v3,
+    ):
+        """Window reaggregation of derived metrics uses semi-additive parents."""
+        await self._create_daily_balance_metric(client_with_build_v3)
+        await self._create_daily_balance_index_metric(client_with_build_v3)
+        await self._create_wow_daily_balance_index_metric(client_with_build_v3)
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.wow_daily_balance_index"],
+                "dimensions": ["v3.product.category"],
+                "use_materialized": "false",
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        sql = response.json()["sql"]
+        assert "base_metrics AS" in sql
+        assert "MAX_BY(" in sql
+        assert "order_details_0.date_id_order" in sql
+        assert "10.0 / NULLIF(MAX_BY(" in sql
+        assert "LAG(base_metrics.daily_balance_index, 1)" in sql
+
+    @pytest.mark.asyncio
+    async def test_reaggregate_window_grain_reaggregation_uses_collapse(
+        self,
+        client_with_build_v3,
+    ):
+        """Window aggregation CTEs collapse semi-additive derived parents."""
+        await self._create_product_balance_metric(client_with_build_v3)
+        await self._create_product_balance_index_metric(client_with_build_v3)
+        await self._create_wow_product_balance_index_metric(client_with_build_v3)
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.wow_product_balance_index"],
+                "dimensions": ["v3.date.date_id[order]"],
+                "use_materialized": "false",
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        sql = response.json()["sql"]
+        assert "order_details_week_agg AS" in sql
+        assert "MAX_BY(" in sql
+        assert "product_id" in sql
+        assert "10.0 / NULLIF(MAX_BY(" in sql
+        assert "10.0 / NULLIF(SUM(" not in sql
+        assert "LAG(order_details_week_agg.product_balance_index, 1)" in sql
+
+    @pytest.mark.asyncio
+    async def test_reaggregate_uses_normal_aggregation_when_protected_dimension_requested(
+        self,
+        client_with_build_v3,
+    ):
+        """Requesting the protected dimension means there is nothing to collapse."""
+        await self._create_daily_balance_metric(client_with_build_v3)
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.daily_balance"],
+                "dimensions": ["v3.date.date_id[order]"],
+                "use_materialized": "false",
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            v3_order_details AS (
+                SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t1.order_date AS date_id_order,
+                       SUM(t1.line_total) AS line_total_sum_e1f61696
+                FROM v3_order_details t1
+                GROUP BY t1.order_date
+            )
+            SELECT order_details_0.date_id_order AS date_id_order,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS daily_balance
+            FROM order_details_0
+            GROUP BY order_details_0.date_id_order
+            """,
+        )
+        assert "MAX_BY" not in response.json()["sql"]
+
+    @pytest.mark.asyncio
+    async def test_reaggregate_collapses_when_roleless_base_dimension_requested(
+        self,
+        client_with_build_v3,
+    ):
+        """A role-less dimension request does not satisfy a roled protected grain."""
+        await self._create_daily_balance_metric(client_with_build_v3)
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.daily_balance"],
+                "dimensions": ["v3.date.date_id"],
+                "use_materialized": "false",
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        sql = response.json()["sql"]
+        assert "MAX_BY(" in sql
+        assert "order_details_0.date_id_order" in sql
+        assert (
+            "SUM(order_details_0.line_total_sum_e1f61696) AS daily_balance" not in sql
+        )
+
+    @pytest.mark.asyncio
+    async def test_reaggregate_collapses_with_coarser_time_dimension(
+        self,
+        client_with_build_v3,
+    ):
+        """Coarser time output still collapses across the protected date grain."""
+        await self._create_daily_balance_metric(client_with_build_v3)
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.daily_balance"],
+                "dimensions": ["v3.date.month[order]"],
+                "use_materialized": "false",
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            v3_date AS (
+                SELECT date_id, month
+                FROM default.v3.dates
+            ),
+            v3_order_details AS (
+                SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+                SELECT t2.month AS month_order,
+                       COALESCE(t1.order_date, t2.date_id) AS date_id_order,
+                       SUM(t1.line_total) AS line_total_sum_e1f61696
+                FROM v3_order_details t1
+                LEFT OUTER JOIN v3_date t2 ON t1.order_date = t2.date_id
+                GROUP BY t2.month, COALESCE(t1.order_date, t2.date_id)
+            )
+            SELECT order_details_0.month_order AS month_order,
+                   MAX_BY(
+                       order_details_0.line_total_sum_e1f61696,
+                       order_details_0.date_id_order
+                   ) AS daily_balance
+            FROM order_details_0
+            GROUP BY order_details_0.month_order
+            """,
+        )
 
     @pytest.mark.asyncio
     async def test_multiple_metrics_same_grain(self, client_with_build_v3):
@@ -4016,12 +4698,8 @@ class TestMetricsSQLCrossFactWindow:
         - Window metric orders by weekly grain (v3.date.week)
         - Metric is cross-fact (conversion_rate = order_count / visitor_count)
 
-        Expected behavior:
-        1. Grain groups are built at daily grain (include date_id AND week)
-        2. base_metrics CTE combines facts with FULL OUTER JOIN at daily grain
-        3. A window aggregation CTE reaggregates base_metrics to weekly grain
-        4. Window CTE applies LAG on the weekly-aggregated data
-        5. Final SELECT joins daily base_metrics with weekly window results
+        Reaggregation must fail because base_metrics no longer retains the distinct
+        grain keys needed to collapse order_count and visitor_count safely.
         """
         # Create the metric locally for this test
         response = await client_with_build_v3.post(
@@ -4052,77 +4730,10 @@ class TestMetricsSQLCrossFactWindow:
             },
         )
 
-        assert response.status_code == 200, response.json()
-        result = response.json()
-
-        # Verify the SQL has the expected structure with reaggregation CTE
-        # The key is that there should be a CTE that aggregates from base_metrics
-        # to weekly grain before applying the LAG window function
-        sql = result["sql"]
-        assert_sql_equal(
-            sql,
-            """
-            WITH
-            v3_date AS (
-            SELECT  date_id,
-                week
-            FROM default.v3.dates
-            ),
-            v3_order_details AS (
-            SELECT  o.order_id,
-                o.order_date,
-                oi.product_id
-            FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
-            ),
-            v3_product AS (
-            SELECT  product_id,
-                category
-            FROM default.v3.products
-            ),
-            v3_page_views_enriched AS (
-            SELECT  customer_id,
-                page_date,
-                product_id
-            FROM default.v3.page_views
-            ),
-            order_details_0 AS (
-            SELECT  COALESCE(t1.order_date, t3.date_id) AS date_id,
-                t2.category,
-                t3.week,
-                t1.order_id
-            FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-            LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
-            GROUP BY  COALESCE(t1.order_date, t3.date_id), t2.category, t3.week, t1.order_id
-            ),
-            page_views_enriched_0 AS (
-            SELECT  COALESCE(t1.page_date, t3.date_id) AS date_id,
-                t2.category,
-                t3.week,
-                t1.customer_id
-            FROM v3_page_views_enriched t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-            LEFT OUTER JOIN v3_date t3 ON t1.page_date = t3.date_id
-            GROUP BY  COALESCE(t1.page_date, t3.date_id), t2.category, t3.week, t1.customer_id
-            ),
-            base_metrics AS (
-            SELECT  COALESCE(order_details_0.date_id, page_views_enriched_0.date_id) AS date_id,
-                COALESCE(order_details_0.category, page_views_enriched_0.category) AS category,
-                COALESCE(order_details_0.week, page_views_enriched_0.week) AS week,
-                COUNT( DISTINCT order_details_0.order_id) AS order_count,
-                COUNT( DISTINCT page_views_enriched_0.customer_id) AS visitor_count,
-                CAST(COUNT( DISTINCT order_details_0.order_id) AS DOUBLE) / NULLIF(COUNT( DISTINCT page_views_enriched_0.customer_id), 0) AS conversion_rate
-            FROM order_details_0 FULL OUTER JOIN page_views_enriched_0 ON order_details_0.date_id = page_views_enriched_0.date_id AND order_details_0.category = page_views_enriched_0.category AND order_details_0.week = page_views_enriched_0.week
-            GROUP BY  1, 2, 3
-            )
-
-            SELECT  base_metrics.date_id AS date_id,
-                base_metrics.category AS category,
-                base_metrics.week AS week,
-                (base_metrics.conversion_rate - LAG(base_metrics.conversion_rate, 1) OVER ( PARTITION BY base_metrics.category
-            ORDER BY base_metrics.week) ) / NULLIF(LAG(base_metrics.conversion_rate, 1) OVER ( PARTITION BY base_metrics.category
-            ORDER BY base_metrics.week) , 0) * 100 AS wow_conversion_rate_change
-            FROM base_metrics
-            """,
-        )
+        assert response.status_code == 422, response.json()
+        message = response.json()["message"]
+        assert "Unsupported distinct metric reaggregation" in message
+        assert "no longer retains the distinct grain key" in message
 
     @pytest.mark.asyncio
     async def test_cross_fact_window_on_derived_metric(self, client_with_build_v3):
@@ -4135,8 +4746,8 @@ class TestMetricsSQLCrossFactWindow:
         - pages_per_session = page_view_count / visitor_count (derived from page_views)
         - wow_efficiency_ratio_change = LAG(efficiency_ratio, 1) OVER (ORDER BY week)
 
-        This hits lines 1029-1055 in metrics.py where derived metrics are expanded
-        by replacing column references with parent metric expressions.
+        Expanding the derived metric reaches LIMITED leaf metrics, which cannot be
+        collapsed after base_metrics discards their distinct grain keys.
         """
         # Create the metric locally for this test
         response = await client_with_build_v3.post(
@@ -4162,80 +4773,10 @@ class TestMetricsSQLCrossFactWindow:
             },
         )
 
-        assert response.status_code == 200, response.json()
-        result = response.json()
-        sql = result["sql"]
-        assert_sql_equal(
-            sql,
-            """
-            WITH
-            v3_date AS (
-            SELECT  date_id,
-                week
-            FROM default.v3.dates
-            ),
-            v3_order_details AS (
-            SELECT  o.order_id,
-                o.order_date,
-                oi.product_id,
-                oi.quantity * oi.unit_price AS line_total
-            FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
-            ),
-            v3_product AS (
-            SELECT  product_id,
-                category
-            FROM default.v3.products
-            ),
-            v3_page_views_enriched AS (
-            SELECT  view_id,
-                session_id,
-                page_date,
-                product_id
-            FROM default.v3.page_views
-            ),
-            order_details_0 AS (
-            SELECT  COALESCE(t1.order_date, t3.date_id) AS date_id,
-                t2.category,
-                t3.week,
-                t1.order_id,
-                SUM(t1.line_total) line_total_sum_e1f61696
-            FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-            LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
-            GROUP BY  COALESCE(t1.order_date, t3.date_id), t2.category, t3.week, t1.order_id
-            ),
-            page_views_enriched_0 AS (
-            SELECT  COALESCE(t1.page_date, t3.date_id) AS date_id,
-                t2.category,
-                t3.week,
-                t1.session_id,
-                COUNT(t1.view_id) view_id_count_f41e2db4
-            FROM v3_page_views_enriched t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-            LEFT OUTER JOIN v3_date t3 ON t1.page_date = t3.date_id
-            GROUP BY  COALESCE(t1.page_date, t3.date_id), t2.category, t3.week, t1.session_id
-            ),
-            base_metrics AS (
-            SELECT  COALESCE(order_details_0.date_id, page_views_enriched_0.date_id) AS date_id,
-                COALESCE(order_details_0.category, page_views_enriched_0.category) AS category,
-                COALESCE(order_details_0.week, page_views_enriched_0.week) AS week,
-                COUNT( DISTINCT order_details_0.order_id) AS order_count,
-                SUM(page_views_enriched_0.view_id_count_f41e2db4) AS page_view_count,
-                COUNT( DISTINCT page_views_enriched_0.session_id) AS session_count,
-                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
-                SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT order_details_0.order_id), 0) AS avg_order_value,
-                SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT order_details_0.order_id), 0) / NULLIF(SUM(page_views_enriched_0.view_id_count_f41e2db4) / NULLIF(COUNT( DISTINCT page_views_enriched_0.session_id), 0), 0) AS efficiency_ratio,
-                SUM(page_views_enriched_0.view_id_count_f41e2db4) / NULLIF(COUNT( DISTINCT page_views_enriched_0.session_id), 0) AS pages_per_session
-            FROM order_details_0 FULL OUTER JOIN page_views_enriched_0 ON order_details_0.date_id = page_views_enriched_0.date_id AND order_details_0.category = page_views_enriched_0.category AND order_details_0.week = page_views_enriched_0.week
-            GROUP BY  1, 2, 3
-            )
-
-            SELECT  base_metrics.date_id AS date_id,
-                base_metrics.category AS category,
-                base_metrics.week AS week,
-                (base_metrics.efficiency_ratio - LAG(base_metrics.efficiency_ratio, 1) OVER ( PARTITION BY base_metrics.category
-            ORDER BY base_metrics.week) ) / NULLIF(LAG(base_metrics.efficiency_ratio, 1) OVER ( PARTITION BY base_metrics.category
-            ORDER BY base_metrics.week) , 0) * 100 AS wow_efficiency_ratio_change
-            FROM base_metrics""",
-        )
+        assert response.status_code == 422, response.json()
+        message = response.json()["message"]
+        assert "Unsupported distinct metric reaggregation" in message
+        assert "no longer retains the distinct grain key" in message
 
     @pytest.mark.asyncio
     async def test_cross_fact_window_on_base_metrics(self, client_with_build_v3):
@@ -4248,10 +4789,12 @@ class TestMetricsSQLCrossFactWindow:
         - visitor_count is a base metric from page_views_enriched
         - Both are in grain groups (not derived metrics)
 
-        This should trigger build_window_agg_cte_from_base_metrics because:
+        This triggers build_window_agg_cte_from_base_metrics because:
         1. It's cross-fact (order_count + visitor_count span multiple facts)
         2. The base metrics ARE in grain groups (unlike derived metrics)
         3. Window ORDER BY grain (week) is coarser than requested grain (date_id)
+
+        The request must fail rather than summing the finalized distinct counts.
         """
         # Create the metric locally for this test
         response = await client_with_build_v3.post(
@@ -4279,84 +4822,10 @@ class TestMetricsSQLCrossFactWindow:
             },
         )
 
-        assert response.status_code == 200, response.json()
-        result = response.json()
-        sql = result["sql"]
-        assert_sql_equal(
-            sql,
-            """
-            WITH
-            v3_date AS (
-            SELECT  date_id,
-                week
-            FROM default.v3.dates
-            ),
-            v3_order_details AS (
-            SELECT  o.order_id,
-                o.order_date,
-                oi.product_id
-            FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
-            ),
-            v3_product AS (
-            SELECT  product_id,
-                category
-            FROM default.v3.products
-            ),
-            v3_page_views_enriched AS (
-            SELECT  customer_id,
-                page_date,
-                product_id
-            FROM default.v3.page_views
-            ),
-            order_details_0 AS (
-            SELECT  COALESCE(t1.order_date, t3.date_id) AS date_id,
-                t2.category,
-                t3.week,
-                t1.order_id
-            FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-            LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
-            GROUP BY  COALESCE(t1.order_date, t3.date_id), t2.category, t3.week, t1.order_id
-            ),
-            page_views_enriched_0 AS (
-            SELECT  COALESCE(t1.page_date, t3.date_id) AS date_id,
-                t2.category,
-                t3.week,
-                t1.customer_id
-            FROM v3_page_views_enriched t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-            LEFT OUTER JOIN v3_date t3 ON t1.page_date = t3.date_id
-            GROUP BY  COALESCE(t1.page_date, t3.date_id), t2.category, t3.week, t1.customer_id
-            ),
-            base_metrics AS (
-            SELECT  COALESCE(order_details_0.date_id, page_views_enriched_0.date_id) AS date_id,
-                COALESCE(order_details_0.category, page_views_enriched_0.category) AS category,
-                COALESCE(order_details_0.week, page_views_enriched_0.week) AS week,
-                COUNT( DISTINCT order_details_0.order_id) AS order_count,
-                COUNT( DISTINCT page_views_enriched_0.customer_id) AS visitor_count
-            FROM order_details_0 FULL OUTER JOIN page_views_enriched_0 ON order_details_0.date_id = page_views_enriched_0.date_id AND order_details_0.category = page_views_enriched_0.category AND order_details_0.week = page_views_enriched_0.week
-            GROUP BY  1, 2, 3
-            ),
-            order_details_week_agg AS (
-            SELECT  base_metrics.category AS category,
-                base_metrics.week AS week,
-                COUNT( DISTINCT base_metrics.order_id) AS order_count,
-                COUNT( DISTINCT base_metrics.customer_id) AS visitor_count
-            FROM base_metrics
-            GROUP BY  base_metrics.category, base_metrics.week
-            ),
-            order_details_week AS (
-            SELECT  order_details_week_agg.category AS category,
-                order_details_week_agg.week AS week,
-                (order_details_week_agg.order_count + order_details_week_agg.visitor_count) - LAG(order_details_week_agg.order_count + order_details_week_agg.visitor_count, 1) OVER ( PARTITION BY order_details_week_agg.category
-            ORDER BY order_details_week_agg.week)  AS wow_order_and_visitor_change
-            FROM order_details_week_agg
-            )
-            SELECT  base_metrics.date_id AS date_id,
-                base_metrics.category AS category,
-                base_metrics.week AS week,
-                order_details_week.wow_order_and_visitor_change AS wow_order_and_visitor_change
-            FROM base_metrics LEFT OUTER JOIN order_details_week ON base_metrics.category = order_details_week.category AND base_metrics.week = order_details_week.week
-            """,
-        )
+        assert response.status_code == 422, response.json()
+        message = response.json()["message"]
+        assert "Unsupported distinct metric reaggregation" in message
+        assert "no longer retains the distinct grain key" in message
 
     @pytest.mark.asyncio
     @pytest.mark.xfail(

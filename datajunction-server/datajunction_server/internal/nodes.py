@@ -104,6 +104,10 @@ from datajunction_server.models.deployment import (
     fold_change_tiers,
     version_change_tier,
 )
+from datajunction_server.models.decompose import (
+    AggregationRule as DecomposeAggregationRule,
+    MetricComponent,
+)
 from datajunction_server.models.dimensionlink import (
     JoinLinkInput,
     JoinType,
@@ -127,8 +131,10 @@ from datajunction_server.models.node import (
     NodeStatus,
     UpdateNode,
 )
+from datajunction_server.models.fixed_grain import fixed_grain_identity
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import QueryCreate
+from datajunction_server.models.reaggregate import dump_reaggregate_spec
 from datajunction_server.models.table_metadata import TableMetadata, TableOwner
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import (
@@ -590,6 +596,14 @@ async def create_node_revision(
         status=NodeStatus.VALID,
         query=data.query,
         mode=data.mode,
+        reaggregate=(
+            dump_reaggregate_spec(data.reaggregate)
+            if node_type == NodeType.METRIC
+            else None
+        ),
+        # Passed through for every node type so `extra_validation` can reject
+        # it, rather than silently dropping a declaration the author wrote.
+        fixed_grain=data.fixed_grain,
         created_by_id=current_user.id,
         custom_metadata=data.custom_metadata,
     )
@@ -887,7 +901,10 @@ async def _derive_frozen_measures_impl(
     # Extract components using the node revision ID.
     # The extractor auto-detects base vs derived metrics.
     extractor = MetricComponentExtractor(node_revision.id)
-    measures, derived_sql = await extractor.extract(session)
+    measures, derived_sql = await extractor.extract(
+        session,
+        validate_fixed_grain_windows=False,
+    )
 
     node_revision.derived_expression = str(derived_sql)
 
@@ -900,15 +917,10 @@ async def _derive_frozen_measures_impl(
             session=session,
             name=measure.name,
         )
+        if frozen_measure:
+            _raise_if_frozen_measure_conflicts(frozen_measure, measure)
         if not frozen_measure and measure.aggregation:
-            frozen_measure = FrozenMeasure(
-                name=measure.name,
-                upstream_revision_id=upstream_revision_id,
-                expression=measure.expression,
-                aggregation=measure.aggregation,
-                rule=measure.rule,
-                used_by_node_revisions=[],
-            )
+            frozen_measure = _new_frozen_measure(measure, upstream_revision_id)
             session.add(frozen_measure)
         if frozen_measure:
             frozen_measure.used_by_node_revisions.append(node_revision)
@@ -995,6 +1007,7 @@ async def derive_frozen_measures_bulk(
             nodes_cache=nodes_cache,
             parent_map=parent_map,
             metric_node=rev.node,
+            validate_fixed_grain_windows=False,
         )
         rev.derived_expression = str(derived_sql)
         extraction_results.append((rev, measures))
@@ -1028,17 +1041,77 @@ async def derive_frozen_measures_bulk(
             if frozen_measure is None:
                 if not measure.aggregation:
                     continue
-                frozen_measure = FrozenMeasure(
-                    name=measure.name,
-                    upstream_revision_id=upstream_revision_id,
-                    expression=measure.expression,
-                    aggregation=measure.aggregation,
-                    rule=measure.rule,
-                    used_by_node_revisions=[],
-                )
+                frozen_measure = _new_frozen_measure(measure, upstream_revision_id)
                 session.add(frozen_measure)
                 fm_by_name[measure.name] = frozen_measure
+            else:
+                _raise_if_frozen_measure_conflicts(frozen_measure, measure)
             frozen_measure.used_by_node_revisions.append(rev)
+
+
+# Declarations that ride on the aggregation rule but are not part of a measure's
+# identity, so two metrics differing only in grain share one frozen measure.
+#
+# Comparison and persistence must agree on this set. When they drift, the stored
+# rule depends on whichever metric happened to create the measure first.
+_METRIC_LEVEL_RULE_FIELDS = frozenset({"reaggregate", "fixed_grain"})
+
+
+def _aggregation_rule_identity(rule: DecomposeAggregationRule) -> dict[str, Any]:
+    """Return the stable JSON shape used for frozen-measure rule comparison."""
+    # `[]` survives `exclude_none`, keeping the global grain distinct from absent.
+    return rule.model_dump(
+        mode="json",
+        exclude_none=True,
+        exclude=set(_METRIC_LEVEL_RULE_FIELDS),
+    )
+
+
+def _frozen_measure_rule(rule: DecomposeAggregationRule) -> DecomposeAggregationRule:
+    """
+    Return the metric-independent rule persisted on a shared frozen measure.
+    """
+    return rule.model_copy(
+        update={field: None for field in _METRIC_LEVEL_RULE_FIELDS},
+    )
+
+
+def _new_frozen_measure(
+    measure: MetricComponent,
+    upstream_revision_id: int,
+) -> FrozenMeasure:
+    """Construct a shared frozen measure without metric-level policy."""
+    if not measure.aggregation:  # pragma: no cover
+        raise ValueError("Frozen measures require an aggregation")
+    return FrozenMeasure(
+        name=measure.name,
+        upstream_revision_id=upstream_revision_id,
+        expression=measure.expression,
+        aggregation=measure.aggregation,
+        rule=_frozen_measure_rule(measure.rule),
+        used_by_node_revisions=[],
+    )
+
+
+def _raise_if_frozen_measure_conflicts(
+    frozen_measure: FrozenMeasure,
+    measure: MetricComponent,
+) -> None:
+    """
+    Prevent component-name collisions from reusing a different frozen measure.
+    """
+    if (
+        frozen_measure.expression == measure.expression
+        and frozen_measure.aggregation == measure.aggregation
+        and _aggregation_rule_identity(frozen_measure.rule)
+        == _aggregation_rule_identity(measure.rule)
+    ):
+        return
+
+    raise DJInvalidInputException(
+        f"Frozen measure `{measure.name}` already exists with a different "
+        "expression, aggregation, or aggregation rule.",
+    )
 
 
 async def save_node(
@@ -1145,6 +1218,8 @@ async def copy_to_new_node(
             for rd in old_revision.required_dimensions
         ],
         metric_metadata=old_revision.metric_metadata,
+        reaggregate=old_revision.reaggregate,
+        fixed_grain=old_revision.fixed_grain,
         cube_elements=list(old_revision.cube_elements),
         cube_filters=old_revision.cube_filters,
         status=old_revision.status,
@@ -2525,6 +2600,8 @@ def copy_existing_node_revision(old_revision: NodeRevision, current_user: User):
             for rd in old_revision.required_dimensions
         ],
         metric_metadata=old_revision.metric_metadata,
+        reaggregate=old_revision.reaggregate,
+        fixed_grain=old_revision.fixed_grain,
         dimension_links=[
             DimensionLink(
                 dimension_id=link.dimension_id,
@@ -2747,8 +2824,30 @@ async def create_new_revision_from_existing(
         and {rd.ref for rd in old_revision.required_dimensions}
         != set(data.required_dimensions)
     )
+    # An explicit null clears the grain, an absent one carries it forward; both
+    # arrive as `None`, so `model_fields_set` is what separates them.
+    fixed_grain_was_set = bool(data and "fixed_grain" in data.model_fields_set)
+    new_fixed_grain = (
+        data.fixed_grain if fixed_grain_was_set else old_revision.fixed_grain
+    )
+    fixed_grain_changes = fixed_grain_was_set and fixed_grain_identity(
+        old_revision.fixed_grain,
+    ) != fixed_grain_identity(new_fixed_grain)
+    reaggregate_was_set = bool(
+        data and "reaggregate" in data.model_fields_set,
+    )
+    reaggregate_changes = (
+        reaggregate_was_set
+        and old_revision.reaggregate
+        != dump_reaggregate_spec(data.reaggregate if data else None)
+    )
     major_changes = (
-        query_changes or column_changes or pk_changes or required_dim_changes
+        query_changes
+        or column_changes
+        or pk_changes
+        or required_dim_changes
+        or reaggregate_changes
+        or fixed_grain_changes
     )
 
     # If nothing has changed, do not create the new node revision
@@ -2798,6 +2897,14 @@ async def create_new_revision_from_existing(
             if data and data.metric_metadata
             else old_revision.metric_metadata
         ),
+        reaggregate=(
+            dump_reaggregate_spec(data.reaggregate)
+            if data and data.reaggregate is not None
+            else None
+            if reaggregate_was_set
+            else old_revision.reaggregate
+        ),
+        fixed_grain=new_fixed_grain,
         dimension_links=[
             DimensionLink(
                 dimension_id=link.dimension_id,
@@ -4465,7 +4572,11 @@ async def revalidate_node(
 
     # For metric nodes, derive frozen measures (ensures they exist even for
     # metrics created via deployment or updated after initial creation)
-    if current_node_revision.type == NodeType.METRIC and background_tasks:
+    if (
+        current_node_revision.type == NodeType.METRIC
+        and node_validator.status == NodeStatus.VALID
+        and background_tasks
+    ):
         background_tasks.add_task(
             derive_frozen_measures,
             node.current.id,  # type: ignore

@@ -99,7 +99,8 @@ def _link(parent: Node, child_rev: NodeRevision) -> NodeRelationship:
 @pytest.mark.asyncio
 async def test_propagate_impact_empty(session):
     """No changed or deleted nodes → empty result."""
-    result = await propagate_impact(session, "ns", set(), frozenset())
+    propagation = await propagate_impact(session, "ns", set(), frozenset())
+    result = propagation.impacts
     assert result == []
 
 
@@ -115,7 +116,8 @@ async def test_propagate_impact_no_downstream(session, current_user: User):
     )
     await _persist(session, node, rev)
 
-    result = await propagate_impact(session, "ns", {"ns.source"})
+    propagation = await propagate_impact(session, "ns", {"ns.source"})
+    result = propagation.impacts
     assert result == []
 
 
@@ -139,7 +141,8 @@ async def test_propagate_impact_valid_parent_may_affect(session, current_user: U
     await _persist(session, parent, parent_rev, child, child_rev)
     await _persist(session, _link(parent, child_rev))
 
-    result = await propagate_impact(session, "ns", {"ns.source"})
+    propagation = await propagate_impact(session, "ns", {"ns.source"})
+    result = propagation.impacts
 
     assert len(result) == 1
     impact = result[0]
@@ -235,7 +238,8 @@ async def test_propagate_impact_invalid_parent_will_invalidate(
     await _persist(session, parent, parent_rev, child, child_rev)
     await _persist(session, _link(parent, child_rev))
 
-    result = await propagate_impact(session, "ns", {"ns.source"})
+    propagation = await propagate_impact(session, "ns", {"ns.source"})
+    result = propagation.impacts
 
     assert len(result) == 1
     impact = result[0]
@@ -273,12 +277,13 @@ async def test_propagate_impact_deleted_node_will_invalidate(
     await _persist(session, _link(parent, child_rev))
 
     # Pass parent as deleted (still in DB, simulating pre-deletion call)
-    result = await propagate_impact(
+    propagation = await propagate_impact(
         session,
         "ns",
         set(),
         deleted_node_names=frozenset(["ns.source"]),
     )
+    result = propagation.impacts
 
     assert len(result) == 1
     assert result[0].impact_type == ImpactType.WILL_INVALIDATE
@@ -316,7 +321,8 @@ async def test_propagate_impact_transitive_invalidation(session, current_user: U
     await _persist(session, root, root_rev, child1, child1_rev, child2, child2_rev)
     await _persist(session, _link(root, child1_rev), _link(child1, child2_rev))
 
-    result = await propagate_impact(session, "ns", {"ns.source"})
+    propagation = await propagate_impact(session, "ns", {"ns.source"})
+    result = propagation.impacts
 
     assert len(result) == 2
     by_name = {r.name: r for r in result}
@@ -349,7 +355,8 @@ async def test_propagate_impact_is_external(session, current_user: User):
     await _persist(session, parent, parent_rev, child, child_rev)
     await _persist(session, _link(parent, child_rev))
 
-    result = await propagate_impact(session, "ns", {"ns.source"})
+    propagation = await propagate_impact(session, "ns", {"ns.source"})
+    result = propagation.impacts
 
     assert len(result) == 1
     assert result[0].is_external is True
@@ -381,7 +388,8 @@ async def test_propagate_impact_already_invalid_not_duplicated(
     await _persist(session, parent, parent_rev, child, child_rev)
     await _persist(session, _link(parent, child_rev))
 
-    result = await propagate_impact(session, "ns", {"ns.source"})
+    propagation = await propagate_impact(session, "ns", {"ns.source"})
+    result = propagation.impacts
 
     assert len(result) == 1
     impact = result[0]
@@ -425,7 +433,8 @@ async def test_propagate_impact_deactivated_children_skipped(
     session.add(child)
     await session.flush()
 
-    result = await propagate_impact(session, "ns", {"ns.source"})
+    propagation = await propagate_impact(session, "ns", {"ns.source"})
+    result = propagation.impacts
 
     # The deactivated child should not appear in results
     assert result == []
@@ -470,7 +479,8 @@ async def test_propagate_impact_cause_names_in_result(session, current_user: Use
     )
     await _persist(session, _link(root, child_rev), _link(child, grandchild_rev))
 
-    result = await propagate_impact(session, "ns", {"ns.source"})
+    propagation = await propagate_impact(session, "ns", {"ns.source"})
+    result = propagation.impacts
 
     by_name = {r.name: r for r in result}
     # Both should trace back to ns.source
@@ -507,7 +517,8 @@ async def test_revalidation_recovery_invalid_to_valid(session, current_user: Use
     await _persist(session, source, source_rev, transform, transform_rev)
     await _persist(session, _link(source, transform_rev))
 
-    result = await propagate_impact(session, "ns", {"ns.source"})
+    propagation = await propagate_impact(session, "ns", {"ns.source"})
+    result = propagation.impacts
 
     by_name = {r.name: r for r in result}
     assert "ns.transform" in by_name
@@ -542,7 +553,8 @@ async def test_revalidation_recovery_fails(session, current_user: User):
     await _persist(session, source, source_rev, transform, transform_rev)
     await _persist(session, _link(source, transform_rev))
 
-    result = await propagate_impact(session, "ns", {"ns.source"})
+    propagation = await propagate_impact(session, "ns", {"ns.source"})
+    result = propagation.impacts
 
     by_name = {r.name: r for r in result}
     assert "ns.transform" in by_name
@@ -577,7 +589,8 @@ async def test_revalidation_invalid_parent_still_invalid_no_recovery(
     await _persist(session, source, source_rev, transform, transform_rev)
     await _persist(session, _link(source, transform_rev))
 
-    result = await propagate_impact(session, "ns", {"ns.source"})
+    propagation = await propagate_impact(session, "ns", {"ns.source"})
+    result = propagation.impacts
 
     by_name = {r.name: r for r in result}
     assert "ns.transform" in by_name
@@ -610,7 +623,8 @@ async def test_revalidation_column_type_change(session, current_user: User):
     await _persist(session, source, source_rev, transform, transform_rev)
     await _persist(session, _link(source, transform_rev))
 
-    result = await propagate_impact(session, "ns", {"ns.source"})
+    propagation = await propagate_impact(session, "ns", {"ns.source"})
+    result = propagation.impacts
 
     by_name = {r.name: r for r in result}
     assert "ns.transform" in by_name
@@ -650,7 +664,8 @@ async def test_revalidation_column_renamed_breaks_downstream(
     await _persist(session, source, source_rev, transform, transform_rev)
     await _persist(session, _link(source, transform_rev))
 
-    result = await propagate_impact(session, "ns", {"ns.source"})
+    propagation = await propagate_impact(session, "ns", {"ns.source"})
+    result = propagation.impacts
 
     by_name = {r.name: r for r in result}
     assert "ns.transform" in by_name
@@ -684,7 +699,8 @@ async def test_revalidation_unchanged_columns_passthrough(
     await _persist(session, source, source_rev, transform, transform_rev)
     await _persist(session, _link(source, transform_rev))
 
-    result = await propagate_impact(session, "ns", {"ns.source"})
+    propagation = await propagate_impact(session, "ns", {"ns.source"})
+    result = propagation.impacts
 
     by_name = {r.name: r for r in result}
     assert "ns.transform" in by_name
@@ -722,7 +738,8 @@ async def test_revalidation_source_node_skipped(session, current_user: User):
     )
     await _persist(session, _link(parent_source, child_source_rev))
 
-    result = await propagate_impact(session, "ns", {"ns.catalog_source"})
+    propagation = await propagate_impact(session, "ns", {"ns.catalog_source"})
+    result = propagation.impacts
 
     by_name = {r.name: r for r in result}
     assert "ns.derived_source" in by_name
@@ -778,7 +795,8 @@ async def test_revalidation_three_level_cascade(session, current_user: User):
         _link(transform, metric_rev),
     )
 
-    result = await propagate_impact(session, "ns", {"ns.source"})
+    propagation = await propagate_impact(session, "ns", {"ns.source"})
+    result = propagation.impacts
 
     by_name = {r.name: r for r in result}
     assert "ns.transform" in by_name
@@ -848,7 +866,8 @@ async def test_revalidation_three_level_cascade_middle_breaks(
         _link(transform, metric_rev),
     )
 
-    result = await propagate_impact(session, "ns", {"ns.source"})
+    propagation = await propagate_impact(session, "ns", {"ns.source"})
+    result = propagation.impacts
 
     by_name = {r.name: r for r in result}
     assert "ns.transform" in by_name
@@ -893,7 +912,8 @@ async def test_revalidation_recovery_with_column_type_change(
     await _persist(session, source, source_rev, transform, transform_rev)
     await _persist(session, _link(source, transform_rev))
 
-    result = await propagate_impact(session, "ns", {"ns.source"})
+    propagation = await propagate_impact(session, "ns", {"ns.source"})
+    result = propagation.impacts
 
     by_name = {r.name: r for r in result}
     assert "ns.transform" in by_name
@@ -958,7 +978,8 @@ async def test_column_type_change_cascades_through_three_levels(
         _link(transform, metric_rev),
     )
 
-    result = await propagate_impact(session, "ns", {"ns.source"})
+    propagation = await propagate_impact(session, "ns", {"ns.source"})
+    result = propagation.impacts
 
     by_name = {r.name: r for r in result}
     # Transform's user_id should update from INT to BIGINT
@@ -1018,11 +1039,12 @@ async def test_mixed_valid_invalid_parents(session, current_user: User):
         _link(invalid_parent, child_rev),
     )
 
-    result = await propagate_impact(
+    propagation = await propagate_impact(
         session,
         "ns",
         {"ns.source_a", "ns.source_b"},
     )
+    result = propagation.impacts
 
     by_name = {r.name: r for r in result}
     assert "ns.transform" in by_name
@@ -1072,11 +1094,12 @@ async def test_multiple_roots_same_downstream(session, current_user: User):
         _link(parent_b, child_rev),
     )
 
-    result = await propagate_impact(
+    propagation = await propagate_impact(
         session,
         "ns",
         {"ns.source_a", "ns.source_b"},
     )
+    result = propagation.impacts
 
     by_name = {r.name: r for r in result}
     assert "ns.transform" in by_name
@@ -1145,7 +1168,8 @@ async def test_revalidation_independent_sibling_parent_not_dropped(
         _link(parent_b, child_rev),
     )
 
-    result = await propagate_impact(session, "ns", {"ns.source_a"})
+    propagation = await propagate_impact(session, "ns", {"ns.source_a"})
+    result = propagation.impacts
 
     by_name = {r.name: r for r in result}
     assert "ns.transform" in by_name
@@ -1175,13 +1199,14 @@ async def test_propagate_impact_dimension_link_stub(session, current_user: User)
     )
     await _persist(session, source, source_rev)
 
-    result = await propagate_impact(
+    propagation = await propagate_impact(
         session,
         "ns",
         set(),
         frozenset(),
         changed_link_node_names={"ns.source"},
     )
+    result = propagation.impacts
     assert result == []
 
 
@@ -1320,7 +1345,8 @@ async def test_propagate_impact_unparseable_query_falls_back_gracefully(
         "datajunction_server.internal.impact.parse_query",
         side_effect=_failing_parse_query,
     ):
-        result = await propagate_impact(session, "ns", {"ns.source"})
+        propagation = await propagate_impact(session, "ns", {"ns.source"})
+        result = propagation.impacts
 
     # The child should still appear in results — the exception in threadpool parse
     # is caught and the node falls back to inline parse (which also uses parse,
@@ -1589,7 +1615,8 @@ async def test_impact_includes_sorted_owners(session, current_user: User):
     await _persist(session, parent, parent_rev, child, child_rev)
     await _persist(session, _link(parent, child_rev))
 
-    result = await propagate_impact(session, "ns", {"ns.source"})
+    propagation = await propagate_impact(session, "ns", {"ns.source"})
+    result = propagation.impacts
 
     assert result == [
         DownstreamImpact(
@@ -1630,7 +1657,8 @@ async def test_impact_owners_empty_when_unowned(session, current_user: User):
     await _persist(session, parent, parent_rev, child, child_rev)
     await _persist(session, _link(parent, child_rev))
 
-    result = await propagate_impact(session, "ns", {"ns.source"})
+    propagation = await propagate_impact(session, "ns", {"ns.source"})
+    result = propagation.impacts
 
     assert result == [
         DownstreamImpact(
@@ -1678,7 +1706,8 @@ async def test_impact_owners_propagate_to_invalidated_node(
     await _persist(session, parent, parent_rev, child, child_rev)
     await _persist(session, _link(parent, child_rev))
 
-    result = await propagate_impact(session, "ns", {"ns.source"})
+    propagation = await propagate_impact(session, "ns", {"ns.source"})
+    result = propagation.impacts
 
     assert len(result) == 1
     assert result[0].impact_type == ImpactType.WILL_INVALIDATE
@@ -1771,7 +1800,8 @@ async def test_impact_owners_are_eager_loaded_no_n_plus_one(
         await _persist(session, _link(parent, child_rev))
 
     del capture_queries[:]
-    result = await propagate_impact(session, "ns", {"ns.source"})
+    propagation = await propagate_impact(session, "ns", {"ns.source"})
+    result = propagation.impacts
 
     assert sorted(impact.owners for impact in result) == [
         [f"owner_{idx}"] for idx in range(fanout)

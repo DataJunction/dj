@@ -741,6 +741,8 @@ class TestGetPreaggregationById:
                 "source_column": None,
                 "rule": {
                     "level": None,
+                    "reaggregate": None,
+                    "fixed_grain": None,
                     "type": "full",
                 },
                 "used_by_metrics": [
@@ -808,6 +810,8 @@ class TestGetPreaggregationById:
                 "source_column": None,
                 "rule": {
                     "level": None,
+                    "reaggregate": None,
+                    "fixed_grain": None,
                     "type": "full",
                 },
                 "used_by_metrics": [

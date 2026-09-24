@@ -1203,7 +1203,12 @@ async def create_metric_distinct_single_column(client: AsyncClient):
             "grain_alias": "hard_hat_id",
             "merge": None,
             "name": "hard_hat_id",
-            "rule": {"level": ["hard_hat_id"], "type": "limited"},
+            "rule": {
+                "level": ["hard_hat_id"],
+                "reaggregate": None,
+                "fixed_grain": None,
+                "type": "limited",
+            },
         },
     ]
     assert metric_data["derived_expression"] == "COUNT( DISTINCT hard_hat_id)"
@@ -1230,7 +1235,12 @@ async def create_metric_distinct_expression(client: AsyncClient):
             "grain_alias": "hard_hat_id_distinct_0291ee39",
             "merge": None,
             "name": "hard_hat_id_distinct_0291ee39",
-            "rule": {"level": ["IF(hard_hat_id = 1, 1, 0)"], "type": "limited"},
+            "rule": {
+                "level": ["IF(hard_hat_id = 1, 1, 0)"],
+                "reaggregate": None,
+                "fixed_grain": None,
+                "type": "limited",
+            },
         },
     ]
     assert (
@@ -1627,6 +1637,8 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
                 "name": "default_DOT_local_hard_hats_2_DOT_hard_hat_id_sum_bf8a8419",
                 "rule": {
                     "level": None,
+                    "reaggregate": None,
+                    "fixed_grain": None,
                     "type": "full",
                 },
             },
@@ -1691,6 +1703,8 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
                 "name": "contact_name",
                 "rule": {
                     "level": ["default.municipality_dim.contact_name"],
+                    "reaggregate": None,
+                    "fixed_grain": None,
                     "type": "limited",
                 },
             },
@@ -1799,6 +1813,8 @@ class TestMeasuresSQLMetricDefinitionsWithDimensions:
                         "IF(default.hard_hat.state = 'NY', "
                         "default.hard_hat.first_name, NULL)",
                     ],
+                    "reaggregate": None,
+                    "fixed_grain": None,
                     "type": "limited",
                 },
             },

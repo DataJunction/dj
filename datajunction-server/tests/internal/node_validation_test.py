@@ -1023,6 +1023,212 @@ async def test_validate_node_data_v2_flags_invalid_required_dimensions(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "dimension",
+    ["test.v2_reagg_dim.ghost_col", "id"],
+)
+async def test_validate_node_data_v2_flags_invalid_reaggregate_dimensions(
+    session: AsyncSession,
+    user: User,
+    dimension: str,
+):
+    """reaggregate dimensions must be qualified and resolve to parent columns."""
+    from datajunction_server.errors import ErrorCode
+    from datajunction_server.internal.validation import validate_node_data_v2
+
+    source = Node(
+        name="test.v2_reagg_dim_parent",
+        type=NodeType.SOURCE,
+        created_by_id=user.id,
+        current_version="v1.0",
+    )
+    source_rev = NodeRevision(
+        name="test.v2_reagg_dim_parent",
+        display_name="reaggregate dim parent",
+        type=NodeType.SOURCE,
+        query=None,
+        status=NodeStatus.VALID,
+        version="v1.0",
+        node=source,
+        columns=[Column(name="id", type=ct.BigIntType(), order=0)],
+        created_by_id=user.id,
+    )
+    dim = Node(
+        name="test.v2_reagg_dim",
+        type=NodeType.DIMENSION,
+        created_by_id=user.id,
+        current_version="v1.0",
+    )
+    dim_rev = NodeRevision(
+        name="test.v2_reagg_dim",
+        display_name="tiny reaggregate dim",
+        type=NodeType.DIMENSION,
+        query="SELECT 1 AS id",
+        status=NodeStatus.VALID,
+        version="v1.0",
+        node=dim,
+        columns=[Column(name="id", type=ct.BigIntType(), order=0)],
+        created_by_id=user.id,
+    )
+    session.add_all([source, source_rev, dim, dim_rev])
+    await session.commit()
+
+    child = NodeRevision(
+        name="test.v2_reagg_dim_child",
+        display_name="reaggregate dim child",
+        type=NodeType.METRIC,
+        query="SELECT SUM(id) FROM test.v2_reagg_dim_parent",
+        status=NodeStatus.VALID,
+        reaggregate={
+            "rules": [
+                {
+                    "dimension": dimension,
+                    "fn": "last_value",
+                },
+            ],
+        },
+    )
+    validator = await validate_node_data_v2(child, session)
+
+    assert validator.status == NodeStatus.INVALID
+    assert any(
+        err.code == ErrorCode.INVALID_COLUMN
+        and "reaggregate dimensions" in err.message
+        and dimension in err.debug["invalid_reaggregate_dimensions"]
+        for err in validator.errors
+    ), [(e.code, e.message) for e in validator.errors]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("declaration", "message"),
+    [
+        (
+            {
+                "reaggregate": {
+                    "rules": [
+                        {
+                            "dimension": "test.date.date_id",
+                            "fn": "last_value",
+                        },
+                    ],
+                },
+            },
+            "only supported on base metrics",
+        ),
+        (
+            {"fixed_grain": []},
+            "Derived metric `test.v2_double_balance` declares fixed_grain",
+        ),
+    ],
+    ids=["reaggregate", "fixed-grain"],
+)
+async def test_validate_node_data_v2_rejects_base_metric_declarations_on_derived(
+    session: AsyncSession,
+    user: User,
+    declaration: dict,
+    message: str,
+):
+    """Derived metrics cannot declare policies that belong to base metrics."""
+    from datajunction_server.errors import ErrorCode
+    from datajunction_server.internal.validation import validate_node_data_v2
+
+    base = Node(
+        name="test.v2_base_balance",
+        type=NodeType.METRIC,
+        created_by_id=user.id,
+        current_version="v1.0",
+    )
+    base_revision = NodeRevision(
+        name=base.name,
+        display_name="base balance",
+        type=NodeType.METRIC,
+        query="SELECT SUM(balance) FROM test.balance_source",
+        status=NodeStatus.VALID,
+        version="v1.0",
+        node=base,
+        columns=[Column(name=base.name, type=ct.DoubleType(), order=0)],
+        created_by_id=user.id,
+    )
+    session.add_all([base, base_revision])
+    await session.commit()
+
+    derived = NodeRevision(
+        name="test.v2_double_balance",
+        display_name="double balance",
+        type=NodeType.METRIC,
+        query="SELECT test.v2_base_balance * 2",
+        status=NodeStatus.VALID,
+        **declaration,
+    )
+
+    validator = await validate_node_data_v2(derived, session)
+
+    assert validator.status == NodeStatus.INVALID
+    assert any(
+        error.code == ErrorCode.INVALID_METRIC and message in error.message
+        for error in validator.errors
+    )
+
+
+@pytest.mark.asyncio
+async def test_validate_node_data_v2_flags_unsupported_reaggregate_function(
+    session: AsyncSession,
+    user: User,
+):
+    """dimension-specific reaggregate only accepts supported collapse functions."""
+    from datajunction_server.errors import ErrorCode
+    from datajunction_server.internal.validation import validate_node_data_v2
+
+    source = Node(
+        name="test.v2_reagg_fn_parent",
+        type=NodeType.SOURCE,
+        created_by_id=user.id,
+        current_version="v1.0",
+    )
+    source_rev = NodeRevision(
+        name="test.v2_reagg_fn_parent",
+        display_name="reaggregate function parent",
+        type=NodeType.SOURCE,
+        query=None,
+        status=NodeStatus.VALID,
+        version="v1.0",
+        node=source,
+        columns=[
+            Column(name="id", type=ct.BigIntType(), order=0),
+            Column(name="order_date", type=ct.BigIntType(), order=1),
+        ],
+        created_by_id=user.id,
+    )
+    session.add_all([source, source_rev])
+    await session.commit()
+
+    child = NodeRevision(
+        name="test.v2_reagg_fn_child",
+        display_name="reaggregate function child",
+        type=NodeType.METRIC,
+        query="SELECT SUM(id) FROM test.v2_reagg_fn_parent",
+        status=NodeStatus.VALID,
+        reaggregate={
+            "rules": [
+                {
+                    "dimension": "test.v2_reagg_fn_parent.order_date",
+                    "fn": "sum",
+                },
+            ],
+        },
+    )
+    validator = await validate_node_data_v2(child, session)
+
+    assert validator.status == NodeStatus.INVALID
+    assert any(
+        err.code == ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION
+        and err.debug == {"invalid_reaggregate_functions": ["sum"]}
+        for err in validator.errors
+    ), [(e.code, e.message, e.debug) for e in validator.errors]
+
+
+@pytest.mark.asyncio
 async def test_validate_node_data_v2_cross_fact_metrics_no_shared_dims(
     session: AsyncSession,
     user: User,

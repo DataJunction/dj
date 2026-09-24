@@ -285,6 +285,14 @@ class Settings(BaseSettings):  # pragma: no cover
     # Caps how many SQL rebuilds run simultaneously to avoid DB connection spikes.
     query_cache_max_concurrent_refreshes: int = 3
 
+    # How many parsed node definitions to keep. Each entry retains its parser
+    # and token stream, per worker process.
+    definition_parse_cache_size: int = 512
+
+    # How many parsed filter and orderby clauses to keep. Sized for reuse
+    # within one request, not across them.
+    request_parse_cache_size: int = 64
+
     # Maximum amount of nodes to return for requests to list all nodes
     node_list_max: int = 10000
 

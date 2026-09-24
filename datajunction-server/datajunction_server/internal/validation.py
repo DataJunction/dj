@@ -14,6 +14,7 @@ from datajunction_server.database.node import RequiredDimension
 from datajunction_server.errors import (
     DJError,
     DJException,
+    DJInvalidInputException,
     DJInvalidMetricQueryException,
     ErrorCode,
 )
@@ -26,10 +27,66 @@ from datajunction_server.internal.deployment.utils import (
 from datajunction_server.models.base import labelize
 from datajunction_server.models.node import NodeRevisionBase, NodeStatus
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.reaggregate import (
+    ReaggregateSpec,
+    parse_reaggregate_spec,
+    unsupported_dimension_reaggregate_functions,
+)
+from datajunction_server.sql.decompose import validate_fixed_grain_shape
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.sql.parsing.types import ListType, MapType, StructType
+
+
+def invalid_reaggregate_dimension_references(dimensions: list[str]) -> set[str]:
+    """Return reaggregate dimensions that are not fully qualified."""
+    from datajunction_server.construction.build_v3.dimensions import (
+        parse_dimension_ref,
+    )
+
+    invalid: set[str] = set()
+    for dimension in dimensions:
+        try:
+            parse_dimension_ref(dimension)
+        except DJInvalidInputException:
+            invalid.add(dimension)
+    return invalid
+
+
+def derived_metric_reaggregate_error(
+    metric_name: str,
+    is_derived_metric: bool,
+    reaggregate: ReaggregateSpec | dict | None,
+) -> DJError | None:
+    """Reject metric-level reaggregation declarations on derived metrics."""
+    reaggregate_spec = parse_reaggregate_spec(reaggregate)
+    if not (is_derived_metric and reaggregate_spec and reaggregate_spec.rules):
+        return None
+    return DJError(
+        code=ErrorCode.INVALID_METRIC,
+        message=(
+            "Reaggregate declarations are only supported on base metrics. "
+            f"Derived metric `{metric_name}` declares reaggregate."
+        ),
+    )
+
+
+def derived_metric_fixed_grain_error(
+    metric_name: str,
+    is_derived_metric: bool,
+    fixed_grain: list[str] | None,
+) -> DJError | None:
+    """Reject fixed-grain declarations on derived metrics."""
+    if not (is_derived_metric and fixed_grain is not None):
+        return None
+    return DJError(
+        code=ErrorCode.INVALID_METRIC,
+        message=(
+            "Fixed-grain declarations are only supported on base metrics. "
+            f"Derived metric `{metric_name}` declares fixed_grain."
+        ),
+    )
 
 
 def _reparse_parent_column_types(dependencies_map: dict) -> None:
@@ -279,6 +336,14 @@ async def validate_node_data(
         if metric_parents:
             # This is a derived metric - nested derived metrics are supported
             # via inline expansion during decomposition
+            fixed_grain_metric_error = derived_metric_fixed_grain_error(
+                validated_node.name,
+                True,
+                validated_node.fixed_grain,
+            )
+            if fixed_grain_metric_error:
+                node_validator.status = NodeStatus.INVALID
+                node_validator.errors.append(fixed_grain_metric_error)
             if len(metric_parents) > 1:
                 # For cross-fact derived metrics, validate that there are shared dimensions
                 # between all referenced base metrics
@@ -430,11 +495,63 @@ async def validate_node_data(
             parent_dimension_links,
         )
         node_validator.required_dimensions = matched_bound_columns
+        reaggregate_spec = parse_reaggregate_spec(validated_node.reaggregate)
+        invalid_reaggregate_dimensions: set[str] = set()
+        invalid_reaggregate_functions: list[str] = []
+        invalid_fixed_grain_dimensions: set[str] = set()
+        unsupported_fixed_grain_shape: str | None = None
+        if reaggregate_spec and reaggregate_spec.rules:
+            reaggregate_dimensions = [rule.dimension for rule in reaggregate_spec.rules]
+            (
+                invalid_reaggregate_dimensions,
+                _,
+            ) = await find_required_dimensions(
+                session,
+                reaggregate_dimensions,
+                parent_columns,
+            )
+            invalid_reaggregate_dimensions.update(
+                invalid_reaggregate_dimension_references(reaggregate_dimensions),
+            )
+            invalid_reaggregate_functions = unsupported_dimension_reaggregate_functions(
+                reaggregate_spec,
+            )
+        # Truthiness, not `is not None`: `[]` is the global grain, which names
+        # no dimension and so has nothing to resolve.
+        if validated_node.fixed_grain:
+            invalid_fixed_grain_dimensions, _ = await find_required_dimensions(
+                session,
+                list(validated_node.fixed_grain),
+                parent_columns,
+            )
+        # `is not None` here: unlike the dimension check above, `[]` still
+        # needs its shape checked -- e.g. COUNT(DISTINCT ...) with `[]` has
+        # no dimension to resolve but still can't carry a broadcast.
+        if validated_node.fixed_grain is not None:
+            try:
+                validate_fixed_grain_shape(
+                    validated_node.query,  # type: ignore
+                    list(validated_node.fixed_grain),
+                )
+            except DJInvalidInputException as exc:
+                unsupported_fixed_grain_shape = str(exc)
     except MissingGreenlet:
         invalid_required_dimensions = set()
+        invalid_reaggregate_dimensions = set()
+        invalid_reaggregate_functions = []
+        invalid_fixed_grain_dimensions = set()
+        unsupported_fixed_grain_shape = None
         node_validator.required_dimensions = []
 
-    if missing_parents_map or type_inference_failures or invalid_required_dimensions:
+    if (
+        missing_parents_map
+        or type_inference_failures
+        or invalid_required_dimensions
+        or invalid_reaggregate_dimensions
+        or invalid_reaggregate_functions
+        or invalid_fixed_grain_dimensions
+        or unsupported_fixed_grain_shape
+    ):
         # update status
         node_validator.status = NodeStatus.INVALID
         # build errors
@@ -483,10 +600,76 @@ async def validate_node_data(
             if invalid_required_dimensions
             else []
         )
+        invalid_reaggregate_dimensions_error = (
+            [
+                DJError(
+                    code=ErrorCode.INVALID_COLUMN,
+                    message=(
+                        "Node definition contains references to columns as "
+                        "reaggregate dimensions that are not on parent nodes."
+                    ),
+                    debug={
+                        "invalid_reaggregate_dimensions": list(
+                            invalid_reaggregate_dimensions,
+                        ),
+                    },
+                ),
+            ]
+            if invalid_reaggregate_dimensions
+            else []
+        )
+        invalid_reaggregate_functions_error = (
+            [
+                DJError(
+                    code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                    message=(
+                        "Node definition contains unsupported dimension "
+                        "reaggregate function(s)."
+                    ),
+                    debug={
+                        "invalid_reaggregate_functions": invalid_reaggregate_functions,
+                    },
+                ),
+            ]
+            if invalid_reaggregate_functions
+            else []
+        )
+        invalid_fixed_grain_dimensions_error = (
+            [
+                DJError(
+                    code=ErrorCode.INVALID_COLUMN,
+                    message=(
+                        "Node definition declares a fixed grain referencing "
+                        "dimension columns that could not be resolved."
+                    ),
+                    debug={
+                        "invalid_fixed_grain_dimensions": list(
+                            invalid_fixed_grain_dimensions,
+                        ),
+                    },
+                ),
+            ]
+            if invalid_fixed_grain_dimensions
+            else []
+        )
+        unsupported_fixed_grain_shape_error = (
+            [
+                DJError(
+                    code=ErrorCode.INVALID_METRIC,
+                    message=unsupported_fixed_grain_shape,
+                ),
+            ]
+            if unsupported_fixed_grain_shape
+            else []
+        )
         errors = (
             missing_parents_error
             + type_inference_error
             + invalid_required_dimensions_error
+            + invalid_reaggregate_dimensions_error
+            + invalid_reaggregate_functions_error
+            + invalid_fixed_grain_dimensions_error
+            + unsupported_fixed_grain_shape_error
         )
         node_validator.errors.extend(errors)
 
@@ -622,6 +805,22 @@ async def validate_node_data_v2(
 
     # --- Step 4: classify parents (SHARED with deployment) ---
     is_derived_metric = is_metric and query_ast.select.from_ is None
+    reaggregate_metric_error = derived_metric_reaggregate_error(
+        validated_node.name,
+        is_derived_metric,
+        validated_node.reaggregate,
+    )
+    if reaggregate_metric_error:
+        node_validator.status = NodeStatus.INVALID
+        node_validator.errors.append(reaggregate_metric_error)
+    fixed_grain_metric_error = derived_metric_fixed_grain_error(
+        validated_node.name,
+        is_derived_metric,
+        validated_node.fixed_grain,
+    )
+    if fixed_grain_metric_error:
+        node_validator.status = NodeStatus.INVALID
+        node_validator.errors.append(fixed_grain_metric_error)
     parents, missing = classify_parents(
         is_derived_metric,
         candidates,
@@ -785,10 +984,56 @@ async def validate_node_data_v2(
         parent_dimension_links,
     )
     node_validator.required_dimensions = matched_bound_columns
+    reaggregate_spec = parse_reaggregate_spec(validated_node.reaggregate)
+    invalid_reaggregate_dimensions: set[str] = set()
+    invalid_reaggregate_functions: list[str] = []
+    invalid_fixed_grain_dimensions: set[str] = set()
+    if reaggregate_spec and reaggregate_spec.rules:
+        reaggregate_dimensions = [rule.dimension for rule in reaggregate_spec.rules]
+        (
+            invalid_reaggregate_dimensions,
+            _,
+        ) = await find_required_dimensions(
+            session,
+            reaggregate_dimensions,
+            parent_columns,
+        )
+        invalid_reaggregate_dimensions.update(
+            invalid_reaggregate_dimension_references(reaggregate_dimensions),
+        )
+        invalid_reaggregate_functions = unsupported_dimension_reaggregate_functions(
+            reaggregate_spec,
+        )
+    # Truthiness, not `is not None`: `[]` is the global grain.
+    if validated_node.fixed_grain:
+        invalid_fixed_grain_dimensions, _ = await find_required_dimensions(
+            session,
+            list(validated_node.fixed_grain),
+            parent_columns,
+        )
+    # `is not None` here: unlike the dimension check above, `[]` still needs
+    # its shape checked -- e.g. COUNT(DISTINCT ...) with `[]` has no
+    # dimension to resolve but still can't carry a broadcast.
+    unsupported_fixed_grain_shape: str | None = None
+    if validated_node.fixed_grain is not None:
+        try:
+            validate_fixed_grain_shape(
+                validated_node.query,  # type: ignore
+                list(validated_node.fixed_grain),
+            )
+        except DJInvalidInputException as exc:
+            unsupported_fixed_grain_shape = str(exc)
 
     # --- Step 12: final error assembly for missing parents + invalid required
     #              dims (matches legacy code shapes).
-    if node_validator.missing_parents_map or invalid_required_dimensions:
+    if (
+        node_validator.missing_parents_map
+        or invalid_required_dimensions
+        or invalid_reaggregate_dimensions
+        or invalid_reaggregate_functions
+        or invalid_fixed_grain_dimensions
+        or unsupported_fixed_grain_shape
+    ):
         node_validator.status = NodeStatus.INVALID
         if node_validator.missing_parents_map:
             node_validator.errors.append(
@@ -817,6 +1062,56 @@ async def validate_node_data_v2(
                         "invalid_required_dimensions": list(
                             invalid_required_dimensions,
                         ),
+                    },
+                ),
+            )
+        if invalid_reaggregate_dimensions:
+            node_validator.errors.append(
+                DJError(
+                    code=ErrorCode.INVALID_COLUMN,
+                    message=(
+                        "Node definition contains references to columns as "
+                        "reaggregate dimensions that are not on parent nodes."
+                    ),
+                    debug={
+                        "invalid_reaggregate_dimensions": list(
+                            invalid_reaggregate_dimensions,
+                        ),
+                    },
+                ),
+            )
+        if invalid_fixed_grain_dimensions:
+            node_validator.errors.append(
+                DJError(
+                    code=ErrorCode.INVALID_COLUMN,
+                    message=(
+                        "Node definition declares a fixed grain referencing "
+                        "dimension columns that could not be resolved."
+                    ),
+                    debug={
+                        "invalid_fixed_grain_dimensions": list(
+                            invalid_fixed_grain_dimensions,
+                        ),
+                    },
+                ),
+            )
+        if unsupported_fixed_grain_shape:
+            node_validator.errors.append(
+                DJError(
+                    code=ErrorCode.INVALID_METRIC,
+                    message=unsupported_fixed_grain_shape,
+                ),
+            )
+        if invalid_reaggregate_functions:
+            node_validator.errors.append(
+                DJError(
+                    code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                    message=(
+                        "Node definition contains unsupported dimension "
+                        "reaggregate function(s)."
+                    ),
+                    debug={
+                        "invalid_reaggregate_functions": invalid_reaggregate_functions,
                     },
                 ),
             )

@@ -15,7 +15,7 @@ CHECKS = [
     DeploymentCheckSpec(
         name="demo.owner_present",
         description="Every entity has an owner.",
-        when="node.type == 'dimension'",
+        when="node.node_type == 'dimension'",
         condition="size(node.owners) >= 1",
         gate="warn",
     ),
@@ -61,7 +61,7 @@ def test_checks_convert_to_check_specs():
             name="demo.owner_present",
             condition="size(node.owners) >= 1",
             gate="warn",
-            when="node.type == 'dimension'",
+            when="node.node_type == 'dimension'",
             description="Every entity has an owner.",
         ),
         CheckSpec(

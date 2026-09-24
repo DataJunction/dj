@@ -88,6 +88,8 @@ async def batch_load_nodes_with_dependencies(
                     NodeRevision.name,
                     NodeRevision.query,
                     NodeRevision.schema_,
+                    NodeRevision.fixed_grain,
+                    NodeRevision.reaggregate,
                     NodeRevision.table,
                 ),
                 # NOTE: don't noload Column.attributes — Columns are identity-

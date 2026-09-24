@@ -25,6 +25,7 @@ from datajunction_server.models.dimensionlink import (
     LinkType,
     SparkJoinStrategy,
 )
+from datajunction_server.models.fixed_grain import fixed_grain_identity
 from datajunction_server.models.impact import DownstreamImpact
 from datajunction_server.models.materialization import (
     DEFAULT_CUBE_RETENTION,
@@ -40,6 +41,7 @@ from datajunction_server.models.node import (
     NodeType,
 )
 from datajunction_server.models.partition import Granularity, PartitionType
+from datajunction_server.models.reaggregate import ReaggregateSpec
 from datajunction_server.models.semantic_fingerprint import SemanticFingerprintValue
 from datajunction_server.models.unit import (
     Unit,
@@ -1037,6 +1039,9 @@ class MetricSpec(NodeSpec):
     # Excluded from serialization so it's never exported.
     columns: list[ColumnSpec] | None = Field(default=None, exclude=True)
     required_dimensions: list[str] | None = None  # Field(default_factory=list)
+    # Omitted means the query grain; `[]` means the global grain.
+    fixed_grain: list[str] | None = None
+    reaggregate: ReaggregateSpec | None = None
     direction: MetricDirection | None = None
     unit_enum: MetricUnit | None = Field(default=None, exclude=True)
     # Structured unit form at the metric level — peer of `unit_enum`.
@@ -1053,6 +1058,9 @@ class MetricSpec(NodeSpec):
         "columns": ChangeTier.NONE,
         # Required dimensions constrain which queries the metric can answer.
         "required_dimensions": ChangeTier.MAJOR,
+        # Where the aggregate is computed -- changes the number, not its label.
+        "fixed_grain": ChangeTier.MAJOR,
+        "reaggregate": ChangeTier.MAJOR,
         # Everything below is presentation metadata on the metric's single output
         # column -- the same set the PATCH path already treats as minor via
         # `metric_metadata` in `create_new_revision_from_existing`.
@@ -1066,6 +1074,8 @@ class MetricSpec(NodeSpec):
     FIELD_ORDER_CHANGE_TIERS: ClassVar[dict[str, ChangeTier]] = {
         "columns": ChangeTier.NONE,
         "required_dimensions": ChangeTier.NONE,
+        # A grain is a partition, so reordering carries no meaning.
+        "fixed_grain": ChangeTier.NONE,
     }
 
     # Class-level adapter used by __init__ to eagerly validate structured
@@ -1125,6 +1135,21 @@ class MetricSpec(NodeSpec):
         if self.unit_enum is None or self.unit_enum == MetricUnit.UNKNOWN:
             return None
         return self.unit_enum.value.name.lower()
+
+    @property
+    def rendered_fixed_grain(self) -> list[str] | None:
+        """
+        Fixed grain with `${prefix}` resolved to this spec's namespace.
+
+        `[]` is preserved rather than folded to `None`: query grain and global
+        grain are different declarations.
+        """
+        if self.fixed_grain is None:
+            return None
+        return [
+            render_prefixes(dim, self.namespace) if "${prefix}" in dim else dim
+            for dim in self.fixed_grain
+        ]
 
     @property
     def rendered_required_dimensions(self) -> list[str]:
@@ -1188,7 +1213,41 @@ class MetricSpec(NodeSpec):
             == set(other.canonical_required_dimensions)
         ):
             changed.remove("required_dimensions")
+
+        # `_values_differ` compares the raw field as a set, so it sees no change
+        # between `None` (query grain) and `[]` (global grain). Decide on the
+        # rendered value, the same one `__eq__` compares.
+        if (
+            isinstance(other, MetricSpec)
+            and "fixed_grain" not in changed
+            and fixed_grain_identity(self.rendered_fixed_grain)
+            != fixed_grain_identity(other.rendered_fixed_grain)
+        ):
+            changed.append("fixed_grain")
         return changed
+
+    @property
+    def rendered_reaggregate(self) -> ReaggregateSpec | None:
+        """
+        Reaggregate spec with `${prefix}` resolved to this spec's namespace.
+        """
+        if not self.reaggregate:
+            return None
+        rules = [
+            rule.model_copy(
+                update={
+                    "dimension": render_prefixes(rule.dimension, self.namespace)
+                    if "${prefix}" in rule.dimension
+                    else rule.dimension,
+                },
+            )
+            for rule in self.reaggregate.rules
+        ]
+        return self.reaggregate.model_copy(
+            update={
+                "rules": rules,
+            },
+        )
 
     def model_dump(self, **kwargs):  # pragma: no cover
         base = super().model_dump(**kwargs)
@@ -1229,6 +1288,9 @@ class MetricSpec(NodeSpec):
                 other.canonical_required_dimensions,
                 preserve_order=False,
             )
+            and self.rendered_reaggregate == other.rendered_reaggregate
+            and fixed_grain_identity(self.rendered_fixed_grain)
+            == fixed_grain_identity(other.rendered_fixed_grain)
             and eq_or_fallback(self.direction, other.direction, MetricDirection.NEUTRAL)
             and self._normalized_unit() == other._normalized_unit()
             and self.significant_digits == other.significant_digits
@@ -1561,6 +1623,52 @@ class DeploymentCheckSpec(BaseModel):
     gate: str
     when: str | None = None
     description: str = ""
+
+
+class CheckVerdict(str, Enum):
+    """What a check concluded for one node."""
+
+    PASSED = "passed"
+    FAILED = "failed"
+    # The check's `when` guard excluded this node, so it asserted nothing.
+    SKIPPED = "skipped"
+
+
+class RulesetVerdict(str, Enum):
+    """What a ruleset's member checks add up to for one node."""
+
+    PASSED = "passed"
+    FAILED = "failed"
+    # Every member was skipped, so the bundle asserted nothing. Not the same
+    # as vacuously passing.
+    NOT_APPLICABLE = "not_applicable"
+
+
+class NodeCheckVerdict(BaseModel):
+    """One check's verdict for one node."""
+
+    check: str
+    verdict: CheckVerdict
+    gate: str
+
+
+class NodeRulesetVerdict(BaseModel):
+    """One ruleset's verdict for one node."""
+
+    ruleset: str
+    verdict: RulesetVerdict
+
+
+class NodeCheckResults(BaseModel):
+    """
+    Every verdict for one node.
+
+    Returned by a deploy and, evaluated the same way, by a node on its own.
+    """
+
+    node: str
+    checks: list[NodeCheckVerdict] = Field(default_factory=list)
+    rulesets: list[NodeRulesetVerdict] = Field(default_factory=list)
 
 
 class DeploymentRulesetSpec(BaseModel):
@@ -1914,6 +2022,7 @@ class DeploymentResult(BaseModel):
         PREAGG = "preaggregation"
         MATERIALIZATION = "materialization"
         GENERAL = "general"
+        CHECK = "check"
 
     name: str
     deploy_type: Type
@@ -1937,6 +2046,8 @@ class DeploymentInfo(BaseModel):
     namespace: str
     status: DeploymentStatus
     results: list[DeploymentResult] = Field(default_factory=list)
+    # One entry per node the governance checks ran on.
+    check_results: list[NodeCheckResults] = Field(default_factory=list)
     warnings: list[DJError] = Field(default_factory=list)
     downstream_impacts: list[DownstreamImpact] = Field(default_factory=list)
     created_at: str | None = None  # ISO datetime

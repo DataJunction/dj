@@ -30,6 +30,7 @@ from datajunction_server.internal.deployment.fingerprints import (
 from datajunction_server.internal.deployment.orchestrator import (
     DeploymentOrchestrator,
     DeploymentPlan,
+    DeploymentTimer,
     ResourceRegistry,
     column_changed,
     tag_needs_update,
@@ -84,6 +85,26 @@ def mock_deployment_context(current_user: User):
     context.save_history = AsyncMock()
     context.cache = Mock()
     return context
+
+
+def test_deployment_timer_logs_unaccounted_overhead(monkeypatch, caplog):
+    """
+    Deployment timing summary includes unaccounted overhead when it is meaningful.
+    """
+    timer = DeploymentTimer()
+    timer.record("validate", 10, "1 node")
+    monkeypatch.setattr(
+        "datajunction_server.internal.deployment.orchestrator.time.perf_counter",
+        lambda: timer._start + 0.2,
+    )
+
+    with caplog.at_level(
+        "INFO",
+        logger="datajunction_server.internal.deployment.orchestrator",
+    ):
+        timer.log_summary("default", "deployment-1")
+
+    assert "(unaccounted overhead)" in caplog.text
 
 
 @pytest.fixture
@@ -2825,6 +2846,121 @@ async def test_delete_nodes_bulk_deletes_existing_node(
         )
     ).scalar_one_or_none()
     assert gone is None
+
+
+@pytest.mark.asyncio
+async def test_deleted_node_result_carries_its_prior_fingerprint(
+    session,
+    current_user,
+    mock_deployment_context,
+):
+    """A full (non-dry-run) deployment that drops a previously-deployed node
+    reports that node's DELETE result with the fingerprint it had *before*
+    deletion, not None (``_delete_nodes`` attaches it directly)."""
+    # Avoid a bare Mock() for context.request, which _apply_cube_materialization_swaps
+    # tries to dict()-ify for forwarded headers.
+    mock_deployment_context.request = None
+    namespace = "delete_fingerprint_test"
+    initial_spec = DeploymentSpec(
+        namespace=namespace,
+        nodes=[
+            SourceSpec(
+                name="base",
+                catalog="default",
+                schema_="test",
+                table="base",
+                columns=[ColumnSpec(name="id", type="int")],
+            ),
+            TransformSpec(
+                name="derived",
+                query="SELECT id FROM ${prefix}base",
+            ),
+        ],
+    )
+    orch = DeploymentOrchestrator(
+        deployment_spec=initial_spec,
+        deployment_id="delete-fingerprint-initial",
+        session=session,
+        context=mock_deployment_context,
+        dry_run=False,
+    )
+    # `_update_deployment_status` opens its own DB session via
+    # `session_context`, unrelated to this test's fingerprint assertions.
+    with patch(
+        "datajunction_server.api.deployments.InProcessExecutor.update_status",
+        AsyncMock(),
+    ):
+        initial_result = await orch.execute()
+    derived_result = next(
+        result
+        for result in initial_result.results
+        if result.name == f"{namespace}.derived"
+    )
+    assert derived_result.semantic_fingerprint is not None
+
+    # Redeploy without the transform: it must be deleted.
+    without_transform = DeploymentSpec(
+        namespace=namespace,
+        nodes=[initial_spec.nodes[0]],
+    )
+    orch2 = DeploymentOrchestrator(
+        deployment_spec=without_transform,
+        deployment_id="delete-fingerprint-followup",
+        session=session,
+        context=mock_deployment_context,
+        dry_run=False,
+    )
+    with (
+        patch.object(orch2, "_validate_node_deletion", AsyncMock(return_value={})),
+        patch(
+            "datajunction_server.api.deployments.InProcessExecutor.update_status",
+            AsyncMock(),
+        ),
+    ):
+        followup_result = await orch2.execute()
+
+    delete_result = next(
+        result
+        for result in followup_result.results
+        if result.name == f"{namespace}.derived"
+    )
+    assert delete_result.operation == DeploymentResult.Operation.DELETE
+    assert delete_result.semantic_fingerprint == derived_result.semantic_fingerprint
+
+
+def test_apply_semantic_fingerprints_delete_branch_uses_current_snapshot(
+    sample_deployment_spec,
+    session,
+    current_user,
+    mock_deployment_context,
+):
+    """``_apply_semantic_fingerprints``'s DELETE branch (a node result whose
+    operation is DELETE gets its fingerprint from ``_current_semantic_fingerprints``,
+    not ``_proposed_semantic_fingerprints``) isn't reachable through the real
+    deployment flow today -- ``_delete_nodes`` attaches the fingerprint to its
+    own results directly, and runs *after* this method in ``_execute_deployment_plan``.
+    Call it directly against a hand-built deployed_results list to cover it."""
+    orch = DeploymentOrchestrator(
+        deployment_spec=sample_deployment_spec,
+        deployment_id="apply-fingerprints-delete-branch",
+        session=session,
+        context=mock_deployment_context,
+    )
+    fingerprint = SemanticFingerprint(version=1, digest="a" * 64)
+    orch._current_semantic_fingerprints = {"ns.deleted_node": fingerprint}
+    orch._proposed_semantic_fingerprints = {}
+    orch.deployed_results = [
+        DeploymentResult(
+            name="ns.deleted_node",
+            deploy_type=DeploymentResult.Type.NODE,
+            status=DeploymentResult.Status.SUCCESS,
+            operation=DeploymentResult.Operation.DELETE,
+        ),
+    ]
+
+    orch._apply_semantic_fingerprints()
+
+    assert orch.deployed_results[0].semantic_fingerprint == fingerprint
 
 
 @pytest.mark.asyncio
