@@ -2836,8 +2836,6 @@ class TestReaggregateParams:
     def _spec(params):
         """A spec carrying params."""
         return ReaggregateSpec.model_construct(
-            fn=ReaggregationFunction.SUM,
-            weight=None,
             rules=[],
             params=params,
         )

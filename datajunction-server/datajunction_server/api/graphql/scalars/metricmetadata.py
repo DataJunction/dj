@@ -55,8 +55,6 @@ class ReaggregateSpec:
     is an open dict, which has no automatic GraphQL mapping.
     """
 
-    fn: strawberry.auto
-    weight: strawberry.auto
     rules: strawberry.auto
     params: JSON | None = None
 
