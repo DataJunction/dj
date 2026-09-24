@@ -8,8 +8,12 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, get_args, get_origin
 
 from pydantic import BaseModel
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only, noload
+
+from datajunction_server.database.deployment import Deployment
+from datajunction_server.database.node import Node
 
 from datajunction_server.database.tag import Tag
 
@@ -25,19 +29,30 @@ from datajunction_server.internal.checks.context import (
     TagTypes,
     custom_metadata,
 )
-from datajunction_server.internal.checks.engine import CheckResult
-from datajunction_server.internal.checks.manifest import ResolvedRuleset
-from datajunction_server.internal.checks.validator import MalformedCheck
+from datajunction_server.internal.checks.engine import CheckResult, evaluate
+from datajunction_server.internal.checks.manifest import (
+    ManifestChecks,
+    ResolvedRuleset,
+    to_manifest_checks,
+)
+from datajunction_server.internal.checks.validator import MalformedCheck, load_checks
 from datajunction_server.internal.custom_metadata import resolve_schemas
 from datajunction_server.models.deployment import (
+    CheckVerdict,
     ColumnSpec,
     CubeSpec,
+    DeploymentCheckSpec,
     DeploymentResult,
+    DeploymentRulesetSpec,
+    DeploymentStatus,
     DimensionJoinLinkSpec,
     DimensionLinkSpec,
     DimensionReferenceLinkSpec,
     DimensionSpec,
     MetricSpec,
+    NodeCheckResults,
+    NodeCheckVerdict,
+    NodeRulesetVerdict,
     NodeSpec,
     RulesetVerdict,
     SourceSpec,
@@ -45,7 +60,7 @@ from datajunction_server.models.deployment import (
     TransformSpec,
 )
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.utils import get_namespace_from_name
+from datajunction_server.utils import SEPARATOR, get_namespace_from_name
 
 
 def _is_sequence_field(annotation: Any) -> bool:
@@ -242,7 +257,7 @@ def project_node(
     rendered = spec.rendered_name if spec is not None else ""
     projected["name"] = rendered
     projected["namespace"] = (
-        get_namespace_from_name(rendered) if "." in rendered else ""
+        get_namespace_from_name(rendered) if SEPARATOR in rendered else ""
     )
     projected["custom_metadata"] = custom_metadata(
         dumped.get("custom_metadata"),
@@ -450,3 +465,108 @@ def unsupported_ruleset_guards(
         for name, ruleset in sorted(rulesets.items())
         if ruleset.when is not None
     ]
+
+
+def _enclosing_namespaces(namespace: str) -> list[str]:
+    """A namespace and every namespace enclosing it."""
+    return [namespace] + [
+        namespace.rsplit(SEPARATOR, index)[0]
+        for index in range(1, namespace.count(SEPARATOR) + 1)
+    ]
+
+
+async def governing_check_specs(
+    session: AsyncSession,
+    namespace: str,
+) -> tuple[list[DeploymentCheckSpec], list[DeploymentRulesetSpec]]:
+    """
+    The checks governing a namespace, from the manifest of the nearest
+    enclosing deployment.
+    """
+    row = (
+        await session.execute(
+            select(
+                Deployment.spec["checks"].label("checks"),
+                Deployment.spec["rulesets"].label("rulesets"),
+            )
+            .where(
+                Deployment.namespace.in_(_enclosing_namespaces(namespace)),
+                Deployment.status == DeploymentStatus.SUCCESS,
+            )
+            .order_by(
+                func.length(Deployment.namespace).desc(),
+                Deployment.created_at.desc(),
+            )
+            .limit(1),
+        )
+    ).one_or_none()
+    if row is None or not row.checks:
+        return [], []
+    return (
+        [DeploymentCheckSpec(**check) for check in row.checks],
+        [DeploymentRulesetSpec(**ruleset) for ruleset in row.rulesets or []],
+    )
+
+
+async def governing_manifest(
+    session: AsyncSession,
+    node_name: str,
+) -> ManifestChecks | None:
+    """
+    The checks governing a node. One repo owns a namespace and everything under
+    it, so the nearest enclosing deployment is the one whose rules apply.
+    """
+    checks, rulesets = await governing_check_specs(
+        session,
+        get_namespace_from_name(node_name),
+    )
+    if not checks:
+        return None
+    return to_manifest_checks(checks, rulesets)
+
+
+async def check_node(session: AsyncSession, node: Node) -> NodeCheckResults | None:
+    """Evaluate a node against the checks governing it."""
+    manifest = await governing_manifest(session, node.name)
+    if manifest is None:
+        return None
+
+    spec = await node.to_spec(session)
+    declared = await resolve_declared_schemas(session, node.namespace, [node.type])
+    tag_types = await resolve_tag_types(session, [], [tag.name for tag in node.tags])
+    loaded = load_checks(manifest.checks, build_fixtures(declared, [node.type]))
+    bindings = build_bindings(
+        spec,
+        previous=spec,
+        dependencies=[(parent.name, None) for parent in node.current.parents],
+        operation=DeploymentResult.Operation.NOOP,
+        declared=declared.properties,
+        tag_types=tag_types,
+    )
+    results = evaluate(loaded.checks, bindings)
+    return NodeCheckResults(
+        node=node.name,
+        checks=[
+            NodeCheckVerdict(
+                check=result.check,
+                verdict=(
+                    CheckVerdict.SKIPPED
+                    if result.skipped
+                    else CheckVerdict.PASSED
+                    if result.passed
+                    else CheckVerdict.FAILED
+                ),
+                gate=str(result.gate),
+                description=result.description,
+            )
+            for result in results
+        ],
+        rulesets=[
+            NodeRulesetVerdict(
+                ruleset=outcome.ruleset,
+                verdict=outcome.verdict,
+                checks=list(outcome.ran),
+            )
+            for outcome in roll_up(manifest.rulesets, results)
+        ],
+    )

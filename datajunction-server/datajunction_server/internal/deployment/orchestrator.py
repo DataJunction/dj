@@ -775,11 +775,16 @@ class DeploymentOrchestrator:
                         check=result.check,
                         verdict=_check_verdict(result),
                         gate=str(result.gate),
+                        description=result.description,
                     )
                     for result in results
                 ],
                 rulesets=[
-                    NodeRulesetVerdict(ruleset=outcome.ruleset, verdict=outcome.verdict)
+                    NodeRulesetVerdict(
+                        ruleset=outcome.ruleset,
+                        verdict=outcome.verdict,
+                        checks=list(outcome.ran),
+                    )
                     for outcome in outcomes
                 ],
             )

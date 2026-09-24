@@ -17,6 +17,7 @@ class CheckResult:
     # None when the check's `when` guard excluded this entity.
     passed: bool | None
     blocked: bool
+    description: str = ""
 
     @property
     def skipped(self) -> bool:
@@ -32,7 +33,15 @@ def evaluate(
     results = []
     for check in checks:
         if check.when is not None and not _boolean(check.when, bindings):
-            results.append(CheckResult(check.name, check.gate, None, blocked=False))
+            results.append(
+                CheckResult(
+                    check.name,
+                    check.gate,
+                    None,
+                    blocked=False,
+                    description=check.description,
+                ),
+            )
             continue
         passed = _boolean(check.condition, bindings)
         results.append(
@@ -41,6 +50,7 @@ def evaluate(
                 check.gate,
                 passed,
                 blocked=_blocks(check, passed, previous_bindings),
+                description=check.description,
             ),
         )
     return results

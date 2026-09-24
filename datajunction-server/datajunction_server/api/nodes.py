@@ -74,8 +74,10 @@ from datajunction_server.internal.nodes import (
 )
 from datajunction_server.internal.validation import validate_node_data
 from datajunction_server.internal.views import create_cube_views
+from datajunction_server.internal.deployment.checks import check_node
 from datajunction_server.models import access
 from datajunction_server.models.access import ResourceAction
+from datajunction_server.models.deployment import NodeCheckResults
 from datajunction_server.models.attribute import (
     AttributeTypeIdentifier,
 )
@@ -388,6 +390,33 @@ async def get_node(
     if git_info:
         output.git_info = GitRepositoryInfo(**git_info)
     return output
+
+
+@router.get("/nodes/{name}/checks/", response_model=NodeCheckResults | None)
+async def get_node_checks(
+    name: str,
+    *,
+    session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
+) -> NodeCheckResults | None:
+    """
+    Evaluate the governance checks that apply to this node, as it stands now.
+    """
+    access_checker.add_request_by_node_name(name, ResourceAction.READ)
+    await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+    node = await Node.get_by_name(
+        session,
+        name,
+        options=[
+            joinedload(Node.current).options(*NodeRevision.default_load_options()),
+            selectinload(Node.tags),
+            selectinload(Node.owners),
+        ],
+        raise_if_not_exists=True,
+    )
+    assert node is not None  # raise_if_not_exists=True ensures this
+    return await check_node(session, node)
 
 
 @router.delete("/nodes/{name}/")

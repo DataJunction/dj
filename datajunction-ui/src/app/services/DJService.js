@@ -2294,6 +2294,13 @@ export const DataJunctionAPI = {
       })
     ).json();
   },
+  nodeChecks: async function (node) {
+    return await (
+      await fetch(`${DJ_URL}/nodes/${node}/checks/`, {
+        credentials: 'include',
+      })
+    ).json();
+  },
   revalidate: async function (node) {
     return await (
       await fetch(`${DJ_URL}/nodes/${node}/validate`, {

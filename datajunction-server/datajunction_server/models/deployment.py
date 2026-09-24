@@ -1650,6 +1650,7 @@ class NodeCheckVerdict(BaseModel):
     check: str
     verdict: CheckVerdict
     gate: str
+    description: str = ""
 
 
 class NodeRulesetVerdict(BaseModel):
@@ -1657,6 +1658,7 @@ class NodeRulesetVerdict(BaseModel):
 
     ruleset: str
     verdict: RulesetVerdict
+    checks: list[str] = Field(default_factory=list)
 
 
 class NodeCheckResults(BaseModel):
