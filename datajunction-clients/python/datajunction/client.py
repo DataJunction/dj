@@ -207,7 +207,31 @@ class DJClient(_internal.DJClient):
         include_temporal_filters: bool = False,
         lookback_window: str | None = None,
     ):
-        """Returns a query execution plan for the given metrics and dimensions."""
+        """
+        Returns a query execution plan for the given metrics and dimensions.
+
+        The plan shows:
+        - grain_groups: How metrics are grouped and their intermediate SQL
+        - metric_formulas: How each metric combines its components
+        - requested_dimensions: The dimensions being queried
+
+        This is useful for understanding how DJ decomposes metrics into
+        atomic aggregations and how multiple fact tables are joined together.
+
+        Args:
+            metrics: List of metric names to include
+            dimensions: List of dimensions to group by
+            filters: List of filter expressions
+            cube: Optional cube node name. When provided, the cube's stored
+                filters are automatically prepended to the query filters.
+            dialect: SQL dialect (e.g., 'spark', 'trino'). Defaults to engine dialect.
+            use_materialized: Whether to use materialized tables when available
+            include_temporal_filters: Whether to include temporal partition filters.
+                Only applies if the metrics and dimensions resolve to a cube with
+                temporal partitions.
+            lookback_window: Lookback window for temporal filters (e.g., '3 DAY',
+                '1 WEEK'). Only applicable when include_temporal_filters is True.
+        """
         params: dict = {
             "metrics": metrics,
             "dimensions": dimensions or [],
