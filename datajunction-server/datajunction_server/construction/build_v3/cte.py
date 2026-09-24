@@ -1018,7 +1018,7 @@ def _enclosing_selects(
 def _select_bindings(
     arm: ast.SelectExpression,
     cte_names: set[str],
-) -> tuple[dict[ast.SelectExpression, dict[str, str]], set[str]]:
+) -> tuple[dict[int, dict[str, str]], set[str]]:
     """
     Map each select to its CTE bindings, and the CTEs the statement reads.
 
@@ -1029,7 +1029,7 @@ def _select_bindings(
         FROM a AS x WHERE EXISTS (SELECT 1 FROM b AS x ...)
         {outer: {"a": "a", "x": "a"}, EXISTS: {"b": "b", "x": "b"}}
     """
-    bindings: dict[ast.SelectExpression, dict[str, str]] = {arm: {}}
+    bindings: dict[int, dict[str, str]] = {id(arm): {}}
     read: set[str] = set()
     for part in _arm_parts(arm):
         for table in part.find_all(ast.Table):
@@ -1039,7 +1039,7 @@ def _select_bindings(
             read.add(name)
             owner = _enclosing_selects(table, arm)
             # Detached tables go in the outermost map.
-            bound = bindings.setdefault(owner[0] if owner else arm, {})
+            bound = bindings.setdefault(id(owner[0] if owner else arm), {})
             bound[name] = name
             if alias := _table_alias(table):
                 bound[alias.identifier(quotes=False)] = name
@@ -1051,7 +1051,7 @@ def _record_column_use(
     qualifier: str | None,
     wanted: str,
     arm: ast.SelectExpression,
-    bindings: dict[ast.SelectExpression, dict[str, str]],
+    bindings: dict[int, dict[str, str]],
     read: set[str],
     live: dict[str, set[str]],
 ) -> None:
@@ -1060,7 +1060,7 @@ def _record_column_use(
     """
     if qualifier is not None:
         for select in _enclosing_selects(node, arm):
-            bound = bindings.get(select, {}).get(qualifier)
+            bound = bindings.get(id(select), {}).get(qualifier)
             if bound is not None:
                 live[bound].add(wanted)
                 return
@@ -1070,7 +1070,7 @@ def _record_column_use(
 
 def _record_select_uses(
     arm: ast.SelectExpression,
-    bindings: dict[ast.SelectExpression, dict[str, str]],
+    bindings: dict[int, dict[str, str]],
     read: set[str],
     live: dict[str, set[str]],
 ) -> None:
@@ -1656,7 +1656,7 @@ def _resolve_pushdown_filters_for_cte(
     # alias while ``alloc_group_id`` resolves to the fact's alias, even
     # though both share the same parent qualifier in the outer scope.
     scope_column_aliases = (
-        _build_all_scope_column_alias_maps(cte_query, ctx) if ctx else {}
+        _build_all_scope_column_alias_maps(cte_query, ctx) if ctx else []
     )
 
     # Identify "wrapped UNION arms" — arms of a set-op chain that
@@ -1727,7 +1727,7 @@ def _resolve_pushdown_filters_for_cte(
         # Runs regardless of primary success.  Includes target_select when
         # primary failed: FK-linked source tables read at the top level (not
         # in a nested subquery) only appear in the target_select scope map.
-        for inner_select, col_to_alias in scope_column_aliases.items():
+        for inner_select, col_to_alias in scope_column_aliases:
             if inner_select is target_select and rewritten is not None:
                 continue  # primary already handled target_select
             if id(inner_select) in alias_subst_scopes:
@@ -1894,7 +1894,7 @@ def _build_local_dim_aliases(node: Node) -> dict[str, str]:
 def _build_all_scope_column_alias_maps(
     cte_query: ast.Query,
     ctx: BuildContext,
-) -> dict[ast.Select, dict[str, tuple[str, str]]]:
+) -> list[tuple[ast.Select, dict[str, tuple[str, str]]]]:
     """For every distinct ``ast.Select`` scope reachable through the
     target Select's FROM subtree (subqueries inside JOINs, nested
     derived tables, etc.), build a ``{column_name → alias}`` map.
@@ -1927,7 +1927,7 @@ def _build_all_scope_column_alias_maps(
     retargeting: each scope can qualify the same filter differently
     based on which alias actually exposes each column there.
     """
-    result: dict[ast.Select, dict[str, tuple[str, str]]] = {}
+    result: list[tuple[ast.Select, dict[str, tuple[str, str]]]] = []
     target_select = cte_query.select
     if not isinstance(target_select, ast.Select):  # pragma: no cover
         return result
@@ -1969,7 +1969,7 @@ def _build_all_scope_column_alias_maps(
         seen.add(id(sel))
         col_alias: dict[str, tuple[str, str]] = {}
         if not sel.from_:  # pragma: no cover
-            result[sel] = col_alias
+            result.append((sel, col_alias))
             continue
         for relation in sel.from_.relations:
             sides = [relation.primary, *(j.right for j in relation.extensions)]
@@ -1981,7 +1981,7 @@ def _build_all_scope_column_alias_maps(
                     cte_name_to_node,
                     physical_to_node,
                 )
-        result[sel] = col_alias
+        result.append((sel, col_alias))
     return result
 
 
