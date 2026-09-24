@@ -4630,14 +4630,14 @@ class TestMetricsSQLCrossFactWindow:
                 FROM default.v3.page_views
             ),
             order_details_0 AS (
-                SELECT t2.category, t3.week, t1.order_id
+                SELECT t2.category, t3.week AS week_order, t1.order_id
                 FROM v3_order_details t1
                 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
                 LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
                 GROUP BY t2.category, t3.week, t1.order_id
             ),
             page_views_enriched_0 AS (
-                SELECT t2.category, t3.week, t1.customer_id
+                SELECT t2.category, t3.week AS week_order, t1.customer_id
                 FROM v3_page_views_enriched t1
                 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
                 LEFT OUTER JOIN v3_date t3 ON t1.page_date = t3.date_id
@@ -4646,19 +4646,19 @@ class TestMetricsSQLCrossFactWindow:
             base_metrics AS (
                 SELECT
                     COALESCE(order_details_0.category, page_views_enriched_0.category) AS category,
-                    COALESCE(order_details_0.week, page_views_enriched_0.week) AS week,
+                    COALESCE(order_details_0.week_order, page_views_enriched_0.week_order) AS week_order,
                     COUNT(DISTINCT order_details_0.order_id) AS order_count,
                     COUNT(DISTINCT page_views_enriched_0.customer_id) AS visitor_count,
                     CAST(COUNT(DISTINCT order_details_0.order_id) AS DOUBLE) / NULLIF(COUNT(DISTINCT page_views_enriched_0.customer_id), 0) AS conversion_rate
                 FROM order_details_0
-                FULL OUTER JOIN page_views_enriched_0 ON order_details_0.category = page_views_enriched_0.category AND order_details_0.week = page_views_enriched_0.week
+                FULL OUTER JOIN page_views_enriched_0 ON order_details_0.category = page_views_enriched_0.category AND order_details_0.week_order = page_views_enriched_0.week_order
                 GROUP BY 1, 2
             )
             SELECT
                 base_metrics.category AS category,
-                base_metrics.week AS week,
-                (base_metrics.conversion_rate - LAG(base_metrics.conversion_rate, 1) OVER (PARTITION BY base_metrics.category ORDER BY base_metrics.week))
-                    / NULLIF(LAG(base_metrics.conversion_rate, 1) OVER (PARTITION BY base_metrics.category ORDER BY base_metrics.week), 0) * 100
+                base_metrics.week_order AS week_order,
+                (base_metrics.conversion_rate - LAG(base_metrics.conversion_rate, 1) OVER (PARTITION BY base_metrics.category ORDER BY base_metrics.week_order))
+                    / NULLIF(LAG(base_metrics.conversion_rate, 1) OVER (PARTITION BY base_metrics.category ORDER BY base_metrics.week_order), 0) * 100
                     AS wow_conversion_rate_change
             FROM base_metrics
             """,
@@ -4672,9 +4672,9 @@ class TestMetricsSQLCrossFactWindow:
                 "semantic_type": "dimension",
             },
             {
-                "name": "week",
+                "name": "week_order",
                 "type": "int",
-                "semantic_entity": "v3.date.week",
+                "semantic_entity": "v3.date.week[order]",
                 "semantic_type": "dimension",
             },
             {
