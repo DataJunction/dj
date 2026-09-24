@@ -14,6 +14,7 @@ from datajunction_server.construction.build_v3.builder import (
     setup_build_context,
 )
 from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.models.materialization import MaterializationTarget
 from datajunction_server.sql.parsing import ast
 
 from . import assert_sql_equal, get_first_grain_group
@@ -54,6 +55,22 @@ class TestNormalizeQueryParamValue:
         """unsupported type raises DJInvalidInputException."""
         with pytest.raises(DJInvalidInputException, match="Unsupported parameter type"):
             _normalize_query_param_value("p", [1, 2, 3])
+
+
+@pytest.mark.asyncio
+async def test_setup_build_context_preserves_materialization_target(
+    client_with_build_v3,
+    session,
+):
+    """The destination reaches the context used to render and type measures."""
+    ctx = await setup_build_context(
+        session=session,
+        metrics=["v3.total_revenue"],
+        dimensions=[],
+        materialization_target=MaterializationTarget.DRUID,
+    )
+
+    assert ctx.materialization_target == MaterializationTarget.DRUID
 
 
 class TestInnerCTEFlattening:

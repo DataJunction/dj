@@ -293,6 +293,7 @@ async def setup_build_context(
         dimensions=list(dimensions),
         filters=filters or [],
         dialect=dialect,
+        materialization_target=materialization_target,
         use_materialized=use_materialized,
         temporal_partition_columns=temporal_partition_columns or {},
         lookback_window=lookback_window,
