@@ -4,7 +4,7 @@ Add params column to frozen_measures
 Adds a JSON column to persist tuning parameters (e.g., accuracy) for sketch-backed measures.
 
 Revision ID: fm0001params
-Revises: rg0001reaggregate
+Revises: fg0001fixedgrain
 Create Date: 2026-09-15 00:00:00.000000+00:00
 """
 
@@ -13,7 +13,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "fm0001params"
-down_revision = "rg0001reaggregate"
+down_revision = "fg0001fixedgrain"
 branch_labels = None
 depends_on = None
 

@@ -56,7 +56,7 @@ DRUID_AGG_MAPPING = {
 
 # Aggregator types that carry extra config in the Druid metricsSpec, mapped to
 # their default configuration. A sketch aggregator is not fully specified by its
-# type: an HLL needs a precision, a t-digest a compression, a KLL a `k`. Defaults
+# kind: an HLL needs a precision, a t-digest a compression, a KLL a `k`. Defaults
 # apply when a metric declares no `reaggregate.params`.
 DRUID_SKETCH_CONFIG: dict[str, dict[str, Any]] = {
     "HLLSketchMerge": {
