@@ -69,7 +69,9 @@ class TestComponentDefDefaults:
     """Existing decompositions must be untouched by the new field."""
 
     def test_merge_args_defaults_to_empty(self):
-        assert ComponentDef(suffix="_sum", accumulate="SUM", merge="SUM").merge_args == ()
+        assert (
+            ComponentDef(suffix="_sum", accumulate="SUM", merge="SUM").merge_args == ()
+        )
 
     def test_merge_args_is_a_tuple_so_the_default_cannot_be_mutated(self):
         first = ComponentDef(suffix="_sum", accumulate="SUM", merge="SUM")

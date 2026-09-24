@@ -73,7 +73,10 @@ class TestMultiArgumentTypes:
 
     def test_declines_for_a_single_argument_call(self):
         # Including templated ones, whose outermost call still takes one arg.
-        assert _multi_argument_accumulate_types("SUM(POWER(latency_ms, 2))", _parent()) is None
+        assert (
+            _multi_argument_accumulate_types("SUM(POWER(latency_ms, 2))", _parent())
+            is None
+        )
 
     def test_declines_when_a_column_type_is_unrecognized(self):
         # Better to fall back than to invent a type for the stored schema.
@@ -102,9 +105,7 @@ class TestInferredColumnType:
         )
 
     def test_single_argument_accumulate_is_unchanged(self):
-        assert (
-            infer_component_type(_component("SUM"), "bigint", _parent()) == "double"
-        )
+        assert infer_component_type(_component("SUM"), "bigint", _parent()) == "double"
 
     def test_unresolvable_multi_argument_accumulate_falls_back(self):
         assert (

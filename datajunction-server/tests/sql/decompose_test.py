@@ -3240,6 +3240,7 @@ async def test_family_gated_percentile_decomposes_through_the_extractor(
 
     assert components, "family-gated percentile produced no components"
     assert components[0].merge == "merge_sketch"
+    assert components[0].aggregation is not None
     assert "build_sketch" in components[0].aggregation
     assert "read_sketch" in str(combiner)
 

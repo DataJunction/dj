@@ -100,18 +100,27 @@ def infer_type(col: ct.ColumnType, compression: ct.ColumnType) -> ct.BinaryType:
     return ct.BinaryType()
 
 
-@MergeDigest.register
-def infer_type(digest: ct.ColumnType, compression: ct.ColumnType) -> ct.BinaryType:
+@MergeDigest.register  # type: ignore[no-redef]
+def infer_type(
+    digest: ct.ColumnType,
+    compression: ct.ColumnType,
+) -> ct.BinaryType:
     return ct.BinaryType()
 
 
-@DigestQuantiles.register
-def infer_type(digest: ct.ColumnType, quantiles: ct.ColumnType) -> ct.ListType:
+@DigestQuantiles.register  # type: ignore[no-redef]
+def infer_type(
+    digest: ct.ColumnType,
+    quantiles: ct.ColumnType,
+) -> ct.ListType:
     return ct.ListType(element_type=ct.DoubleType())
 
 
-@DigestQuantile.register
-def infer_type(digest: ct.ColumnType, quantile: ct.ColumnType) -> ct.DoubleType:
+@DigestQuantile.register  # type: ignore[no-redef]
+def infer_type(
+    digest: ct.ColumnType,
+    quantile: ct.ColumnType,
+) -> ct.DoubleType:
     return ct.DoubleType()
 
 
@@ -288,7 +297,7 @@ async def test_component_identity_carries_the_compression(percentile_metric):
     """
     (group,) = (await _measures(percentile_metric))["grain_groups"]
     (component,) = group["components"]
-    (column,) = [c for c in group["columns"] if c["semantic_type"] != "dimension"]
+    (column,) = (c for c in group["columns"] if c["semantic_type"] != "dimension")
 
     assert component["name"] == f"line_total_digest_c{COMPRESSION}_e1f61696"
     assert component["merge"] == "merge_digest"
