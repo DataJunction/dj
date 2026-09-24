@@ -5,6 +5,7 @@ entity, from the node spec and the plan's `existing_specs` and `node_graph`.
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Literal, get_args, get_origin
 
 from pydantic import BaseModel
@@ -17,7 +18,6 @@ from datajunction_server.database.node import Node
 
 from datajunction_server.database.tag import Tag
 
-from datajunction_server.enum import StrEnum
 from datajunction_server.internal.checks.context import (
     Bindings,
     Change,
@@ -133,8 +133,8 @@ def _cel_safe(value: Any, empty: Any = "") -> Any:
     """Coerce a dumped value into something CEL can read."""
     if value is None:
         return empty
-    if isinstance(value, (StrEnum, NodeType)):
-        return str(value)
+    if isinstance(value, Enum):
+        return str(value.value)
     if isinstance(value, Mapping):
         return {str(key): _cel_safe(item) for key, item in value.items()}
     if isinstance(value, (list, tuple, set)):

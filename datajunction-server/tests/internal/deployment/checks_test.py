@@ -40,6 +40,7 @@ from datajunction_server.models.deployment import (
     TransformSpec,
 )
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.unit import AtomicUnit, UnitKind
 
 NAMESPACE = "checks_demo"
 
@@ -1075,6 +1076,21 @@ def test_a_column_carries_every_field_the_spec_declares():
     assert set(column) == set(ColumnSpec.model_fields)
     assert column["order"] == 2
     assert project_column(ColumnSpec(name="c", type="string"))["order"] is None
+
+
+def test_a_columns_unit_projects_to_plain_strings():
+    """
+    `UnitKind` subclasses the stdlib Enum rather than the server's StrEnum, and
+    CEL has no value type for an enum member, so leaving one in the projection
+    failed the whole deploy the first time a node declared a unit.
+    """
+    column = project_column(
+        ColumnSpec(name="c", type="bigint", unit=AtomicUnit(kind=UnitKind.UNITLESS)),
+    )
+    # An enum member compares equal to its value, so only the type tells the
+    # converted projection from the one CEL rejects.
+    assert type(column["unit"]["kind"]) is str
+    assert column["unit"]["kind"] == "unitless"
 
 
 def test_a_metrics_columns_are_projected():
