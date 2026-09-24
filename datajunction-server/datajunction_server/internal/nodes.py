@@ -44,7 +44,6 @@ from datajunction_server.database.node import (
     NodeMissingParents,
     NodeRelationship,
     NodeRevision,
-    RequiredDimension,
 )
 from datajunction_server.database.partition import Partition
 from datajunction_server.database.preaggregation import (
@@ -1214,8 +1213,7 @@ async def copy_to_new_node(
         schema_=old_revision.schema_,
         table=old_revision.table,
         required_dimensions=[
-            RequiredDimension(ref=rd.ref, dimension_id=rd.dimension_id)
-            for rd in old_revision.required_dimensions
+            rd.copy() for rd in old_revision.required_dimensions
         ],
         metric_metadata=old_revision.metric_metadata,
         reaggregate=old_revision.reaggregate,
@@ -2596,8 +2594,7 @@ def copy_existing_node_revision(old_revision: NodeRevision, current_user: User):
         materializations=old_revision.materializations,
         status=old_revision.status,
         required_dimensions=[
-            RequiredDimension(ref=rd.ref, dimension_id=rd.dimension_id)
-            for rd in old_revision.required_dimensions
+            rd.copy() for rd in old_revision.required_dimensions
         ],
         metric_metadata=old_revision.metric_metadata,
         reaggregate=old_revision.reaggregate,
@@ -2922,8 +2919,7 @@ async def create_new_revision_from_existing(
         # required_dimensions) silently wiped it out once validation below
         # reassigned `new_revision.required_dimensions` from an empty list.
         required_dimensions=[
-            RequiredDimension(ref=rd.ref, dimension_id=rd.dimension_id)
-            for rd in old_revision.required_dimensions
+            rd.copy() for rd in old_revision.required_dimensions
         ],
         created_by_id=current_user.id,
         custom_metadata=old_revision.custom_metadata,

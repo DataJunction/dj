@@ -384,6 +384,12 @@ class RequiredDimension(Base):
         back_populates="required_dimensions",
     )
 
+    def copy(self) -> "RequiredDimension":
+        """
+        Returns a full copy of the required-dimension entry
+        """
+        return RequiredDimension(ref=self.ref, dimension_id=self.dimension_id)
+
 
 class MissingParent(Base):
     """
