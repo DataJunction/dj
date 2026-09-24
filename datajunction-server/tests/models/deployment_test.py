@@ -496,6 +496,31 @@ def test_dimension_join_link_spec_default_value_types(default_value):
     assert hash(link_spec) == hash(link_spec)
 
 
+@pytest.mark.parametrize(
+    "one, other",
+    [(1, True), (0, False), (1, 1.0), (0, 0.0)],
+)
+def test_dimension_join_link_spec_default_value_type_change(one, other):
+    """
+    Values Python counts as equal are still different defaults.
+
+    `1`, `1.0` and `True` each render as a different SQL literal, so a spec
+    that swaps one for another has changed and must not compare equal.
+    """
+
+    def spec(default_value):
+        return DimensionJoinLinkSpec(
+            dimension_node="some.dimension.users",
+            join_type="left",
+            join_on="events.user_id = some.dimension.users.id",
+            default_value=default_value,
+        )
+
+    assert one == other  # Python says these are the same value
+    assert spec(one) != spec(other)
+    assert hash(spec(one)) != hash(spec(other))
+
+
 def test_dimension_join_link_spec_with_join_cardinality():
     """Test DimensionJoinLinkSpec join_cardinality default, equality, and hashing."""
     from datajunction_server.models.dimensionlink import JoinCardinality

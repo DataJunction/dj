@@ -1638,6 +1638,38 @@ async def test_dimension_link_with_numeric_default_value(
 
 
 @pytest.mark.asyncio
+async def test_relink_changes_default_value_type(
+    dimensions_link_client: AsyncClient,
+):
+    """
+    Relinking with `true` in place of `1` must store the new default.
+
+    Python counts the two as equal, so anything comparing on value alone
+    keeps the old default and goes on emitting the wrong literal.
+    """
+    join_on = (
+        "default.events.user_id = default.users.user_id "
+        "AND default.events.event_start_date = default.users.snapshot_date"
+    )
+    for default_value in (1, True):
+        response = await dimensions_link_client.post(
+            "/nodes/default.events/link",
+            json={
+                "dimension_node": "default.users",
+                "join_type": "left",
+                "join_on": join_on,
+                "join_cardinality": "one_to_one",
+                "default_value": default_value,
+            },
+        )
+        assert response.status_code == 201
+
+    response = await dimensions_link_client.get("/nodes/default.events")
+    link = response.json()["dimension_links"][0]
+    assert link["default_value"] is True
+
+
+@pytest.mark.asyncio
 async def test_dimension_link_default_value_graphql(
     dimensions_link_client: AsyncClient,
 ):

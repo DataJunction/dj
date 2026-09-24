@@ -1,5 +1,7 @@
 """Models for dimension links"""
 
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict
 
 from datajunction_server.enum import StrEnum
@@ -8,6 +10,17 @@ from datajunction_server.models.node_type import NodeNameOutput
 # Fallback value for NULLs from an outer join. Renders as a SQL literal
 # matching the type of whichever dimension column it wraps.
 DimensionLinkDefault = str | int | float | bool
+
+
+def default_value_key(value: DimensionLinkDefault | None) -> tuple[str, Any]:
+    """
+    Comparison key for a default value, carrying its type.
+
+    Python counts ``1``, ``1.0`` and ``True`` as equal, but each renders as
+    a different SQL literal, so comparing on value alone would miss the
+    change and leave a stale default in place.
+    """
+    return (type(value).__name__, value)
 
 
 class JoinCardinality(StrEnum):

@@ -2048,6 +2048,79 @@ class TestDeployments:
         ]
 
     @pytest.mark.asyncio
+    async def test_redeploy_updates_join_link_default_value_type(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        Swapping a default of `1` for `True` is a change, not a noop.
+
+        Python counts the two as equal, so a comparison on value alone takes
+        the noop branch and leaves the old default in the database, still
+        emitting the wrong literal.
+        """
+        namespace = "join_link_default_value_retype"
+
+        def nodes_for(default_value):
+            dim_spec = DimensionSpec(
+                name="default.hard_hat",
+                description="Hard hat dimension",
+                query="""
+                SELECT
+                    hard_hat_id,
+                    state
+                FROM ${prefix}default.hard_hats
+                """,
+                primary_key=["hard_hat_id"],
+                owners=["dj"],
+                dimension_links=[
+                    DimensionJoinLinkSpec(
+                        dimension_node="${prefix}default.us_state",
+                        join_type="left",
+                        join_on=(
+                            "${prefix}default.hard_hat.state = "
+                            "${prefix}default.us_state.state_short"
+                        ),
+                        default_value=default_value,
+                    ),
+                ],
+            )
+            return [dim_spec, default_hard_hats, default_us_states, default_us_state]
+
+        link_name = f"{namespace}.default.hard_hat -> {namespace}.default.us_state"
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_for(1)),
+        )
+        assert data["status"] == "success", data
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes_for(True)),
+        )
+        assert data["status"] == "success", data
+        assert [
+            result for result in data["results"] if result["name"] == link_name
+        ] == [
+            {
+                "deploy_type": "link",
+                "message": "Join link successfully deployed",
+                "name": link_name,
+                "operation": "update",
+                "changed_fields": [],
+                "status": "success",
+            },
+        ]
+
+        response = await client.get(f"/nodes/{namespace}.default.hard_hat")
+        link = response.json()["dimension_links"][0]
+        assert link["default_value"] is True
+
+    @pytest.mark.asyncio
     async def test_required_dimension_from_linked_dimension_roundtrips(
         self,
         client,

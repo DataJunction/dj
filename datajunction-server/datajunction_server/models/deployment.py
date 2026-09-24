@@ -22,6 +22,7 @@ from datajunction_server.errors import (
 from datajunction_server.models.dimensionlink import (
     DimensionLinkDefault,
     JoinCardinality,
+    default_value_key,
     JoinType,
     LinkType,
     SparkJoinStrategy,
@@ -566,7 +567,7 @@ class DimensionJoinLinkSpec(DimensionLinkSpec):
             self.join_cardinality,
             self.rendered_join_on,
             self.node_column,
-            self.default_value,
+            default_value_key(self.default_value),
         )
 
 
