@@ -141,7 +141,7 @@ class TestMetricsSpecBuildersAgree:
     The two Druid metricsSpec builders, compared directly.
 
     ``CombineMaterialization.metrics_spec`` and ``api.cubes._build_metrics_spec``
-    map measures for different entry points. They share ``get_druid_aggregator_spec`` 
+    map measures for different entry points. They share ``get_druid_aggregator_spec``
     so the aggregator type and family config agree.
     """
 

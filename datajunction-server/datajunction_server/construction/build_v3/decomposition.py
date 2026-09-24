@@ -287,8 +287,11 @@ def _apply_serialize(
     """
     if not component.serializes_for(materialization_target):
         return expr
+    serialize = component.serialize
+    if serialize is None:  # pragma: no cover - guaranteed by serializes_for
+        return expr
     wrapped = parse(
-        f"SELECT {component.serialize.replace('{}', str(expr))}",
+        f"SELECT {serialize.replace('{}', str(expr))}",
     ).select.projection[0]
     wrapped.clear_parent()
     return cast(ast.Expression, wrapped)
@@ -329,7 +332,7 @@ def get_base_metrics_for_derived(ctx: BuildContext, metric_node: Node) -> list[N
         visited.add(node.name)
 
         # Recurse through metric parents. A node with any metric parent is derived;
-        # a node with no metric parent is a base metric. Checking for metric parents 
+        # a node with no metric parent is a base metric. Checking for metric parents
         # avoids dropping base metrics that are defined directly on dimension nodes.
         has_metric_parent = False
         for parent_name in ctx.parent_map.get(node.name, []):

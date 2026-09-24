@@ -2922,16 +2922,16 @@ class _DialectAwareSum(AggDecomposition):
 
     def combine(self, components, func, dialect=Dialect.SPARK):
         type(self).seen.append((func, dialect))
-        
+
         combiners = {
             Dialect.DRUID: self._combine_druid,
             Dialect.SPARK: self._combine_spark,
         }
         return combiners.get(dialect, self._combine_spark)(components)
-        
+
     def _combine_druid(self, components):
         return make_func("druid_combiner", components[0].name)
-        
+
     def _combine_spark(self, components):
         return make_func("spark_combiner", components[0].name)
 

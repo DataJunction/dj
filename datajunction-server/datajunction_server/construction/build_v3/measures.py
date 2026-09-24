@@ -184,6 +184,7 @@ def _multi_argument_accumulate_types(
 
     arg_types: list[ct.ColumnType] = []
     for arg in call.args:
+        resolved: ct.ColumnType | None
         if isinstance(arg, ast.Column):
             # Only the columns need the parent to resolve; literals and casts
             # carry their own type without being bound to a table.
@@ -191,7 +192,10 @@ def _multi_argument_accumulate_types(
                 get_column_type(parent_node, str(arg.alias_or_name.name)),
             )
         else:
-            resolved = arg.type
+            inferred = arg.type
+            if isinstance(inferred, list):
+                return None
+            resolved = inferred
         if resolved is None:
             return None
         arg_types.append(resolved)

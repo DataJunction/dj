@@ -554,7 +554,7 @@ async def swap_cube_materializations(
 ) -> CubeMaterializationSwap | None:
     """
     Rebuild a cube's materializations against a new revision and retire the old ones.
-    
+
     Touches only DJ-side state, and returns the query service work still owed --
     `None` when the cube had nothing materialized and there is no work at all. The
     caller commits and then hands the result to `apply_cube_materialization_swap`, so

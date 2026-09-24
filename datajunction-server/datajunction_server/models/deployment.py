@@ -217,7 +217,7 @@ class PreAggSpec(NamespacedSpec):
     """
     Specification for an externally-built pre-aggregation table adopted at deploy
     time. ``name`` is a stable handle used for reconciliation.
-    
+
     Every metric and dimension is declared together with its physical column
     in the external table.
     """
