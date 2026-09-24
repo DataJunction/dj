@@ -12320,7 +12320,14 @@ async def test_check_results_survive_to_the_deployment_endpoint(
         # Guarded to metrics, so it asserted nothing here and says so.
         "demo.metrics_only": "skipped",
     }
-    assert described["rulesets"] == [{"ruleset": "baseline", "verdict": "passed"}]
+    assert [(r["ruleset"], r["verdict"]) for r in described["rulesets"]] == [
+        ("baseline", "passed"),
+    ]
+    # The members are returned so a reader can see what the verdict rests on.
+    assert set(described["rulesets"][0]["checks"]) == {
+        "demo.described",
+        "demo.domain_tagged",
+    }
 
     bare = by_node[f"{namespace}.bare"]
     assert {v["check"]: v["verdict"] for v in bare["checks"]} == {
@@ -12328,4 +12335,151 @@ async def test_check_results_survive_to_the_deployment_endpoint(
         "demo.domain_tagged": "failed",
         "demo.metrics_only": "skipped",
     }
-    assert bare["rulesets"] == [{"ruleset": "baseline", "verdict": "failed"}]
+    assert [(r["ruleset"], r["verdict"]) for r in bare["rulesets"]] == [
+        ("baseline", "failed"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_node_checks_endpoint_evaluates_the_current_node(
+    module__client_with_roads,
+):
+    """
+    The node endpoint evaluates against the node as it stands, so a removal
+    check skips and the rest report on live state.
+    """
+    namespace = f"nodechecks{uuid.uuid4().hex[:8]}"
+    spec = DeploymentSpec(
+        namespace=namespace,
+        tags=[TagSpec(name=f"{namespace}_sales", tag_type="domain")],
+        nodes=[
+            TransformSpec(
+                name="described",
+                query="SELECT 1 AS one",
+                description="Described.",
+                tags=[f"{namespace}_sales"],
+            ),
+            TransformSpec(name="bare", query="SELECT 1 AS one"),
+        ],
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.described",
+                condition="node.description != ''",
+                gate="warn",
+            ),
+            DeploymentCheckSpec(
+                name="demo.domain_tagged",
+                condition="node.tags.exists(t, t.tag_type == 'domain')",
+                gate="warn",
+            ),
+            DeploymentCheckSpec(
+                name="demo.wound_down",
+                when="change.kind == 'delete'",
+                condition="node.description != ''",
+                gate="block",
+            ),
+        ],
+        rulesets=[
+            DeploymentRulesetSpec(
+                name="baseline",
+                checks=["demo.described", "demo.domain_tagged"],
+            ),
+        ],
+    )
+    await deploy_and_poll(module__client_with_roads, spec)
+
+    response = await module__client_with_roads.get(
+        f"/nodes/{namespace}.described/checks/",
+    )
+    data = response.json()
+    assert data["node"] == f"{namespace}.described"
+    assert {v["check"]: v["verdict"] for v in data["checks"]} == {
+        "demo.described": "passed",
+        "demo.domain_tagged": "passed",
+        # Nothing is being deployed, so a removal check asserts nothing.
+        "demo.wound_down": "skipped",
+    }
+    assert [(r["ruleset"], r["verdict"]) for r in data["rulesets"]] == [
+        ("baseline", "passed"),
+    ]
+
+    response = await module__client_with_roads.get(f"/nodes/{namespace}.bare/checks/")
+    assert {v["check"]: v["verdict"] for v in response.json()["checks"]} == {
+        "demo.described": "failed",
+        "demo.domain_tagged": "failed",
+        "demo.wound_down": "skipped",
+    }
+
+
+@pytest.mark.asyncio
+async def test_node_checks_endpoint_is_null_without_a_governing_manifest(
+    module__client_with_roads,
+):
+    response = await module__client_with_roads.get(
+        "/nodes/default.repair_orders_fact/checks/",
+    )
+    assert response.json() is None
+
+
+@pytest.mark.asyncio
+async def test_copying_a_namespace_carries_its_governance(
+    module__client_with_roads,
+    module__session,
+):
+    """
+    A copy has no manifest of its own, so without carrying the source's checks
+    a branch would be ungoverned until its first git-sync deploy.
+    """
+    from datajunction_server.internal.nodes import copy_nodes_to_namespace
+    from datajunction_server.database.deployment import Deployment
+    from datajunction_server.database.user import User
+    from sqlalchemy import select as sa_select
+
+    source = f"govcopy{uuid.uuid4().hex[:8]}"
+    await deploy_and_poll(
+        module__client_with_roads,
+        DeploymentSpec(
+            namespace=source,
+            nodes=[TransformSpec(name="bare", query="SELECT 1 AS one")],
+            checks=[
+                DeploymentCheckSpec(
+                    name="demo.described",
+                    condition="node.description != ''",
+                    gate="warn",
+                ),
+            ],
+        ),
+    )
+    current_user = (
+        (await module__session.execute(sa_select(User).limit(1))).scalars().one()
+    )
+
+    target = f"{source}_branch"
+    await copy_nodes_to_namespace(
+        module__session,
+        source,
+        target,
+        current_user,
+    )
+    await module__session.commit()
+
+    # The row has to land in a state `governing_check_specs` will accept: the
+    # orchestrator drives it to RUNNING while it works, so writing it before
+    # the deploy leaves it stuck there.
+    recorded = (
+        (
+            await module__session.execute(
+                sa_select(Deployment).where(Deployment.namespace == target),
+            )
+        )
+        .scalars()
+        .one()
+    )
+    assert recorded.status == DeploymentStatus.SUCCESS
+
+    response = await module__client_with_roads.get(f"/nodes/{target}.bare/checks/")
+    data = response.json()
+    assert data is not None, "the copied namespace inherited no governance"
+    assert {v["check"]: v["verdict"] for v in data["checks"]} == {
+        "demo.described": "failed",
+    }

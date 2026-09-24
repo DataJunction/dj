@@ -1293,6 +1293,23 @@ async def copy_to_new_node(
     return node  # type: ignore
 
 
+def _copy_status(results: list[DeploymentResult]):
+    """Whether a copy's deployment counts as having succeeded."""
+    from datajunction_server.models.deployment import DeploymentStatus
+
+    tolerated = {
+        DeploymentResult.Status.SUCCESS,
+        DeploymentResult.Status.SKIPPED,
+        DeploymentResult.Status.INVALID,
+        DeploymentResult.Status.WARNING,
+    }
+    return (
+        DeploymentStatus.SUCCESS
+        if all(result.status in tolerated for result in results)
+        else DeploymentStatus.FAILED
+    )
+
+
 async def copy_nodes_to_namespace(
     session: AsyncSession,
     source_namespace: str,
@@ -1320,6 +1337,8 @@ async def copy_nodes_to_namespace(
     """
     import uuid
 
+    from datajunction_server.database.deployment import Deployment
+    from datajunction_server.internal.deployment.checks import governing_check_specs
     from datajunction_server.internal.deployment.deployment import deploy
     from datajunction_server.internal.deployment.utils import DeploymentContext
     from datajunction_server.internal.namespaces import get_node_specs_for_export
@@ -1344,10 +1363,14 @@ async def copy_nodes_to_namespace(
         target_namespace,
     )
 
+    checks, rulesets = await governing_check_specs(session, source_namespace)
+
     # Create deployment spec for target namespace
     deployment_spec = DeploymentSpec(
         namespace=target_namespace,
         nodes=node_specs,
+        checks=checks,
+        rulesets=rulesets,
     )
 
     # Create minimal deployment context (only current_user is used by orchestrator)
@@ -1361,6 +1384,20 @@ async def copy_nodes_to_namespace(
         deployment=deployment_spec,
         context=context,
     )
+
+    # Recorded so the copy's governance is discoverable afterwards: the checks
+    # a node is evaluated against are read from the deployment that wrote it.
+    #
+    session.add(
+        Deployment(
+            uuid=uuid.UUID(deployment_id),
+            namespace=target_namespace,
+            spec=deployment_spec.model_dump(),
+            status=_copy_status(execute_result.results),
+            created_by_id=current_user.id,
+        ),
+    )
+    await session.flush()
 
     _logger.info(
         "Deployed %d changes to '%s'",

@@ -3,6 +3,7 @@ import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import foundation from 'react-syntax-highlighter/dist/esm/styles/hljs/foundation';
 import sql from 'react-syntax-highlighter/dist/esm/languages/hljs/sql';
 import NodeStatus from './NodeStatus';
+import NodeChecks from './NodeChecks';
 import ListGroupItem from '../../components/ListGroupItem';
 import DJClientContext from '../../providers/djclient';
 import { labelize } from '../../../utils/form';
@@ -495,6 +496,17 @@ export default function NodeInfoTab({ node }) {
               aria-label="NodeStatus"
             >
               <NodeStatus node={node} />
+            </p>
+          </div>
+          <div>
+            <h6 className="mb-0 w-100">Checks</h6>
+            <p
+              className="mb-0 opacity-75"
+              role="dialog"
+              aria-hidden="false"
+              aria-label="NodeChecks"
+            >
+              <NodeChecks node={node} />
             </p>
           </div>
           <div>
