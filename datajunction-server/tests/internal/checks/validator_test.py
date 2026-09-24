@@ -124,8 +124,8 @@ def _one(**overrides):
 @pytest.mark.parametrize(
     ("condition", "reason"),
     [
-        ("node.description.matches('^[A-Z]')", "re2 regex is off the surface"),
         ("node.name.startsWith('default.')", "string prefix matching is not allowed"),
+        ("node.name.contains('x')", "substring matching is not allowed"),
     ],
 )
 def test_off_surface_functions_are_refused(condition, reason):
@@ -330,3 +330,32 @@ def test_an_unsatisfiable_guard_falls_back_to_every_fixture():
     )
     assert not result.ok
     assert "evaluated to ERROR" in result.malformed[0].problem
+
+
+def test_a_rule_about_the_text_of_a_name_can_be_written():
+    """
+    RE2 cannot backtrack into a hang, and anchoring on separators is the only
+    way to match a word without also matching it inside another one.
+    """
+    result = load_checks(
+        [
+            CheckSpec(
+                "demo.no_unfortunate_words",
+                "!node.name.matches('(^|[._])(ass|wtf)([._]|$)')",
+                "warn",
+            ),
+        ],
+        build_fixtures(DECLARED_PROPERTIES),
+    )
+    assert result.ok, [vars(issue) for issue in result.malformed]
+
+    compiled = build_env().compile("!node.name.matches('(^|[._])(ass|wtf)([._]|$)')")
+
+    def clean(name):
+        return compiled.eval(data={"node": {"name": name}}).value()
+
+    assert not clean("shared.member.ads_plan_ass")
+    assert not clean("shared.x.wtf_metric")
+    # The word inside a longer one is left alone.
+    assert clean("shared.member.assets_total")
+    assert clean("shared.core.passenger_count")
