@@ -185,6 +185,53 @@ def test_reconstruct_deployment_spec_forwards_managed_tag_types(tmp_path):
     assert spec["managed_tag_types"] == ["domain"]
 
 
+def test_reconstruct_deployment_spec_forwards_checks_and_rulesets(tmp_path):
+    """`checks:` and `rulesets:` in dj.yaml reach the deployment payload.
+
+    Same defect as custom_metadata_schemas: the payload names its keys one by
+    one, so a manifest section nobody named is read and dropped. Dropped here
+    it fails silently -- the deploy succeeds having evaluated nothing.
+    """
+    (tmp_path / "dj.yaml").write_text(
+        "namespace: ns\n"
+        "checks:\n"
+        "  - name: demo.described\n"
+        "    description: Every node has a description.\n"
+        "    condition: \"node.description != ''\"\n"
+        "    gate: warn\n"
+        "rulesets:\n"
+        "  - name: baseline\n"
+        "    checks: [demo.described]\n",
+    )
+    (tmp_path / "revenue.yaml").write_text(
+        "name: ns.revenue\nnode_type: metric\nquery: SELECT SUM(amount) FROM ns.fct\n",
+    )
+
+    svc = DeploymentService(MagicMock())
+    spec, _ = svc._reconstruct_deployment_spec(tmp_path)
+
+    assert [check["name"] for check in spec["checks"]] == ["demo.described"]
+    assert spec["rulesets"] == [{"name": "baseline", "checks": ["demo.described"]}]
+
+
+def test_reconstruct_deployment_spec_omits_absent_checks(tmp_path):
+    """A manifest that declares no checks must not send the key.
+
+    Absent leaves the namespace's governance alone; [] would say this manifest
+    manages checks and declares none.
+    """
+    (tmp_path / "dj.yaml").write_text("namespace: ns\n")
+    (tmp_path / "revenue.yaml").write_text(
+        "name: ns.revenue\nnode_type: metric\nquery: SELECT SUM(amount) FROM ns.fct\n",
+    )
+
+    svc = DeploymentService(MagicMock())
+    spec, _ = svc._reconstruct_deployment_spec(tmp_path)
+
+    assert "checks" not in spec
+    assert "rulesets" not in spec
+
+
 def test_reconstruct_deployment_spec_omits_absent_managed_tag_types(tmp_path):
     """A manifest with no claims must not send the key: [] would release them."""
     (tmp_path / "dj.yaml").write_text("namespace: ns\n")

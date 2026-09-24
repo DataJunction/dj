@@ -593,6 +593,12 @@ class DeploymentService:
         if "managed_tag_types" in project_metadata:
             deployment_spec["managed_tag_types"] = project_metadata["managed_tag_types"]
 
+        if "checks" in project_metadata:
+            deployment_spec["checks"] = project_metadata["checks"]
+
+        if "rulesets" in project_metadata:
+            deployment_spec["rulesets"] = project_metadata["rulesets"]
+
         # Add deployment source if available from env vars
         source = self._build_deployment_source(cwd=base_dir)
         if source:  # pragma: no branch
