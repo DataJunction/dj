@@ -14,10 +14,7 @@ from sqlalchemy.orm import joinedload, load_only, noload, selectinload
 from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
 from datajunction_server.construction.build_v3.preagg_freshness import preagg_is_fresh
 from datajunction_server.construction.build_v3.types import BuildContext
-from datajunction_server.construction.build_v3.utils import (
-    collect_required_dimensions,
-    iter_namespaced_columns,
-)
+from datajunction_server.construction.build_v3.utils import iter_namespaced_columns
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import Column, Node, NodeRevision
 from datajunction_server.database.preaggregation import PreAggregation
@@ -499,16 +496,26 @@ async def load_nodes(ctx: BuildContext) -> None:
     # the declared role exactly rather than falling back to a sort order.
     # We still need to check if a user-requested dimension already covers the
     # same (node, column) -- e.g. the user asked for the un-roled column.
-    required_dims = collect_required_dimensions(ctx.nodes, ctx.metrics)
-    for req_dim in required_dims:
-        if SEPARATOR not in req_dim:
-            # Bare column ref (resolves against a direct parent of the
-            # metric, not a separate dimension node -- see RequiredDimension).
-            # parse_dimension_ref requires a fully-qualified `node.column`
-            # path, so reconstruct one from whichever direct parent actually
-            # has this column; the *stored* ref stays bare either way.
-            resolved_ref = None
-            for metric_name in ctx.metrics:
+    #
+    # A bare ref is resolved against the parents of the metric that declared
+    # it, not against every requested metric's parents -- two metrics can
+    # each have a same-named column on unrelated parents, and resolving
+    # against the wrong one would silently misattribute the ref.
+    resolved_required_dims: set[str] = set()
+    for metric_name in ctx.metrics:
+        metric_node = ctx.nodes.get(metric_name)
+        if not metric_node or not metric_node.current:
+            continue
+        for required_dim in metric_node.current.required_dimensions:
+            req_dim = required_dim.ref
+            if SEPARATOR not in req_dim:
+                # Bare column ref (resolves against a direct parent of the
+                # metric, not a separate dimension node -- see
+                # RequiredDimension). parse_dimension_ref requires a
+                # fully-qualified `node.column` path, so reconstruct one from
+                # whichever direct parent of *this* metric actually has this
+                # column; the *stored* ref stays bare either way.
+                resolved_ref = None
                 for parent_name in ctx.parent_map.get(metric_name, []):
                     parent_node = ctx.nodes.get(parent_name)
                     if (
@@ -520,11 +527,12 @@ async def load_nodes(ctx: BuildContext) -> None:
                     ):
                         resolved_ref = f"{parent_name}{SEPARATOR}{req_dim}"
                         break
-                if resolved_ref:
-                    break
-            if not resolved_ref:  # pragma: no cover
-                continue
-            req_dim = resolved_ref
+                if not resolved_ref:  # pragma: no cover
+                    continue
+                req_dim = resolved_ref
+            resolved_required_dims.add(req_dim)
+
+    for req_dim in sorted(resolved_required_dims):
         dim_ref = parse_dimension_ref(req_dim)
         if dim_ref.node_name:  # pragma: no branch
             target_dim_names.add(dim_ref.node_name)
