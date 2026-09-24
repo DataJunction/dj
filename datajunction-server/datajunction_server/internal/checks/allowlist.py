@@ -3,7 +3,7 @@ CEL operations that can be used in conditions. They are matched on overload
 identifiers, defined in https://pkg.go.dev/cel.dev/cel-go/common/overloads
 
     node.description != ''    ->  not_equals        allowed
-    node.name.matches('^x')   ->  matches_string    refused
+    node.name.startsWith('x') ->  starts_with_string  refused
 """
 
 from collections.abc import Iterator
@@ -26,6 +26,9 @@ ALLOWED_OVERLOADS = frozenset(
         "size_map",
         "size_string",
         "size_bytes",
+        # RE2, so a pattern cannot backtrack into a hang. Needed for rules
+        # about the text of a name, which have no other way to be written.
+        "matches_string",
         "multiply_int64",
         "add_int64",
         "add_list",  # filter macro expansion
