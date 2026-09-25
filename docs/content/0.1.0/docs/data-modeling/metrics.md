@@ -295,7 +295,7 @@ AS category_share_yoy_change
 
 ### Share of Total Metrics
 
-A share of total divides a value for one slice by the total across every slice. The difficulty is that the two halves want different grains: the numerator follows whatever the query groups by, while the denominator has to ignore it.
+A share of total divides a value for one slice by the total across every slice. The numerator follows whatever the query groups by; the denominator ignores it.
 
 `fixed_grain` declares the grain an aggregate is computed at, independently of the grain the query asks for. Setting it to `[]` means the global grain, so the metric is computed once over the whole result and broadcast to every row.
 
@@ -335,12 +335,7 @@ query: SELECT SUM(revenue) FROM default.sales
 fixed_grain: [default.store.region]
 ```
 
-Order and duplicates in the list are irrelevant; it is treated as a set. Omitting `fixed_grain` entirely is different from setting it to `[]`: the first means the query grain, the second means the global grain.
-
-Two rules apply to a non-empty list:
-
-- Every dimension named must also be a requested output dimension of the query, otherwise the query is rejected.
-- The metric cannot be combined with metrics from another fact table in a single query, because the joined result groups over a `COALESCE` of the shared dimensions and a partition naming one side's column is not grouped there. A global grain has no such restriction, since it partitions by nothing.
+Omitting `fixed_grain` entirely is different from setting it to `[]`: the first means the query grain, the second means the global grain.
 
 {{< alert icon="⚠️" >}}
 A fixed grain **broadcasts an aggregate, it does not deduplicate one**. The inner aggregate still runs at the query's grain, so if the parent repeats an entity across the dimension being sliced — one row per device for an account that used several, say — the inner aggregate counts that entity once per row and the partition faithfully sums the overcount. Use a fixed grain on a parent where the entity you are measuring appears once, or make the measure itself non-duplicating before aggregating it.
