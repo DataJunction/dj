@@ -5,6 +5,7 @@ entity, from the node spec and the plan's `existing_specs` and `node_graph`.
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Literal, get_args, get_origin
 
 from pydantic import BaseModel
@@ -17,7 +18,6 @@ from datajunction_server.database.node import Node
 
 from datajunction_server.database.tag import Tag
 
-from datajunction_server.enum import StrEnum
 from datajunction_server.internal.checks.context import (
     Bindings,
     Change,
@@ -133,8 +133,8 @@ def _cel_safe(value: Any, empty: Any = "") -> Any:
     """Coerce a dumped value into something CEL can read."""
     if value is None:
         return empty
-    if isinstance(value, (StrEnum, NodeType)):
-        return str(value)
+    if isinstance(value, Enum):
+        return str(value.value)
     if isinstance(value, Mapping):
         return {str(key): _cel_safe(item) for key, item in value.items()}
     if isinstance(value, (list, tuple, set)):
@@ -510,6 +510,39 @@ async def governing_check_specs(
             [DeploymentRulesetSpec(**ruleset) for ruleset in row.rulesets or []],
         )
     return [], []
+
+
+async def checks_match_last_deployment(
+    session: AsyncSession,
+    namespace: str,
+    checks: Sequence[DeploymentCheckSpec] | None,
+    rulesets: Sequence[DeploymentRulesetSpec] | None,
+) -> bool:
+    """
+    Whether a namespace's last successful deploy declared the same checks.
+
+    A new or altered check can fail a node that this deploy leaves alone, so
+    only an unchanged manifest can be evaluated against the changed nodes.
+    """
+    row = (
+        await session.execute(
+            select(
+                Deployment.spec["checks"].label("checks"),
+                Deployment.spec["rulesets"].label("rulesets"),
+            )
+            .where(
+                Deployment.namespace == namespace,
+                Deployment.status == DeploymentStatus.SUCCESS,
+            )
+            .order_by(Deployment.created_at.desc())
+            .limit(1),
+        )
+    ).one_or_none()
+    if row is None:
+        return False
+    dumped = [check.model_dump() for check in checks or []]
+    dumped_rulesets = [ruleset.model_dump() for ruleset in rulesets or []]
+    return (row.checks or []) == dumped and (row.rulesets or []) == dumped_rulesets
 
 
 async def governing_manifest(

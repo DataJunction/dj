@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 import time
@@ -51,11 +52,21 @@ from datajunction_server.internal.access.authorization import (
 from datajunction_server.internal.access.authorization.context import AuthContext
 from datajunction_server.internal.checks.engine import CheckResult
 from datajunction_server.internal.checks.engine import evaluate as evaluate_checks
-from datajunction_server.internal.checks.manifest import to_manifest_checks
-from datajunction_server.internal.checks.validator import CheckGate, load_checks
+from datajunction_server.internal.checks.context import TagTypes
+from datajunction_server.internal.checks.manifest import (
+    ManifestChecks,
+    to_manifest_checks,
+)
+from datajunction_server.internal.checks.validator import (
+    CheckGate,
+    LoadedChecks,
+    load_checks,
+)
 from datajunction_server.internal.custom_metadata import upsert_schema_specs
 from datajunction_server.internal.deployment.checks import (
+    DeclaredSchemas,
     build_bindings,
+    checks_match_last_deployment,
     build_fixtures,
     resolve_declared_schemas,
     resolve_tag_types,
@@ -671,6 +682,14 @@ class DeploymentOrchestrator:
             self.deployment_spec.rulesets,
         )
         entities = self._checked_entities(plan)
+        # Only check affected nodes
+        if await checks_match_last_deployment(
+            self.session,
+            self.deployment_spec.namespace,
+            self.deployment_spec.checks,
+            self.deployment_spec.rulesets,
+        ):
+            entities = self._affected_entities(plan, entities)
         node_types = {spec.node_type for spec, _ in entities}
         declared = await resolve_declared_schemas(
             self.session,
@@ -700,6 +719,39 @@ class DeploymentOrchestrator:
                 errors=self.errors,
                 warnings=self.warnings,
             )
+        # Projecting and evaluating is pure CPU for as long as it takes, and on
+        # the event loop it stops the worker answering its arbiter, which kills
+        # the worker mid-deploy and leaves the deployment with no final status.
+        blocked = await asyncio.to_thread(
+            self._evaluate_checks,
+            plan,
+            manifest,
+            loaded,
+            declared,
+            tag_types,
+            entities,
+        )
+
+        if blocked:
+            raise DJInvalidDeploymentConfig(
+                message=f"Deployment blocked by {len(blocked)} failing check(s)",
+                errors=self.errors,
+                warnings=self.warnings,
+            )
+
+    def _evaluate_checks(
+        self,
+        plan: DeploymentPlan,
+        manifest: ManifestChecks,
+        loaded: LoadedChecks,
+        declared: DeclaredSchemas,
+        tag_types: TagTypes,
+        entities: list[tuple[NodeSpec, DeploymentResult.Operation]],
+    ) -> list[str]:
+        """
+        Evaluate every node against the compiled checks, returning the blocking
+        failures. Synchronous so the caller can hand it to a worker thread.
+        """
         in_flight = {spec.rendered_name: spec for spec in plan.to_deploy}
         # The spec this deploy will write wins over the one already deployed.
         current_specs = {**plan.existing_specs, **in_flight}
@@ -708,10 +760,13 @@ class DeploymentOrchestrator:
             check.gate == CheckGate.BLOCK_ON_REGRESSION for check in loaded.checks
         )
         # A deploy can change a node's upstreams, so the deployed state has its
-        # own graph. Only block_on_regression reads it, and extracting it means
-        # parsing every deployed query.
+        # own graph. Building it parses a query per node, so parse only the
+        # nodes being checked rather than everything already deployed.
+        checked = {spec.rendered_name for spec, _ in entities}
         previous_graph = (
-            extract_node_graph(list(plan.existing_specs.values()))
+            extract_node_graph(
+                [spec for name, spec in plan.existing_specs.items() if name in checked],
+            )
             if wants_previous
             else {}
         )
@@ -799,12 +854,7 @@ class DeploymentOrchestrator:
                 ),
             )
 
-        if blocked:
-            raise DJInvalidDeploymentConfig(
-                message=f"Deployment blocked by {len(blocked)} failing check(s)",
-                errors=self.errors,
-                warnings=self.warnings,
-            )
+        return blocked
 
     @staticmethod
     def _checked_entities(
@@ -824,6 +874,29 @@ class DeploymentOrchestrator:
             ),
             *((spec, operation.NOOP) for spec in plan.to_skip),
             *((spec, operation.DELETE) for spec in plan.to_delete),
+        ]
+
+    @staticmethod
+    def _affected_entities(
+        plan: DeploymentPlan,
+        entities: list[tuple[NodeSpec, DeploymentResult.Operation]],
+    ) -> list[tuple[NodeSpec, DeploymentResult.Operation]]:
+        """The nodes this deploy affects"""
+        changed = {
+            spec.rendered_name
+            for spec, operation in entities
+            if operation is not DeploymentResult.Operation.NOOP
+        }
+        if not changed:
+            return []
+        affected = set(changed)
+        for name, upstreams in plan.node_graph.items():
+            if changed.intersection(upstreams):
+                affected.add(name)
+        return [
+            (spec, operation)
+            for spec, operation in entities
+            if spec.rendered_name in affected
         ]
 
     @staticmethod
