@@ -13,6 +13,7 @@ from sqlalchemy import func, or_, select, text
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer, joinedload, load_only, noload, selectinload
+from sqlalchemy.orm.attributes import flag_modified
 
 from datajunction_server.api.helpers import (
     COLUMN_NAME_REGEX,
@@ -151,6 +152,7 @@ from datajunction_server.models.deployment import (
 from datajunction_server.models.dimensionlink import (
     JoinLinkInput,
     LinkType,
+    default_value_key,
     misplaced_node_column_message,
     missing_join_on_message,
 )
@@ -6259,7 +6261,8 @@ class DeploymentOrchestrator:
             if link.join_sql == link_input.join_on
             and link.join_type == join_type
             and link.join_cardinality == link_input.join_cardinality
-            and link.default_value == link_input.default_value
+            and default_value_key(link.default_value)
+            == default_value_key(link_input.default_value)
             and link.spark_hints == link_input.spark_hints
         ]
         if exact_match:
@@ -6274,6 +6277,9 @@ class DeploymentOrchestrator:
             dimension_link.join_type = join_type
             dimension_link.join_cardinality = link_input.join_cardinality
             dimension_link.default_value = link_input.default_value
+            # SQLAlchemy compares old and new with ==, which counts 1 and True
+            # as the same value and skips the column in the UPDATE.
+            flag_modified(dimension_link, "default_value")
             dimension_link.spark_hints = link_input.spark_hints
         else:
             # No single candidate to update — create a new dimension link object

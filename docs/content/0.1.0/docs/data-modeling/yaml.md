@@ -165,7 +165,7 @@ dimension_links:
 | `join_on` | Yes, unless `join_type` is `cross` | The join condition, equating this node's foreign key column(s) to the dimension's primary key. There is no inference: a spec says nothing about which column is the foreign key, so the clause must be written out. |
 | `join_type` | No | The type of join (one of `left`, `right`, `inner`, `full`, `cross`). Defaults to `left`. |
 | `role` | No | The role this dimension represents |
-| `default_value` | No | A fallback value for NULL results from LEFT/RIGHT joins. When set, dimension columns are wrapped in `COALESCE(column, 'default_value')`. |
+| `default_value` | No | A string, number, or boolean fallback for NULL results from LEFT/RIGHT joins. When set, dimension columns are wrapped in `COALESCE(column, default_value)`, with the literal rendered to match the column's type. |
 | `spark_hints` | No | Spark join strategy hint for this dimension join. One of `broadcast`, `merge`, `shuffle_hash`, `shuffle_replicate_nl`. Emitted as a hint comment in the generated SELECT. Has no effect on non-Spark engines. |
 
 | Reference Link Fields | Required?  | Description |

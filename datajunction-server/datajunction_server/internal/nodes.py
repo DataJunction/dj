@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm.attributes import flag_modified
 
 from datajunction_server.api.helpers import (
     dedupe_cube_elements,
@@ -3505,6 +3506,9 @@ async def upsert_complex_dimension_link(
         )
         dimension_link.join_cardinality = link_input.join_cardinality
         dimension_link.default_value = link_input.default_value
+        # SQLAlchemy compares old and new with ==, which counts 1 and True
+        # as the same value and skips the column in the UPDATE.
+        flag_modified(dimension_link, "default_value")
         dimension_link.spark_hints = link_input.spark_hints
     else:
         # If there is no existing link, create new dimension link object

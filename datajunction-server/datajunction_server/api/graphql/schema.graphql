@@ -148,7 +148,7 @@ type DimensionLink {
   joinCardinality: JoinCardinality
   role: String
   foreignKeys: JSON!
-  defaultValue: String
+  defaultValue: JSON
 }
 
 type DimensionReaggregateRule {
