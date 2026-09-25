@@ -338,11 +338,21 @@ fixed_grain: [default.store.region]
 Omitting `fixed_grain` entirely is different from setting it to `[]`: the first means the query grain, the second means the global grain.
 
 {{< alert icon="⚠️" >}}
-A fixed grain **broadcasts an aggregate, it does not deduplicate one**. The inner aggregate still runs at the query's grain, so if the parent repeats an entity across the dimension being sliced — one row per device for an account that used several, say — the inner aggregate counts that entity once per row and the partition faithfully sums the overcount. Use a fixed grain on a parent where the entity you are measuring appears once, or make the measure itself non-duplicating before aggregating it.
+**A fixed grain broadcasts an aggregate; it does not deduplicate one.** It aggregates twice — once at the query's grain, then again across the partition — so if the parent holds more than one row per entity, the first pass already overcounts and the second faithfully adds up the overcount.
+
+Say a fact has one row per account and device, and `eligible` describes the account rather than the device:
+
+| account | device | eligible |
+|---------|--------|----------|
+| A       | TV     | 1        |
+| A       | phone  | 1        |
+| B       | TV     | 1        |
+
+Sliced by device, the first pass gives TV 2 and phone 1. The partition then sums those to 3, though only two accounts exist. Apply a fixed grain on a parent where each entity you are measuring appears once.
 {{< /alert >}}
 
 {{< alert icon="👉" >}}
-Ratios whose numerator and denominator need genuinely different grains from the *same* fanned fact are still not supported. Track progress at [GitHub Issue #1695](https://github.com/DataJunction/dj/issues/1695).
+A measure that has to ignore a dimension the fact repeats across — the case above — is not expressible yet. Track progress at [GitHub Issue #2245](https://github.com/DataJunction/dj/issues/2245).
 {{< /alert >}}
 
 ## Conditional Aggregations
