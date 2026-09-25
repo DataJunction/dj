@@ -293,49 +293,67 @@ SELECT (default.current_year_category_share - default.previous_year_category_sha
 AS category_share_yoy_change
 ```
 
-### Share of Total Metrics (Limited Support)
+### Share of Total Metrics
 
-Share of total metrics calculate a proportion where the numerator is grouped by a dimension while the denominator represents the ungrouped total. This pattern requires special handling because DJ computes all metrics at the same grain.
+A share of total divides a value for one slice by the total across every slice. The numerator follows whatever the query groups by; the denominator ignores it.
+
+`fixed_grain` declares the grain an aggregate is computed at, independently of the grain the query asks for. Setting it to `[]` means the global grain, so the metric is computed once over the whole result and broadcast to every row.
+
+```yaml
+name: default.total_revenue_all_categories
+query: SELECT SUM(revenue) FROM default.sales
+fixed_grain: []
+```
+
+Dividing a normal metric by that one gives the share, and the ratio works at any grain the query chooses:
+
+```sql
+-- Each category's share of revenue across all categories
+SELECT default.total_revenue / default.total_revenue_all_categories AS revenue_share
+```
+
+Grouped by category, the numerator splits per category while the denominator stays whole on every row, so the shares sum to 1.
+
+DJ compiles a fixed grain into a second aggregation layered over the first:
+
+```sql
+SELECT
+  category,
+  SUM(SUM(revenue_sum)) OVER () AS total_revenue_all_categories,
+  SUM(revenue_sum) AS total_revenue
+FROM sales_0
+GROUP BY category
+```
+
+#### Fixing the grain to specific dimensions
+
+`fixed_grain` also accepts a list of dimensions, which becomes the `PARTITION BY` set. The metric is then held constant within each combination of those dimensions rather than across the whole result — useful for a share of a subtotal, such as each category's share of revenue *within its region*.
+
+```yaml
+name: default.total_revenue_by_region
+query: SELECT SUM(revenue) FROM default.sales
+fixed_grain: [default.store.region]
+```
+
+Omitting `fixed_grain` entirely is different from setting it to `[]`: the first means the query grain, the second means the global grain.
 
 {{< alert icon="⚠️" >}}
-DJ doesn't automatically compute the numerator and denominator at different grains from the same fact. The workarounds below may be needed.
+**A fixed grain broadcasts an aggregate; it does not deduplicate one.** It aggregates twice — once at the query's grain, then again across the partition — so if the parent holds more than one row per entity, the first pass already overcounts and the second faithfully adds up the overcount.
+
+Say a fact has one row per account and device, and `eligible` describes the account rather than the device:
+
+| account | device | eligible |
+|---------|--------|----------|
+| A       | TV     | 1        |
+| A       | phone  | 1        |
+| B       | TV     | 1        |
+
+Sliced by device, the first pass gives TV 2 and phone 1. The partition then sums those to 3, though only two accounts exist. Apply a fixed grain on a parent where each entity you are measuring appears once.
 {{< /alert >}}
 
 {{< alert icon="👉" >}}
-Native support for ratio metrics at different grains is planned. Track progress at [GitHub Issue #1695](https://github.com/DataJunction/dj/issues/1695).
+A measure that has to ignore a dimension the fact repeats across — the case above — is not expressible yet. Track progress at [GitHub Issue #2245](https://github.com/DataJunction/dj/issues/2245).
 {{< /alert >}}
-
-**Option 1: Conditional Aggregation with Fixed Filter**
-
-Create a metric for a specific category's share:
-```sql
--- Electronics share of total revenue (hardcoded category)
-SELECT SUM(CASE WHEN category = 'Electronics' THEN revenue ELSE 0 END) / SUM(revenue)
-FROM default.sales
-```
-
-This approach requires creating a separate metric for each category you want to track.
-
-**Option 2: Application Layer**
-
-Create separate metrics and compute the ratio at the application layer:
-```sql
--- Metric 1: Revenue (will be grouped by category when queried)
-SELECT SUM(revenue) FROM default.sales
-
--- Metric 2: Total revenue (query separately without category dimension)
-SELECT SUM(revenue) FROM default.sales
-```
-
-Then divide in your application code after querying each metric at its appropriate grain.
-
-**Option 2: Pre-computed Totals**
-
-If you have a transform node that pre-computes totals, you can reference it:
-```sql
--- Assuming default.sales_with_totals has both line-level and total columns
-SELECT SUM(revenue) / MAX(total_revenue) FROM default.sales_with_totals
-```
 
 ## Conditional Aggregations
 
@@ -363,6 +381,52 @@ FROM default.orders
 For simple conditional counts, prefer `COUNT_IF` which is more readable: `COUNT_IF(status = 'completed')`
 {{< /alert >}}
 
+## Semi-Additive Metrics
+
+Some measures can be added up along one dimension but not another. A daily balance, a headcount, or a subscriber snapshot can be summed across accounts or regions, but summing it across dates is meaningless: the same balance counted on Monday, Tuesday and Wednesday returns three times the money that exists.
+
+Measures like these are **semi-additive**, and `reaggregate` declares which dimension they cannot be summed along and what to do instead.
+
+```yaml
+name: default.account_balance
+query: SELECT SUM(balance) FROM default.daily_account_snapshot
+reaggregate:
+  rules:
+    - dimension: default.date.dateint
+      fn: last_value
+```
+
+With date in the output grain, a query returns one balance per date, the same as any other metric. Over a date range *without* date in the grain, DJ pulls the date into the query's internal grain anyway, aggregates there, then collapses the date axis with the declared function rather than summing it:
+
+```sql
+WITH snapshot_0 AS (
+  SELECT dateint, SUM(balance) AS balance_sum
+  FROM default.daily_account_snapshot
+  GROUP BY dateint
+)
+SELECT MAX_BY(balance_sum, dateint) AS account_balance
+FROM snapshot_0
+```
+
+The result is the latest date's balance, not the sum of every date's. Slicing by another dimension returns each slice's own latest value, and those sum to the unsliced total.
+
+### Collapse functions
+
+A rule names the dimension to collapse and the function to collapse it with. Four functions can collapse a dimension:
+
+| Function | Collapses to |
+|----------|--------------|
+| `last_value` | The value at the dimension's maximum, for end-of-period snapshots |
+| `first_value` | The value at the dimension's minimum, for start-of-period snapshots |
+| `max` | The largest value across the dimension, for peaks |
+| `min` | The smallest value across the dimension, for troughs |
+
+A [required dimension](#required-dimensions) also keeps a snapshot from being summed along a dimension, but rejects a query that omits it rather than answering it. Use one where no single value across the dimension is meaningful, and a rule where one is.
+
+{{< alert icon="👉" >}}
+A rule picks one value along the collapsed dimension; it does not combine values across it. Anything that needs the whole range — a rolling total, an average across the period, a count of accounts seen on any day in it — is a separate calculation rather than a collapse function.
+{{< /alert >}}
+
 ## Metric Metadata
 
 Beyond the SQL query, metrics support additional metadata to improve discoverability and usability.
@@ -371,12 +435,10 @@ Beyond the SQL query, metrics support additional metadata to improve discoverabi
 
 Some metrics only make sense when grouped by specific dimensions. You can specify required dimensions that must be included when querying the metric.
 
-```json
-{
-  "name": "default.market_share",
-  "query": "SELECT SUM(revenue) / SUM(total_market_revenue) FROM default.sales",
-  "required_dimensions": ["default.product.category", "default.date.quarter"]
-}
+```yaml
+name: default.market_share
+query: SELECT SUM(revenue) / SUM(total_market_revenue) FROM default.sales
+required_dimensions: [default.product.category, default.date.quarter]
 ```
 
 When a metric has required dimensions, DJ will enforce that these dimensions are included in any query using this metric.
@@ -391,12 +453,10 @@ Indicate whether higher or lower values are "better" for the metric. This helps 
 | `lower_is_better` | Decreasing values are positive | Churn Rate, Error Rate, Latency |
 | `neutral` | Direction doesn't indicate good/bad | Count of Users, Average Order Size |
 
-```json
-{
-  "name": "default.customer_churn_rate",
-  "query": "SELECT ...",
-  "direction": "lower_is_better"
-}
+```yaml
+name: default.customer_churn_rate
+query: SELECT ...
+direction: lower_is_better
 ```
 
 ### Metric Units
@@ -415,10 +475,8 @@ Specify the unit of measure for the metric to help consumers interpret values co
 | `week` | w | Time duration |
 | `unitless` | | No specific unit |
 
-```json
-{
-  "name": "default.avg_response_time",
-  "query": "SELECT AVG(response_time_ms) / 1000 FROM default.requests",
-  "unit": "second"
-}
+```yaml
+name: default.avg_response_time
+query: SELECT AVG(response_time_ms) / 1000 FROM default.requests
+unit: second
 ```
