@@ -421,11 +421,7 @@ A rule names the dimension to collapse and the function to collapse it with. Fou
 | `max` | The largest value across the dimension, for peaks |
 | `min` | The smallest value across the dimension, for troughs |
 
-### Choosing between a rule and a required dimension
-
-Both keep a snapshot from being summed along a dimension, but they differ in what a query that omits it gets back.
-
-A required dimension rejects the query. A `reaggregate` rule answers it, returning the collapsed value. Use a required dimension where no single value across the dimension is meaningful, and a rule where one is.
+A [required dimension](#required-dimensions) also keeps a snapshot from being summed along a dimension, but rejects a query that omits it rather than answering it. Use one where no single value across the dimension is meaningful, and a rule where one is.
 
 {{< alert icon="⚠️" >}}
 A semi-additive metric cannot be queried alongside a plain additive metric from the same parent. The two need different internal grains, so DJ splits them into separate grain groups and rejects the query rather than risk fanning one out before the final aggregation. Query them separately.
