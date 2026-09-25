@@ -512,6 +512,39 @@ async def governing_check_specs(
     return [], []
 
 
+async def checks_match_last_deployment(
+    session: AsyncSession,
+    namespace: str,
+    checks: Sequence[DeploymentCheckSpec] | None,
+    rulesets: Sequence[DeploymentRulesetSpec] | None,
+) -> bool:
+    """
+    Whether a namespace's last successful deploy declared the same checks.
+
+    A new or altered check can fail a node that this deploy leaves alone, so
+    only an unchanged manifest can be evaluated against the changed nodes.
+    """
+    row = (
+        await session.execute(
+            select(
+                Deployment.spec["checks"].label("checks"),
+                Deployment.spec["rulesets"].label("rulesets"),
+            )
+            .where(
+                Deployment.namespace == namespace,
+                Deployment.status == DeploymentStatus.SUCCESS,
+            )
+            .order_by(Deployment.created_at.desc())
+            .limit(1),
+        )
+    ).one_or_none()
+    if row is None:
+        return False
+    dumped = [check.model_dump() for check in checks or []]
+    dumped_rulesets = [ruleset.model_dump() for ruleset in rulesets or []]
+    return (row.checks or []) == dumped and (row.rulesets or []) == dumped_rulesets
+
+
 async def governing_manifest(
     session: AsyncSession,
     node_name: str,

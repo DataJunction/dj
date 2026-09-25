@@ -39,6 +39,8 @@ from datajunction_server.models.deployment import (
     TagSpec,
     TransformSpec,
 )
+from datajunction_server.database.deployment import Deployment
+from datajunction_server.models.deployment import DeploymentStatus
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.unit import AtomicUnit, UnitKind
 
@@ -1107,3 +1109,118 @@ def test_a_metrics_columns_are_projected():
     assert [column["name"] for column in project_node(spec, {}, {})["columns"]] == [
         "first",
     ]
+
+
+DESCRIBED = DeploymentCheckSpec(
+    name="demo.described",
+    condition="node.description != ''",
+    gate="warn",
+    description="Every node has a description.",
+)
+
+
+async def _record_deployment(session, current_user, checks, rulesets=None):
+    """A successful deploy of this namespace, as the scoping check reads it."""
+    session.add(
+        Deployment(
+            namespace=NAMESPACE,
+            status=DeploymentStatus.SUCCESS,
+            spec=DeploymentSpec(
+                namespace=NAMESPACE,
+                nodes=[],
+                checks=checks,
+                rulesets=rulesets,
+            ).model_dump(),
+            results=[],
+            created_by_id=current_user.id,
+        ),
+    )
+    await session.commit()
+
+
+def test_a_changed_node_drags_in_the_nodes_that_read_it():
+    """
+    A check reads a node's direct upstreams, so changing one moves the bindings
+    of everything one hop downstream even though those specs are untouched.
+    """
+    changed = transform("changed")
+    reader = transform("reader")
+    bystander = transform("bystander")
+    plan = make_plan(
+        to_deploy=[changed],
+        to_skip=[reader, bystander],
+        node_graph={
+            f"{NAMESPACE}.changed": [],
+            f"{NAMESPACE}.reader": [f"{NAMESPACE}.changed"],
+            f"{NAMESPACE}.bystander": [],
+        },
+    )
+    entities = DeploymentOrchestrator._checked_entities(plan)
+    affected = DeploymentOrchestrator._affected_entities(plan, entities)
+    assert {spec.rendered_name for spec, _ in affected} == {
+        f"{NAMESPACE}.changed",
+        f"{NAMESPACE}.reader",
+    }
+
+
+def test_a_deploy_that_changes_nothing_checks_nothing():
+    plan = make_plan(to_skip=[transform("untouched")])
+    entities = DeploymentOrchestrator._checked_entities(plan)
+    assert DeploymentOrchestrator._affected_entities(plan, entities) == []
+
+
+@pytest.mark.asyncio
+async def test_an_unchanged_manifest_only_checks_what_moved(session, current_user):
+    """
+    The expensive case is a redeploy where almost nothing changed, so an
+    untouched node is not re-projected just to reach the verdict it already had.
+    """
+    await _record_deployment(session, current_user, [DESCRIBED])
+    changed = transform("changed", description="described")
+    untouched = transform("untouched", description="described")
+    orchestrator = make_orchestrator(session, current_user, [DESCRIBED])
+    await orchestrator._run_governance_checks(
+        make_plan(to_deploy=[changed], to_skip=[untouched]),
+    )
+    assert [results.node for results in orchestrator.check_results] == [
+        f"{NAMESPACE}.changed",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_new_check_is_answered_for_by_every_node(session, current_user):
+    """
+    Narrowing to changed nodes is only sound while the manifest holds still: a
+    check added in this deploy has never been answered by the untouched ones.
+    """
+    await _record_deployment(session, current_user, [DESCRIBED])
+    added = DeploymentCheckSpec(
+        name="demo.tagged",
+        condition="size(node.tags) > 0",
+        gate="warn",
+        description="Every node carries a tag.",
+    )
+    orchestrator = make_orchestrator(session, current_user, [DESCRIBED, added])
+    await orchestrator._run_governance_checks(
+        make_plan(
+            to_deploy=[transform("changed", description="d")],
+            to_skip=[transform("untouched", description="d")],
+        ),
+    )
+    assert {results.node for results in orchestrator.check_results} == {
+        f"{NAMESPACE}.changed",
+        f"{NAMESPACE}.untouched",
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_first_deploy_checks_every_node(session, current_user):
+    """No previous deploy means no node has answered for anything yet."""
+    orchestrator = make_orchestrator(session, current_user, [DESCRIBED])
+    await orchestrator._run_governance_checks(
+        make_plan(
+            to_deploy=[transform("changed", description="d")],
+            to_skip=[transform("untouched", description="d")],
+        ),
+    )
+    assert len(orchestrator.check_results) == 2
