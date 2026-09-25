@@ -423,12 +423,8 @@ A rule names the dimension to collapse and the function to collapse it with. Fou
 
 A [required dimension](#required-dimensions) also keeps a snapshot from being summed along a dimension, but rejects a query that omits it rather than answering it. Use one where no single value across the dimension is meaningful, and a rule where one is.
 
-{{< alert icon="⚠️" >}}
-Leaving the collapsed dimension out of a query's grain puts the semi-additive metric in a grain group of its own, and a plain additive metric requested alongside it is then rejected, because the final join could duplicate that metric's rows before they are aggregated. Adding the collapsed dimension to the output grain puts both in one grain group, where they combine without restriction.
-{{< /alert >}}
-
 {{< alert icon="👉" >}}
-A rule collapses a dimension; it does not build a window. Declaring `last_value` over date makes a snapshot safe to query across a date range, but it will not turn daily flags into a distinct count over a trailing window, which is a union across days rather than a single day's value.
+A rule picks one value along the collapsed dimension; it does not combine values across it. Anything that needs the whole range — a rolling total, an average across the period, a count of accounts seen on any day in it — is a separate calculation rather than a collapse function.
 {{< /alert >}}
 
 ## Metric Metadata
