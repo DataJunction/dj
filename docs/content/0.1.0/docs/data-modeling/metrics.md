@@ -299,12 +299,10 @@ A share of total divides a value for one slice by the total across every slice. 
 
 `fixed_grain` declares the grain an aggregate is computed at, independently of the grain the query asks for. Setting it to `[]` means the global grain, so the metric is computed once over the whole result and broadcast to every row.
 
-```json
-{
-  "name": "default.total_revenue_all_categories",
-  "query": "SELECT SUM(revenue) FROM default.sales",
-  "fixed_grain": []
-}
+```yaml
+name: default.total_revenue_all_categories
+query: SELECT SUM(revenue) FROM default.sales
+fixed_grain: []
 ```
 
 Dividing a normal metric by that one gives the share, and the ratio works at any grain the query chooses:
@@ -331,12 +329,10 @@ GROUP BY category
 
 `fixed_grain` also accepts a list of dimensions, which becomes the `PARTITION BY` set. The metric is then held constant within each combination of those dimensions rather than across the whole result — useful for a share of a subtotal, such as each category's share of revenue *within its region*.
 
-```json
-{
-  "name": "default.total_revenue_by_region",
-  "query": "SELECT SUM(revenue) FROM default.sales",
-  "fixed_grain": ["default.store.region"]
-}
+```yaml
+name: default.total_revenue_by_region
+query: SELECT SUM(revenue) FROM default.sales
+fixed_grain: [default.store.region]
 ```
 
 Order and duplicates in the list are irrelevant; it is treated as a set. Omitting `fixed_grain` entirely is different from setting it to `[]`: the first means the query grain, the second means the global grain.
@@ -386,16 +382,13 @@ Some measures can be added up along one dimension but not another. A daily balan
 
 Measures like these are **semi-additive**, and `reaggregate` declares which dimension they cannot be summed along and what to do instead.
 
-```json
-{
-  "name": "default.account_balance",
-  "query": "SELECT SUM(balance) FROM default.daily_account_snapshot",
-  "reaggregate": {
-    "rules": [
-      {"dimension": "default.date.dateint", "fn": "last_value"}
-    ]
-  }
-}
+```yaml
+name: default.account_balance
+query: SELECT SUM(balance) FROM default.daily_account_snapshot
+reaggregate:
+  rules:
+    - dimension: default.date.dateint
+      fn: last_value
 ```
 
 Queried with a date in the output grain, this behaves like any other metric. Queried over a date range *without* date in the grain, DJ pulls the date into the query's internal grain anyway, aggregates there, then collapses the date axis with the declared function rather than summing it:
@@ -445,12 +438,10 @@ Beyond the SQL query, metrics support additional metadata to improve discoverabi
 
 Some metrics only make sense when grouped by specific dimensions. You can specify required dimensions that must be included when querying the metric.
 
-```json
-{
-  "name": "default.market_share",
-  "query": "SELECT SUM(revenue) / SUM(total_market_revenue) FROM default.sales",
-  "required_dimensions": ["default.product.category", "default.date.quarter"]
-}
+```yaml
+name: default.market_share
+query: SELECT SUM(revenue) / SUM(total_market_revenue) FROM default.sales
+required_dimensions: [default.product.category, default.date.quarter]
 ```
 
 When a metric has required dimensions, DJ will enforce that these dimensions are included in any query using this metric.
@@ -465,12 +456,10 @@ Indicate whether higher or lower values are "better" for the metric. This helps 
 | `lower_is_better` | Decreasing values are positive | Churn Rate, Error Rate, Latency |
 | `neutral` | Direction doesn't indicate good/bad | Count of Users, Average Order Size |
 
-```json
-{
-  "name": "default.customer_churn_rate",
-  "query": "SELECT ...",
-  "direction": "lower_is_better"
-}
+```yaml
+name: default.customer_churn_rate
+query: SELECT ...
+direction: lower_is_better
 ```
 
 ### Metric Units
@@ -489,10 +478,8 @@ Specify the unit of measure for the metric to help consumers interpret values co
 | `week` | w | Time duration |
 | `unitless` | | No specific unit |
 
-```json
-{
-  "name": "default.avg_response_time",
-  "query": "SELECT AVG(response_time_ms) / 1000 FROM default.requests",
-  "unit": "second"
-}
+```yaml
+name: default.avg_response_time
+query: SELECT AVG(response_time_ms) / 1000 FROM default.requests
+unit: second
 ```
