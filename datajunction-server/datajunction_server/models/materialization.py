@@ -54,8 +54,124 @@ DRUID_AGG_MAPPING = {
     ("binary", "hll_sketch_agg"): "HLLSketchMerge",
 }
 
-# Aggregation types that need special handling (extra config parameters)
-DRUID_SKETCH_TYPES = {"HLLSketchMerge"}
+# Aggregator types that carry extra config in the Druid metricsSpec, mapped to
+# their default configuration. A sketch aggregator is not fully specified by its
+# kind: an HLL needs a precision, a t-digest a compression, a KLL a `k`. Defaults
+# apply when a metric declares no `reaggregate.params`.
+DRUID_SKETCH_CONFIG: dict[str, dict[str, Any]] = {
+    "HLLSketchMerge": {
+        "lgK": 12,  # Log2 of K, controls precision (4-21)
+        "tgtHllType": "HLL_4",  # HLL_4, HLL_6, or HLL_8
+    },
+}
+
+
+def register_druid_aggregator(
+    column_type: str,
+    merge_func: str,
+    aggregator: str,
+    default_config: dict[str, Any] | None = None,
+) -> None:
+    """
+    Register a Druid ingestion aggregator for a (column type, merge function) pair.
+
+    Args:
+        column_type: Measures-table column type, e.g. "binary"
+        merge_func: Phase-2 merge function name, e.g. "acme_tdigest_agg"
+        aggregator: Druid aggregator type, e.g. "tDigestSketch"
+        default_config: Extra metricsSpec keys and their defaults, e.g.
+            ``{"compression": 200}``. Marks the aggregator as parameterized.
+
+    Raises:
+        DJInvalidInputException: If the pair is registered to a different aggregator,
+            or the aggregator has different defaults. Re-registering identical defaults
+            is a no-op.
+    """
+    key = (column_type, merge_func.lower())
+    existing = DRUID_AGG_MAPPING.get(key)
+    if existing is not None and existing != aggregator:
+        raise DJInvalidInputException(
+            message=(
+                f"Druid aggregator for {key} is already registered as "
+                f"`{existing}`; refusing to replace it with `{aggregator}`."
+            ),
+        )
+    new_config = dict(default_config) if default_config else None
+    existing_config = DRUID_SKETCH_CONFIG.get(aggregator)
+    if (
+        existing_config is not None
+        and new_config is not None
+        and existing_config != new_config
+    ):
+        raise DJInvalidInputException(
+            message=(
+                f"Druid aggregator `{aggregator}` is already registered with "
+                f"different defaults ({existing_config}); refusing to replace "
+                f"them with {new_config}."
+            ),
+        )
+    DRUID_AGG_MAPPING[key] = aggregator
+    if new_config:
+        DRUID_SKETCH_CONFIG[aggregator] = new_config
+
+
+def get_druid_aggregator_spec(
+    column_name: str,
+    column_type: str | None,
+    aggregation: str | None,
+    merge: str | None,
+    params: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """
+    Build a Druid metricsSpec entry for a measure column, or None if unmappable.
+
+    The `merge` function takes precedence over `aggregation` since ingestion
+    operates on pre-aggregated partials.
+
+    Returns None for unmappable measures, allowing callers to determine fallback behavior.
+
+    Raises:
+        DJInvalidInputException: If `params` contains a key not declared by the aggregator.
+    """
+    agg_func = merge or aggregation
+    if not agg_func or column_type is None:
+        return None
+
+    aggregator = DRUID_AGG_MAPPING.get((column_type, agg_func.lower()))
+    if aggregator is None:
+        return None
+
+    family_config = DRUID_SKETCH_CONFIG.get(aggregator)
+    if params:
+        # Restrict `params` to declared tuning knobs to prevent overwriting
+        # structural keys (like `type` or `fieldName`) and catch typos.
+        allowed = set(family_config or ())
+        unknown = sorted(set(params) - allowed)
+        if unknown:
+            raise DJInvalidInputException(
+                message=(
+                    f"Druid aggregator `{aggregator}` does not accept "
+                    f"{', '.join(f'`{key}`' for key in unknown)}. "
+                    + (
+                        f"Supported: {', '.join(sorted(allowed))}."
+                        if allowed
+                        else "It takes no parameters."
+                    )
+                ),
+            )
+
+    spec: dict[str, Any] = {
+        "fieldName": column_name,
+        "name": column_name,
+        "type": aggregator,
+    }
+    if family_config:
+        # Apply metric-specific params over family defaults.
+        spec.update(family_config)
+        if params:
+            spec.update(params)
+    return spec
+
 
 # How long ingested cube data is kept in Druid. Without an explicit rule a datasource
 # inherits the cluster default, which is unrelated to the span the cube holds, so an
@@ -458,16 +574,18 @@ class DruidMeasuresCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
             for measure in measure_group.measures
             if (measure.type.lower(), measure.agg.lower()) not in DRUID_AGG_MAPPING
         ]
-        return {
-            measure.name: {
-                "fieldName": measure.field_name,
-                "name": measure.field_name,
-                "type": DRUID_AGG_MAPPING[(measure.type.lower(), measure.agg.lower())],
-            }
+        # The V2 `Measure` model lacks a merge phase, so `agg` is used for lookup.
+        specs = {
+            measure.name: get_druid_aggregator_spec(
+                column_name=measure.field_name,
+                column_type=measure.type.lower(),
+                aggregation=measure.agg,
+                merge=None,
+            )
             for measure_group in self.measures.values()  # type: ignore
             for measure in measure_group.measures
-            if (measure.type.lower(), measure.agg.lower()) in DRUID_AGG_MAPPING
         }
+        return {name: spec for name, spec in specs.items() if spec is not None}
 
     def build_druid_spec(self, node_revision: "NodeRevision"):
         """

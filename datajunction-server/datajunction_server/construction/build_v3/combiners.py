@@ -600,6 +600,7 @@ async def build_combiner_sql_from_preaggs(
             measure_identity_token(
                 compute_expression_hash(m.expression),
                 m.aggregation,
+                m.params,
             )
             for m in gg.components
             if m.expression

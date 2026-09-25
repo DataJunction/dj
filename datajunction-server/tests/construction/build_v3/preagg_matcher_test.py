@@ -32,6 +32,7 @@ from datajunction_server.database.partition import Partition
 from datajunction_server.database.preaggregation import (
     PreAggregation,
     compute_expression_hash,
+    measure_identity_token,
 )
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJInvalidInputException
@@ -220,7 +221,7 @@ class TestGetRequiredMeasureIdentities:
         parent_node: Node,
         metric_node: Node,
     ):
-        """Should return an (expression hash, aggregation) pair per component."""
+        """Should return one identity token per component."""
         components = [
             (metric_node, make_component("sum_revenue", "price * quantity")),
             (metric_node, make_component("sum_quantity", "quantity")),
@@ -230,8 +231,8 @@ class TestGetRequiredMeasureIdentities:
         identities = get_required_measure_identities(grain_group)
 
         assert identities == {
-            (compute_expression_hash("price * quantity"), "SUM"),
-            (compute_expression_hash("quantity"), "SUM"),
+            measure_identity_token(compute_expression_hash("price * quantity"), "SUM"),
+            measure_identity_token(compute_expression_hash("quantity"), "SUM"),
         }
 
     @pytest.mark.asyncio
@@ -264,7 +265,9 @@ class TestGetRequiredMeasureIdentities:
 
         identities = get_required_measure_identities(grain_group)
 
-        assert identities == {(compute_expression_hash("price * quantity"), "SUM")}
+        assert identities == {
+            measure_identity_token(compute_expression_hash("price * quantity"), "SUM"),
+        }
 
     @pytest.mark.asyncio
     async def test_same_expression_different_aggregation_are_distinct(
@@ -294,8 +297,8 @@ class TestGetRequiredMeasureIdentities:
         identities = get_required_measure_identities(grain_group)
 
         assert identities == {
-            (compute_expression_hash("unit_price"), "SUM"),
-            (compute_expression_hash("unit_price"), "MAX"),
+            measure_identity_token(compute_expression_hash("unit_price"), "SUM"),
+            measure_identity_token(compute_expression_hash("unit_price"), "MAX"),
         }
 
 
