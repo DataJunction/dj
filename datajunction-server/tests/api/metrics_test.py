@@ -465,6 +465,10 @@ async def test_read_metrics(module__client_with_roads: AsyncClient) -> None:
             "aggregation": "SUM",
             "expression": "if(discount > 0.0, 1, 0)",
             "grain_alias": None,
+            "merge_args": [],
+            "serialize": None,
+            "serialize_targets": [],
+            "serialize_type": None,
             "params": None,
             "name": "discount_sum_30b84e6c",
             "merge": "SUM",
@@ -479,6 +483,10 @@ async def test_read_metrics(module__client_with_roads: AsyncClient) -> None:
             "aggregation": "COUNT",
             "expression": "*",
             "grain_alias": None,
+            "merge_args": [],
+            "serialize": None,
+            "serialize_targets": [],
+            "serialize_type": None,
             "params": None,
             "merge": "SUM",
             "name": "count_c8e42e74",
@@ -528,6 +536,7 @@ async def test_metric_reaggregate_roundtrip_and_validation(
     )
     assert response.status_code in (200, 201), response.json()
     assert response.json()["reaggregate"] == {
+        "fn": None,
         "params": None,
         "rules": [
             {
@@ -540,6 +549,7 @@ async def test_metric_reaggregate_roundtrip_and_validation(
     response = await client_with_roads.get(f"/nodes/{metric_name}/")
     assert response.status_code == 200
     assert response.json()["reaggregate"] == {
+        "fn": None,
         "params": None,
         "rules": [
             {
@@ -552,6 +562,7 @@ async def test_metric_reaggregate_roundtrip_and_validation(
     response = await client_with_roads.get(f"/metrics/{metric_name}/")
     assert response.status_code == 200
     assert response.json()["reaggregate"] == {
+        "fn": None,
         "params": None,
         "rules": [
             {

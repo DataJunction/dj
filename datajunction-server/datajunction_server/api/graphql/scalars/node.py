@@ -433,6 +433,7 @@ class NodeRevision:
         if not spec:
             return None
         return ReaggregateSpec(
+            fn=spec.fn,
             params=spec.params,
             rules=[
                 DimensionReaggregateRule(

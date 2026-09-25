@@ -20,6 +20,10 @@ class ReaggregationFunction(StrEnum):
     FIRST_VALUE = "first_value"
     MIN = "min"
     MAX = "max"
+    # Quantile sketch family. Unlike the functions above it does not describe a
+    # rollup arithmetic; it selects how a quantile metric is accumulated, merged
+    # and read back, which is what makes percentiles pre-aggregatable at all.
+    TDIGEST = "tdigest"
 
 
 DIMENSION_REAGGREGATE_FUNCTIONS = frozenset(
@@ -30,6 +34,23 @@ DIMENSION_REAGGREGATE_FUNCTIONS = frozenset(
         ReaggregationFunction.MAX,
     },
 )
+
+
+PARAMETERIZED_REAGGREGATE_FUNCTIONS: frozenset[ReaggregationFunction] = frozenset(
+    {
+        # compression: centroids retained, trading sketch size for tail accuracy.
+        ReaggregationFunction.TDIGEST,
+    },
+)
+
+
+def is_parameterized_reaggregate_function(
+    function: ReaggregationFunction | None,
+) -> bool:
+    """
+    Return whether a function accepts tuning parameters in `params`.
+    """
+    return function in PARAMETERIZED_REAGGREGATE_FUNCTIONS
 
 
 def is_supported_dimension_reaggregate_function(
@@ -77,6 +98,10 @@ class ReaggregateSpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    # A sketch family selects an alternate decomposition for the metric's
+    # aggregate expression. Ordinary dimension-specific behavior remains in
+    # `rules` below.
+    fn: ReaggregationFunction | None = None
     rules: list[DimensionReaggregateRule] = Field(default_factory=list)
 
     # Tuning parameters for sketch-backed aggregation/merge functions. The

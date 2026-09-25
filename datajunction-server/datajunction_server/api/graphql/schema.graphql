@@ -727,6 +727,7 @@ type Query {
 }
 
 type ReaggregateSpec {
+  fn: ReaggregationFunction
   rules: [DimensionReaggregateRule!]!
   params: JSON
 }
@@ -740,6 +741,7 @@ enum ReaggregationFunction {
   FIRST_VALUE
   MIN
   MAX
+  TDIGEST
 }
 
 type SemanticEntity {

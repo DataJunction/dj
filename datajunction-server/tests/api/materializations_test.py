@@ -1082,7 +1082,11 @@ async def test_spark_sql_full(
     expected_query = load_expected_file("spark_sql.full.partition.query.sql")
     args, _ = module__query_service_client.materialize.call_args_list[-1]  # type: ignore
     assert str(parse(args[0].query)) == str(parse(expected_query))
-    materialization_with_partitions = data["materializations"][1]
+    materialization_with_partitions = next(
+        materialization
+        for materialization in data["materializations"]
+        if materialization["name"] == "spark_sql__full__birth_date__country"
+    )
     del materialization_with_partitions["config"]["query"]
     expected_config = load_expected_file("spark_sql.full.partition.config.json")
     expected_config["node_revision_id"] = mock.ANY
@@ -1093,15 +1097,19 @@ async def test_spark_sql_full(
         "/nodes/default.hard_hat/materializations/",
     )
     materializations = response.json()
-    materializations[0]["config"]["query"] = mock.ANY
-    materializations[0]["node_revision_id"] = mock.ANY
-    assert materializations[0] == load_expected_file(
+    materializations_by_name = {
+        materialization["name"]: materialization for materialization in materializations
+    }
+    unpartitioned = materializations_by_name["spark_sql__full"]
+    unpartitioned["config"]["query"] = mock.ANY
+    unpartitioned["node_revision_id"] = mock.ANY
+    assert unpartitioned == load_expected_file(
         "spark_sql.full.materializations.json",
     )
-    materializations = response.json()
-    materializations[1]["config"]["query"] = mock.ANY
-    materializations[1]["node_revision_id"] = mock.ANY
-    assert materializations[1] == load_expected_file(
+    partitioned = materializations_by_name["spark_sql__full__birth_date__country"]
+    partitioned["config"]["query"] = mock.ANY
+    partitioned["node_revision_id"] = mock.ANY
+    assert partitioned == load_expected_file(
         "spark_sql.full.partition.materializations.json",
     )
 
