@@ -396,7 +396,7 @@ reaggregate:
       fn: last_value
 ```
 
-Queried with a date in the output grain, this behaves like any other metric. Queried over a date range *without* date in the grain, DJ pulls the date into the query's internal grain anyway, aggregates there, then collapses the date axis with the declared function rather than summing it:
+With date in the output grain, a query returns one balance per date, the same as any other metric. Over a date range *without* date in the grain, DJ pulls the date into the query's internal grain anyway, aggregates there, then collapses the date axis with the declared function rather than summing it:
 
 ```sql
 WITH snapshot_0 AS (
@@ -408,7 +408,7 @@ SELECT MAX_BY(balance_sum, dateint) AS account_balance
 FROM snapshot_0
 ```
 
-The result is the latest date's balance, not the sum of every date's. Slicing by another dimension still works as expected — each slice collapses to its own latest value, and the slices sum to the unsliced total.
+The result is the latest date's balance, not the sum of every date's. Slicing by another dimension returns each slice's own latest value, and those sum to the unsliced total.
 
 ### Collapse functions
 
@@ -423,9 +423,9 @@ A rule names the dimension to collapse and the function to collapse it with. Fou
 
 ### Choosing between a rule and a required dimension
 
-Without a rule, the usual way to protect a snapshot is to make its date dimension required, so no query can omit it and produce the wrong sum. That prevents the bad answer but also prevents the good one, and it tells a reader only that the dimension is mandatory rather than why.
+Both keep a snapshot from being summed along a dimension, but they differ in what a query that omits it gets back.
 
-A `reaggregate` rule says what the measure actually is, and lets DJ answer the question correctly instead of refusing it. Prefer a rule where the collapsed value is meaningful, and required dimensions where it genuinely isn't.
+A required dimension rejects the query. A `reaggregate` rule answers it, returning the collapsed value. Use a required dimension where no single value across the dimension is meaningful, and a rule where one is.
 
 {{< alert icon="⚠️" >}}
 A semi-additive metric cannot be queried alongside a plain additive metric from the same parent. The two need different internal grains, so DJ splits them into separate grain groups and rejects the query rather than risk fanning one out before the final aggregation. Query them separately.
