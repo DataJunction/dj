@@ -293,49 +293,66 @@ SELECT (default.current_year_category_share - default.previous_year_category_sha
 AS category_share_yoy_change
 ```
 
-### Share of Total Metrics (Limited Support)
+### Share of Total Metrics
 
-Share of total metrics calculate a proportion where the numerator is grouped by a dimension while the denominator represents the ungrouped total. This pattern requires special handling because DJ computes all metrics at the same grain.
+A share of total divides a value for one slice by the total across every slice. The difficulty is that the two halves want different grains: the numerator follows whatever the query groups by, while the denominator has to ignore it.
+
+`fixed_grain` declares the grain an aggregate is computed at, independently of the grain the query asks for. Setting it to `[]` means the global grain, so the metric is computed once over the whole result and broadcast to every row.
+
+```json
+{
+  "name": "default.total_revenue_all_categories",
+  "query": "SELECT SUM(revenue) FROM default.sales",
+  "fixed_grain": []
+}
+```
+
+Dividing a normal metric by that one gives the share, and the ratio works at any grain the query chooses:
+
+```sql
+-- Each category's share of revenue across all categories
+SELECT default.total_revenue / default.total_revenue_all_categories AS revenue_share
+```
+
+Grouped by category, the numerator splits per category while the denominator stays whole on every row, so the shares sum to 1.
+
+DJ compiles a fixed grain into a second aggregation layered over the first:
+
+```sql
+SELECT
+  category,
+  SUM(SUM(revenue_sum)) OVER () AS total_revenue_all_categories,
+  SUM(revenue_sum) AS total_revenue
+FROM sales_0
+GROUP BY category
+```
+
+#### Fixing the grain to specific dimensions
+
+`fixed_grain` also accepts a list of dimensions, which becomes the `PARTITION BY` set. The metric is then held constant within each combination of those dimensions rather than across the whole result — useful for a share of a subtotal, such as each category's share of revenue *within its region*.
+
+```json
+{
+  "name": "default.total_revenue_by_region",
+  "query": "SELECT SUM(revenue) FROM default.sales",
+  "fixed_grain": ["default.store.region"]
+}
+```
+
+Order and duplicates in the list are irrelevant; it is treated as a set. Omitting `fixed_grain` entirely is different from setting it to `[]`: the first means the query grain, the second means the global grain.
+
+Two rules apply to a non-empty list:
+
+- Every dimension named must also be a requested output dimension of the query, otherwise the query is rejected.
+- The metric cannot be combined with metrics from another fact table in a single query, because the joined result groups over a `COALESCE` of the shared dimensions and a partition naming one side's column is not grouped there. A global grain has no such restriction, since it partitions by nothing.
 
 {{< alert icon="⚠️" >}}
-DJ doesn't automatically compute the numerator and denominator at different grains from the same fact. The workarounds below may be needed.
+A fixed grain **broadcasts an aggregate, it does not deduplicate one**. The inner aggregate still runs at the query's grain, so if the parent repeats an entity across the dimension being sliced — one row per device for an account that used several, say — the inner aggregate counts that entity once per row and the partition faithfully sums the overcount. Use a fixed grain on a parent where the entity you are measuring appears once, or make the measure itself non-duplicating before aggregating it.
 {{< /alert >}}
 
 {{< alert icon="👉" >}}
-Native support for ratio metrics at different grains is planned. Track progress at [GitHub Issue #1695](https://github.com/DataJunction/dj/issues/1695).
+Ratios whose numerator and denominator need genuinely different grains from the *same* fanned fact are still not supported. Track progress at [GitHub Issue #1695](https://github.com/DataJunction/dj/issues/1695).
 {{< /alert >}}
-
-**Option 1: Conditional Aggregation with Fixed Filter**
-
-Create a metric for a specific category's share:
-```sql
--- Electronics share of total revenue (hardcoded category)
-SELECT SUM(CASE WHEN category = 'Electronics' THEN revenue ELSE 0 END) / SUM(revenue)
-FROM default.sales
-```
-
-This approach requires creating a separate metric for each category you want to track.
-
-**Option 2: Application Layer**
-
-Create separate metrics and compute the ratio at the application layer:
-```sql
--- Metric 1: Revenue (will be grouped by category when queried)
-SELECT SUM(revenue) FROM default.sales
-
--- Metric 2: Total revenue (query separately without category dimension)
-SELECT SUM(revenue) FROM default.sales
-```
-
-Then divide in your application code after querying each metric at its appropriate grain.
-
-**Option 2: Pre-computed Totals**
-
-If you have a transform node that pre-computes totals, you can reference it:
-```sql
--- Assuming default.sales_with_totals has both line-level and total columns
-SELECT SUM(revenue) / MAX(total_revenue) FROM default.sales_with_totals
-```
 
 ## Conditional Aggregations
 
@@ -361,6 +378,63 @@ FROM default.orders
 
 {{< alert icon="👉" >}}
 For simple conditional counts, prefer `COUNT_IF` which is more readable: `COUNT_IF(status = 'completed')`
+{{< /alert >}}
+
+## Semi-Additive Metrics
+
+Some measures can be added up along one dimension but not another. A daily balance, a headcount, or a subscriber snapshot can be summed across accounts or regions, but summing it across dates is meaningless: the same balance counted on Monday, Tuesday and Wednesday returns three times the money that exists.
+
+Measures like these are **semi-additive**, and `reaggregate` declares which dimension they cannot be summed along and what to do instead.
+
+```json
+{
+  "name": "default.account_balance",
+  "query": "SELECT SUM(balance) FROM default.daily_account_snapshot",
+  "reaggregate": {
+    "rules": [
+      {"dimension": "default.date.dateint", "fn": "last_value"}
+    ]
+  }
+}
+```
+
+Queried with a date in the output grain, this behaves like any other metric. Queried over a date range *without* date in the grain, DJ pulls the date into the query's internal grain anyway, aggregates there, then collapses the date axis with the declared function rather than summing it:
+
+```sql
+WITH snapshot_0 AS (
+  SELECT dateint, SUM(balance) AS balance_sum
+  FROM default.daily_account_snapshot
+  GROUP BY dateint
+)
+SELECT MAX_BY(balance_sum, dateint) AS account_balance
+FROM snapshot_0
+```
+
+The result is the latest date's balance, not the sum of every date's. Slicing by another dimension still works as expected — each slice collapses to its own latest value, and the slices sum to the unsliced total.
+
+### Collapse functions
+
+A rule names the dimension to collapse and the function to collapse it with. Four functions can collapse a dimension:
+
+| Function | Collapses to |
+|----------|--------------|
+| `last_value` | The value at the dimension's maximum, for end-of-period snapshots |
+| `first_value` | The value at the dimension's minimum, for start-of-period snapshots |
+| `max` | The largest value across the dimension, for peaks |
+| `min` | The smallest value across the dimension, for troughs |
+
+### Choosing between a rule and a required dimension
+
+Without a rule, the usual way to protect a snapshot is to make its date dimension required, so no query can omit it and produce the wrong sum. That prevents the bad answer but also prevents the good one, and it tells a reader only that the dimension is mandatory rather than why.
+
+A `reaggregate` rule says what the measure actually is, and lets DJ answer the question correctly instead of refusing it. Prefer a rule where the collapsed value is meaningful, and required dimensions where it genuinely isn't.
+
+{{< alert icon="⚠️" >}}
+A semi-additive metric cannot be queried alongside a plain additive metric from the same parent. The two need different internal grains, so DJ splits them into separate grain groups and rejects the query rather than risk fanning one out before the final aggregation. Query them separately.
+{{< /alert >}}
+
+{{< alert icon="👉" >}}
+A rule collapses a dimension; it does not build a window. Declaring `last_value` over date makes a snapshot safe to query across a date range, but it will not turn daily flags into a distinct count over a trailing window, which is a union across days rather than a single day's value.
 {{< /alert >}}
 
 ## Metric Metadata

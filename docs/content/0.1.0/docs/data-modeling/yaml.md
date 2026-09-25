@@ -125,7 +125,8 @@ The **node name is derived** from the directory structure and file name. For exa
 | `columns` | No | Optional column-level settings (like `attributes` or `partition`) |
 | `tags` | No | A list of tags for this node |
 | `required_dimensions` | No | A list of required dimensions for this metric |
-| `fixed_grain` | No | Dimensions the aggregate is computed at. Omitted means the query grain; `[]` means the global grain. |
+| `fixed_grain` | No | Dimensions the aggregate is computed at, regardless of the query's grain. Omitted means the query grain; `[]` means the global grain. See [share of total metrics](../metrics/#share-of-total-metrics). |
+| `reaggregate` | No | Rules for dimensions this metric cannot be summed along, for semi-additive measures like snapshots. See [semi-additive metrics](../metrics/#semi-additive-metrics). |
 | `direction` | No | Direction of this metric (one of `higher_is_better`, `lower_is_better`, or `neutral`) |
 | `unit` | No | The unit of this metric |
 
