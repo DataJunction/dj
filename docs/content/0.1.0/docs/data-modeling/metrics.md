@@ -424,7 +424,7 @@ A rule names the dimension to collapse and the function to collapse it with. Fou
 A [required dimension](#required-dimensions) also keeps a snapshot from being summed along a dimension, but rejects a query that omits it rather than answering it. Use one where no single value across the dimension is meaningful, and a rule where one is.
 
 {{< alert icon="⚠️" >}}
-A semi-additive metric cannot be queried alongside a plain additive metric from the same parent. The two need different internal grains, so DJ splits them into separate grain groups and rejects the query rather than risk fanning one out before the final aggregation. Query them separately.
+Leaving the collapsed dimension out of a query's grain puts the semi-additive metric in a grain group of its own, and a plain additive metric requested alongside it is then rejected, because the final join could duplicate that metric's rows before they are aggregated. Adding the collapsed dimension to the output grain puts both in one grain group, where they combine without restriction.
 {{< /alert >}}
 
 {{< alert icon="👉" >}}
