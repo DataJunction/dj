@@ -2114,7 +2114,7 @@ class DeploymentOrchestrator:
                 for spec in non_cube_specs
             }
         else:
-            node_graph = extract_node_graph(non_cube_specs)
+            node_graph = await asyncio.to_thread(extract_node_graph, non_cube_specs)
 
         incoming_names = {s.rendered_name for s in self.deployment_spec.nodes}
         all_referenced = set(node_graph.keys()) | {
@@ -2234,7 +2234,8 @@ class DeploymentOrchestrator:
         external_deps: set[str] = set()
         if to_deploy or to_delete:
             with self._timer.phase("  plan: extract node graph") as p:
-                node_graph = self._extract_plan_node_graph(
+                node_graph = await asyncio.to_thread(
+                    self._extract_plan_node_graph,
                     [node for node in to_deploy if not isinstance(node, CubeSpec)],
                 )
                 p.append(f"{len(node_graph)} nodes in graph")
@@ -2355,7 +2356,8 @@ class DeploymentOrchestrator:
                             existing_node.name,
                         )
 
-                node_graph = self._extract_plan_node_graph(
+                node_graph = await asyncio.to_thread(
+                    self._extract_plan_node_graph,
                     [node for node in to_deploy if not isinstance(node, CubeSpec)],
                 )
 
