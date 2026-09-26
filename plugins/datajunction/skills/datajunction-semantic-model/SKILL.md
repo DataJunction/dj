@@ -287,6 +287,60 @@ SELECT
 
 Same shape for MoM (`month_code`), QoQ (`quarter_code`), YoY (`year`).
 
+### Semi-additive metrics (`reaggregate`)
+
+Some measures add up along one dimension but not another. A daily balance sums
+across accounts, but summing it across dates returns three times the money that
+exists. `reaggregate` declares which dimension the measure cannot be summed along
+and what to do instead:
+
+```yaml
+reaggregate:
+  rules:
+    - dimension: common.dimensions.date.dateint
+      fn: last_value
+```
+
+A rule **picks one value along** the collapsed dimension — it does not combine
+values across it. Four functions can do that: `last_value` and `first_value` for
+end- and start-of-period snapshots, `max` and `min` for peaks and troughs. The
+other accepted values (`auto`, `none`, `sum`, `avg`) are refused for a dimension
+rule. Anything needing the whole range — a rolling total, an average over the
+period — is a separate metric, not a collapse function.
+
+Choosing between this and `required_dimensions`: both stop a snapshot being
+summed along a dimension, but a required dimension refuses a query that omits it
+while a rule answers one. Use a rule when a single value along the dimension is
+meaningful, a required dimension when none is.
+
+Full treatment, including the emitted SQL:
+[Metrics — semi-additive](https://datajunction.io/docs/0.1.0/data-modeling/metrics/).
+
+### Fixed grain metrics (`fixed_grain`)
+
+A metric whose aggregate is computed at a grain of its own, rather than at whatever
+grain the query asks for:
+
+```yaml
+fixed_grain: [common.dimensions.account.account_id]   # per account, always
+fixed_grain: []                                       # one global value
+```
+
+Omit the field for the ordinary behaviour, where the aggregate follows the query
+grain. Use `[]` when the metric is a single number the query grain must not split —
+a denominator that stays constant as you slice the numerator.
+
+Three constraints, each of which refuses the query rather than guessing:
+
+- The metric needs one non-distinct, fully aggregatable component, since
+  broadcasting re-applies the merge. A `COUNT(DISTINCT …)` cannot carry a fixed
+  grain.
+- Every dimension in the fixed grain has to be in the query grain. Broadcasting
+  can only widen a scalar across a grain that contains it, and a filter pinning
+  the dimension to one value does not substitute.
+- A ratio spanning two facts is refused when either side declares a non-empty
+  fixed grain, because the two sides land in separate grain groups.
+
 ### Metric metadata quick reference
 
 | Field | Required | Valid Values | Notes |
@@ -298,6 +352,7 @@ Same shape for MoM (`month_code`), QoQ (`quarter_code`), YoY (`year`).
 | `unit` | ❌ Optional | `dollar` / `unitless` / **⚠️ NOT `count`** | Server rejects `count` — use `unitless` |
 | `mode` | ❌ Optional | `draft` / `published` | Default: `published` |
 | `fixed_grain` | ❌ Optional | List of dimension names | Grain the aggregate is computed at; omit for query grain, `[]` for global |
+| `reaggregate` | ❌ Optional | `rules: [{dimension, fn}]` | How a semi-additive metric collapses; `fn` is `last_value` / `first_value` / `min` / `max` |
 | `required_dimensions` | ❌ Optional | List of dimension names | For time-based / windowed metrics |
 | `owners` | ❌ Optional but strongly recommended | List of email addresses | Prefer team emails |
 
@@ -308,6 +363,8 @@ Same shape for MoM (`month_code`), QoQ (`quarter_code`), YoY (`year`).
 - **Window functions** enable rolling windows and period-over-period comparisons
 - **required_dimensions** should include the dimension used in window ORDER BY clauses
 - **Derived metrics** can reference other metrics for ratios and calculations
+- **Semi-additive metrics** declare `reaggregate` rules for the dimension they cannot be summed over
+- **fixed_grain** pins the aggregate's own grain; `[]` makes it a single global value
 - **Always specify owners** — use team emails for sustainability
 
 ---
