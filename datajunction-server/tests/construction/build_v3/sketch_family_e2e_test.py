@@ -43,7 +43,11 @@ from datajunction_server.sql.decompose import (
     decomposes_family,
     make_func,
 )
-from datajunction_server.sql.functions import Function, function_registry
+from datajunction_server.sql.functions import (
+    ApproxPercentile,
+    Function,
+    function_registry,
+)
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing import types as ct
 
@@ -139,7 +143,10 @@ def digest_family():
             saved[key] = function_registry.get(key)
             function_registry[key] = cls
 
-    @decomposes_family(ReaggregationFunction.TDIGEST)
+    @decomposes_family(
+        ReaggregationFunction.TDIGEST,
+        aggregate_functions=(ApproxPercentile,),
+    )
     class _DigestDecomposition(AggDecomposition):
         @property
         def compression(self) -> int:

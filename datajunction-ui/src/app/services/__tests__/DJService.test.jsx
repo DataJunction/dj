@@ -1427,6 +1427,7 @@ describe('DataJunctionAPI', () => {
     expect(requestBody.query).toContain('dimension');
     expect(requestBody.query).toContain('rules');
     expect(requestBody.query).toContain('fn');
+    expect(requestBody.query).not.toContain('weight');
   });
 
   it('calls notebookExportCube correctly', async () => {
@@ -2051,6 +2052,8 @@ describe('DataJunctionAPI', () => {
     expect(requestBody.query).toContain('dimension');
     expect(requestBody.query).toContain('rules');
     expect(requestBody.query).toContain('fn');
+    expect(requestBody.query).toContain('params');
+    expect(requestBody.query).not.toContain('weight');
   });
 
   it('returns null when getNodeForEditing finds no nodes', async () => {

@@ -449,14 +449,46 @@ describe('AddEditNodePage submission succeeded', () => {
         [],
         ['dj'],
         { key1: 'value1', key2: 'value2' },
-        {
-          rules: [
-            {
-              dimension: 'v3.date.date_id[order]',
-              fn: 'last_value',
-            },
-          ],
+      );
+    });
+  }, 1000000);
+
+  it('preserves a sketch family when editing an unrelated metric field', async () => {
+    const mockDjClient = initializeMockDJClient();
+    mockDjClient.DataJunctionAPI.getNodeForEditing.mockReturnValue({
+      ...mocks.mockGetMetricNode,
+      current: {
+        ...mocks.mockGetMetricNode.current,
+        reaggregate: {
+          fn: 'TDIGEST',
+          params: { compression: 200 },
+          rules: [],
         },
+      },
+    });
+    mockDjClient.DataJunctionAPI.patchNode = vi.fn().mockReturnValue({
+      status: 201,
+      json: { name: 'default.num_repair_orders', type: 'metric' },
+    });
+    mockDjClient.DataJunctionAPI.tagsNode.mockReturnValue({
+      status: 200,
+      json: { message: 'Success' },
+    });
+    mockDjClient.DataJunctionAPI.listTags.mockReturnValue([]);
+    mockDjClient.DataJunctionAPI.whoami.mockReturnValue({
+      id: 123,
+      username: 'test_user',
+    });
+
+    renderEditNode(testElement(mockDjClient));
+    await screen.findByLabelText('Description');
+    await userEvent.type(screen.getByLabelText('Description'), '!!!');
+    await userEvent.click(screen.getByText('Save'));
+
+    await waitFor(() => {
+      expect(mockDjClient.DataJunctionAPI.patchNode).toHaveBeenCalledTimes(1);
+      expect(mockDjClient.DataJunctionAPI.patchNode.mock.calls[0]).toHaveLength(
+        12,
       );
     });
   }, 1000000);

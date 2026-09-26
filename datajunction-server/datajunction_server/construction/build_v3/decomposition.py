@@ -270,16 +270,16 @@ def build_component_expression(
         )
 
     # All accumulate shapes must receive the target conversion.
-    return _apply_serialize(accumulated, component, materialization_target)
+    return apply_component_serialize(accumulated, component, materialization_target)
 
 
-def _apply_serialize(
+def apply_component_serialize(
     expr: ast.Expression,
     component: MetricComponent,
     materialization_target: MaterializationTarget | None,
 ) -> ast.Expression:
     """
-    Wrap an accumulated expression in the component's serialize conversion.
+    Wrap an accumulated or merged expression in the component's conversion.
 
     Returns the expression untouched unless the component declares a conversion
     and names this target -- so every existing component, and every query-time

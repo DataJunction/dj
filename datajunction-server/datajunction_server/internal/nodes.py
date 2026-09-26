@@ -2835,11 +2835,9 @@ async def create_new_revision_from_existing(
     reaggregate_was_set = bool(
         data and "reaggregate" in data.model_fields_set,
     )
-    reaggregate_changes = (
-        reaggregate_was_set
-        and old_revision.reaggregate
-        != dump_reaggregate_spec(data.reaggregate if data else None)
-    )
+    reaggregate_changes = reaggregate_was_set and dump_reaggregate_spec(
+        old_revision.reaggregate
+    ) != dump_reaggregate_spec(data.reaggregate if data else None)
     major_changes = (
         query_changes
         or column_changes

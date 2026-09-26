@@ -2,9 +2,13 @@
 Regression tests for sketch measures reaching Druid ingestion.
 """
 
+import pytest
+
 from datajunction_server.api.cubes import _build_metrics_spec
+from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.cube_materialization import CombineMaterialization
 from datajunction_server.models.decompose import AggregationRule, MetricComponent
+from datajunction_server.models.materialization import MaterializationTarget
 from datajunction_server.models.node_type import NodeNameVersion
 from datajunction_server.models.partition import Granularity
 from datajunction_server.models.query import ColumnMetadata
@@ -194,3 +198,17 @@ class TestMetricsSpecBuildersAgree:
 
         assert v3_spec == []
         assert cubes_api_spec[0]["type"] == "longSum"
+
+    def test_unregistered_serialized_sketch_fails_in_both_builders(self):
+        """A sketch cannot be silently omitted or ingested as a numeric sum."""
+        measure = _measure("p95_latency", "custom_tdigest_agg", "custom_tdigest_agg")
+        measure.params = {"compression": 200}
+        measure.serialize = "custom_tdigest_sketch({})"
+        measure.serialize_targets = [MaterializationTarget.DRUID]
+        measure.serialize_type = "binary"
+        column = ColumnMetadata(name="p95_latency", type="binary")
+
+        with pytest.raises(DJInvalidInputException, match="No Druid aggregator"):
+            _combiner([measure], [column]).metrics_spec()
+        with pytest.raises(DJInvalidInputException, match="No Druid aggregator"):
+            _build_metrics_spec([column], [measure], {})

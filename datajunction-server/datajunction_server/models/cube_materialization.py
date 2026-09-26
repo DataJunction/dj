@@ -19,6 +19,7 @@ from datajunction_server.models.materialization import (
     CoverageSpec,
     MaterializationJobTypeEnum,
     MaterializationStrategy,
+    MaterializationTarget,
     SparkSpec,
     get_druid_aggregator_spec,
 )
@@ -385,19 +386,31 @@ class CombineMaterialization(BaseModel):
         Returns the Druid metrics spec for ingestion
         """
         column_mapping = {col.name: col.type for col in self.columns}  # type: ignore
-        specs = (
-            get_druid_aggregator_spec(
+        specs = []
+        for measure in self.measures:
+            spec = get_druid_aggregator_spec(
                 column_name=measure.name,
                 column_type=column_mapping.get(measure.name),
                 aggregation=measure.aggregation,
                 merge=measure.merge,
                 params=measure.params,
             )
-            for measure in self.measures
-        )
+            if spec is None and (
+                measure.params or measure.serializes_for(MaterializationTarget.DRUID)
+            ):
+                raise DJInvalidInputException(
+                    message=(
+                        f"No Druid aggregator is registered for sketch measure "
+                        f"`{measure.name}` with column type "
+                        f"`{column_mapping.get(measure.name)}` and merge function "
+                        f"`{measure.merge or measure.aggregation}`."
+                    ),
+                )
+            if spec is not None:
+                specs.append(spec)
         # Unmappable measures are omitted, as they always have been here -- the
         # cube API substitutes longSum instead. See get_druid_aggregator_spec.
-        return [spec for spec in specs if spec is not None]
+        return specs
 
     @computed_field  # type: ignore[misc]
     @property

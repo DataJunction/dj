@@ -588,6 +588,28 @@ class TestRegisterDruidAggregator:
         finally:
             DRUID_AGG_MAPPING.pop(("bigint", "test_plain_merge"), None)
 
+    @pytest.mark.parametrize("bad_value", ["broken", True, float("nan"), 10**1000])
+    def test_rejects_invalid_compression(self, bad_value):
+        """Invalid tuning values fail before a Druid ingestion job is submitted."""
+        try:
+            register_druid_aggregator(
+                column_type="binary",
+                merge_func="test_checked_tdigest_agg",
+                aggregator="testCheckedTDigestSketch",
+                default_config={"compression": 200},
+            )
+            with pytest.raises(DJInvalidInputException, match="compression"):
+                get_druid_aggregator_spec(
+                    column_name="latency_tdigest",
+                    column_type="binary",
+                    aggregation="test_checked_tdigest_agg",
+                    merge="test_checked_tdigest_agg",
+                    params={"compression": bad_value},
+                )
+        finally:
+            DRUID_AGG_MAPPING.pop(("binary", "test_checked_tdigest_agg"), None)
+            DRUID_SKETCH_CONFIG.pop("testCheckedTDigestSketch", None)
+
     def test_conflicting_defaults_are_rejected(self):
         """
         Re-registering an aggregator with different defaults raises an error.

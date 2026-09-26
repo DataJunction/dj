@@ -522,7 +522,7 @@ export const DataJunctionAPI = {
             }
             reaggregate {
               fn
-              weight
+              params
               rules {
                 dimension
                 fn
@@ -618,7 +618,6 @@ export const DataJunctionAPI = {
             }
             reaggregate {
               fn
-              weight
               rules {
                 dimension
                 fn

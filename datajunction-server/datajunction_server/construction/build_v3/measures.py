@@ -27,6 +27,7 @@ from datajunction_server.construction.build_v3.cte import (
 )
 from datajunction_server.construction.build_v3.decomposition import (
     analyze_grain_groups,
+    apply_component_serialize,
     build_component_expression,
     build_merge_call,
     merge_grain_groups,
@@ -83,6 +84,7 @@ from datajunction_server.sql.functions import function_registry
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing import types as ct
 from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.utils import SEPARATOR
 
 _logger = logging.getLogger(__name__)
@@ -184,19 +186,21 @@ def _multi_argument_accumulate_types(
 
     arg_types: list[ct.ColumnType] = []
     for arg in call.args:
-        resolved: ct.ColumnType | None
-        if isinstance(arg, ast.Column):
-            # Only the columns need the parent to resolve; literals and casts
-            # carry their own type without being bound to a table.
-            resolved = _parse_type_string(
-                get_column_type(parent_node, str(arg.alias_or_name.name)),
-            )
-        else:
-            inferred = arg.type
-            if isinstance(inferred, list):
-                return None
-            resolved = inferred
-        if resolved is None:
+        # A parsed arithmetic or nested-function argument still has unbound
+        # columns. Resolve them before asking the whole expression for its type.
+        if isinstance(arg, ast.Expression):
+            for column in arg.find_all(ast.Column):
+                column_type = _parse_type_string(
+                    get_column_type(parent_node, column.name.name),
+                )
+                if column_type is None:
+                    return None
+                column.add_type(column_type)
+        try:
+            resolved = arg.type
+        except (DJParseException, TypeError, AttributeError):
+            return None
+        if resolved is None or isinstance(resolved, list):
             return None
         arg_types.append(resolved)
     return arg_types
@@ -1908,10 +1912,15 @@ def build_grain_group_from_preagg(
         # If no merge function, output column directly (e.g., grain column for LIMITED)
         # Otherwise, apply the merge function for re-aggregation
         if component.merge:
-            agg_expr = build_merge_call(
+            agg_expr: ast.Expression = build_merge_call(
                 component.merge,
                 component.merge_args,
                 _preagg_column(scan_name, scan_alias),
+            )
+            agg_expr = apply_component_serialize(
+                agg_expr,
+                component,
+                ctx.materialization_target,
             )
             aliased = ast.Alias(child=agg_expr, alias=ast.Name(output_alias))
             select_items.append(aliased)
@@ -1923,6 +1932,11 @@ def build_grain_group_from_preagg(
 
         # Get type from pre-agg columns
         col_type = preagg.get_column_type(measure_col, default="double")
+        if (
+            component.serializes_for(ctx.materialization_target)
+            and component.serialize_type
+        ):
+            col_type = component.serialize_type
         columns.append(
             ColumnMetadata(
                 name=output_alias,
