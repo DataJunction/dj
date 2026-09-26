@@ -180,25 +180,44 @@ class AggDecomposition(ABC):
 DECOMPOSITION_REGISTRY: dict[type, type[AggDecomposition] | None] = {}
 
 
-# Decompositions selected by the metric's declared reaggregation family rather
-# than by its aggregation function. A family entry wins over the by-function
-# registry, which is what lets `APPROX_PERCENTILE(x, 0.95)` keep its spelling and
-# still decompose, but only for metrics that opted in with `reaggregate.fn`.
-FAMILY_DECOMPOSITION_REGISTRY: dict[ReaggregationFunction, type[AggDecomposition]] = {}
+# A declared family overrides the by-function registry only for the aggregate
+# functions named at registration. This lets an opted-in APPROX_PERCENTILE
+# decompose without changing unrelated aggregates in the same metric.
+@dataclass(frozen=True)
+class FamilyDecompositionRegistration:
+    """A family implementation and the aggregate functions it can replace."""
+
+    decomposition: type[AggDecomposition]
+    aggregate_functions: frozenset[type]
 
 
-def decomposes_family(fn: ReaggregationFunction):
+FAMILY_DECOMPOSITION_REGISTRY: dict[
+    ReaggregationFunction,
+    FamilyDecompositionRegistration,
+] = {}
+
+
+def decomposes_family(
+    fn: ReaggregationFunction,
+    *,
+    aggregate_functions: tuple[type, ...],
+):
     """
     Register a decomposition for a reaggregation family.
 
-    Exported for downstream deployments, which supply the engine-specific
-    functions a family needs. OSS registers none, so a metric declaring an
-    unregistered family falls through to the by-function registry and keeps the
-    aggregability it has today.
+    Downstream deployments supply the engine-specific functions and explicitly
+    name the aggregate calls this family can replace. Other aggregates in the
+    same metric retain their ordinary decomposition.
     """
 
+    if not aggregate_functions:
+        raise ValueError("A decomposition family must name aggregate functions")
+
     def decorator(decomp_class: type[AggDecomposition]):
-        FAMILY_DECOMPOSITION_REGISTRY[fn] = decomp_class
+        FAMILY_DECOMPOSITION_REGISTRY[fn] = FamilyDecompositionRegistration(
+            decomposition=decomp_class,
+            aggregate_functions=frozenset(aggregate_functions),
+        )
         return decomp_class
 
     return decorator
@@ -806,19 +825,17 @@ def get_decomposition(
     """
     Get the decomposition for an aggregation, or None if not decomposable.
 
-    A metric that declares a reaggregation family gets that family's
-    decomposition, which is how an opt-in sketch overrides the default handling
-    of its aggregation function. Everything else resolves by function class as
-    before.
+    A declared family overrides the default decomposition only for aggregate
+    functions it registered. Everything else resolves by function class.
 
     A declared family with nothing registered for it falls through rather than
     raising: OSS ships no family implementations, so the metric simply keeps the
     aggregability it would have had.
     """
     if reaggregate is not None and reaggregate.fn is not None:
-        family_class = FAMILY_DECOMPOSITION_REGISTRY.get(reaggregate.fn)
-        if family_class is not None:
-            return family_class(params=reaggregate.params)
+        family = FAMILY_DECOMPOSITION_REGISTRY.get(reaggregate.fn)
+        if family is not None and func_class in family.aggregate_functions:
+            return family.decomposition(params=reaggregate.params)
 
     decomp_class = DECOMPOSITION_REGISTRY.get(func_class)
     if decomp_class is None:
@@ -1596,6 +1613,25 @@ class MetricComponentExtractor:
                 if dj_function and dj_function.is_aggregation:
                     agg_funcs.append((func, dj_function))
 
+            family = (
+                FAMILY_DECOMPOSITION_REGISTRY.get(reaggregate.fn)
+                if reaggregate is not None and reaggregate.fn is not None
+                else None
+            )
+            if (
+                family
+                and reaggregate is not None
+                and reaggregate.fn is not None
+                and not any(
+                    dj_function in family.aggregate_functions
+                    for _, dj_function in agg_funcs
+                )
+            ):
+                self._raise_unsupported_reaggregate_shape(
+                    f"family `{reaggregate.fn.value}` does not support any "
+                    "aggregation in this metric",
+                )
+
             # If any aggregation is non-decomposable, abort decomposition
             # entirely — the metric is non-decomposable as a whole.
             #
@@ -1644,7 +1680,11 @@ class MetricComponentExtractor:
         if reaggregate is not None and dimension_reaggregate_rules(reaggregate):
             self._attach_reaggregate_spec(components, reaggregate)
 
-        if reaggregate is not None and reaggregate.params:
+        if (
+            reaggregate is not None
+            and reaggregate.params
+            and reaggregate.fn not in FAMILY_DECOMPOSITION_REGISTRY
+        ):
             self._attach_reaggregate_params(components, reaggregate)
 
         if fixed_grain is not None:
@@ -1713,12 +1753,11 @@ class MetricComponentExtractor:
             for component in components
             if component.aggregation is not None and component.merge is not None
         ]
-        if not configurable:
+        if len(configurable) != 1 or len(components) != 1:
             self._raise_unsupported_reaggregate_shape(
-                "parameterized reaggregation requires an aggregating component",
+                "parameterized reaggregation requires exactly one aggregating component",
             )
-        for component in configurable:
-            component.params = dict(reaggregate.params or {})
+        configurable[0].params = dict(reaggregate.params or {})
 
     def _attach_reaggregate_spec(
         self,
@@ -1830,6 +1869,19 @@ class MetricComponentExtractor:
             self._make_component(func, comp_def, query_ast)
             for comp_def in decomposition.components
         ]
+        family = (
+            FAMILY_DECOMPOSITION_REGISTRY.get(reaggregate.fn)
+            if reaggregate is not None and reaggregate.fn is not None
+            else None
+        )
+        if (
+            family
+            and reaggregate is not None
+            and dj_function in family.aggregate_functions
+            and reaggregate.params
+        ):
+            for component in components:
+                component.params = dict(reaggregate.params)
 
         # Build combiner AST
         is_distinct = func.quantifier == ast.SetQuantifier.Distinct

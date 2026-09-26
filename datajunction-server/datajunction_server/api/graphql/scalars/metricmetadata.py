@@ -16,6 +16,9 @@ from datajunction_server.models.cube_materialization import (
     MetricComponent as MetricComponent_,
 )
 from datajunction_server.models.node import MetricDirection as MetricDirection_
+from datajunction_server.models.materialization import (
+    MaterializationTarget as MaterializationTarget_,
+)
 from datajunction_server.models.reaggregate import (
     DimensionReaggregateRule as DimensionReaggregateRule_,
     ReaggregateSpec as ReaggregateSpec_,
@@ -25,6 +28,7 @@ from datajunction_server.models.reaggregate import (
 MetricDirection = strawberry.enum(MetricDirection_)
 Aggregability = strawberry.enum(Aggregability_)
 ReaggregationFunction = strawberry.enum(ReaggregationFunction_)
+MaterializationTarget = strawberry.enum(MaterializationTarget_)
 
 
 @strawberry.type
@@ -77,9 +81,13 @@ class MetricComponent:
     expression: strawberry.auto
     aggregation: strawberry.auto
     merge: strawberry.auto
+    merge_args: strawberry.auto
     rule: strawberry.auto
     grain_alias: strawberry.auto
     params: JSON | None = None
+    serialize: strawberry.auto
+    serialize_targets: strawberry.auto
+    serialize_type: strawberry.auto
 
 
 @strawberry.experimental.pydantic.type(model=DecomposedMetric_, all_fields=True)

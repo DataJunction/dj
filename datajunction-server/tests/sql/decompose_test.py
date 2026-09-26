@@ -2842,10 +2842,7 @@ class TestReaggregateParams:
     @staticmethod
     def _spec(params):
         """A spec carrying params."""
-        return ReaggregateSpec.model_construct(
-            rules=[],
-            params=params,
-        )
+        return ReaggregateSpec(params=params)
 
     def test_params_reach_components(self):
         extractor = MetricComponentExtractor(1)
@@ -2857,29 +2854,28 @@ class TestReaggregateParams:
             {"compression": 200},
         ]
 
-    def test_params_reach_every_component_of_a_multi_component_metric(self):
-        """AVG decomposes to a sum and a count; both are the same sketch family."""
+    def test_params_without_a_family_reject_multi_component_metric(self):
+        """A generic parameter cannot be broadcast to AVG's SUM and COUNT."""
         extractor = MetricComponentExtractor(1)
-        components, _ = extractor._extract_base(
-            parse("SELECT AVG(latency_ms) FROM t"),
-            self._spec({"compression": 200}),
-        )
-        assert len(components) == 2
-        assert all(c.params == {"compression": 200} for c in components)
+        with pytest.raises(DJInvalidInputException, match="exactly one"):
+            extractor._extract_base(
+                parse("SELECT AVG(latency_ms) FROM t"),
+                self._spec({"compression": 200}),
+            )
 
     def test_params_are_copied_not_shared(self):
         """
-        Each component receives an independent copy of its params dict.
+        The component keeps a copy of the declaration's params dict.
         """
         extractor = MetricComponentExtractor(1)
         params = {"compression": 200}
         components, _ = extractor._extract_base(
-            parse("SELECT AVG(latency_ms) FROM t"),
+            parse("SELECT SUM(latency_ms) FROM t"),
             self._spec(params),
         )
         params["compression"] = 999
         assert all(c.params == {"compression": 200} for c in components)
-        assert components[0].params is not components[1].params
+        assert components[0].params is not params
 
     def test_no_params_leaves_components_untouched(self):
         """Omitting params applies no configuration to components."""
@@ -2900,7 +2896,7 @@ class TestReaggregateParams:
                 parse("SELECT COUNT(DISTINCT order_id) FROM t"),
                 self._spec({"compression": 200}),
             )
-        assert "requires an aggregating component" in str(excinfo.value)
+        assert "requires exactly one aggregating component" in str(excinfo.value)
 
 
 # =============================================================================
@@ -3137,7 +3133,10 @@ def registered_family():
     selection path at all.
     """
 
-    @decomposes_family(ReaggregationFunction.TDIGEST)
+    @decomposes_family(
+        ReaggregationFunction.TDIGEST,
+        aggregate_functions=(dj_functions.ApproxPercentile,),
+    )
     class _FamilyDecomposition(AggDecomposition):
         @property
         def components(self) -> list[ComponentDef]:
@@ -3170,6 +3169,47 @@ def test_declared_family_overrides_the_function_registry(registered_family):
     decomposition = get_decomposition(dj_functions.ApproxPercentile, spec)
 
     assert isinstance(decomposition, registered_family)
+
+
+def test_declared_family_keeps_unrelated_aggregates(registered_family):
+    """A percentile family cannot replace a SUM in the same metric."""
+    spec = ReaggregateSpec(fn=ReaggregationFunction.TDIGEST)
+
+    assert not isinstance(get_decomposition(dj_functions.Sum, spec), registered_family)
+
+
+def test_family_registration_requires_aggregate_functions():
+    """An unrestricted family registration would affect every aggregate."""
+    with pytest.raises(ValueError, match="must name aggregate functions"):
+        decomposes_family(ReaggregationFunction.TDIGEST, aggregate_functions=())
+
+
+def test_mixed_family_metric_attaches_params_only_to_family_component(
+    registered_family,
+):
+    """SUM remains ordinary while the opted-in percentile carries tuning."""
+    spec = ReaggregateSpec(
+        fn=ReaggregationFunction.TDIGEST,
+        params={"compression": 200},
+    )
+    components, _ = MetricComponentExtractor(0)._extract_base(
+        parse("SELECT APPROX_PERCENTILE(price, 0.95) + SUM(quantity) FROM t"),
+        spec,
+    )
+
+    by_merge = {component.merge: component for component in components}
+    assert by_merge["merge_sketch"].params == {"compression": 200}
+    assert by_merge["SUM"].params is None
+
+
+def test_family_rejects_metric_without_a_supported_aggregate(registered_family):
+    """A mismatched declaration fails clearly instead of calling the combiner."""
+    spec = ReaggregateSpec(fn=ReaggregationFunction.TDIGEST)
+    with pytest.raises(DJInvalidInputException, match="does not support"):
+        MetricComponentExtractor(0)._extract_base(
+            parse("SELECT SUM(price) FROM t"),
+            spec,
+        )
 
 
 def test_family_receives_its_tuning_params(registered_family):

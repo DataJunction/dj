@@ -288,6 +288,11 @@ type MaterializationPlan {
   units: [MaterializationUnit!]!
 }
 
+enum MaterializationTarget {
+  DRUID
+  ICEBERG
+}
+
 type MaterializationUnit {
   upstream: VersionedRef!
   grainDimensions: [VersionedRef!]!
@@ -304,6 +309,10 @@ type MetricComponent {
   rule: AggregationRule!
   grainAlias: String
   params: JSON
+  mergeArgs: [String!]!
+  serialize: String
+  serializeTargets: [MaterializationTarget!]!
+  serializeType: String
 }
 
 enum MetricDirection {

@@ -611,6 +611,44 @@ async def test_metric_reaggregate_roundtrip_and_validation(
     }
 
 
+@pytest.mark.asyncio
+async def test_legacy_reaggregate_shape_does_not_force_major_revision(
+    client_with_roads: AsyncClient,
+    session: AsyncSession,
+) -> None:
+    """A legacy rules-only JSON spec is equal to the new canonical shape."""
+    metric_name = f"default.legacy_reaggregate_{uuid4().hex}"
+    rules = [
+        {
+            "dimension": "default.repair_orders_fact.repair_order_id",
+            "fn": "last_value",
+        },
+    ]
+    response = await client_with_roads.post(
+        "/nodes/metric/",
+        json={
+            "name": metric_name,
+            "query": "SELECT COUNT(repair_order_id) FROM default.repair_orders_fact",
+            "mode": "published",
+            "reaggregate": {"rules": rules},
+        },
+    )
+    assert response.status_code in (200, 201), response.json()
+
+    node = await Node.get_by_name(session, metric_name)
+    assert node is not None and node.current is not None
+    node.current.reaggregate = {"rules": rules}
+    await session.commit()
+    original_version = node.current_version
+
+    response = await client_with_roads.patch(
+        f"/nodes/{metric_name}/",
+        json={"reaggregate": {"rules": rules}},
+    )
+    assert response.status_code == 200, response.json()
+    assert response.json()["current_version"] == original_version
+
+
 @pytest_asyncio.fixture(scope="module")
 async def module__current_user(module__session: AsyncSession) -> User:
     """

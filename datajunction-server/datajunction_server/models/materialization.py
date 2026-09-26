@@ -1,6 +1,7 @@
 """Models for materialization"""
 
 import enum
+import math
 import re
 from collections.abc import Callable
 from datetime import date, timedelta
@@ -175,6 +176,27 @@ def get_druid_aggregator_spec(
                     )
                 ),
             )
+        for key, value in params.items():
+            default = family_config[key]  # unknown keys were rejected above
+            if isinstance(default, (int, float)) and not isinstance(default, bool):
+                valid_type = isinstance(value, (int, float)) and not isinstance(
+                    value, bool
+                )
+                if valid_type:
+                    try:
+                        valid_type = math.isfinite(value)
+                    except OverflowError:
+                        # Huge JSON integers cannot be represented as a Druid number.
+                        valid_type = False
+            else:
+                valid_type = isinstance(value, type(default))
+            if not valid_type:
+                raise DJInvalidInputException(
+                    message=(
+                        f"Druid aggregator `{aggregator}` parameter `{key}` must "
+                        f"have the same kind of value as its default `{default}`."
+                    ),
+                )
 
     spec: dict[str, Any] = {
         "fieldName": column_name,

@@ -24,6 +24,7 @@ from datajunction_server.construction.build_v3.cte import (
     process_metric_combiner_expression,
 )
 from datajunction_server.construction.build_v3.decomposition import (
+    apply_component_serialize,
     build_merge_call,
 )
 from datajunction_server.construction.build_v3.preagg_matcher import (
@@ -43,7 +44,10 @@ from datajunction_server.errors import DJWarning
 from datajunction_server.models.column import SemanticType
 from datajunction_server.models.decompose import MetricComponent
 from datajunction_server.models.dialect import Dialect
-from datajunction_server.models.materialization import MaterializationStrategy
+from datajunction_server.models.materialization import (
+    MaterializationStrategy,
+    MaterializationTarget,
+)
 from datajunction_server.models.query import V3ColumnMetadata
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import render_for_dialect, to_sql
@@ -526,6 +530,7 @@ async def build_combiner_sql_from_preaggs(
     dimensions: list[str],
     filters: list[str] | None = None,
     dialect=None,
+    materialization_target: MaterializationTarget | None = None,
 ) -> tuple[
     CombinedGrainGroupResult,
     list[PreAggSourceInfo],
@@ -664,6 +669,7 @@ async def build_combiner_sql_from_preaggs(
         preagg_gg = _build_grain_group_from_preagg_table(
             gg,
             full_table_ref,
+            materialization_target,
         )
         preagg_grain_groups.append(preagg_gg)
 
@@ -830,6 +836,7 @@ def _reorder_partition_column_last(
 def _build_grain_group_from_preagg_table(
     original_gg: GrainGroupSQL,
     preagg_table_ref: str,
+    materialization_target: MaterializationTarget | None = None,
 ) -> GrainGroupSQL:
     """
     Build a GrainGroupSQL that reads from a pre-agg table.
@@ -851,6 +858,7 @@ def _build_grain_group_from_preagg_table(
     # Build SELECT columns
     select_items: list[ast.Aliasable | ast.Expression | ast.Column] = []
     group_by_cols: list[str] = []
+    serialized_types: dict[str, str] = {}
 
     # Add dimension columns
     for grain_col in original_gg.grain:
@@ -866,6 +874,7 @@ def _build_grain_group_from_preagg_table(
             # Find the component to get the merge function
             merge_func = None
             merge_args: list[str] = []
+            component: MetricComponent | None = None
             for comp in original_gg.components:
                 if (  # pragma: no branch
                     comp.name == col.name
@@ -873,11 +882,27 @@ def _build_grain_group_from_preagg_table(
                 ):
                     merge_func = comp.merge
                     merge_args = comp.merge_args
+                    component = comp
                     break
 
             if merge_func:
                 # Apply re-aggregation
-                agg_expr = build_merge_call(merge_func, merge_args, col_ref)
+                agg_expr: ast.Expression = build_merge_call(
+                    merge_func,
+                    merge_args,
+                    col_ref,
+                )
+                if component is not None:
+                    agg_expr = apply_component_serialize(
+                        agg_expr,
+                        component,
+                        materialization_target,
+                    )
+                    if (
+                        component.serializes_for(materialization_target)
+                        and component.serialize_type
+                    ):
+                        serialized_types[col.name] = component.serialize_type
                 aliased = ast.Alias(child=agg_expr, alias=ast.Name(col.name))
                 select_items.append(aliased)
             else:
@@ -907,7 +932,7 @@ def _build_grain_group_from_preagg_table(
         ColumnMetadata(
             name=col.name,
             semantic_name=col.semantic_name,
-            type=col.type,
+            type=serialized_types.get(col.name, col.type),
             semantic_type=col.semantic_type,
         )
         for col in original_gg.columns

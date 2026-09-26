@@ -66,6 +66,13 @@ class TestMultiArgumentTypes:
         )
         assert [str(t) for t in types] == ["double", "double"]
 
+    def test_resolves_columns_inside_an_expression(self):
+        types = _multi_argument_accumulate_types(
+            "POWER(latency_ms * 2, CAST(200.0 AS DOUBLE))",
+            _parent(),
+        )
+        assert [str(t) for t in types] == ["double", "double"]
+
     def test_declines_without_a_parent_to_resolve_columns_against(self):
         assert _multi_argument_accumulate_types("POWER(latency_ms, 2)", None) is None
 
@@ -107,6 +114,15 @@ class TestMultiArgumentTypes:
 
         assert _multi_argument_accumulate_types("ignored", _parent()) is None
 
+    def test_declines_when_a_nested_column_cannot_be_typed(self):
+        assert (
+            _multi_argument_accumulate_types(
+                "POWER(latency_ms * 2, CAST(200.0 AS DOUBLE))",
+                _parent("some_unknown_type"),
+            )
+            is None
+        )
+
 
 class TestInferredColumnType:
     """What the measures column ends up recorded as."""
@@ -117,6 +133,16 @@ class TestInferredColumnType:
         assert (
             infer_component_type(
                 _component("POWER(latency_ms, 2)"),
+                "bigint",
+                _parent(),
+            )
+            == "double"
+        )
+
+    def test_multi_argument_accumulate_accepts_an_expression_input(self):
+        assert (
+            infer_component_type(
+                _component("POWER(latency_ms * 2, CAST(200.0 AS DOUBLE))"),
                 "bigint",
                 _parent(),
             )

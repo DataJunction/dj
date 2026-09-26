@@ -66,6 +66,7 @@ from datajunction_server.models.materialization import (
     Granularity,
     MaterializationJobTypeEnum,
     MaterializationStrategy,
+    MaterializationTarget,
     get_druid_aggregator_spec,
 )
 from datajunction_server.models.metric import TranslatedSQL
@@ -189,6 +190,21 @@ def _build_metrics_spec(
             if component
             else None
         )
+        if (
+            metric_spec is None
+            and component is not None
+            and (
+                component.params
+                or component.serializes_for(MaterializationTarget.DRUID)
+            )
+        ):
+            raise DJInvalidInputException(
+                message=(
+                    f"No Druid aggregator is registered for sketch measure "
+                    f"`{col.name}` with column type `{col.type}` and merge "
+                    f"function `{component.merge or component.aggregation}`."
+                ),
+            )
         # Unmappable measures fall back to longSum here, since we're loading
         # pre-aggregated data; the materialization config omits them instead.
         metric_spec = metric_spec or {
@@ -570,6 +586,7 @@ async def materialize_cube(
             dimensions=cube_revision.cube_node_dimensions,
             filters=cube_revision.cube_filters or None,
             dialect=Dialect.SPARK,
+            materialization_target=MaterializationTarget.DRUID,
         )
     except Exception as e:  # pragma: no cover
         raise DJInvalidInputException(  # pragma: no cover
