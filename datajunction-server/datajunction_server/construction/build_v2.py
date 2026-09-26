@@ -270,8 +270,10 @@ class QueryBuilder:
 
         self._filters: list[str] = []
         self._parameters: dict[str, ast.Value] = {}
+        # NOTE: v2 has no role-aware join disambiguation like v3's
+        # find_join_path -- a roled ref is compared here as an opaque string.
         self._required_dimensions: list[str] = [
-            required.name for required in self.node_revision.required_dimensions
+            required.ref for required in self.node_revision.required_dimensions
         ]
         self._dimensions: list[str] = []
         self._orderby: list[str] = []
@@ -1174,8 +1176,11 @@ class CubeQueryBuilder:
         self.use_materialized = use_materialized
 
         self._filters: list[str] = []
+        # See the NOTE in QueryBuilder.__init__ above: build_v2 doesn't do
+        # role-aware dimension-link resolution, so a roled ref is compared
+        # as an opaque string here.
         self._required_dimensions: list[str] = [
-            required.name
+            required.ref
             for metric_node in self.metric_nodes
             for required in metric_node.current.required_dimensions
         ]

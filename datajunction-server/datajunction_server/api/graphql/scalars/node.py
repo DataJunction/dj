@@ -410,8 +410,15 @@ class NodeRevision:
     schema_: str | None
     table: str | None
 
-    # Only metrics will have these fields
-    required_dimensions: list[Column] | None = None
+    # Only metrics will have this field.
+    @strawberry.field
+    def required_dimensions(self, root: DBNodeRevision) -> list[str] | None:
+        """
+        The metric's required dimension references, including a role if specified.
+        """
+        if root.type != NodeType_.METRIC:
+            return None
+        return root.required_dimensions_refs
 
     @strawberry.field
     def fixed_grain(self, root: DBNodeRevision) -> list[str] | None:

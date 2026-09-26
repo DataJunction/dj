@@ -302,7 +302,7 @@ async def setup_build_context(
     add_dimensions_from_filters(ctx)
 
     # Snapshot dimension node names before load_nodes so we can detect any roots
-    # that load_nodes adds internally (via collect_required_dimensions).
+    # that load_nodes adds internally via metrics' required dimensions.
     dim_roots_before_load = {
         parse_dimension_ref(d).node_name
         for d in ctx.dimensions
@@ -337,8 +337,8 @@ async def setup_build_context(
 
     # A second load_nodes pass is needed when either:
     # 1. metric expressions introduced dimension nodes not yet in ctx.nodes, OR
-    # 2. load_nodes itself added required dimension roots via collect_required_dimensions
-    #    whose upstream source nodes haven't been traversed yet (those nodes land in
+    # 2. load_nodes itself added required dimension roots (from metrics'
+    #    required_dimensions) whose upstream source nodes haven't been traversed yet (those nodes land in
     #    ctx.nodes via preload_join_paths but without their upstream dependencies).
     dim_roots_after = {
         parse_dimension_ref(d).node_name

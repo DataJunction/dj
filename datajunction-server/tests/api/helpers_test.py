@@ -16,6 +16,7 @@ from datajunction_server.api.helpers import (
     find_required_dimensions,
 )
 from datajunction_server.database.column import Column
+from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.errors import DJDoesNotExistException, DJException
@@ -266,18 +267,33 @@ async def test_find_required_dimensions_with_role_suffix(
     if "week" not in col_names:
         pytest.skip("v3.date.week column not found")
 
-    # Test with role suffix - this covers line 282 (stripping [order])
-    # and line 323 (matching the column)
-    invalid_dims, matched_cols = await find_required_dimensions(
+    # The "order" role is only reachable via v3.order_details's dimension
+    # link to v3.date -- fetch it so the role validation has something to
+    # check reachability against.
+    link_result = await module__session.execute(
+        select(DimensionLink)
+        .join(NodeRevision, DimensionLink.node_revision_id == NodeRevision.id)
+        .filter(NodeRevision.name == "v3.order_details")
+        .filter(DimensionLink.role == "order"),
+    )
+    parent_dimension_links = list(link_result.scalars().all())
+    if not parent_dimension_links:
+        pytest.skip("v3.order_details -> v3.date[order] link not found")
+
+    # Test with role suffix - the role is preserved verbatim in `.ref` and
+    # validated against a reachable dimension link.
+    invalid_dims, resolved = await find_required_dimensions(
         session=module__session,
         required_dimensions=["v3.date.week[order]"],
         parent_columns=[],
+        parent_dimension_links=parent_dimension_links,
     )
 
-    # Should have no invalid dimensions and one matched column
+    # Should have no invalid dimensions and one resolved entry
     assert len(invalid_dims) == 0, f"Unexpected invalid dims: {invalid_dims}"
-    assert len(matched_cols) == 1
-    assert matched_cols[0].name == "week"
+    assert len(resolved) == 1
+    assert resolved[0].ref == "v3.date.week[order]"
+    assert resolved[0].dimension_id == dim_node.id
 
 
 @pytest.mark.asyncio
@@ -291,7 +307,7 @@ async def test_find_required_dimensions_full_path_match(
     This covers line 323: matched_columns.append(dim_col_map[col_name])
     """
     # Test with full path (no role suffix) - this covers line 323
-    invalid_dims, matched_cols = await find_required_dimensions(
+    invalid_dims, resolved = await find_required_dimensions(
         session=module__session,
         required_dimensions=["v3.date.month"],
         parent_columns=[],
@@ -301,8 +317,8 @@ async def test_find_required_dimensions_full_path_match(
     if len(invalid_dims) > 0:
         pytest.skip("v3.date.month not found in database")
 
-    assert len(matched_cols) == 1
-    assert matched_cols[0].name == "month"
+    assert len(resolved) == 1
+    assert resolved[0].ref == "v3.date.month"
 
 
 def test_resolve_required_dimensions_short_name_ambiguous_across_parents():
@@ -321,3 +337,44 @@ def test_resolve_required_dimensions_short_name_ambiguous_across_parents():
 
     assert invalid_dims == {"currency_code"}
     assert matched_cols == []
+
+
+def test_resolve_required_dimensions_role_not_reachable():
+    """
+    A declared role that no direct parent's dimension link can reach must be
+    flagged invalid, not resolved against the un-roled column.
+    """
+    date_node = Node(name="v3.date", id=42)
+    date_node.current = NodeRevision(
+        name="v3.date",
+        columns=[Column(name="week")],
+    )
+    order_link = DimensionLink(role="order", dimension=date_node)
+
+    invalid_dims, resolved = _resolve_required_dimensions(
+        required_dimensions=["v3.date.week[shipping]"],
+        parent_columns=[],
+        dim_nodes={"v3.date": date_node},
+        parent_dimension_links=[order_link],
+    )
+
+    assert invalid_dims == {"v3.date.week[shipping]"}
+    assert resolved == []
+
+
+def test_resolve_required_dimensions_bare_ref_with_dotted_role():
+    """
+    A bare column ref can't carry a role at all -- a short name that has a
+    bracketed suffix containing `.` must be flagged invalid rather than
+    misrouted into full-path parsing, which would raise uncaught.
+    """
+    status_column = Column(name="status")
+
+    invalid_dims, resolved = _resolve_required_dimensions(
+        required_dimensions=["status[a.b]"],
+        parent_columns=[status_column],
+        dim_nodes={},
+    )
+
+    assert invalid_dims == {"status[a.b]"}
+    assert resolved == []

@@ -398,12 +398,12 @@ type NodeRevision {
   parents: [NodeNameVersion!]!
   schema_: String
   table: String
-  requiredDimensions: [Column!]
   catalog: Catalog
   columns(attributes: [String!] = null): [Column!]!
   dimensionLinks: [DimensionLink!]!
   availability: AvailabilityState
   materializations: [MaterializationConfig!]
+  requiredDimensions: [String!]
   fixedGrain: [String!]
   reaggregate: ReaggregateSpec
   primaryKey: [String!]!

@@ -31,6 +31,7 @@ from datajunction_server.models.deployment import (
     DimensionJoinLinkSpec,
     DimensionReferenceLinkSpec,
     LinkableNodeSpec,
+    MetricSpec,
     NodeSpec,
 )
 from datajunction_server.models.dimensionlink import (
@@ -147,6 +148,15 @@ class NodeSpecBulkValidator:
         # Computed during _prefetch_dimension_link_nodes (async context) so that
         # the sync _validate_*_link methods never trigger ORM lazy loads.
         self._dim_link_col_names: dict[str, set] = {}
+        # Populated by _prefetch_parent_dimension_links before per-node
+        # validation. Keys: dependency node name; values: its DimensionLink
+        # rows. Computed with a dedicated query (async context) rather than
+        # read off `dep_node.current.dimension_links` -- that relationship's
+        # eager-load state isn't reliable here (dependency_nodes can come
+        # from the in-flight registry as well as the DB), so accessing it
+        # directly risks a MissingGreenlet from this class's sync validation
+        # methods.
+        self._parent_dimension_links: dict[str, list[DimensionLink]] = {}
 
     async def validate(self, node_specs: list[NodeSpec]) -> list[NodeValidationResult]:
         """
@@ -169,6 +179,9 @@ class NodeSpecBulkValidator:
 
         # Pre-fetch dimension nodes for metric dimension-reference validation
         await self._prefetch_required_dimension_nodes(specs_needing_parse)
+
+        # Pre-fetch dimension links for required_dimensions role validation
+        await self._prefetch_parent_dimension_links(specs_needing_parse)
 
         # Pre-fetch dimension sets for cross-fact derived metric validation
         await self._prefetch_metric_dimensions(specs_needing_parse)
@@ -803,6 +816,38 @@ class NodeSpecBulkValidator:
                     col.name for col in node.current.columns
                 }
 
+    async def _prefetch_parent_dimension_links(
+        self,
+        specs: list[NodeSpec],
+    ) -> None:
+        """
+        Batch-fetch DimensionLink rows for every dependency node referenced by
+        a metric spec with required_dimensions, keyed by dependency node name.
+        """
+        dep_names: set[str] = set()
+        for spec in specs:
+            if not isinstance(spec, MetricSpec) or not spec.required_dimensions:
+                continue
+            dep_names.update(self.context.node_graph.get(spec.rendered_name, []))
+
+        revision_id_to_name: dict[int, str] = {}
+        for dep_name in dep_names:
+            dep_node = self.context.dependency_nodes.get(dep_name)
+            if dep_node and dep_node.current:  # pragma: no branch
+                revision_id_to_name[dep_node.current.id] = dep_name
+
+        if not revision_id_to_name:
+            return
+
+        result = await self.context.session.execute(
+            select(DimensionLink).where(
+                DimensionLink.node_revision_id.in_(revision_id_to_name),
+            ),
+        )
+        for link in result.scalars().all():
+            link_dep_name = revision_id_to_name[link.node_revision_id]
+            self._parent_dimension_links.setdefault(link_dep_name, []).append(link)
+
     def _check_required_dimensions(self, spec: NodeSpec) -> DJError | None:
         """
         Validate that every entry in required_dimensions resolves to a real column.
@@ -826,11 +871,17 @@ class NodeSpecBulkValidator:
             if dep_node and dep_node.current
             for col in dep_node.current.columns
         ]
+        parent_dimension_links = [
+            link
+            for dep_name in dep_names
+            for link in self._parent_dimension_links.get(dep_name, [])
+        ]
 
         invalid, _ = _resolve_required_dimensions(
             required_dimensions,
             parent_columns,
             self._all_dim_nodes,
+            parent_dimension_links,
         )
 
         if not invalid:
