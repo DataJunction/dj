@@ -74,6 +74,37 @@ describe('LinkedSQL', () => {
     expect(screen.queryByRole('link')).toBeNull();
   });
 
+  it('styles tokens on a linked row exactly as on an unlinked row', () => {
+    const { container } = render(
+      <LinkedSQL
+        sql={'SELECT 1\nFROM default.orders'}
+        upstreams={['default.orders']}
+      />,
+    );
+
+    const tokenStyle = text =>
+      [...container.querySelectorAll('span')]
+        .filter(span => span.textContent === text)
+        .map(span => span.getAttribute('style'));
+
+    // `SELECT` sits on a row with no link, `FROM` on the linked row.
+    expect(tokenStyle('SELECT')).toEqual(['color: rgb(0, 153, 153);']);
+    expect(tokenStyle('FROM')).toEqual(['color: rgb(0, 153, 153);']);
+  });
+
+  it('nests the link inside its token so it inherits the token colour', () => {
+    const { container } = render(
+      <LinkedSQL
+        sql={'SELECT 1 FROM default.orders'}
+        upstreams={['default.orders']}
+      />,
+    );
+
+    const link = screen.getByRole('link', { name: 'default.orders' });
+    expect(link.parentElement.tagName).toEqual('SPAN');
+    expect(container.querySelector('code').contains(link)).toEqual(true);
+  });
+
   it('prefers the longest upstream when one name prefixes another', () => {
     render(
       <LinkedSQL

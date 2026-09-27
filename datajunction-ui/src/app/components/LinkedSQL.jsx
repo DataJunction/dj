@@ -1,9 +1,11 @@
 /**
  * SQL display that links each upstream node the query references.
  *
- * The highlighter splits a dotted name like `a.b.c` across several tokens, so
- * matches are found on each row's full text and the tokens are then split at
- * those boundaries. Tokens outside a match keep the styling they arrived with.
+ * The highlighter hands the renderer one hast row per line. Matches are found
+ * on the row's full text, because a dotted name can span several tokens, and
+ * the matched spans are spliced into the row as anchor nodes. The row is then
+ * handed to the highlighter's own `createElement`, so linked and unlinked
+ * rows are styled by exactly the same code path.
  */
 import * as React from 'react';
 import {
@@ -27,115 +29,133 @@ const CODE_STYLE = {
   paddingBottom: '0.75rem',
 };
 
+const escapeForPattern = name => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 /**
- * Where each upstream name appears in `text`, longest name first so that a
- * name prefixing another does not claim the match, and never inside a longer
- * identifier.
+ * One pattern matching any upstream name, so a row is scanned once however
+ * many upstreams there are. Longest name first, so a name that prefixes
+ * another does not claim the match, and a trailing identifier character
+ * rejects the match outright.
  */
-export const findUpstreamMatches = (text, upstreams) => {
+export const buildUpstreamPattern = upstreams => {
+  const names = [...new Set(upstreams)]
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length);
+  if (!names.length) {
+    return null;
+  }
+  return new RegExp(
+    `(?:${names.map(escapeForPattern).join('|')})(?![A-Za-z0-9_.])`,
+    'g',
+  );
+};
+
+/** Where upstream names appear in `text`, never inside a longer identifier. */
+export const findUpstreamMatches = (text, pattern) => {
   const matches = [];
-  const byLongest = [...upstreams].sort((a, b) => b.length - a.length);
-  for (const name of byLongest) {
-    let from = text.indexOf(name);
-    while (from !== -1) {
-      const to = from + name.length;
-      const before = from > 0 ? text[from - 1] : '';
-      const after = to < text.length ? text[to] : '';
-      const standsAlone =
-        !IDENTIFIER_CHAR.test(before) && !IDENTIFIER_CHAR.test(after);
-      const overlaps = matches.some(m => from < m.to && to > m.from);
-      if (standsAlone && !overlaps) {
-        matches.push({ from, to, name });
-      }
-      from = text.indexOf(name, from + 1);
+  if (!pattern) {
+    return matches;
+  }
+  pattern.lastIndex = 0;
+  let found = pattern.exec(text);
+  while (found) {
+    const from = found.index;
+    const before = from > 0 ? text[from - 1] : '';
+    if (IDENTIFIER_CHAR.test(before)) {
+      // Part of a longer identifier. Resume just past this start, since a
+      // later occurrence of the same name may still stand alone.
+      pattern.lastIndex = from + 1;
+    } else {
+      matches.push({ from, to: from + found[0].length, name: found[0] });
     }
+    found = pattern.exec(text);
   }
-  return matches.sort((a, b) => a.from - b.from);
+  return matches;
 };
 
-const rowText = node => {
-  if (node.type === 'text') {
-    return node.value;
-  }
-  return (node.children || []).map(rowText).join('');
-};
+const rowText = node =>
+  node.type === 'text'
+    ? node.value
+    : (node.children || []).map(rowText).join('');
 
-/**
- * Re-emit one token, split at any match boundary it crosses. `cursor` is the
- * token's start offset within the row.
- */
-const linkToken = (node, cursor, matches, key) => {
-  if (node.type !== 'text') {
-    const children = [];
-    let at = cursor;
-    (node.children || []).forEach((child, index) => {
-      children.push(linkToken(child, at, matches, `${key}-${index}`));
-      at += rowText(child).length;
-    });
-    return React.createElement(
-      node.tagName || 'span',
-      {
-        key,
-        ...(node.properties?.className
-          ? { className: node.properties.className.join(' ') }
-          : {}),
-      },
-      children,
-    );
-  }
-
-  const value = node.value;
-  const end = cursor + value.length;
+/** One text node split into text and anchor nodes at the match boundaries. */
+const splitTextNode = (node, cursor, matches) => {
+  const end = cursor + node.value.length;
   const pieces = [];
   let at = cursor;
-  matches
-    .filter(m => m.from < end && m.to > cursor)
-    .forEach((match, index) => {
-      const from = Math.max(match.from, cursor);
-      const to = Math.min(match.to, end);
-      if (from > at) {
-        pieces.push(value.slice(at - cursor, from - cursor));
-      }
-      pieces.push(
-        <a
-          key={`${key}-a${index}`}
-          href={`/nodes/${match.name}`}
-          className="sql-upstream-link"
-        >
-          {value.slice(from - cursor, to - cursor)}
-        </a>,
-      );
-      at = to;
+  for (const match of matches) {
+    if (match.from >= end || match.to <= cursor) {
+      continue;
+    }
+    const from = Math.max(match.from, cursor);
+    const to = Math.min(match.to, end);
+    if (from > at) {
+      pieces.push({
+        type: 'text',
+        value: node.value.slice(at - cursor, from - cursor),
+      });
+    }
+    pieces.push({
+      type: 'element',
+      tagName: 'a',
+      properties: {
+        href: `/nodes/${match.name}`,
+        className: ['sql-upstream-link'],
+      },
+      children: [
+        { type: 'text', value: node.value.slice(from - cursor, to - cursor) },
+      ],
     });
-  if (at < end) {
-    pieces.push(value.slice(at - cursor));
+    at = to;
   }
-  return pieces.length ? (
-    <React.Fragment key={key}>{pieces}</React.Fragment>
-  ) : null;
+  if (!pieces.length) {
+    return { nodes: [node], length: node.value.length };
+  }
+  if (at < end) {
+    pieces.push({ type: 'text', value: node.value.slice(at - cursor) });
+  }
+  return { nodes: pieces, length: node.value.length };
 };
 
-export default function LinkedSQL({ sql: query, upstreams = [] }) {
-  const renderer = ({ rows, stylesheet, useInlineStyles }) =>
-    rows.map((row, rowIndex) => {
-      const text = rowText(row);
-      const matches = findUpstreamMatches(text, upstreams);
-      if (!matches.length) {
+/**
+ * `node` with anchors spliced in, plus the length of its text, so the caller
+ * can advance the row offset without walking the subtree a second time.
+ */
+const linkNode = (node, cursor, matches) => {
+  if (node.type === 'text') {
+    return splitTextNode(node, cursor, matches);
+  }
+  const children = [];
+  let length = 0;
+  for (const child of node.children || []) {
+    const linked = linkNode(child, cursor + length, matches);
+    children.push(...linked.nodes);
+    length += linked.length;
+  }
+  return { nodes: [{ ...node, children }], length };
+};
+
+export function LinkedSQL({ sql: query, upstreams = [] }) {
+  const pattern = React.useMemo(
+    () => buildUpstreamPattern(upstreams),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [upstreams.join('\n')],
+  );
+
+  const renderer = React.useCallback(
+    ({ rows, stylesheet, useInlineStyles }) =>
+      rows.map((row, rowIndex) => {
+        const matches = findUpstreamMatches(rowText(row), pattern);
+        const node = matches.length ? linkNode(row, 0, matches).nodes[0] : row;
         return createElement({
-          node: row,
+          node,
           stylesheet,
           useInlineStyles,
           key: `row-${rowIndex}`,
         });
-      }
-      let at = 0;
-      const children = (row.children || []).map((child, index) => {
-        const element = linkToken(child, at, matches, `${rowIndex}-${index}`);
-        at += rowText(child).length;
-        return element;
-      });
-      return <span key={rowIndex}>{children}</span>;
-    });
+      }),
+    [pattern],
+  );
 
   return (
     <SyntaxHighlighter
@@ -143,9 +163,20 @@ export default function LinkedSQL({ sql: query, upstreams = [] }) {
       style={foundation}
       wrapLongLines={true}
       customStyle={CODE_STYLE}
-      renderer={upstreams.length ? renderer : undefined}
+      renderer={pattern ? renderer : undefined}
     >
       {query}
     </SyntaxHighlighter>
   );
 }
+
+/**
+ * Highlighting a long query costs hundreds of milliseconds, and callers tend
+ * to rebuild the upstream array on every render, so compare it by content.
+ */
+const sameProps = (before, after) =>
+  before.sql === after.sql &&
+  (before.upstreams || []).length === (after.upstreams || []).length &&
+  (before.upstreams || []).every((name, i) => name === after.upstreams[i]);
+
+export default React.memo(LinkedSQL, sameProps);
