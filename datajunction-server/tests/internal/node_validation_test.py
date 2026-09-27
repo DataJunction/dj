@@ -1005,9 +1005,12 @@ async def test_validate_node_data_v2_flags_invalid_required_dimensions(
         type=NodeType.METRIC,
         query="SELECT COUNT(id) FROM test.v2_req_dim_parent",
         status=NodeStatus.VALID,
-        required_dimensions=["test.v2_dim_tiny.ghost_col"],  # type: ignore[list-item]
     )
-    validator = await validate_node_data_v2(child, session)
+    validator = await validate_node_data_v2(
+        child,
+        session,
+        required_dimensions=["test.v2_dim_tiny.ghost_col"],
+    )
     assert validator.status == NodeStatus.INVALID
     assert any(
         err.code == ErrorCode.INVALID_COLUMN and "required dimensions" in err.message
@@ -1336,3 +1339,112 @@ async def test_validate_node_data_v2_cross_fact_metrics_no_shared_dims(
         err.code == ErrorCode.INVALID_PARENT and "no shared" in err.message.lower()
         for err in validator.errors
     ), [(e.code, e.message) for e in validator.errors]
+
+
+@pytest.mark.asyncio
+async def test_validate_node_data_v2_role_required_dim_on_derived_metric(
+    session: AsyncSession,
+    user: User,
+):
+    """A roled required_dimensions entry on a derived metric is resolved
+    through the base metric's own parent -- get_metric_parents_map's Node
+    rows only eager-load id/name/type/current_version, so this must not
+    trigger a MissingGreenlet reading `.current` off them."""
+    from datajunction_server.database.dimensionlink import DimensionLink, JoinType
+    from datajunction_server.internal.validation import validate_node_data_v2
+
+    source = Node(
+        name="test.v2_role_source",
+        type=NodeType.SOURCE,
+        created_by_id=user.id,
+        current_version="v1.0",
+    )
+    source_rev = NodeRevision(
+        name="test.v2_role_source",
+        display_name="role source",
+        type=NodeType.SOURCE,
+        query=None,
+        status=NodeStatus.VALID,
+        version="v1.0",
+        node=source,
+        columns=[Column(name="order_dateint", type=ct.BigIntType(), order=0)],
+        created_by_id=user.id,
+    )
+    date_dim = Node(
+        name="test.v2_role_date_d",
+        type=NodeType.DIMENSION,
+        created_by_id=user.id,
+        current_version="v1.0",
+    )
+    date_dim_rev = NodeRevision(
+        name="test.v2_role_date_d",
+        display_name="role date dim",
+        type=NodeType.DIMENSION,
+        query="SELECT dateint, week FROM test.v2_role_source",
+        status=NodeStatus.VALID,
+        version="v1.0",
+        node=date_dim,
+        columns=[
+            Column(name="dateint", type=ct.BigIntType(), order=0),
+            Column(name="week", type=ct.BigIntType(), order=1),
+        ],
+        created_by_id=user.id,
+    )
+    session.add_all([source, source_rev, date_dim, date_dim_rev])
+    await session.flush()
+
+    session.add(
+        DimensionLink(
+            node_revision_id=source_rev.id,
+            dimension_id=date_dim.id,
+            role="order_date",
+            join_sql=(
+                "test.v2_role_source.order_dateint = test.v2_role_date_d.dateint"
+            ),
+            join_type=JoinType.LEFT,
+        ),
+    )
+
+    base_metric = Node(
+        name="test.v2_role_base_metric",
+        type=NodeType.METRIC,
+        created_by_id=user.id,
+        current_version="v1.0",
+    )
+    base_metric_rev = NodeRevision(
+        name="test.v2_role_base_metric",
+        display_name="role base metric",
+        type=NodeType.METRIC,
+        query="SELECT COUNT(order_dateint) FROM test.v2_role_source",
+        status=NodeStatus.VALID,
+        version="v1.0",
+        node=base_metric,
+        columns=[
+            Column(name="test_DOT_v2_role_base_metric", type=ct.BigIntType(), order=0),
+        ],
+        parents=[source],
+        created_by_id=user.id,
+    )
+    session.add_all([base_metric, base_metric_rev])
+    await session.commit()
+
+    # Derived metric on top of the base metric, with a roled required dim
+    # only reachable through the base metric's own (non-metric) parent.
+    derived = NodeRevisionBase(
+        name="test.v2_role_derived_metric",
+        display_name="role derived metric",
+        type=NodeType.METRIC,
+        query="SELECT test.v2_role_base_metric * 2",
+        mode="published",
+    )
+    validator = await validate_node_data_v2(
+        derived,
+        session,
+        required_dimensions=["test.v2_role_date_d.week[order_date]"],
+    )
+    assert validator.status == NodeStatus.VALID, [
+        (e.code, e.message) for e in validator.errors
+    ]
+    assert [rd.ref for rd in validator.required_dimensions] == [
+        "test.v2_role_date_d.week[order_date]",
+    ]
