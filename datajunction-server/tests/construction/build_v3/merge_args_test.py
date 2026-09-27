@@ -64,6 +64,14 @@ class TestBuildMergeCall:
         assert isinstance(expr.args[1], ast.Expression)
         assert str(expr) == "f(c, 1 + 2)"
 
+    def test_cached_literal_ast_is_independent_between_calls(self):
+        """A caller's rewrite must not mutate the cached parse template."""
+        first = build_merge_call("f", ["CAST(200.0 AS DOUBLE)"], _column("a"))
+        first.args[1] = ast.Number(999)
+
+        second = build_merge_call("f", ["CAST(200.0 AS DOUBLE)"], _column("b"))
+        assert str(second) == "f(b, CAST(200.0 AS DOUBLE))"
+
 
 class TestComponentDefDefaults:
     """Existing decompositions must be untouched by the new field."""

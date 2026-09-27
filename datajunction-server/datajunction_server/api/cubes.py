@@ -586,6 +586,7 @@ async def materialize_cube(
             dimensions=cube_revision.cube_node_dimensions,
             filters=cube_revision.cube_filters or None,
             dialect=Dialect.SPARK,
+            combiner_dialect=Dialect.DRUID,
             materialization_target=MaterializationTarget.DRUID,
         )
     except Exception as e:  # pragma: no cover

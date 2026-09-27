@@ -33,6 +33,10 @@ import re
 import pytest
 from httpx import AsyncClient
 
+from datajunction_server.construction.build_v3.builder import build_measures_sql
+from datajunction_server.construction.build_v3.combiners import (
+    build_combiner_sql_from_preaggs,
+)
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.materialization import MaterializationTarget
 from datajunction_server.models.reaggregate import ReaggregationFunction
@@ -50,6 +54,7 @@ from datajunction_server.sql.functions import (
 )
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing import types as ct
+from datajunction_server.utils import get_session
 
 from . import assert_sql_equal
 
@@ -376,6 +381,45 @@ async def test_combiner_takes_the_shape_the_engine_needs(
     (formula,) = payload["metric_formulas"]
 
     assert formula["combiner"] == expected
+
+
+@pytest.mark.asyncio
+async def test_druid_cube_measures_keep_spark_sql_and_use_druid_combiner(
+    percentile_metric,
+):
+    """The legacy cube path runs measures in Spark but combines in Druid."""
+    session = percentile_metric.app.dependency_overrides[get_session]()
+    result = await build_measures_sql(
+        session=session,
+        metrics=[METRIC],
+        dimensions=DIMENSIONS,
+        dialect=Dialect.SPARK,
+        combiner_dialect=Dialect.DRUID,
+        materialization_target=MaterializationTarget.DRUID,
+    )
+
+    assert "build_digest(" in result.grain_groups[0].sql
+    assert "digest_to_bytes(" in result.grain_groups[0].sql
+    assert "DIGEST_QUANTILE(" in str(result.decomposed_metrics[METRIC].derived_ast)
+    assert "digest_quantiles(" not in str(result.decomposed_metrics[METRIC].derived_ast)
+
+
+@pytest.mark.asyncio
+async def test_druid_cube_preagg_combiner_uses_druid_shape(percentile_metric):
+    """The pre-agg cube path must not carry a Spark-only combiner to Druid."""
+    await _publish_preagg(percentile_metric)
+    session = percentile_metric.app.dependency_overrides[get_session]()
+    result, _, _ = await build_combiner_sql_from_preaggs(
+        session=session,
+        metrics=[METRIC],
+        dimensions=DIMENSIONS,
+        dialect=Dialect.SPARK,
+        combiner_dialect=Dialect.DRUID,
+        materialization_target=MaterializationTarget.DRUID,
+    )
+
+    assert "DIGEST_QUANTILE(" in result.metric_combiners[METRIC]
+    assert "digest_quantiles(" not in result.metric_combiners[METRIC]
 
 
 @pytest.mark.asyncio

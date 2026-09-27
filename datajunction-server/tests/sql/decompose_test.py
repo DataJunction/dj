@@ -2854,14 +2854,15 @@ class TestReaggregateParams:
             {"compression": 200},
         ]
 
-    def test_params_without_a_family_reject_multi_component_metric(self):
-        """A generic parameter cannot be broadcast to AVG's SUM and COUNT."""
+    def test_params_without_a_family_leave_multi_component_metric_untouched(self):
+        """Legacy AVG params cannot be broadcast to its SUM and COUNT."""
         extractor = MetricComponentExtractor(1)
-        with pytest.raises(DJInvalidInputException, match="exactly one"):
-            extractor._extract_base(
-                parse("SELECT AVG(latency_ms) FROM t"),
-                self._spec({"compression": 200}),
-            )
+        components, _ = extractor._extract_base(
+            parse("SELECT AVG(latency_ms) FROM t"),
+            self._spec({"compression": 200}),
+        )
+        assert len(components) == 2
+        assert all(component.params is None for component in components)
 
     def test_params_are_copied_not_shared(self):
         """
@@ -2896,7 +2897,7 @@ class TestReaggregateParams:
                 parse("SELECT COUNT(DISTINCT order_id) FROM t"),
                 self._spec({"compression": 200}),
             )
-        assert "requires exactly one aggregating component" in str(excinfo.value)
+        assert "requires an aggregating component" in str(excinfo.value)
 
 
 # =============================================================================

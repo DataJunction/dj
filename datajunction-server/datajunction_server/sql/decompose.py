@@ -1746,18 +1746,23 @@ class MetricComponentExtractor:
         reaggregate: ReaggregateSpec,
     ) -> None:
         """
-        Propagate tuning parameters from the reaggregate spec to aggregating components.
+        Attach tuning parameters only when they identify one unambiguous component.
         """
         configurable = [
             component
             for component in components
             if component.aggregation is not None and component.merge is not None
         ]
-        if len(configurable) != 1 or len(components) != 1:
+        # Older metrics could declare params on a multi-component expression
+        # (notably AVG). Those params never described SUM and COUNT separately;
+        # broadcasting them changes component identity and may select the wrong
+        # pre-aggregation. Keep such metrics queryable without propagating them.
+        if not configurable:
             self._raise_unsupported_reaggregate_shape(
-                "parameterized reaggregation requires exactly one aggregating component",
+                "parameterized reaggregation requires an aggregating component",
             )
-        configurable[0].params = dict(reaggregate.params or {})
+        if len(configurable) == 1 and len(components) == 1:
+            configurable[0].params = dict(reaggregate.params or {})
 
     def _attach_reaggregate_spec(
         self,

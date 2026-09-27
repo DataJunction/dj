@@ -44,6 +44,8 @@ class BuildContext:
     dimensions: list[str]
     filters: list[str] = field(default_factory=list)
     dialect: Dialect = Dialect.SPARK
+    # The measures may run in Spark while their metric combiner runs in Druid.
+    combiner_dialect: Dialect | None = None
     # Set only when this build is producing a measures table for materialization.
     # None for query-time builds, which never serialize.
     materialization_target: MaterializationTarget | None = None

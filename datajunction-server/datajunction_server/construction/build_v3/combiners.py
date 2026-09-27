@@ -531,6 +531,7 @@ async def build_combiner_sql_from_preaggs(
     filters: list[str] | None = None,
     dialect=None,
     materialization_target: MaterializationTarget | None = None,
+    combiner_dialect: Dialect | None = None,
 ) -> tuple[
     CombinedGrainGroupResult,
     list[PreAggSourceInfo],
@@ -552,6 +553,7 @@ async def build_combiner_sql_from_preaggs(
         dimensions: List of dimension references
         filters: Optional filters
         dialect: SQL dialect
+        combiner_dialect: Optional dialect for the final metric combiners.
 
     Returns:
         Tuple of:
@@ -569,6 +571,7 @@ async def build_combiner_sql_from_preaggs(
         filters=filters,
         dialect=dialect or Dialect.SPARK,
         use_materialized=False,  # We'll manually reference pre-agg tables
+        combiner_dialect=combiner_dialect,
     )
 
     if not result.grain_groups:  # pragma: no cover

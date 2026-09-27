@@ -32,7 +32,7 @@ from datajunction_server.models.materialization import MaterializationTarget
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.decompose import MetricComponentExtractor
 from datajunction_server.sql.parsing import ast
-from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.sql.parsing.backends.antlr4 import cached_parse, parse
 from datajunction_server.utils import SEPARATOR
 
 
@@ -81,7 +81,7 @@ async def decompose_and_group_metrics(
                         base_metric,
                         nodes_cache=ctx.nodes,
                         parent_map=ctx.parent_map,
-                        dialect=ctx.dialect,
+                        dialect=ctx.combiner_dialect or ctx.dialect,
                     )
                     all_decomposed[base_metric.name] = decomposed
 
@@ -101,7 +101,7 @@ async def decompose_and_group_metrics(
                     metric_node,
                     nodes_cache=ctx.nodes,
                     parent_map=ctx.parent_map,
-                    dialect=ctx.dialect,
+                    dialect=ctx.combiner_dialect or ctx.dialect,
                 )
                 all_decomposed[metric_name] = derived_decomposed
         else:
@@ -125,7 +125,7 @@ async def decompose_and_group_metrics(
                 metric_node,
                 nodes_cache=ctx.nodes,
                 parent_map=ctx.parent_map,
-                dialect=ctx.dialect,
+                dialect=ctx.combiner_dialect or ctx.dialect,
             )
             all_decomposed[metric_node.name] = decomposed
 
@@ -168,9 +168,8 @@ async def decompose_metric(
             parent_map, avoids database queries by using cached data.
         parent_map: Optional dict of child_name -> list of parent_names.
             Required if nodes_cache is provided.
-        dialect: Dialect the combiner is rendered for. ``decompose_and_group_metrics``
-            passes the build's resolved dialect, which for a materialized cube is
-            the one taken from its availability catalog -- Druid, in practice.
+        dialect: Dialect the combiner is rendered for. This may differ from
+            the measures SQL dialect when Spark writes a Druid cube.
             Defaults to Spark for direct callers.
 
     Returns:
@@ -310,7 +309,9 @@ def build_merge_call(
     """
     extra: list[ast.Expression] = []
     for literal in merge_args:
-        parsed = parse(f"SELECT {literal}").select.projection[0]
+        # Family tuning literals recur across components and requests. The
+        # cached parser returns a deep copy, so parent links remain independent.
+        parsed = cached_parse(f"SELECT {literal}").select.projection[0]
         parsed.clear_parent()
         extra.append(cast(ast.Expression, parsed))
     return ast.Function(name=ast.Name(merge), args=[arg, *extra])
