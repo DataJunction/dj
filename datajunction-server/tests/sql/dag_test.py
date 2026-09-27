@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.database.column import Column
 from datajunction_server.database.database import Database
 from datajunction_server.database.dimensionlink import DimensionLink
-from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.node import Node, NodeRevision, RequiredDimension
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJException
 from datajunction_server.models.node import DimensionAttributeOutput, NodeType
@@ -1220,6 +1220,54 @@ class TestGetNodesWithCommonDimensions:
         )
         result_names = {node.name for node in result}
         assert result_names == {"default.metric1"}
+
+    @pytest.mark.asyncio
+    async def test_metric_reachable_only_via_required_dimensions(
+        self,
+        session: AsyncSession,
+        current_user: User,
+        common_dimensions_test_graph,
+    ):
+        """
+        A metric that depends on a dimension only through a full-path
+        required_dimensions entry (no Column or DimensionLink edge to it at
+        all) must still show up in dimension-deletion impact analysis.
+        """
+        graph = common_dimensions_test_graph
+        dim3 = graph["dim3"]
+
+        # transform1 has no link to dim3 -- its only dimensions are dim1/dim2.
+        metric_req_dim_only = Node(
+            name="default.metric_req_dim_only",
+            type=NodeType.METRIC,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        metric_req_dim_only_rev = NodeRevision(
+            node=metric_req_dim_only,
+            type=metric_req_dim_only.type,
+            name=metric_req_dim_only.name,
+            version="1",
+            display_name="Metric req dim only",
+            query="SUM(default.transform1.value)",
+            parents=[graph["transform1"]],
+            created_by_id=current_user.id,
+            columns=[Column(name="value", type=IntegerType(), order=0)],
+            required_dimensions=[
+                RequiredDimension(ref="default.dim3.id", dimension_id=dim3.id),
+            ],
+        )
+        metric_req_dim_only.current = metric_req_dim_only_rev
+        session.add_all([metric_req_dim_only, metric_req_dim_only_rev])
+        await session.commit()
+
+        result = await get_nodes_with_common_dimensions(session, [dim3])
+        result_names = {node.name for node in result}
+
+        assert "default.metric_req_dim_only" in result_names
+        # Sanity: the metric's actual parent (transform1) is genuinely not
+        # linked to dim3, so this can only be found via required_dimensions.
+        assert "default.transform1" not in result_names
 
     @pytest.mark.asyncio
     async def test_metric_parent_missing_dimension(

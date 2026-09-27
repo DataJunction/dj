@@ -596,7 +596,6 @@ async def create_node_revision(
         status=NodeStatus.VALID,
         query=data.query,
         mode=data.mode,
-        required_dimensions=data.required_dimensions or [],
         reaggregate=(
             dump_reaggregate_spec(data.reaggregate)
             if node_type == NodeType.METRIC
@@ -608,7 +607,11 @@ async def create_node_revision(
         created_by_id=current_user.id,
         custom_metadata=data.custom_metadata,
     )
-    node_validator = await validate_node_data(node_revision, session)
+    node_validator = await validate_node_data(
+        node_revision,
+        session,
+        required_dimensions=data.required_dimensions or [],
+    )
 
     if node_validator.status == NodeStatus.INVALID:
         if node_revision.mode == NodeMode.DRAFT:
@@ -1210,7 +1213,7 @@ async def copy_to_new_node(
         catalog=old_revision.catalog,
         schema_=old_revision.schema_,
         table=old_revision.table,
-        required_dimensions=list(old_revision.required_dimensions),
+        required_dimensions=[rd.copy() for rd in old_revision.required_dimensions],
         metric_metadata=old_revision.metric_metadata,
         reaggregate=old_revision.reaggregate,
         fixed_grain=old_revision.fixed_grain,
@@ -2626,7 +2629,7 @@ def copy_existing_node_revision(old_revision: NodeRevision, current_user: User):
         mode=old_revision.mode,
         materializations=old_revision.materializations,
         status=old_revision.status,
-        required_dimensions=list(old_revision.required_dimensions),
+        required_dimensions=[rd.copy() for rd in old_revision.required_dimensions],
         metric_metadata=old_revision.metric_metadata,
         reaggregate=old_revision.reaggregate,
         fixed_grain=old_revision.fixed_grain,
@@ -2849,7 +2852,7 @@ async def create_new_revision_from_existing(
     required_dim_changes = (
         data
         and isinstance(data.required_dimensions, list)
-        and {col.name for col in old_revision.required_dimensions}
+        and {rd.ref for rd in old_revision.required_dimensions}
         != set(data.required_dimensions)
     )
     # An explicit null clears the grain, an absent one carries it forward; both
@@ -2945,6 +2948,11 @@ async def create_new_revision_from_existing(
             )
             for link in old_revision.dimension_links
         ],
+        # Preserve required_dimensions by default -- previously omitted here,
+        # which meant a PATCH touching unrelated fields (but not
+        # required_dimensions) silently wiped it out once validation below
+        # reassigned `new_revision.required_dimensions` from an empty list.
+        required_dimensions=[rd.copy() for rd in old_revision.required_dimensions],
         created_by_id=current_user.id,
         custom_metadata=old_revision.custom_metadata,
     )
@@ -2953,15 +2961,22 @@ async def create_new_revision_from_existing(
     for col in new_revision.columns:
         col.node_revision = new_revision
 
-    if data and data.required_dimensions is not None:  # type: ignore
-        new_revision.required_dimensions = data.required_dimensions  # type: ignore
+    required_dimensions_override = (
+        data.required_dimensions  # type: ignore
+        if data and data.required_dimensions is not None  # type: ignore
+        else None
+    )
 
     if data and data.custom_metadata is not None:  # type: ignore
         new_revision.custom_metadata = data.custom_metadata
 
     # Link the new revision to its parents if a new revision was created and update its status
     if new_revision.type != NodeType.SOURCE:
-        node_validator = await validate_node_data(new_revision, session)
+        node_validator = await validate_node_data(
+            new_revision,
+            session,
+            required_dimensions=required_dimensions_override,
+        )
         new_revision.columns = node_validator.columns
         new_revision.status = node_validator.status
 
@@ -3050,8 +3065,13 @@ async def create_new_revision_from_existing(
                         ColumnAttribute(column=col, attribute_type=pk_attribute),
                     )
 
-        # Update the required dimensions if one was set in the input and the node is a metric
-        if node_validator.required_dimensions and new_revision.type == NodeType.METRIC:
+        # Replace the raw strings set above (line ~2818) with the resolved
+        # RequiredDimension rows from validation. Unconditional (not gated on
+        # truthiness): if validation resolved zero entries -- either because
+        # none were supplied or because all were invalid in draft mode -- the
+        # raw string list must still be cleared out, or it's left sitting in
+        # a relationship attribute that expects RequiredDimension rows.
+        if new_revision.type == NodeType.METRIC:
             new_revision.required_dimensions = node_validator.required_dimensions
 
         # Set the node's validity status
