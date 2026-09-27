@@ -1,6 +1,7 @@
 import { useState, useContext, useEffect } from 'react';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import foundation from 'react-syntax-highlighter/dist/esm/styles/hljs/foundation';
+import LinkedSQL from '../../components/LinkedSQL';
 import sql from 'react-syntax-highlighter/dist/esm/languages/hljs/sql';
 import NodeStatus from './NodeStatus';
 import NodeChecks from './NodeChecks';
@@ -170,13 +171,12 @@ export default function NodeInfoTab({ node }) {
           }}
         >
           <h6 className="mb-0 w-100">Query</h6>
-          <SyntaxHighlighter
-            language="sql"
-            style={foundation}
-            wrapLongLines={true}
-          >
-            {node?.query}
-          </SyntaxHighlighter>
+          <LinkedSQL
+            sql={node?.query}
+            upstreams={(node?.parents || [])
+              .map(parent => parent.name)
+              .filter(Boolean)}
+          />
         </div>
       </div>
     </div>

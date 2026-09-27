@@ -1,0 +1,27 @@
+/* Upstream node links inside a SQL block. They take the code's type and
+   colour, and a faint dotted rule marks them without competing with the
+   syntax highlighting.
+
+   Selectors carry the element so they outrank the global `a:hover`, which
+   would otherwise pull the hovered name back into the page's link font and
+   colour and break the alignment of the monospace run around it. */
+a.sql-upstream-link,
+a.sql-upstream-link:hover,
+a.sql-upstream-link:focus,
+a.sql-upstream-link:visited {
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: rgba(0, 0, 0, 0.45);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+/* A join-heavy query can show a dozen of these at once, so the mark stays
+   faint until the pointer is on one. */
+a.sql-upstream-link:hover,
+a.sql-upstream-link:focus {
+  text-decoration-color: rgba(0, 0, 0, 0.75);
+  text-decoration-thickness: 2px;
+}
