@@ -42,6 +42,9 @@ from datajunction_server.database.dimensionlink import (
 )
 from datajunction_server.database.dimensionlink import JoinType as JoinType_
 from datajunction_server.database.node import Node as DBNode
+from datajunction_server.models.deployment import (
+    RecordedRulesetVerdict as PydanticRecordedRulesetVerdict,
+)
 from datajunction_server.database.node import NodeRevision as DBNodeRevision
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node import NodeMode as NodeMode_
@@ -700,6 +703,14 @@ class TagBase:
     tag_metadata: JSON | None = strawberry.field(default_factory=dict)
 
 
+@strawberry.experimental.pydantic.type(
+    model=PydanticRecordedRulesetVerdict,
+    all_fields=True,
+)
+class NodeRulesetVerdict:
+    """What one ruleset concluded for a node, as last recorded."""
+
+
 @strawberry.type
 class Node:
     """
@@ -726,6 +737,29 @@ class Node:
         The users who edited this node
         """
         return root.edited_by
+
+    @strawberry.field
+    async def ruleset_verdicts(
+        self,
+        root: DBNode,
+        info: Info,
+    ) -> list[NodeRulesetVerdict]:
+        """
+        The rulesets this node has been evaluated against, as of the
+        deploy that last did so. Empty when no deploy has evaluated it.
+
+        Behind a loader rather than loaded with the node, so a query that does
+        not ask for verdicts does not pay for the extra round trip.
+        """
+        rows = await info.context["ruleset_verdicts_loader"].load(root.id)
+        return [
+            PydanticRecordedRulesetVerdict(
+                ruleset=row.ruleset,
+                verdict=row.verdict,
+                node_version=row.node_version,
+            )
+            for row in rows
+        ]
 
     @strawberry.field
     def git_info(self, root: DBNode) -> GitRepositoryInfo | None:
