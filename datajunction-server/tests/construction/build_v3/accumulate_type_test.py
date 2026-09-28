@@ -114,6 +114,29 @@ class TestMultiArgumentTypes:
 
         assert _multi_argument_accumulate_types("ignored", _parent()) is None
 
+    def test_declines_when_argument_type_resolution_raises(self, monkeypatch):
+        """An argument that cannot infer its type leaves the caller on fallback."""
+
+        class UntypeableArgument:
+            @property
+            def type(self):
+                raise TypeError("cannot infer argument type")
+
+        call = ast.Function(
+            name=ast.Name("test_accumulate"),
+            args=[
+                UntypeableArgument(),
+                SimpleNamespace(type=ct.IntegerType()),
+            ],
+        )
+        parsed = SimpleNamespace(select=SimpleNamespace(projection=[call]))
+        monkeypatch.setattr(
+            "datajunction_server.construction.build_v3.measures.parse",
+            lambda _: parsed,
+        )
+
+        assert _multi_argument_accumulate_types("ignored", _parent()) is None
+
     def test_declines_when_a_nested_column_cannot_be_typed(self):
         assert (
             _multi_argument_accumulate_types(

@@ -890,22 +890,22 @@ def _build_grain_group_from_preagg_table(
 
             if merge_func:
                 # Apply re-aggregation
+                assert component is not None
                 agg_expr: ast.Expression = build_merge_call(
                     merge_func,
                     merge_args,
                     col_ref,
                 )
-                if component is not None:
-                    agg_expr = apply_component_serialize(
-                        agg_expr,
-                        component,
-                        materialization_target,
-                    )
-                    if (
-                        component.serializes_for(materialization_target)
-                        and component.serialize_type
-                    ):
-                        serialized_types[col.name] = component.serialize_type
+                agg_expr = apply_component_serialize(
+                    agg_expr,
+                    component,
+                    materialization_target,
+                )
+                if (
+                    component.serializes_for(materialization_target)
+                    and component.serialize_type
+                ):
+                    serialized_types[col.name] = component.serialize_type
                 aliased = ast.Alias(child=agg_expr, alias=ast.Name(col.name))
                 select_items.append(aliased)
             else:
