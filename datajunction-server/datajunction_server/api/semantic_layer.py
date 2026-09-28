@@ -14,7 +14,11 @@ from typing import Any
 
 from fastapi import Depends
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field  # pylint: disable=no-name-in-module
+from pydantic import (  # pylint: disable=no-name-in-module
+    BaseModel,
+    Field,
+    model_serializer,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.node import Node, NodeRevision
@@ -353,14 +357,18 @@ class ViewSummary(BaseModel):
     uid: str
     features: list[str]
 
+    @model_serializer(mode="wrap")
+    def _omit_null_display_name(self, handler):
+        """Omit only display_name, preserving nulls in nested detail fields."""
+        data = handler(self)
+        if isinstance(data, dict) and data.get("display_name") is None:
+            data.pop("display_name", None)
+        return data
 
-class ViewDetail(BaseModel):
+
+class ViewDetail(ViewSummary):
     """Full semantic view returned by ``/views/{view}``."""
 
-    name: str
-    display_name: str | None = None
-    uid: str
-    features: list[str]
     dimensions: list[DimensionInfo]
     metrics: list[MetricInfo]
 
@@ -386,11 +394,7 @@ class GeneratedSQLResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.post(
-    "/views/list",
-    response_model=list[ViewSummary],
-    response_model_exclude_none=True,
-)
+@router.post("/views/list", response_model=list[ViewSummary])
 async def list_views(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -418,11 +422,7 @@ async def list_views(
     ]
 
 
-@router.post(
-    "/views/{view_name}",
-    response_model=ViewDetail,
-    response_model_exclude_none=True,
-)
+@router.post("/views/{view_name}", response_model=ViewDetail)
 async def get_view(
     view_name: str,
     session: AsyncSession = Depends(get_session),

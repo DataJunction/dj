@@ -576,8 +576,8 @@ async def test_view_endpoints_omit_missing_display_name(
         name="sem.unnamed_cube",
         display_name="",
         columns=[],
-        cube_node_metrics=[],
-        cube_node_dimensions=[],
+        cube_node_metrics=["sem.total_amount"],
+        cube_node_dimensions=["sem.region.region_name"],
     )
     monkeypatch.setattr(
         "datajunction_server.api.semantic_layer.Node.find_names_and_display_names",
@@ -594,7 +594,11 @@ async def test_view_endpoints_omit_missing_display_name(
     assert list_resp.status_code == 200, list_resp.text
     assert detail_resp.status_code == 200, detail_resp.text
     assert "display_name" not in list_resp.json()[0]
-    assert "display_name" not in detail_resp.json()
+    detail = detail_resp.json()
+    assert "display_name" not in detail
+    assert detail["metrics"][0]["description"] is None
+    assert detail["dimensions"][0]["description"] is None
+    assert detail["dimensions"][0]["grain"] is None
 
 
 # ---------------------------------------------------------------------------
