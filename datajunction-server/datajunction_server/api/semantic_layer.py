@@ -175,6 +175,7 @@ def _view_payload(cube: NodeRevision) -> "ViewDetail":
     """
     return ViewDetail(
         name=cube.name,
+        display_name=cube.display_name or None,
         uid=cube.name,
         features=[],  # no optional spec features for now
         dimensions=_dimensions_payload(cube),
@@ -345,9 +346,10 @@ class DimensionInfo(BaseModel):
 
 
 class ViewSummary(BaseModel):
-    """Summary entry returned by ``/views/list`` (``{name, uid, features}``)."""
+    """Summary entry returned by ``/views/list``."""
 
     name: str
+    display_name: str | None = None
     uid: str
     features: list[str]
 
@@ -356,6 +358,7 @@ class ViewDetail(BaseModel):
     """Full semantic view returned by ``/views/{view}``."""
 
     name: str
+    display_name: str | None = None
     uid: str
     features: list[str]
     dimensions: list[DimensionInfo]
@@ -383,27 +386,43 @@ class GeneratedSQLResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.post("/views/list", response_model=list[ViewSummary])
+@router.post(
+    "/views/list",
+    response_model=list[ViewSummary],
+    response_model_exclude_none=True,
+)
 async def list_views(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> list[ViewSummary] | JSONResponse:
     """List the semantic views (DJ cubes) available to the caller.
 
-    The spec's ``/views/list`` returns summaries only (``{name, uid, features}``);
+    The spec's ``/views/list`` returns summaries only;
     full metrics/dimensions are fetched per-view via ``/views/{view}``.
     """
     try:
-        cube_names = await Node.find_names(session, node_type=NodeType.CUBE)
+        cubes = await Node.find_names_and_display_names(
+            session,
+            node_type=NodeType.CUBE,
+        )
     except DJException as exc:
         return _problem(exc.http_status_code or 400, exc.message)
     return [
-        ViewSummary(name=cube_name, uid=cube_name, features=[])
-        for cube_name in cube_names
+        ViewSummary(
+            name=cube_name,
+            display_name=display_name or None,
+            uid=cube_name,
+            features=[],
+        )
+        for cube_name, display_name in cubes
     ]
 
 
-@router.post("/views/{view_name}", response_model=ViewDetail)
+@router.post(
+    "/views/{view_name}",
+    response_model=ViewDetail,
+    response_model_exclude_none=True,
+)
 async def get_view(
     view_name: str,
     session: AsyncSession = Depends(get_session),

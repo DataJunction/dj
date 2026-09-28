@@ -15,12 +15,14 @@ from httpx import AsyncClient
 from datajunction_server.api.semantic_layer import (
     MAX_ROW_LIMIT,
     FilterPayload,
+    ViewSummary,
     _arrow_type_name,
     _dimensions_payload,
     _filter_to_sql,
     _generated_column_arrow_type_name,
     _metrics_payload,
     _quote_value,
+    _view_payload,
 )
 from datajunction_server.construction.build_v3.types import (
     GeneratedSQL as V3GeneratedSQL,
@@ -112,6 +114,27 @@ class TestSemanticViewPayloadTypes:
         assert _arrow_type_name("array<string>") == "list"
         assert _arrow_type_name("timestamp") == "timestamp"
         assert _arrow_type_name(None) is None
+
+    @pytest.mark.parametrize("display_name", [None, ""])
+    def test_view_payloads_omit_missing_display_name(self, display_name):
+        cube = SimpleNamespace(
+            name="sem.sales_cube",
+            display_name=display_name,
+            columns=[],
+            cube_node_metrics=[],
+            cube_node_dimensions=[],
+        )
+
+        summary = ViewSummary(
+            name=cube.name,
+            display_name=display_name or None,
+            uid=cube.name,
+            features=[],
+        )
+        detail = _view_payload(cube)  # type: ignore[arg-type]
+
+        assert "display_name" not in summary.model_dump(exclude_none=True)
+        assert "display_name" not in detail.model_dump(exclude_none=True)
 
     def test_metric_and_dimension_payloads_use_cube_column_types(self):
         cube = SimpleNamespace(
@@ -429,7 +452,8 @@ async def test_semantic_endpoints_end_to_end(client: AsyncClient):
         await client.post("/semantic/views/list", json={"runtime_configuration": {}}),
         200,
     )
-    assert any(v["name"] == view for v in resp.json())
+    summary = next(v for v in resp.json() if v["name"] == view)
+    assert summary["display_name"] == "Sales Cube"
 
     # /views/{view} returns the cube's metrics and dimensions in spec shape.
     resp = await _expect(
@@ -440,6 +464,7 @@ async def test_semantic_endpoints_end_to_end(client: AsyncClient):
         200,
     )
     detail = resp.json()
+    assert detail["display_name"] == "Sales Cube"
     assert {m["id"] for m in detail["metrics"]} == {"sem.total_amount"}
     assert any(d["id"] == "sem.region.region_name" for d in detail["dimensions"])
 
@@ -540,6 +565,36 @@ async def test_list_views_query_count(
 
     # The remaining queries are per-request auth/RBAC.
     assert len(capture_queries) <= 4, "\n\n".join(capture_queries)
+
+
+@pytest.mark.asyncio
+async def test_view_endpoints_omit_missing_display_name(
+    client: AsyncClient,
+    monkeypatch,
+):
+    cube_revision = SimpleNamespace(
+        name="sem.unnamed_cube",
+        display_name="",
+        columns=[],
+        cube_node_metrics=[],
+        cube_node_dimensions=[],
+    )
+    monkeypatch.setattr(
+        "datajunction_server.api.semantic_layer.Node.find_names_and_display_names",
+        AsyncMock(return_value=[(cube_revision.name, None)]),
+    )
+    monkeypatch.setattr(
+        "datajunction_server.api.semantic_layer.Node.get_cube_by_name",
+        AsyncMock(return_value=SimpleNamespace(current=cube_revision)),
+    )
+
+    list_resp = await client.post("/semantic/views/list", json={})
+    detail_resp = await client.post(f"/semantic/views/{cube_revision.name}", json={})
+
+    assert list_resp.status_code == 200, list_resp.text
+    assert detail_resp.status_code == 200, detail_resp.text
+    assert "display_name" not in list_resp.json()[0]
+    assert "display_name" not in detail_resp.json()
 
 
 # ---------------------------------------------------------------------------
@@ -686,9 +741,9 @@ async def test_list_views_djexception_returns_problem(
     client: AsyncClient,
     monkeypatch,
 ):
-    """``Node.find_names`` raising DJException -> problem response in list_views."""
+    """A failed cube summary lookup returns a problem response."""
     monkeypatch.setattr(
-        "datajunction_server.api.semantic_layer.Node.find_names",
+        "datajunction_server.api.semantic_layer.Node.find_names_and_display_names",
         AsyncMock(
             side_effect=DJException(message="find blew up", http_status_code=418),
         ),

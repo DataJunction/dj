@@ -990,6 +990,33 @@ class Node(Base):
         return list(result.scalars().all())
 
     @classmethod
+    async def find_names_and_display_names(
+        cls,
+        session: AsyncSession,
+        prefix: str | None = None,
+        node_type: NodeType | None = None,
+    ) -> list[tuple[str, str | None]]:
+        """
+        Finds node names and display names by prefix and type.
+
+        Selects only the two requested columns, so no ORM entities are built and
+        the session's identity map is left untouched.
+        """
+        statement = (
+            select(Node.name, NodeRevision.display_name)
+            .join(
+                NodeRevision,
+                and_(
+                    NodeRevision.node_id == Node.id,
+                    NodeRevision.version == Node.current_version,
+                ),
+            )
+            .where(*cls._find_filters(prefix, node_type))
+        )
+        result = await session.execute(statement)
+        return [(name, display_name) for name, display_name in result.all()]
+
+    @classmethod
     async def main_branch_names(
         cls,
         session: AsyncSession,
