@@ -116,7 +116,7 @@ class TestSemanticViewPayloadTypes:
         assert _arrow_type_name(None) is None
 
     @pytest.mark.parametrize("display_name", [None, ""])
-    def test_view_payloads_omit_missing_display_name(self, display_name):
+    def test_view_payloads_use_null_for_missing_display_name(self, display_name):
         cube = SimpleNamespace(
             name="sem.sales_cube",
             display_name=display_name,
@@ -133,8 +133,8 @@ class TestSemanticViewPayloadTypes:
         )
         detail = _view_payload(cube)  # type: ignore[arg-type]
 
-        assert "display_name" not in summary.model_dump(exclude_none=True)
-        assert "display_name" not in detail.model_dump(exclude_none=True)
+        assert summary.model_dump()["display_name"] is None
+        assert detail.model_dump()["display_name"] is None
 
     def test_metric_and_dimension_payloads_use_cube_column_types(self):
         cube = SimpleNamespace(
@@ -568,7 +568,7 @@ async def test_list_views_query_count(
 
 
 @pytest.mark.asyncio
-async def test_view_endpoints_omit_missing_display_name(
+async def test_view_endpoints_use_null_for_missing_display_name(
     client: AsyncClient,
     monkeypatch,
 ):
@@ -593,9 +593,9 @@ async def test_view_endpoints_omit_missing_display_name(
 
     assert list_resp.status_code == 200, list_resp.text
     assert detail_resp.status_code == 200, detail_resp.text
-    assert "display_name" not in list_resp.json()[0]
+    assert list_resp.json()[0]["display_name"] is None
     detail = detail_resp.json()
-    assert "display_name" not in detail
+    assert detail["display_name"] is None
     assert detail["metrics"][0]["description"] is None
     assert detail["dimensions"][0]["description"] is None
     assert detail["dimensions"][0]["grain"] is None

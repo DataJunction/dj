@@ -14,11 +14,7 @@ from typing import Any
 
 from fastapi import Depends
 from fastapi.responses import JSONResponse
-from pydantic import (  # pylint: disable=no-name-in-module
-    BaseModel,
-    Field,
-    model_serializer,
-)
+from pydantic import BaseModel, Field  # pylint: disable=no-name-in-module
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.node import Node, NodeRevision
@@ -356,14 +352,6 @@ class ViewSummary(BaseModel):
     display_name: str | None = None
     uid: str
     features: list[str]
-
-    @model_serializer(mode="wrap")
-    def _omit_null_display_name(self, handler):
-        """Omit only display_name, preserving nulls in nested detail fields."""
-        data = handler(self)
-        if isinstance(data, dict) and data.get("display_name") is None:
-            data.pop("display_name", None)
-        return data
 
 
 class ViewDetail(ViewSummary):
