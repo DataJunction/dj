@@ -289,7 +289,7 @@ def apply_component_serialize(
     serialize = component.serialize
     if serialize is None:  # pragma: no cover - guaranteed by serializes_for
         return expr
-    wrapped = parse(
+    wrapped = cached_parse(
         f"SELECT {serialize.replace('{}', str(expr))}",
     ).select.projection[0]
     wrapped.clear_parent()

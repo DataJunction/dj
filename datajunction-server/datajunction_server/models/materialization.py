@@ -176,11 +176,13 @@ def get_druid_aggregator_spec(
                     )
                 ),
             )
+        assert family_config is not None  # params are non-empty and all keys are valid
         for key, value in params.items():
             default = family_config[key]  # unknown keys were rejected above
             if isinstance(default, (int, float)) and not isinstance(default, bool):
                 valid_type = isinstance(value, (int, float)) and not isinstance(
-                    value, bool
+                    value,
+                    bool,
                 )
                 if valid_type:
                     try:
