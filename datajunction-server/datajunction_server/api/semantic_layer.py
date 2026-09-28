@@ -175,6 +175,7 @@ def _view_payload(cube: NodeRevision) -> "ViewDetail":
     """
     return ViewDetail(
         name=cube.name,
+        display_name=cube.display_name or None,
         uid=cube.name,
         features=[],  # no optional spec features for now
         dimensions=_dimensions_payload(cube),
@@ -345,19 +346,17 @@ class DimensionInfo(BaseModel):
 
 
 class ViewSummary(BaseModel):
-    """Summary entry returned by ``/views/list`` (``{name, uid, features}``)."""
+    """Summary entry returned by ``/views/list``."""
 
     name: str
+    display_name: str | None = None
     uid: str
     features: list[str]
 
 
-class ViewDetail(BaseModel):
+class ViewDetail(ViewSummary):
     """Full semantic view returned by ``/views/{view}``."""
 
-    name: str
-    uid: str
-    features: list[str]
     dimensions: list[DimensionInfo]
     metrics: list[MetricInfo]
 
@@ -390,16 +389,24 @@ async def list_views(
 ) -> list[ViewSummary] | JSONResponse:
     """List the semantic views (DJ cubes) available to the caller.
 
-    The spec's ``/views/list`` returns summaries only (``{name, uid, features}``);
+    The spec's ``/views/list`` returns summaries only;
     full metrics/dimensions are fetched per-view via ``/views/{view}``.
     """
     try:
-        cube_names = await Node.find_names(session, node_type=NodeType.CUBE)
+        cubes = await Node.find_names_and_display_names(
+            session,
+            node_type=NodeType.CUBE,
+        )
     except DJException as exc:
         return _problem(exc.http_status_code or 400, exc.message)
     return [
-        ViewSummary(name=cube_name, uid=cube_name, features=[])
-        for cube_name in cube_names
+        ViewSummary(
+            name=cube_name,
+            display_name=display_name or None,
+            uid=cube_name,
+            features=[],
+        )
+        for cube_name, display_name in cubes
     ]
 
 
