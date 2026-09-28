@@ -19,6 +19,8 @@ from datajunction_server.construction.build_v3.dimensions import (
 from datajunction_server.database.preaggregation import (
     PreAggregation,
     compute_expression_hash,
+    get_measure_identities,
+    measure_identity_token,
 )
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.decompose import Aggregability, MetricComponent
@@ -42,10 +44,9 @@ logger = logging.getLogger(__name__)
 
 def get_required_measure_identities(
     grain_group: GrainGroup,
-) -> set[tuple[str, str]]:
+) -> set[str]:
     """
-    Identity of each measure a grain group needs: (expression hash, Phase-1
-    aggregation).
+    Identity token of each measure a grain group needs.
 
     Matching is name-independent, so ``expr_hash`` stands in for identity -- but
     it covers the expression alone, making ``SUM(x)`` and ``MAX(x)`` hash alike
@@ -55,11 +56,16 @@ def get_required_measure_identities(
 
     Phase-1 ``aggregation`` rather than ``merge``, because merge is not unique --
     COUNT accumulates with COUNT but merges with SUM.
+
+    Built through ``measure_identity_token`` rather than assembled here, so the
+    definition of identity lives in one place -- it also folds in sketch tuning
+    parameters, which a locally-built tuple would silently omit.
     """
     return {
-        (
+        measure_identity_token(
             compute_expression_hash(component.expression),
-            component.normalized_aggregation,
+            component.aggregation,
+            component.params,
         )
         for _, component in grain_group.components
     }
@@ -348,13 +354,9 @@ def find_matching_preagg(
                 continue
             join_back = coverage
 
-        # Coverage check on (expression hash, Phase-1 aggregation) -- see
-        # get_required_measure_identities for why the aggregation is part of it.
-        preagg_measures = {
-            (measure.expr_hash, measure.normalized_aggregation)
-            for measure in preagg.measures
-            if measure.expr_hash
-        }
+        # Coverage check on measure identity -- see
+        # get_required_measure_identities for what that comprises.
+        preagg_measures = get_measure_identities(preagg.measures)
         if not required_measures.issubset(preagg_measures):
             logger.debug(
                 f"[BuildV3] Pre-agg {preagg.id} measures {preagg_measures} "
@@ -406,13 +408,21 @@ def get_preagg_measure_column(
     Returns:
         Column name in the pre-agg, or None if not found
     """
-    target = (
+    target = measure_identity_token(
         compute_expression_hash(component.expression),
-        component.normalized_aggregation,
+        component.aggregation,
+        component.params,
     )
 
     for measure in preagg.measures:
-        if (measure.expr_hash, measure.normalized_aggregation) == target:
+        if (
+            measure_identity_token(
+                measure.expr_hash,
+                measure.aggregation,
+                measure.params,
+            )
+            == target
+        ):
             # Externally-registered pre-aggs bind the measure to a physical
             # column name that may differ from the DJ component name.
             return measure.source_column or measure.name

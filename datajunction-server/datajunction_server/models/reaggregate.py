@@ -1,5 +1,7 @@
 """Models for metric reaggregation declarations."""
 
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from datajunction_server.enum import StrEnum
@@ -76,6 +78,10 @@ class ReaggregateSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     rules: list[DimensionReaggregateRule] = Field(default_factory=list)
+
+    # Tuning parameters for sketch-backed aggregation/merge functions. The
+    # materialization adapter validates the supported keys for its aggregator.
+    params: dict[str, Any] | None = None
 
 
 def dump_reaggregate_spec(
