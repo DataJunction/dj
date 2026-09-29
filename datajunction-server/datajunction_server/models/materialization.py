@@ -1,6 +1,7 @@
 """Models for materialization"""
 
 import enum
+import math
 import re
 from collections.abc import Callable
 from datetime import date, timedelta
@@ -31,6 +32,22 @@ from datajunction_server.typing import UTCDatetime
 
 if TYPE_CHECKING:
     from datajunction_server.database.node import NodeRevision
+
+
+class MaterializationTarget(StrEnum):
+    """
+    Where a measures table is being written.
+
+    Distinct from ``Dialect``: measures SQL executes in Spark for a Druid cube
+    and an Iceberg pre-agg alike, so the dialect cannot tell the two apart. Only
+    the target can, and some components must be written differently depending on
+    it -- a sketch whose in-engine representation is not the one the destination
+    reads needs converting on the way out.
+    """
+
+    DRUID = "druid"
+    ICEBERG = "iceberg"
+
 
 DRUID_AGG_MAPPING = {
     ("bigint", "sum"): "longSum",
@@ -159,6 +176,29 @@ def get_druid_aggregator_spec(
                     )
                 ),
             )
+        assert family_config is not None  # params are non-empty and all keys are valid
+        for key, value in params.items():
+            default = family_config[key]  # unknown keys were rejected above
+            if isinstance(default, (int, float)) and not isinstance(default, bool):
+                valid_type = isinstance(value, (int, float)) and not isinstance(
+                    value,
+                    bool,
+                )
+                if valid_type:
+                    try:
+                        valid_type = math.isfinite(value)
+                    except OverflowError:
+                        # Huge JSON integers cannot be represented as a Druid number.
+                        valid_type = False
+            else:
+                valid_type = isinstance(value, type(default))
+            if not valid_type:
+                raise DJInvalidInputException(
+                    message=(
+                        f"Druid aggregator `{aggregator}` parameter `{key}` must "
+                        f"have the same kind of value as its default `{default}`."
+                    ),
+                )
 
     spec: dict[str, Any] = {
         "fieldName": column_name,

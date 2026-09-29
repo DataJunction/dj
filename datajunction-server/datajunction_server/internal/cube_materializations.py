@@ -24,7 +24,10 @@ from datajunction_server.models.cube_materialization import (
     UpsertCubeMaterialization,
 )
 from datajunction_server.models.dialect import Dialect
-from datajunction_server.models.materialization import MaterializationStrategy
+from datajunction_server.models.materialization import (
+    MaterializationStrategy,
+    MaterializationTarget,
+)
 from datajunction_server.models.node_type import NodeNameVersion
 from datajunction_server.models.partition import Granularity
 from datajunction_server.models.query import ColumnMetadata
@@ -370,7 +373,13 @@ async def build_cube_materialization(
         dimensions=current_revision.cube_node_dimensions,
         filters=(current_revision.cube_filters or []) + extra_filters,
         dialect=Dialect.SPARK,
+        combiner_dialect=Dialect.DRUID,
         use_materialized=True,
+        # Measures SQL runs in Spark for every target, so the dialect above
+        # cannot say where the output is headed. Druid is the only cube target
+        # (`UpsertCubeMaterialization.job` is Literal["druid_cube"]), and this is
+        # the one caller that knows it.
+        materialization_target=MaterializationTarget.DRUID,
     )
     measures_queries = sorted(
         [

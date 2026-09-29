@@ -59,6 +59,7 @@ from datajunction_server.database.partition import Partition
 from datajunction_server.errors import DJError, DJInvalidInputException, ErrorCode
 from datajunction_server.instrumentation import events
 from datajunction_server.models.dialect import Dialect
+from datajunction_server.models.materialization import MaterializationTarget
 from datajunction_server.models.partition import PartitionType
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
@@ -252,6 +253,8 @@ async def setup_build_context(
     include_temporal_filters: bool = False,
     lookback_window: str | None = None,
     matched_cube: NodeRevision | None = None,
+    materialization_target: MaterializationTarget | None = None,
+    combiner_dialect: Dialect | None = None,
 ) -> BuildContext:
     """
     Create and initialize a BuildContext with all setup done.
@@ -269,6 +272,8 @@ async def setup_build_context(
         dimensions: List of dimension names
         filters: Optional list of filter expressions
         dialect: SQL dialect for output
+        combiner_dialect: Optional dialect for metric combiners when they run
+            somewhere other than the measures SQL engine.
         use_materialized: Whether to use materialized tables
         include_temporal_filters: Whether to include temporal partition filters from cube
         lookback_window: Lookback window for temporal filters
@@ -291,6 +296,8 @@ async def setup_build_context(
         dimensions=list(dimensions),
         filters=filters or [],
         dialect=dialect,
+        combiner_dialect=combiner_dialect,
+        materialization_target=materialization_target,
         use_materialized=use_materialized,
         temporal_partition_columns=temporal_partition_columns or {},
         lookback_window=lookback_window,
@@ -377,6 +384,8 @@ async def build_measures_sql(
     lookback_window: str | None = None,
     query_parameters: dict[str, Any] | None = None,
     matched_cube: NodeRevision | None = None,
+    materialization_target: MaterializationTarget | None = None,
+    combiner_dialect: Dialect | None = None,
 ) -> GeneratedMeasuresSQL:
     """
     Build measures SQL for a set of metrics, dimensions, and filters.
@@ -392,6 +401,8 @@ async def build_measures_sql(
         dimensions: List of dimension names (format: "node.column" or "node.column[role]")
         filters: Optional list of filter expressions
         dialect: SQL dialect for output
+        combiner_dialect: Optional dialect for metric combiners when they run
+            somewhere other than the measures SQL engine.
         use_materialized: If True (default), use materialized tables when available.
             Set to False when generating SQL for materialization refresh to avoid
             circular references.
@@ -420,6 +431,8 @@ async def build_measures_sql(
         include_temporal_filters=include_temporal_filters,
         lookback_window=lookback_window,
         matched_cube=matched_cube,
+        materialization_target=materialization_target,
+        combiner_dialect=combiner_dialect,
     )
 
     # Build grain groups from context

@@ -521,6 +521,8 @@ export const DataJunctionAPI = {
               name
             }
             reaggregate {
+              fn
+              params
               rules {
                 dimension
                 fn
@@ -615,6 +617,7 @@ export const DataJunctionAPI = {
               name
             }
             reaggregate {
+              fn
               rules {
                 dimension
                 fn

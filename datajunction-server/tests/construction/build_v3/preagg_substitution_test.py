@@ -36,6 +36,8 @@ from datajunction_server.models.decompose import (
     MetricComponent,
     PreAggMeasure,
 )
+from datajunction_server.models.materialization import MaterializationTarget
+from datajunction_server.models.query import V3ColumnMetadata
 from datajunction_server.utils import get_query_service_client
 
 from . import assert_sql_equal, get_first_grain_group
@@ -3304,6 +3306,70 @@ class TestBuildGrainGroupFromPreaggErrorPaths:
         )
         # Only one component should appear in output despite two in input
         assert len(result.components) == 1
+
+    @pytest.mark.parametrize(
+        ("target", "expected_type", "serialized"),
+        [
+            (None, "struct", False),
+            (MaterializationTarget.DRUID, "binary", True),
+        ],
+    )
+    def test_sketch_merge_converts_for_druid(self, target, expected_type, serialized):
+        """A cube reusing an Iceberg pre-agg converts the merged sketch."""
+        from datajunction_server.database.availabilitystate import AvailabilityState
+
+        node = self._make_node()
+        component = MetricComponent(
+            name="rev_digest",
+            expression="revenue",
+            aggregation="build_digest(revenue, 200)",
+            merge="merge_digest",
+            merge_args=["200"],
+            serialize="digest_to_bytes({})",
+            serialize_targets=[MaterializationTarget.DRUID],
+            serialize_type="binary",
+            rule=AggregationRule(type=Aggregability.FULL),
+        )
+        measure = PreAggMeasure(
+            **component.model_dump(),
+            expr_hash=compute_expression_hash("revenue"),
+        )
+        preagg = PreAggregation(
+            node_revision_id=1,
+            grain_columns=[],
+            measures=[measure],
+            columns=[
+                V3ColumnMetadata(
+                    name="rev_digest",
+                    type="struct",
+                    semantic_name="test_node:rev_digest",
+                    semantic_type="metric_component",
+                ),
+            ],
+            sql="SELECT 1",
+            grain_group_hash="abc",
+            preagg_hash="def",
+            availability=AvailabilityState(
+                catalog="wh",
+                schema_="preaggs",
+                table="tbl",
+                valid_through_ts=99999,
+            ),
+        )
+        ctx = self._make_ctx()
+        ctx.materialization_target = target
+
+        result = build_grain_group_from_preagg(
+            ctx,
+            self._make_grain_group(node, [(node, component)]),
+            preagg,
+            resolved_dimensions=[],
+            components_per_metric={},
+        )
+
+        assert ("digest_to_bytes(" in str(result.query)) is serialized
+        assert "merge_digest(rev_digest, 200)" in str(result.query)
+        assert result.columns[0].type == expected_type
 
 
 class TestPreAggFreshnessGating:

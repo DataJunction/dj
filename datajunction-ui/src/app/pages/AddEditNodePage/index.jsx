@@ -75,6 +75,7 @@ export function AddEditNodePage({ extensions = {} }) {
     reaggregate_dimension: '',
     reaggregate_function: '',
     had_reaggregate: false,
+    reaggregate_original: null,
   };
 
   const validator = values => {
@@ -174,8 +175,28 @@ export function AddEditNodePage({ extensions = {} }) {
   };
 
   const buildReaggregateSpec = values => {
+    // The form only edits dimension rules. Preserve sketch-family settings when
+    // changing another field (or clearing a dimension rule).
+    const original = values.reaggregate_original;
+    const originalRule = original?.rules?.[0];
+    if (
+      original &&
+      (originalRule?.dimension || '') ===
+        (values.reaggregate_dimension || '') &&
+      (originalRule?.fn?.toLowerCase() || '') ===
+        (values.reaggregate_function || '')
+    ) {
+      // Omit unchanged metadata so a stale edit form cannot overwrite a newer
+      // family or tuning-parameter update made by another client.
+      return undefined;
+    }
+    const family = {
+      ...(original?.fn ? { fn: original.fn.toLowerCase() } : {}),
+      ...(original?.params != null ? { params: original.params } : {}),
+    };
     if (values.reaggregate_dimension && values.reaggregate_function) {
       return {
+        ...family,
         rules: [
           {
             dimension: values.reaggregate_dimension,
@@ -183,6 +204,9 @@ export function AddEditNodePage({ extensions = {} }) {
           },
         ],
       };
+    }
+    if (Object.keys(family).length) {
+      return family;
     }
     return values.had_reaggregate ? null : undefined;
   };
@@ -343,6 +367,7 @@ export function AddEditNodePage({ extensions = {} }) {
             firstReaggregateRule(node.current.reaggregate)?.fn,
           ),
           had_reaggregate: Boolean(node.current.reaggregate),
+          reaggregate_original: node.current.reaggregate,
           upstream_node: '', // Derived metrics have no upstream node
           aggregate_expression: derivedExpression,
         };
@@ -363,6 +388,7 @@ export function AddEditNodePage({ extensions = {} }) {
             firstReaggregateRule(node.current.reaggregate)?.fn,
           ),
           had_reaggregate: Boolean(node.current.reaggregate),
+          reaggregate_original: node.current.reaggregate,
           upstream_node: nonMetricParent?.name || '',
           aggregate_expression: node.current.metricMetadata?.expression,
         };
@@ -416,6 +442,7 @@ export function AddEditNodePage({ extensions = {} }) {
       'reaggregate_dimension',
       'reaggregate_function',
       'had_reaggregate',
+      'reaggregate_original',
       'owners',
       'custom_metadata',
     ];

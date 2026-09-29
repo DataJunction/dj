@@ -27,7 +27,9 @@ from datajunction_server.construction.build_v3.cte import (
 )
 from datajunction_server.construction.build_v3.decomposition import (
     analyze_grain_groups,
+    apply_component_serialize,
     build_component_expression,
+    build_merge_call,
     merge_grain_groups,
 )
 from datajunction_server.construction.build_v3.dimensions import (
@@ -78,10 +80,12 @@ from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.scan_estimation import calculate_scan_estimate
 from datajunction_server.models.decompose import Aggregability, MetricComponent
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.materialization import MaterializationTarget
 from datajunction_server.sql.functions import function_registry
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing import types as ct
 from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.utils import SEPARATOR
 
 _logger = logging.getLogger(__name__)
@@ -157,10 +161,57 @@ def _parse_type_string(type_str: str | None) -> ct.ColumnType | None:
     return _TYPE_STRING_MAP.get(normalized)
 
 
+def _multi_argument_accumulate_types(
+    aggregation: str,
+    parent_node: Node | None,
+) -> list[ct.ColumnType] | None:
+    """
+    Argument types of an accumulate whose outermost call takes more than one.
+
+    Type inference feeds a component exactly one input type, which is right for
+    every aggregation that takes one argument -- including the templated ones,
+    whose outermost call is still a single-argument ``SUM``. A sketch breaks
+    that assumption: ``nflx_tdigest(latency_ms, CAST(200.0 AS DOUBLE))`` needs
+    two, so calling ``infer_type`` with one raises ``TypeError``, and the caller
+    quietly falls back to the metric's own type. That is how a struct-valued
+    sketch column comes to be recorded as ``double``.
+
+    Returns None whenever this does not apply or an argument cannot be typed,
+    so the single-argument path is left exactly as it was.
+    """
+    if parent_node is None:
+        return None
+    call = parse(f"SELECT {aggregation}").select.projection[0]
+    if not isinstance(call, ast.Function) or len(call.args) < 2:
+        return None
+
+    arg_types: list[ct.ColumnType] = []
+    for arg in call.args:
+        # A parsed arithmetic or nested-function argument still has unbound
+        # columns. Resolve them before asking the whole expression for its type.
+        if isinstance(arg, ast.Expression):
+            for column in arg.find_all(ast.Column):
+                column_type = _parse_type_string(
+                    get_column_type(parent_node, column.name.name),
+                )
+                if column_type is None:
+                    return None
+                column.add_type(column_type)
+        try:
+            resolved = arg.type
+        except (DJParseException, TypeError, AttributeError):
+            return None
+        if resolved is None or isinstance(resolved, list):
+            return None
+        arg_types.append(resolved)
+    return arg_types
+
+
 def infer_component_type(
     component: MetricComponent,
     metric_type: str,
     parent_node: Node | None = None,
+    materialization_target: MaterializationTarget | None = None,
 ) -> str:
     """
     Infer the SQL type of a metric component based on its aggregation function.
@@ -177,6 +228,14 @@ def infer_component_type(
     Returns:
         The inferred SQL type string
     """
+    # A serialized column stores the converted type, and the family declares it.
+    # Checked first: inference below cannot see the conversion, and for a
+    # multi-argument sketch accumulate it falls back to `metric_type` entirely,
+    # so leaving this to inference records a type that makes the Druid
+    # aggregator lookup miss and drop the measure with no error.
+    if component.serializes_for(materialization_target) and component.serialize_type:
+        return component.serialize_type
+
     if not component.aggregation:
         return metric_type  # pragma: no cover
 
@@ -201,16 +260,21 @@ def infer_component_type(
         col_type_str = get_column_type(parent_node, component.expression)
         input_type = _parse_type_string(col_type_str)
 
+    multi_arg_types = _multi_argument_accumulate_types(agg_str, parent_node)
+
     try:
-        if input_type:
+        if multi_arg_types is not None:
+            result_type = func_class.infer_type(*multi_arg_types)
+        elif input_type:
             result_type = func_class.infer_type(input_type)
         else:  # pragma: no cover
             # Fallback: try with a generic ColumnType
             result_type = func_class.infer_type(ct.ColumnType("unknown", "unknown"))
-        return str(result_type)
     except (TypeError, NotImplementedError, AttributeError):
         # Function may require more specific types - fall back to metric type
         return metric_type
+
+    return str(result_type)
 
 
 def _get_filter_column_name_for_dimension(
@@ -1858,9 +1922,15 @@ def build_grain_group_from_preagg(
         # If no merge function, output column directly (e.g., grain column for LIMITED)
         # Otherwise, apply the merge function for re-aggregation
         if component.merge:
-            agg_expr = ast.Function(
-                name=ast.Name(component.merge),
-                args=[_preagg_column(scan_name, scan_alias)],
+            agg_expr: ast.Expression = build_merge_call(
+                component.merge,
+                component.merge_args,
+                _preagg_column(scan_name, scan_alias),
+            )
+            agg_expr = apply_component_serialize(
+                agg_expr,
+                component,
+                ctx.materialization_target,
             )
             aliased = ast.Alias(child=agg_expr, alias=ast.Name(output_alias))
             select_items.append(aliased)
@@ -1872,6 +1942,11 @@ def build_grain_group_from_preagg(
 
         # Get type from pre-agg columns
         col_type = preagg.get_column_type(measure_col, default="double")
+        if (
+            component.serializes_for(ctx.materialization_target)
+            and component.serialize_type
+        ):
+            col_type = component.serialize_type
         columns.append(
             ColumnMetadata(
                 name=output_alias,
@@ -2140,7 +2215,10 @@ def build_grain_group_sql(
                 # FULL: apply aggregation at finest grain, will be re-aggregated in final SELECT
                 # Always use component.name for consistency - no special case for single-component
                 component_alias = component.name
-                expr_ast = build_component_expression(component)
+                expr_ast = build_component_expression(
+                    component,
+                    ctx.materialization_target,
+                )
                 component_expressions.append((component_alias, expr_ast))
                 component_metadata.append(
                     (component_alias, component, metric_node),
@@ -2159,7 +2237,7 @@ def build_grain_group_sql(
         # Always use component.name for consistency - no special case for single-component
         component_alias = component.name
 
-        expr_ast = build_component_expression(component)
+        expr_ast = build_component_expression(component, ctx.materialization_target)
         component_expressions.append((component_alias, expr_ast))
         component_metadata.append((component_alias, component, metric_node))
 
@@ -2404,7 +2482,12 @@ def build_grain_group_sql(
                 ColumnMetadata(
                     name=ctx.alias_registry.get_alias(comp_alias) or comp_alias,
                     semantic_name=f"{metric_node.name}:{component.name}",
-                    type=infer_component_type(component, metric_type, parent_node),
+                    type=infer_component_type(
+                        component,
+                        metric_type,
+                        parent_node,
+                        ctx.materialization_target,
+                    ),
                     semantic_type="metric_component",
                 ),
             )

@@ -465,6 +465,10 @@ async def test_read_metrics(module__client_with_roads: AsyncClient) -> None:
             "aggregation": "SUM",
             "expression": "if(discount > 0.0, 1, 0)",
             "grain_alias": None,
+            "merge_args": [],
+            "serialize": None,
+            "serialize_targets": [],
+            "serialize_type": None,
             "params": None,
             "name": "discount_sum_30b84e6c",
             "merge": "SUM",
@@ -479,6 +483,10 @@ async def test_read_metrics(module__client_with_roads: AsyncClient) -> None:
             "aggregation": "COUNT",
             "expression": "*",
             "grain_alias": None,
+            "merge_args": [],
+            "serialize": None,
+            "serialize_targets": [],
+            "serialize_type": None,
             "params": None,
             "merge": "SUM",
             "name": "count_c8e42e74",
@@ -528,6 +536,7 @@ async def test_metric_reaggregate_roundtrip_and_validation(
     )
     assert response.status_code in (200, 201), response.json()
     assert response.json()["reaggregate"] == {
+        "fn": None,
         "params": None,
         "rules": [
             {
@@ -540,6 +549,7 @@ async def test_metric_reaggregate_roundtrip_and_validation(
     response = await client_with_roads.get(f"/nodes/{metric_name}/")
     assert response.status_code == 200
     assert response.json()["reaggregate"] == {
+        "fn": None,
         "params": None,
         "rules": [
             {
@@ -552,6 +562,7 @@ async def test_metric_reaggregate_roundtrip_and_validation(
     response = await client_with_roads.get(f"/metrics/{metric_name}/")
     assert response.status_code == 200
     assert response.json()["reaggregate"] == {
+        "fn": None,
         "params": None,
         "rules": [
             {
@@ -598,6 +609,88 @@ async def test_metric_reaggregate_roundtrip_and_validation(
         ],
         "warnings": [],
     }
+
+
+@pytest.mark.asyncio
+async def test_legacy_reaggregate_shape_does_not_force_major_revision(
+    client_with_roads: AsyncClient,
+    session: AsyncSession,
+) -> None:
+    """A legacy rules-only JSON spec is equal to the new canonical shape."""
+    metric_name = f"default.legacy_reaggregate_{uuid4().hex}"
+    rules = [
+        {
+            "dimension": "default.repair_orders_fact.repair_order_id",
+            "fn": "last_value",
+        },
+    ]
+    response = await client_with_roads.post(
+        "/nodes/metric/",
+        json={
+            "name": metric_name,
+            "query": "SELECT COUNT(repair_order_id) FROM default.repair_orders_fact",
+            "mode": "published",
+            "reaggregate": {"rules": rules},
+        },
+    )
+    assert response.status_code in (200, 201), response.json()
+
+    node = await Node.get_by_name(session, metric_name)
+    assert node is not None and node.current is not None
+    node.current.reaggregate = {"rules": rules}
+    await session.commit()
+    original_version = node.current_version
+
+    response = await client_with_roads.patch(
+        f"/nodes/{metric_name}/",
+        json={"reaggregate": {"rules": rules}},
+    )
+    assert response.status_code == 200, response.json()
+    assert response.json()["current_version"] == original_version
+
+
+@pytest.mark.asyncio
+async def test_metric_reaggregate_params_validate_before_persistence(
+    client_with_roads: AsyncClient,
+    session: AsyncSession,
+) -> None:
+    """Invalid params fail create and update before derivation is scheduled."""
+    invalid_name = f"default.invalid_params_{uuid4().hex}"
+    payload = {
+        "name": invalid_name,
+        "query": "SELECT AVG(total_repair_cost) FROM default.repair_orders_fact",
+        "mode": "published",
+        "reaggregate": {"fn": "avg", "params": {"compression": 200}},
+    }
+
+    response = await client_with_roads.post("/nodes/metric/", json=payload)
+    assert response.status_code == 422, response.json()
+    assert "requires a parameterized reaggregate.fn" in str(response.json())
+    assert await Node.get_by_name(session, invalid_name) is None
+
+    valid_name = f"default.valid_before_invalid_patch_{uuid4().hex}"
+    response = await client_with_roads.post(
+        "/nodes/metric/",
+        json={
+            "name": valid_name,
+            "query": "SELECT AVG(total_repair_cost) FROM default.repair_orders_fact",
+            "mode": "published",
+        },
+    )
+    assert response.status_code in (200, 201), response.json()
+    original_version = response.json()["current_version"]
+
+    response = await client_with_roads.patch(
+        f"/nodes/{valid_name}/",
+        json={"reaggregate": payload["reaggregate"]},
+    )
+    assert response.status_code == 422, response.json()
+    assert "requires a parameterized reaggregate.fn" in str(response.json())
+
+    response = await client_with_roads.get(f"/nodes/{valid_name}/")
+    assert response.status_code == 200, response.json()
+    assert response.json()["current_version"] == original_version
+    assert response.json()["reaggregate"] is None
 
 
 @pytest_asyncio.fixture(scope="module")

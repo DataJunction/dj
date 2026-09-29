@@ -131,6 +131,7 @@ def test_reaggregate_resolver_returns_metric_spec():
         type=NodeType.METRIC,
         version="1",
         reaggregate={
+            "fn": "tdigest",
             "rules": [
                 {
                     "dimension": "default.date_dim.date",
@@ -143,6 +144,7 @@ def test_reaggregate_resolver_returns_metric_spec():
     result = NodeRevision.reaggregate(NodeRevision, root=db_node_revision)
 
     assert result is not None
+    assert result.fn == ReaggregationFunction.TDIGEST
     assert len(result.rules) == 1
     assert result.rules[0].dimension == "default.date_dim.date"
     assert result.rules[0].fn == ReaggregationFunction.LAST_VALUE

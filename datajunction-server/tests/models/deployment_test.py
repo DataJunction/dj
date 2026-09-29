@@ -2502,6 +2502,19 @@ def test_required_dimensions_normalization_falls_back_for_invalid_query():
     ]
 
 
+def test_metric_spec_rejects_params_for_nonparameterized_reaggregation():
+    """Deployment specs reject invalid tuning parameters during input parsing."""
+    with pytest.raises(
+        ValidationError,
+        match="requires a parameterized reaggregate.fn",
+    ):
+        MetricSpec(
+            name="orders",
+            query="SELECT AVG(amount) FROM orders",
+            reaggregate={"fn": "avg", "params": {"compression": 200}},
+        )
+
+
 @pytest.mark.parametrize(
     "digest",
     ["a" * 63, "a" * 65, "A" * 64, "g" * 64],

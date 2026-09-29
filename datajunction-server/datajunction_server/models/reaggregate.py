@@ -1,8 +1,8 @@
 """Models for metric reaggregation declarations."""
 
-from typing import Any
+from typing import Any, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from datajunction_server.enum import StrEnum
 
@@ -20,6 +20,10 @@ class ReaggregationFunction(StrEnum):
     FIRST_VALUE = "first_value"
     MIN = "min"
     MAX = "max"
+    # Quantile sketch family. Unlike the functions above it does not describe a
+    # rollup arithmetic; it selects how a quantile metric is accumulated, merged
+    # and read back, which is what makes percentiles pre-aggregatable at all.
+    TDIGEST = "tdigest"
 
 
 DIMENSION_REAGGREGATE_FUNCTIONS = frozenset(
@@ -30,6 +34,23 @@ DIMENSION_REAGGREGATE_FUNCTIONS = frozenset(
         ReaggregationFunction.MAX,
     },
 )
+
+
+PARAMETERIZED_REAGGREGATE_FUNCTIONS: frozenset[ReaggregationFunction] = frozenset(
+    {
+        # compression: centroids retained, trading sketch size for tail accuracy.
+        ReaggregationFunction.TDIGEST,
+    },
+)
+
+
+def is_parameterized_reaggregate_function(
+    function: ReaggregationFunction | None,
+) -> bool:
+    """
+    Return whether a function accepts tuning parameters in `params`.
+    """
+    return function in PARAMETERIZED_REAGGREGATE_FUNCTIONS
 
 
 def is_supported_dimension_reaggregate_function(
@@ -77,11 +98,24 @@ class ReaggregateSpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    # A sketch family selects an alternate decomposition for the metric's
+    # aggregate expression. Ordinary dimension-specific behavior remains in
+    # `rules` below.
+    fn: ReaggregationFunction | None = None
     rules: list[DimensionReaggregateRule] = Field(default_factory=list)
 
     # Tuning parameters for sketch-backed aggregation/merge functions. The
     # materialization adapter validates the supported keys for its aggregator.
     params: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def validate_params_function(self) -> Self:
+        """Require non-empty tuning parameters to name a parameterized family."""
+        if self.params and not is_parameterized_reaggregate_function(self.fn):
+            raise ValueError(
+                "reaggregate.params requires a parameterized reaggregate.fn",
+            )
+        return self
 
 
 def dump_reaggregate_spec(

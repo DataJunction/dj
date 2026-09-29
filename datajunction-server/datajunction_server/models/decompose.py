@@ -11,9 +11,10 @@ Key concepts:
 
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from datajunction_server.enum import StrEnum
+from datajunction_server.models.materialization import MaterializationTarget
 from datajunction_server.models.reaggregate import DimensionReaggregateRule
 
 
@@ -91,6 +92,10 @@ class MetricComponent(BaseModel):
                      {} placeholder ("SUM(POWER({}, 2))").
         merge: The function name for combining pre-aggregated values (Phase 2).
         rule: Aggregation rules defining how/when the component can be aggregated.
+
+    The sketch-backed fields added alongside these -- params, merge_args,
+    serialize, serialize_targets, serialize_type -- are documented inline
+    below, where the reasoning sits next to the declaration.
     """
 
     name: str
@@ -109,6 +114,41 @@ class MetricComponent(BaseModel):
     # `measure_identity_token` -- because a sketch built at one accuracy must not
     # satisfy a query asking for another.
     params: dict[str, Any] | None = None
+    # Fixed arguments appended after the column in the Phase 2 merge call, as SQL
+    # literals: `nflx_tdigest_agg(col, 200.0)` is merge="nflx_tdigest_agg" plus
+    # merge_args=["200.0"]. `merge` stays a bare function name because two things
+    # match on it -- the Druid aggregator lookup key and the semi-additive rewrite
+    # in `_replace_reaggregate_merge_expression` -- so the tuning cannot be folded
+    # into it as a template. Rendered from `params` by the decomposition; `params`
+    # remains the identity record, this is the emission form.
+    merge_args: list[str] = Field(default_factory=list)
+
+    # Conversion applied when writing this component to a materialized table for
+    # a target listed in `serialize_targets` -- see `ComponentDef.serialize`. The
+    # value is a template expanded against the accumulated expression.
+    serialize: str | None = None
+    # A list rather than a set: this model is dumped straight to JSON in cube
+    # materialization configs, and `json.dumps` cannot encode a set. StrEnum
+    # members are fine -- they subclass `str`.
+    serialize_targets: list[MaterializationTarget] = Field(default_factory=list)
+    # Column type `serialize` produces. See `ComponentDef.serialize_type`.
+    serialize_type: str | None = None
+
+    def serializes_for(self, materialization_target: Any | None) -> bool:
+        """
+        Whether this component converts its accumulated value for `target`.
+
+        Two things key off this and they must agree: the SQL that writes the
+        column, and the type recorded for it. If they disagree the measures
+        table holds one representation while the catalog claims another, and the
+        Druid aggregator lookup -- which keys on the column type -- silently
+        finds nothing and drops the measure.
+        """
+        return bool(
+            self.serialize
+            and materialization_target is not None
+            and materialization_target in self.serialize_targets,
+        )
 
     @property
     def normalized_aggregation(self) -> str:
