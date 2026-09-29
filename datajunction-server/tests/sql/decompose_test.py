@@ -3141,6 +3141,13 @@ def registered_family():
         aggregate_functions=(dj_functions.ApproxPercentile,),
     )
     class _FamilyDecomposition(AggDecomposition):
+        def __init__(self, params=None):
+            super().__init__(params)
+            self.params = {
+                **self.params,
+                "compression": int(self.params.get("compression", 1)),
+            }
+
         @property
         def components(self) -> list[ComponentDef]:
             return [
@@ -3286,6 +3293,29 @@ async def test_family_gated_percentile_decomposes_through_the_extractor(
     assert components[0].aggregation is not None
     assert "build_sketch" in components[0].aggregation
     assert "read_sketch" in str(combiner)
+
+
+@pytest.mark.asyncio
+async def test_family_components_use_effective_parameters_for_identity(
+    session: AsyncSession,
+    create_metric,
+    registered_family,
+):
+    """Omitted, integer, and integer-valued float defaults share one sketch."""
+    query = "SELECT APPROX_PERCENTILE(price, 0.95) FROM parent_node"
+    specs = [
+        {"fn": "tdigest"},
+        {"fn": "tdigest", "params": {"compression": 1}},
+        {"fn": "tdigest", "params": {"compression": 1.0}},
+    ]
+    components = []
+    for spec in specs:
+        metric_rev = await create_metric(query, reaggregate=spec)
+        measures, _ = await MetricComponentExtractor(metric_rev.id).extract(session)
+        components.append(measures[0])
+
+    assert len({component.name for component in components}) == 1
+    assert all(component.params == {"compression": 1} for component in components)
 
 
 @pytest.mark.asyncio

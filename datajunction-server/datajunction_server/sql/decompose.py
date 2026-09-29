@@ -1883,10 +1883,14 @@ class MetricComponentExtractor:
             family
             and reaggregate is not None
             and dj_function in family.aggregate_functions
-            and reaggregate.params
+            and decomposition.params
         ):
             for component in components:
-                component.params = dict(reaggregate.params)
+                # The implementation knows its effective defaults and may
+                # normalize equivalent spellings (e.g. omitted compression
+                # and an explicit default). Store those effective parameters
+                # so identical sketches have the same measure identity.
+                component.params = dict(decomposition.params)
 
         # Build combiner AST
         is_distinct = func.quantifier == ast.SetQuantifier.Distinct
