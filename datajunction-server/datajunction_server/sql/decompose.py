@@ -1753,16 +1753,16 @@ class MetricComponentExtractor:
             for component in components
             if component.aggregation is not None and component.merge is not None
         ]
-        # Older metrics could declare params on a multi-component expression
-        # (notably AVG). Those params never described SUM and COUNT separately;
-        # broadcasting them changes component identity and may select the wrong
-        # pre-aggregation. Keep such metrics queryable without propagating them.
         if not configurable:
             self._raise_unsupported_reaggregate_shape(
                 "parameterized reaggregation requires an aggregating component",
             )
-        if len(configurable) == 1 and len(components) == 1:
-            configurable[0].params = dict(reaggregate.params or {})
+        if len(configurable) != 1 or len(components) != 1:
+            self._raise_unsupported_reaggregate_shape(
+                "parameterized reaggregation must resolve to exactly one measure; "
+                "use a registered reaggregation family for a multi-component metric",
+            )
+        configurable[0].params = dict(reaggregate.params or {})
 
     def _attach_reaggregate_spec(
         self,
