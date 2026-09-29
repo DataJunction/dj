@@ -52,9 +52,9 @@ concern remains after dismissal, explain it in the summary instead of arguing
 repeatedly in its thread. Do not post inline findings already surfaced clearly
 by build, test, or style CI.
 
-When a trusted PR-context snapshot is supplied, read all its conversation
-comments, review bodies, and every comment in every review thread before
-deciding what is new. Copy its `author_discussion_digest` into
+For every automated structured review, require a trusted PR-context snapshot.
+Read all its conversation comments, review bodies, and every comment in every
+review thread before deciding what is new. Copy its `author_discussion_digest` into
 `context_digest`. Return exactly one `thread_actions` entry for each
 `bot_owned` thread, and none for other threads. `finding_index` links an
 existing thread to the current `findings` array; linking suppresses a duplicate

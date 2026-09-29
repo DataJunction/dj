@@ -4,7 +4,7 @@
   "title": "DataJunction automated PR review result",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "repository", "pr_number", "head_sha", "status", "summary", "findings", "limitations"],
+  "required": ["schema_version", "repository", "pr_number", "head_sha", "status", "context_digest", "thread_actions", "verdict", "required_actions", "test_gaps", "summary", "findings", "limitations"],
   "properties": {
     "schema_version": {"const": 1},
     "repository": {"enum": ["DataJunction/dj", "robinld/dj"]},
@@ -26,7 +26,11 @@
           "reply_kind": {"enum": [null, "answer_question", "false_fixed_claim"]},
           "reply_to_comment_id": {"type": ["integer", "null"], "minimum": 1},
           "reply_body": {"type": ["string", "null"]}
-        }
+        },
+        "allOf": [
+          {"if": {"properties": {"decision": {"const": "resolve"}}}, "then": {"properties": {"finding_index": {"type": "null"}}}},
+          {"if": {"properties": {"decision": {"enum": ["keep_open", "reopen"]}}}, "then": {"properties": {"finding_index": {"type": "integer"}}}}
+        ]
       }
     },
     "verdict": {"enum": ["approve", "request_changes", "block"]},
@@ -51,7 +55,6 @@
       }
     }
   },
-  "dependentRequired": {"context_digest": ["thread_actions"], "thread_actions": ["context_digest"]},
   "if": {"properties": {"status": {"const": "incomplete"}}},
   "then": {"properties": {"limitations": {"minItems": 1}}}
 }
