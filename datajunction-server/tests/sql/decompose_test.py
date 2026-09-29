@@ -2841,8 +2841,8 @@ class TestReaggregateParams:
 
     @staticmethod
     def _spec(params):
-        """A spec carrying params."""
-        return ReaggregateSpec(params=params)
+        """A parameterized-family spec with no registered implementation."""
+        return ReaggregateSpec(fn=ReaggregationFunction.TDIGEST, params=params)
 
     def test_params_reach_components(self):
         extractor = MetricComponentExtractor(1)

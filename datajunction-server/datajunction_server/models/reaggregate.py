@@ -1,8 +1,8 @@
 """Models for metric reaggregation declarations."""
 
-from typing import Any
+from typing import Any, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from datajunction_server.enum import StrEnum
 
@@ -107,6 +107,15 @@ class ReaggregateSpec(BaseModel):
     # Tuning parameters for sketch-backed aggregation/merge functions. The
     # materialization adapter validates the supported keys for its aggregator.
     params: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def validate_params_function(self) -> Self:
+        """Require non-empty tuning parameters to name a parameterized family."""
+        if self.params and not is_parameterized_reaggregate_function(self.fn):
+            raise ValueError(
+                "reaggregate.params requires a parameterized reaggregate.fn",
+            )
+        return self
 
 
 def dump_reaggregate_spec(

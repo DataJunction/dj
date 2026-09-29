@@ -146,6 +146,16 @@ def test_empty_params_allowed():
     assert ReaggregateSpec(params={}).params == {}
 
 
+@pytest.mark.parametrize("fn", [None, ReaggregationFunction.AVG])
+def test_nonempty_params_require_parameterized_function(fn):
+    """Tuning parameters are invalid without a family that interprets them."""
+    with pytest.raises(
+        ValidationError,
+        match="requires a parameterized reaggregate.fn",
+    ):
+        ReaggregateSpec(fn=fn, params={"compression": 200})
+
+
 def test_params_accepted_for_parameterized_function(monkeypatch):
     """
     Registering a function as parameterized enables `params` assignment.
