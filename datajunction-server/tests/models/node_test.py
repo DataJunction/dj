@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.availabilitystate import AvailabilityState
-from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.node import Node, NodeRevision, RequiredDimension
 from datajunction_server.models.node import (
     AvailabilityStateBase,
     NodeCursor,
@@ -217,7 +217,7 @@ def test_extra_validation() -> None:
         node=node,
         version="1",
         query="SELECT * FROM B",
-        required_dimensions=["B.x"],
+        required_dimensions=[RequiredDimension(ref="B.x")],
     )
     with pytest.raises(Exception) as excinfo:
         node_revision.extra_validation()

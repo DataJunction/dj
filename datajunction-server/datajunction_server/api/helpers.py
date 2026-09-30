@@ -23,9 +23,14 @@ from datajunction_server.construction.build import (
     validate_shared_dimensions,
 )
 from datajunction_server.construction.build_v2 import FullColumnName
+from datajunction_server.construction.build_v3.dimension_refs import (
+    split_dimension_ref,
+)
+from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
 from datajunction_server.database.attributetype import AttributeType
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column
+from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.engine import Engine
 from datajunction_server.database.history import History
 from datajunction_server.database.namespace import NodeNamespace
@@ -34,6 +39,7 @@ from datajunction_server.database.node import (
     Node,
     NodeMissingParents,
     NodeRevision,
+    RequiredDimension,
 )
 from datajunction_server.database.user import User
 from datajunction_server.errors import (
@@ -300,89 +306,120 @@ def _resolve_required_dimensions(
     required_dimensions: list[str],
     parent_columns: list[Column],
     dim_nodes: dict[str, "Node"],
-) -> tuple[set[str], list[Column]]:
+    parent_dimension_links: list[DimensionLink] | None = None,
+) -> tuple[set[str], list[RequiredDimension]]:
     """
     Pure resolution of required_dimensions strings against pre-fetched nodes.
 
     Required dimensions can be specified as:
-    - Full path: "dimensions.date.dateint" -> look up in dim_nodes, find column
-    - Short name: "status"                 -> find in parent_columns
+    - Full path: "dimensions.date.dateint"            -> look up in dim_nodes, find column
+    - Role-qualified full path: "dimensions.date.dateint[created_date]"
+      -> same, plus the role must resolve to a dimension link reachable
+         from one of the node's direct parents
+    - Short name: "status"                            -> find in parent_columns
 
     Called by find_required_dimensions (after its DB fetch) and by the bulk
     deployment validator (with its batch-prefetched _all_dim_nodes cache).
 
+    Role validation only checks reachability from a direct (one-hop) parent;
+    a role reachable only via a multi-hop dimension chain isn't validated here.
+
     Returns:
-        Tuple of (invalid dimension paths, matched Column objects)
+        Tuple of (invalid dimension paths, resolved RequiredDimension rows)
     """
     invalid_required_dimensions: set[str] = set()
-    matched_columns: list[Column] = []
+    resolved: list[RequiredDimension] = []
 
     parent_cols_by_name: dict[str, list[Column]] = {}
     for col in parent_columns:
         parent_cols_by_name.setdefault(col.name, []).append(col)
 
-    # Separate full paths from short names
-    # full_paths: {dim_node_name: [(full_path, col_name), ...]}
-    full_paths: dict[str, list[tuple[str, str]]] = {}
+    parent_dimension_links = parent_dimension_links or []
+
+    # Separate full paths from short names.
+    # full_paths: {dim_node_name: [(full_path, col_name, role), ...]}
+    full_paths: dict[str, list[tuple[str, str, str | None]]] = {}
     short_names: list[str] = []
 
     for required_dim in required_dimensions:
-        if SEPARATOR in required_dim:
-            dim_node_name, col_name = required_dim.rsplit(SEPARATOR, 1)
-            # Strip role suffix if present (e.g., "week[order]" -> "week")
-            if "[" in col_name:
-                col_name = col_name.split("[")[0]
-            if dim_node_name not in full_paths:  # pragma: no cover
-                full_paths[dim_node_name] = []
-            full_paths[dim_node_name].append((required_dim, col_name))
+        # A role can itself contain `.` (e.g. a multi-hop role path), so the
+        # full-path/short-name split is decided on the ref with any bracketed
+        # role stripped off first -- testing the raw string would misroute a
+        # bare short name like `status[a.b]` into the full-path branch.
+        dim_part, _ = split_dimension_ref(required_dim)
+        if SEPARATOR in dim_part:
+            dim_ref = parse_dimension_ref(required_dim)
+            full_paths.setdefault(dim_ref.node_name, []).append(
+                (required_dim, dim_ref.column_name, dim_ref.role),
+            )
         else:
             short_names.append(required_dim)
 
     for short_name in short_names:
         matches = parent_cols_by_name.get(short_name, [])
         if len(matches) == 1:
-            matched_columns.append(matches[0])
+            # Resolves locally against metric's own parent.
+            resolved.append(RequiredDimension(ref=short_name, dimension_id=None))
         else:
             # No match, or the same short name exists on more than one direct
             # parent -- ambiguous, so it must be qualified as `node.column`.
             invalid_required_dimensions.add(short_name)
 
-    for dim_node_name, paths in full_paths.items():
+    for dim_node_name, entries in full_paths.items():
         dim_node = dim_nodes.get(dim_node_name)
         if not dim_node or not dim_node.current:  # pragma: no cover
-            for full_path, _ in paths:
+            for full_path, _, _ in entries:
                 invalid_required_dimensions.add(full_path)
             continue
 
         dim_col_map = {col.name: col for col in dim_node.current.columns}
-        for full_path, col_name in paths:
-            if col_name in dim_col_map:
-                matched_columns.append(dim_col_map[col_name])
-            else:
+        # Roles that a direct parent can reach this dimension node through
+        # (one hop only -- see docstring above).
+        reachable_roles = {
+            link.role
+            for link in parent_dimension_links
+            if link.dimension and link.dimension.name == dim_node_name
+        }
+        for full_path, col_name, role in entries:
+            if col_name not in dim_col_map:
                 invalid_required_dimensions.add(full_path)
+                continue
+            if role is not None and role not in reachable_roles:
+                # The declared role doesn't match any dimension link from a
+                # direct parent to this dimension node.
+                invalid_required_dimensions.add(full_path)
+                continue
+            resolved.append(
+                RequiredDimension(ref=full_path, dimension_id=dim_node.id),
+            )
 
-    return invalid_required_dimensions, matched_columns
+    return invalid_required_dimensions, resolved
 
 
 async def find_required_dimensions(
     session: AsyncSession,
     required_dimensions: list[str],
     parent_columns: list[Column],
-) -> tuple[set[str], list[Column]]:
+    parent_dimension_links: list[DimensionLink] | None = None,
+) -> tuple[set[str], list[RequiredDimension]]:
     """
-    Find Column objects for required dimension paths.
+    Resolve required dimension paths into RequiredDimension rows.
 
     Fetches all needed dimension nodes in a single DB query, then delegates
     resolution to _resolve_required_dimensions.
 
     Returns:
-        Tuple of (invalid dimension paths, matched Column objects)
+        Tuple of (invalid dimension paths, resolved RequiredDimension rows)
     """
-    # Collect dim node names from full-path entries so we can batch-fetch them
+    # Collect dim node names from full-path entries so we can batch-fetch them.
+    # Strip any bracketed role first -- it can itself contain `.`, so testing
+    # the raw string would misroute a bare short name like `status[a.b]` into
+    # a (bogus) full-path node name.
     dim_node_names: set[str] = set()
     for required_dim in required_dimensions:
-        if SEPARATOR in required_dim:
-            dim_node_names.add(required_dim.rsplit(SEPARATOR, 1)[0])
+        dim_part, _ = split_dimension_ref(required_dim)
+        if SEPARATOR in dim_part:
+            dim_node_names.add(dim_part.rsplit(SEPARATOR, 1)[0])
 
     dim_nodes: dict[str, Node] = {}
     if dim_node_names:
@@ -397,7 +434,12 @@ async def find_required_dimensions(
         )
         dim_nodes = {node.name: node for node in result.scalars().all()}
 
-    return _resolve_required_dimensions(required_dimensions, parent_columns, dim_nodes)
+    return _resolve_required_dimensions(
+        required_dimensions,
+        parent_columns,
+        dim_nodes,
+        parent_dimension_links,
+    )
 
 
 async def resolve_downstream_references(
