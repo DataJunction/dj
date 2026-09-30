@@ -32,6 +32,12 @@ that connection.
   representation: REST, GraphQL, MCP, Python/JavaScript clients, UI, repo-backed
   YAML, async jobs, or direct SQL. Follow only paths that can affect the same
   contract.
+- When a PR introduces or clarifies an invariant, trace realistic paths that
+  create, transform, persist, cache, expose, or use the affected value or state.
+  Include relevant defaults, legacy data, and sibling implementations. Each
+  path must preserve or enforce the invariant, reject unsupported cases, or
+  have a deliberate exception. Test at the boundary where a violation matters,
+  not only the changed helper; stop where the connection becomes speculative.
 - If reviewing after a new commit or author reply, reread the current code and
   prior findings. Verify claimed fixes, avoid duplicate findings, and treat an
   explained tradeoff as a decision to evaluate rather than an invitation to
