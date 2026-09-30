@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.rbac import Role, RoleAssignment, RoleScope
 from datajunction_server.database.user import User
 from datajunction_server.internal.access.group_membership import (
@@ -47,6 +48,7 @@ class AuthContext:
     # Scopes from the configured default-access role, evaluated as a fallback
     # alongside the user's own grants.
     default_scopes: list[RoleScope] = field(default_factory=list)
+    governed_boundaries: tuple[str, ...] = ()
 
     @classmethod
     async def from_user(
@@ -72,6 +74,7 @@ class AuthContext:
             user=user,
         )
         default_scopes = await cls.get_default_scopes(session=session)
+        governed_boundaries = await cls.get_governed_boundaries(session=session)
 
         return cls(
             user_id=user.id,
@@ -80,7 +83,27 @@ class AuthContext:
             role_assignments=assignments,
             is_admin=bool(user.is_admin),
             default_scopes=default_scopes,
+            governed_boundaries=governed_boundaries,
         )
+
+    @classmethod
+    async def get_governed_boundaries(
+        cls,
+        session: AsyncSession,
+    ) -> tuple[str, ...]:
+        """
+        Load every retained governed namespace boundary.
+
+        Deactivated boundaries stay enforced because restoration preserves their
+        roles and assignments. Hard deletion removes the boundary row entirely.
+        """
+        statement = (
+            select(NodeNamespace.namespace)
+            .where(NodeNamespace.is_governed_boundary.is_(True))
+            .order_by(NodeNamespace.namespace)
+        )
+        result = await session.execute(statement)
+        return tuple(result.scalars().all())
 
     @classmethod
     async def get_default_scopes(
