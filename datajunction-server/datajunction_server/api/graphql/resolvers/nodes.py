@@ -233,6 +233,7 @@ async def find_nodes_by(
     statuses: list[NodeStatus] | None = None,
     has_materialization: bool = False,
     orphaned_dimension: bool = False,
+    reached_rulesets: list[str] | None = None,
     search: str | None = None,
     custom_metadata_filters: list[CustomMetadataFilter] | None = None,
 ) -> list[DBNode]:
@@ -294,6 +295,7 @@ async def find_nodes_by(
             statuses=statuses,
             has_materialization=has_materialization,
             orphaned_dimension=orphaned_dimension,
+            reached_rulesets=reached_rulesets,
             dimensions=dimensions,
             search=search,
             custom_metadata_filters=custom_metadata_filters,
@@ -331,6 +333,7 @@ async def count_nodes_by(
     statuses: list[NodeStatus] | None = None,
     has_materialization: bool = False,
     orphaned_dimension: bool = False,
+    reached_rulesets: list[str] | None = None,
     search: str | None = None,
     custom_metadata_filters: list[CustomMetadataFilter] | None = None,
 ) -> int:
@@ -365,6 +368,7 @@ async def count_nodes_by(
             statuses=statuses,
             has_materialization=has_materialization,
             orphaned_dimension=orphaned_dimension,
+            reached_rulesets=reached_rulesets,
             search=search,
             custom_metadata_filters=custom_metadata_filters,
         )

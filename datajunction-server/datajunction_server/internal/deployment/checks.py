@@ -15,6 +15,9 @@ from sqlalchemy.orm import load_only, noload
 
 from datajunction_server.database.deployment import Deployment
 from datajunction_server.database.node import Node
+from datajunction_server.database.node_ruleset_verdict import (
+    NodeRulesetVerdict as DBNodeRulesetVerdict,
+)
 
 from datajunction_server.database.tag import Tag
 
@@ -607,3 +610,47 @@ async def check_node(session: AsyncSession, node: Node) -> NodeCheckResults | No
             for outcome in roll_up(manifest.rulesets, results)
         ],
     )
+
+
+async def record_ruleset_verdicts(
+    session: AsyncSession,
+    results: Sequence[NodeCheckResults],
+) -> None:
+    """
+    Project a deploy's ruleset verdicts onto the nodes they describe, so a node
+    list can filter on the tiers a node has reached.
+
+    Called after the plan is applied, since checks run against the spec before
+    the nodes exist. Anything the deploy did not leave behind -- a node it
+    removed, or one it failed to create -- has no row to attach to and is
+    skipped.
+    """
+    if not results:
+        return
+
+    nodes = (
+        (
+            await session.execute(
+                select(Node.id, Node.name, Node.current_version).where(
+                    Node.name.in_([result.node for result in results]),
+                    Node.deactivated_at.is_(None),
+                ),
+            )
+        )
+        .tuples()
+        .all()
+    )
+    by_name = {name: (node_id, version) for node_id, name, version in nodes}
+
+    verdicts: dict[int, tuple[str, list[tuple[str, str]]]] = {}
+    for result in results:
+        found = by_name.get(result.node)
+        if found is None:
+            continue
+        node_id, version = found
+        verdicts[node_id] = (
+            version,
+            [(row.ruleset, str(row.verdict.value)) for row in result.rulesets],
+        )
+
+    await DBNodeRulesetVerdict.replace_for_nodes(session, verdicts)

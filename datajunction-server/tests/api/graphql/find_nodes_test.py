@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.node_ruleset_verdict import NodeRulesetVerdict
 from datajunction_server.database.user import User
 from datajunction_server.models.node_type import NodeType
 
@@ -4076,3 +4077,96 @@ async def test_node_counts_scoped_to_namespace(
             },
         )
         assert resp.json()["data"]["findNodesPaginated"]["totalCount"] == count
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_by_reached_rulesets(
+    client_with_roads: AsyncClient,
+    session: AsyncSession,
+    current_user: User,
+) -> None:
+    """
+    `reachedRulesets` narrows to nodes that passed every named ruleset, and
+    `rulesetVerdicts` reports what each was evaluated against.
+    """
+    nodes = {}
+    for name, verdicts in {
+        "certified": [("baseline", "passed"), ("certified", "passed")],
+        "baseline_only": [("baseline", "passed"), ("certified", "failed")],
+        "neither": [("baseline", "failed"), ("certified", "failed")],
+    }.items():
+        node = Node(
+            name=f"default.rulesets_{name}",
+            type=NodeType.TRANSFORM,
+            current_version="v1",
+            namespace="default",
+            created_by_id=current_user.id,
+        )
+        session.add(
+            NodeRevision(
+                node=node,
+                name=node.name,
+                type=NodeType.TRANSFORM,
+                version="v1",
+                created_by_id=current_user.id,
+            ),
+        )
+        await session.commit()
+        nodes[name] = node
+        session.add_all(
+            [
+                NodeRulesetVerdict(
+                    node_id=node.id,
+                    ruleset=ruleset,
+                    verdict=verdict,
+                    node_version="v1",
+                )
+                for ruleset, verdict in verdicts
+            ],
+        )
+    await session.commit()
+
+    query = """
+    query Reached($rs: [String!]) {
+        findNodes(namespace: "default", reachedRulesets: $rs) {
+            name
+            rulesetVerdicts { ruleset verdict nodeVersion }
+        }
+    }
+    """
+
+    async def reached(rulesets):
+        response = await client_with_roads.post(
+            "/graphql",
+            json={"query": query, "variables": {"rs": rulesets}},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "errors" not in data, data
+        return {
+            node["name"]: [
+                (v["ruleset"], v["verdict"], v["nodeVersion"])
+                for v in node["rulesetVerdicts"]
+            ]
+            for node in data["data"]["findNodes"]
+        }
+
+    passed_baseline = await reached(["baseline"])
+    assert sorted(passed_baseline) == [
+        "default.rulesets_baseline_only",
+        "default.rulesets_certified",
+    ]
+    # `verdict` is a GraphQL enum, so it reads PASSED where REST says passed.
+    assert passed_baseline["default.rulesets_certified"] == [
+        ("baseline", "PASSED", "v1"),
+        ("certified", "PASSED", "v1"),
+    ]
+
+    # Named together the rulesets intersect rather than union.
+    assert sorted(await reached(["baseline", "certified"])) == [
+        "default.rulesets_certified",
+    ]
+
+    # A node no deploy has evaluated reports nothing rather than failing.
+    unfiltered = await reached(None)
+    assert unfiltered["default.repair_orders"] == []

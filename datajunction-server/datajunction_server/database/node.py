@@ -54,6 +54,9 @@ from datajunction_server.database.column import Column
 from datajunction_server.database.history import History
 from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.metricmetadata import MetricMetadata
+from datajunction_server.database.node_ruleset_verdict import (
+    NodeRulesetVerdict,
+)
 from datajunction_server.database.nodeowner import NodeOwner
 from datajunction_server.database.tag import Tag, TagNodeRelationship
 from datajunction_server.database.user import User
@@ -68,6 +71,7 @@ from datajunction_server.models.deployment import (
     MaterializationSpec,
     MetricSpec,
     NodeSpec,
+    RulesetVerdict,
     SourceSpec,
     TransformSpec,
 )
@@ -1067,6 +1071,7 @@ class Node(Base):
         statuses: list[NodeStatus] | None = None,
         has_materialization: bool = False,
         orphaned_dimension: bool = False,
+        reached_rulesets: list[str] | None = None,
         search: str | None = None,
         order_by: MappedColumn | None = None,
         custom_metadata_filters: list[CustomMetadataFilter] | None = None,
@@ -1290,6 +1295,20 @@ class Node(Base):
                 NodeRevisionAlias.id.in_(select(nodes_with_mat_subquery)),
             )
 
+        # Filter to nodes that have passed every named ruleset. Read
+        # from the verdict a deploy recorded, so a node edited since is matched
+        # on its last evaluation rather than re-evaluated here.
+        if reached_rulesets:
+            for ruleset in reached_rulesets:
+                statement = statement.where(
+                    Node.id.in_(
+                        select(NodeRulesetVerdict.node_id).where(
+                            NodeRulesetVerdict.ruleset == ruleset,
+                            NodeRulesetVerdict.verdict == RulesetVerdict.PASSED.value,
+                        ),
+                    ),
+                )
+
         # Filter to orphaned dimensions (dimension nodes not linked to by any other node)
         if orphaned_dimension:
             from datajunction_server.database.dimensionlink import DimensionLink
@@ -1346,6 +1365,7 @@ class Node(Base):
         statuses: list[NodeStatus] | None = None,
         has_materialization: bool = False,
         orphaned_dimension: bool = False,
+        reached_rulesets: list[str] | None = None,
         search: str | None = None,
         custom_metadata_filters: list[CustomMetadataFilter] | None = None,
     ) -> list[Node]:
@@ -1376,6 +1396,7 @@ class Node(Base):
             statuses=statuses,
             has_materialization=has_materialization,
             orphaned_dimension=orphaned_dimension,
+            reached_rulesets=reached_rulesets,
             search=search,
             order_by=order_by,
             custom_metadata_filters=custom_metadata_filters,
@@ -1439,6 +1460,7 @@ class Node(Base):
         statuses: list[NodeStatus] | None = None,
         has_materialization: bool = False,
         orphaned_dimension: bool = False,
+        reached_rulesets: list[str] | None = None,
         search: str | None = None,
         custom_metadata_filters: list[CustomMetadataFilter] | None = None,
     ) -> int:
@@ -1462,6 +1484,7 @@ class Node(Base):
             statuses=statuses,
             has_materialization=has_materialization,
             orphaned_dimension=orphaned_dimension,
+            reached_rulesets=reached_rulesets,
             search=search,
             custom_metadata_filters=custom_metadata_filters,
         )
@@ -1491,6 +1514,7 @@ class Node(Base):
         statuses: list[NodeStatus] | None = None,
         has_materialization: bool = False,
         orphaned_dimension: bool = False,
+        reached_rulesets: list[str] | None = None,
         search: str | None = None,
     ) -> dict[Any, int]:
         """
@@ -1512,6 +1536,7 @@ class Node(Base):
             statuses=statuses,
             has_materialization=has_materialization,
             orphaned_dimension=orphaned_dimension,
+            reached_rulesets=reached_rulesets,
             search=search,
         )
         if statement is None:  # pragma: no cover - only when a filter excludes all
