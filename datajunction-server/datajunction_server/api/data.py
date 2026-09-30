@@ -25,6 +25,7 @@ from datajunction_server.construction.build_v3.cube_matcher import (
 )
 from datajunction_server.construction.build_v3.types import GeneratedSQL
 from datajunction_server.database.availabilitystate import AvailabilityState
+from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.history import History
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
@@ -364,7 +365,16 @@ async def get_data(
 
     node = cast(
         Node,
-        await Node.get_by_name(session, node_name, raise_if_not_exists=True),
+        await Node.get_by_name(
+            session,
+            node_name,
+            options=[
+                joinedload(Node.current).options(
+                    joinedload(NodeRevision.catalog).joinedload(Catalog.engines),
+                ),
+            ],
+            raise_if_not_exists=True,
+        ),
     )
     engine = await resolve_engine(
         session=session,
@@ -418,7 +428,16 @@ async def get_data_stream_for_node(
     request_headers = dict(request.headers)
     node = cast(
         Node,
-        await Node.get_by_name(session, node_name, raise_if_not_exists=True),
+        await Node.get_by_name(
+            session,
+            node_name,
+            options=[
+                joinedload(Node.current).options(
+                    joinedload(NodeRevision.catalog).joinedload(Catalog.engines),
+                ),
+            ],
+            raise_if_not_exists=True,
+        ),
     )
     engine = await resolve_engine(
         session=session,

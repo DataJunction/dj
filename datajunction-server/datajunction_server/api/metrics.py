@@ -7,7 +7,7 @@ from http import HTTPStatus
 from fastapi import BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import load_only, noload, selectinload
 from sqlalchemy.sql.operators import is_
 
 from datajunction_server.api.nodes import list_nodes
@@ -130,6 +130,11 @@ async def get_common_dimensions(
     input_errors = []
     statement = (
         select(Node)
+        .options(
+            load_only(Node.id, Node.name, Node.type, Node.current_version),
+            noload(Node.created_by),
+            noload(Node.tags),
+        )
         .where(Node.name.in_(metric))  # type: ignore
         .where(is_(Node.deactivated_at, None))
     )
