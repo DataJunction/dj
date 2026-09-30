@@ -1886,10 +1886,10 @@ class MetricComponentExtractor:
             and decomposition.params
         ):
             for component in components:
-                # The implementation knows its effective defaults and may
-                # normalize equivalent spellings (e.g. omitted compression
-                # and an explicit default). Store those effective parameters
-                # so identical sketches have the same measure identity.
+                # The implementation may normalize equivalent spellings
+                # (e.g. an explicit default to no stored parameters). Store
+                # its canonical parameters so identical sketches have the
+                # same measure identity without changing legacy defaults.
                 component.params = dict(decomposition.params)
 
         # Build combiner AST

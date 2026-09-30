@@ -3143,10 +3143,12 @@ def registered_family():
     class _FamilyDecomposition(AggDecomposition):
         def __init__(self, params=None):
             super().__init__(params)
+            compression = int(self.params.get("compression", 1))
             self.params = {
-                **self.params,
-                "compression": int(self.params.get("compression", 1)),
+                key: value for key, value in self.params.items() if key != "compression"
             }
+            if compression != 1:
+                self.params["compression"] = compression
 
         @property
         def components(self) -> list[ComponentDef]:
@@ -3315,7 +3317,7 @@ async def test_family_components_use_effective_parameters_for_identity(
         components.append(measures[0])
 
     assert len({component.name for component in components}) == 1
-    assert all(component.params == {"compression": 1} for component in components)
+    assert all(component.params is None for component in components)
 
 
 @pytest.mark.asyncio
