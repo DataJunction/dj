@@ -13,6 +13,7 @@ from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.errors import ErrorCode
+from datajunction_server.internal.deployment.utils import extract_node_graph
 from datajunction_server.internal.deployment.validation import (
     NodeSpecBulkValidator,
     NodeValidationResult,
@@ -276,13 +277,128 @@ class TestValidateQuery:
         validator = NodeSpecBulkValidator(validation_context)
         result = validator.validate_query_node(spec)
 
+        # `test.parent` does not resolve here: the spec is named `transform`
+        # while the fixture's graph is keyed on `test.transform`, so the parent
+        # columns map comes back empty and nothing is inferred. The declared
+        # columns are unmatched for that reason as well as on their own merits.
+        assert [(e.code, e.message) for e in result.errors] == [
+            (
+                ErrorCode.INVALID_SQL_QUERY,
+                "No columns could be inferred from the SQL query.",
+            ),
+            (
+                ErrorCode.INVALID_COLUMN,
+                "Declared column(s) ['full_name', 'id'] on node transform do not "
+                "match any column produced by the query. Check for a missing or "
+                "mismatched column alias.",
+            ),
+            (
+                ErrorCode.TYPE_INFERENCE,
+                "Table `test.parent` not found in parent columns map. Available: []",
+            ),
+        ]
         assert result.status == NodeStatus.INVALID
-        error_codes = [e.code for e in result.errors]
-        assert ErrorCode.INVALID_COLUMN in error_codes
-        message = next(
-            e.message for e in result.errors if e.code == ErrorCode.INVALID_COLUMN
+
+    @pytest.mark.asyncio
+    async def test_validate_query_node_rejects_declared_columns_on_metric(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """A metric must not declare columns, whatever its query aliases."""
+        context = ValidationContext(
+            session=session,
+            node_graph={"test.weekly_active_players": [parent_node.name]},
+            dependency_nodes={parent_node.name: parent_node},
         )
-        assert "full_name" in message
+        spec = MetricSpec(
+            name="test.weekly_active_players",
+            query="SELECT SUM(value) FROM test.parent",
+            description="A test metric",
+            mode="published",
+            columns=[
+                ColumnSpec(name="weekly_active_players", display_name="WAP"),
+            ],
+        )
+        validator = NodeSpecBulkValidator(context)
+        result = validator.validate_query_node(spec)
+
+        assert [(e.code, e.message) for e in result.errors] == [
+            (
+                ErrorCode.INVALID_SPEC_FIELD,
+                "Metric test.weekly_active_players must not declare columns. "
+                "Remove the columns block; set `unit` on the metric.",
+            ),
+        ]
+        assert result.status == NodeStatus.INVALID
+
+    @pytest.mark.asyncio
+    async def test_validate_query_node_rejects_declared_columns_on_aliased_metric(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """A metric aliasing its own short name is still rejected.
+
+        Going through ``extract_node_graph`` caches the metric-aliased AST on
+        the spec, which is the form a deploy validates. This is the shape that
+        failed in production.
+        """
+        spec = MetricSpec(
+            name="test.weekly_active_players",
+            query="SELECT SUM(value) AS weekly_active_players FROM test.parent",
+            description="A test metric",
+            mode="published",
+            columns=[
+                ColumnSpec(name="weekly_active_players", display_name="WAP"),
+            ],
+        )
+        node_graph = extract_node_graph([spec])
+        assert (
+            spec.query_ast.select.projection[0].alias_or_name.identifier()
+            == "test_DOT_weekly_active_players"
+        )
+        context = ValidationContext(
+            session=session,
+            node_graph=node_graph,
+            dependency_nodes={parent_node.name: parent_node},
+        )
+        validator = NodeSpecBulkValidator(context)
+        result = validator.validate_query_node(spec)
+
+        assert [(e.code, e.message) for e in result.errors] == [
+            (
+                ErrorCode.INVALID_SPEC_FIELD,
+                "Metric test.weekly_active_players must not declare columns. "
+                "Remove the columns block; set `unit` on the metric.",
+            ),
+        ]
+        assert result.status == NodeStatus.INVALID
+
+    @pytest.mark.asyncio
+    async def test_validate_query_node_allows_metric_without_columns(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """A metric that declares no columns validates clean."""
+        spec = MetricSpec(
+            name="test.weekly_active_players",
+            query="SELECT SUM(value) AS weekly_active_players FROM test.parent",
+            description="A test metric",
+            mode="published",
+        )
+        node_graph = extract_node_graph([spec])
+        context = ValidationContext(
+            session=session,
+            node_graph=node_graph,
+            dependency_nodes={parent_node.name: parent_node},
+        )
+        validator = NodeSpecBulkValidator(context)
+        result = validator.validate_query_node(spec)
+
+        assert result.errors == []
+        assert result.status == NodeStatus.VALID
 
     @pytest.mark.asyncio
     async def test_validate_query_node_flags_hardcoded_namespace(
