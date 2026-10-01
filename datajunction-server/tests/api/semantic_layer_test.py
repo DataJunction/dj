@@ -7,6 +7,7 @@ Postgres harness.
 """
 
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -20,11 +21,13 @@ from datajunction_server.api.semantic_layer import (
     _dimensions_payload,
     _filter_to_sql,
     _generated_column_arrow_type_name,
+    _limit_to_ranked_groups,
     _metrics_payload,
     _quote_value,
     _view_payload,
 )
 from datajunction_server.construction.build_v3.types import (
+    ColumnMetadata as V3ColumnMetadata,
     GeneratedSQL as V3GeneratedSQL,
 )
 from datajunction_server.errors import DJException
@@ -294,6 +297,82 @@ def test_row_count_uses_native_ast_and_quotes_alias(
     assert result.cube_name == "sem.sales_cube"
 
 
+def test_group_limit_keeps_ranked_tuples_including_nulls():
+    """Ranked tuples filter main rows without losing NULL keys or mixing keys."""
+    import duckdb
+
+    def metadata(name, semantic_name, semantic_type):
+        return V3ColumnMetadata(
+            name=name,
+            semantic_name=semantic_name,
+            type="string" if semantic_type == "dimension" else "double",
+            semantic_type=semantic_type,
+        )
+
+    main = V3GeneratedSQL(
+        query=parse(
+            "WITH sales_data AS (SELECT * FROM sales) "
+            "SELECT category, region, day, SUM(amount) AS amount "
+            "FROM sales_data GROUP BY category, region, day",
+        ),
+        columns=[
+            metadata("category", "sem.category", "dimension"),
+            metadata("region", "sem.region", "dimension"),
+            metadata("day", "sem.day", "dimension"),
+            metadata("amount", "sem.amount", "metric"),
+        ],
+        dialect=Dialect.DUCKDB,
+    )
+    ranked = V3GeneratedSQL(
+        query=parse(
+            "WITH ranking_data AS (SELECT * FROM ranking) "
+            "SELECT category, region, SUM(score) AS score FROM ranking_data "
+            "GROUP BY category, region ORDER BY score DESC, category, region LIMIT 2",
+        ),
+        columns=[
+            metadata("category", "sem.category", "dimension"),
+            metadata("region", "sem.region", "dimension"),
+            metadata("score", "sem.score", "metric"),
+        ],
+        dialect=Dialect.DUCKDB,
+    )
+    result = _limit_to_ranked_groups(
+        main,
+        ranked,
+        ["sem.category", "sem.region"],
+        ["sem.amount DESC"],
+        10,
+    )
+    connection = duckdb.connect()
+    connection.execute(
+        "CREATE TABLE sales(category VARCHAR, region VARCHAR, day VARCHAR, amount INT)",
+    )
+    connection.execute(
+        "CREATE TABLE ranking(category VARCHAR, region VARCHAR, score INT)",
+    )
+    connection.executemany(
+        "INSERT INTO sales VALUES (?, ?, ?, ?)",
+        [
+            ("A", "East", "Mon", 100),
+            ("A", "West", "Mon", 80),
+            ("B", "East", "Mon", 7),
+            ("B", "East", "Tue", 3),
+            ("C", None, "Mon", 5),
+        ],
+    )
+    connection.executemany(
+        "INSERT INTO ranking VALUES (?, ?, ?)",
+        [("A", "West", 1), ("B", "East", 20), ("C", None, 10)],
+    )
+
+    assert connection.execute(result.sql).fetchall() == [
+        ("B", "East", "Mon", 7),
+        ("C", None, "Mon", 5),
+        ("B", "East", "Tue", 3),
+    ]
+    assert connection.execute(build_row_count_sql(result).sql).fetchone() == (3,)
+
+
 # ---------------------------------------------------------------------------
 # DB-backed integration tests (require the testcontainers Postgres harness)
 # ---------------------------------------------------------------------------
@@ -454,6 +533,7 @@ async def test_semantic_endpoints_end_to_end(client: AsyncClient):
     )
     summary = next(v for v in resp.json() if v["name"] == view)
     assert summary["display_name"] == "Sales Cube"
+    assert summary["features"] == ["GROUP_LIMIT"]
 
     # /views/{view} returns the cube's metrics and dimensions in spec shape.
     resp = await _expect(
@@ -465,6 +545,7 @@ async def test_semantic_endpoints_end_to_end(client: AsyncClient):
     )
     detail = resp.json()
     assert detail["display_name"] == "Sales Cube"
+    assert detail["features"] == ["GROUP_LIMIT"]
     assert {m["id"] for m in detail["metrics"]} == {"sem.total_amount"}
     assert any(d["id"] == "sem.region.region_name" for d in detail["dimensions"])
 
@@ -541,6 +622,93 @@ async def test_semantic_endpoints_end_to_end(client: AsyncClient):
         json={"query": {"metrics": ["sem.total_amount"], "dimensions": []}},
     )
     assert resp.status_code == 404, resp.text
+
+
+@pytest.mark.asyncio
+async def test_group_limit_endpoint_builds_independent_ranked_query(
+    client: AsyncClient,
+):
+    view = await _setup_cube(client)
+    query: dict[str, Any] = {
+        "metrics": ["sem.total_amount"],
+        "dimensions": ["sem.region.region_name"],
+        "filters": [
+            {"column": "sem.region.region_name", "operator": "=", "value": "North"},
+        ],
+        "order": [{"by": "sem.total_amount", "direction": "DESC"}],
+        "group_limit": {
+            "dimensions": ["sem.region.region_name"],
+            "top": 1,
+            "metric": "sem.total_amount",
+            "direction": "DESC",
+            "filters": [],
+        },
+    }
+    resp = await _expect(
+        await client.post(f"/semantic/views/{view}/sql", json={"query": query}),
+        200,
+    )
+    body = resp.json()
+    assert body["dialect"] == "trino"
+    assert "INNER JOIN" in body["sql"]
+    assert "ranked_groups" in body["sql"]
+    assert "'North'" in body["sql"]
+    assert "LIMIT 1" in body["sql"]
+
+    count_resp = await _expect(
+        await client.post(f"/semantic/views/{view}/row-count", json={"query": query}),
+        200,
+    )
+    assert "COUNT(*)" in count_resp.json()["sql"]
+    assert "ranked_groups" in count_resp.json()["sql"]
+
+    inherited = {**query, "group_limit": {**query["group_limit"], "filters": None}}
+    inherited_resp = await _expect(
+        await client.post(f"/semantic/views/{view}/sql", json={"query": inherited}),
+        200,
+    )
+    assert inherited_resp.json()["sql"].count("'North'") > body["sql"].count(
+        "'North'",
+    )
+
+    unsupported = {
+        **query,
+        "group_limit": {**query["group_limit"], "group_others": True},
+    }
+    unsupported_resp = await client.post(
+        f"/semantic/views/{view}/sql",
+        json={"query": unsupported},
+    )
+    assert unsupported_resp.status_code == 400
+
+    invalid_filter = {
+        **query,
+        "group_limit": {
+            **query["group_limit"],
+            "filters": [{"type": "WHERE", "column": "sem.total_amount"}],
+        },
+    }
+    invalid_resp = await client.post(
+        f"/semantic/views/{view}/sql",
+        json={"query": invalid_filter},
+    )
+    assert invalid_resp.status_code == 400
+
+    dimension_only = {
+        **query,
+        "metrics": [],
+        "order": [],
+    }
+    dimension_resp = await _expect(
+        await client.post(
+            f"/semantic/views/{view}/sql",
+            json={"query": dimension_only},
+        ),
+        200,
+    )
+    assert dimension_resp.json()["columns"] == [
+        {"name": "region_name", "type": "utf8"},
+    ]
 
 
 @pytest.mark.asyncio
