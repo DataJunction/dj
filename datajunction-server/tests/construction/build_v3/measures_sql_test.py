@@ -1,3 +1,5 @@
+import sqlite3
+
 import pytest
 
 from datajunction_server.construction.build_v3.builder import build_measures_sql
@@ -9420,7 +9422,7 @@ class TestParentCteFilterLanding:
         )
 
     @pytest.mark.asyncio
-    async def test_filter_does_not_narrow_nested_self_reference(
+    async def test_nested_source_reuse_preserves_metric_count(
         self,
         client_with_build_v3,
     ):
@@ -9512,6 +9514,29 @@ class TestParentCteFilterLanding:
         sql = get_first_grain_group(response.json())["sql"]
         # The nested scan reads the same physical table, but its row set has
         # a different role in the authored query. Keep its WHERE unchanged.
+        # The inner account lookup sees both dates. Copying the outer date
+        # predicate to a2 drops one match and changes COUNT(*) from 2 to 1.
+        with sqlite3.connect(":memory:") as db:
+            db.executescript(
+                """
+                CREATE TABLE events_nested_self_ref (
+                    event_id INTEGER, account_id INTEGER,
+                    event_date INTEGER, value REAL
+                );
+                CREATE TABLE subs_lifecycle (
+                    account_id INTEGER, lifecycle_id INTEGER,
+                    signup_ts_ms INTEGER
+                );
+                INSERT INTO events_nested_self_ref VALUES
+                    (1, 1, 20260101, 10),
+                    (2, 1, 20251231, 5),
+                    (3, 2, 20251231, 7);
+                INSERT INTO subs_lifecycle VALUES (1, 50, 1);
+                """,
+            )
+            rows = db.execute(sql.replace("default.v3.", "")).fetchall()
+        assert rows == [(1, 2)]
+
         assert_sql_equal(
             sql,
             """
