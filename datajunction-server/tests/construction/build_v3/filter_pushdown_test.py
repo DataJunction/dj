@@ -22,11 +22,112 @@ from datajunction_server.construction.build_v3.dimensions import (
     find_join_path,
     parse_dimension_ref,
 )
+from datajunction_server.construction.build_v3.filters import rewrite_filter_atomically
+from datajunction_server.construction.build_v3.measures import (
+    _add_table_prefixes_to_filter,
+)
 from datajunction_server.errors import DJException
 from datajunction_server.models.node import NodeType
+from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 from tests.construction.build_v3 import assert_sql_equal, get_first_grain_group
+
+
+class TestAtomicFilterRewrite:
+    """A predicate moves only when its complete expression binds in scope."""
+
+    def test_array_index_is_preserved_when_its_column_moves(self):
+        """A numeric array index is SQL, not a dimension role marker."""
+        rewritten = rewrite_filter_atomically(
+            "v3.product.tags[1] = 'featured'",
+            lambda ref: (
+                ast.Column(name=ast.Name("tags")) if ref == "v3.product.tags" else None
+            ),
+        )
+        assert str(rewritten) == "tags[1] = 'featured'"
+
+    def test_constant_filter_has_no_scope_reference_to_rewrite(self):
+        assert rewrite_filter_atomically("1 = 1", lambda ref: None) is None
+
+    def test_root_column_is_replaced(self):
+        rewritten = rewrite_filter_atomically(
+            "v3.product.enabled",
+            lambda ref: (
+                ast.Column(name=ast.Name("enabled"))
+                if ref == "v3.product.enabled"
+                else None
+            ),
+        )
+        assert str(rewritten) == "enabled"
+
+    def test_unresolved_role_marker_is_not_prefixed_as_sql_column(self):
+        """The alias pass must leave a role marker untouched."""
+        expression = parse("SELECT 1 WHERE date_id[order] = 5").select.where
+        _add_table_prefixes_to_filter(
+            expression,
+            resolved_dimensions=[],
+            main_alias="fact",
+            dim_aliases={},
+            parent_node=SimpleNamespace(),
+        )
+        assert str(expression) == "fact.date_id[order] = 5"
+
+    def test_known_dimension_column_uses_its_role_join_alias(self):
+        expression = parse("SELECT 1 WHERE date_id = 5").select.where
+        resolved = SimpleNamespace(
+            original_ref="v3.date.date_id[order]",
+            column_name="date_id",
+            is_local=False,
+            join_path=SimpleNamespace(
+                target_node_name="v3.date",
+                links=[SimpleNamespace(role="order")],
+            ),
+        )
+        _add_table_prefixes_to_filter(
+            expression,
+            resolved_dimensions=[resolved],
+            main_alias="fact",
+            dim_aliases={("v3.date", "order"): "order_date"},
+            parent_node=SimpleNamespace(),
+        )
+        assert str(expression) == "order_date.date_id = 5"
+
+    def test_wrapped_union_arms_cannot_consume_outer_filter(self, monkeypatch):
+        """A hidden column in a derived UNION cannot justify arm pushdown."""
+        query = parse(
+            "SELECT amount FROM ("
+            "SELECT amount, date_id FROM first_source "
+            "UNION ALL SELECT amount, date_id FROM second_source"
+            ") union_rows",
+        )
+        wrapped_union = next(
+            child
+            for child in query.find_all(ast.Query)
+            if child is not query and child.select.set_op is not None
+        )
+        arm = wrapped_union.select
+        monkeypatch.setattr(
+            "datajunction_server.construction.build_v3.cte._build_all_scope_column_alias_maps",
+            lambda *_: [(arm, {"date_id": ("first_source", "date_id")})],
+        )
+        node = SimpleNamespace(
+            name="v3.union_fact",
+            type=NodeType.TRANSFORM,
+            current=SimpleNamespace(
+                columns=[SimpleNamespace(name="amount")],
+                dimension_links=[],
+            ),
+        )
+        injections, consumed = _resolve_pushdown_filters_for_cte(
+            node,
+            query,
+            ["v3.date.date_id = 5"],
+            {"v3.date.date_id": "date_id"},
+            ctx=SimpleNamespace(),
+        )
+        assert injections == []
+        assert consumed == set()
 
 
 class TestFilterPushdownToParentCTE:

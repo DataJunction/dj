@@ -78,8 +78,6 @@ def rewrite_filter_atomically(
         if id(col) in handled_columns:
             continue
         ref = _extract_full_column_ref(col)
-        if not ref:
-            return None
         replacement = resolve(ref)
         if replacement is None:
             return None

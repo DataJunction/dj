@@ -30,6 +30,10 @@ from datajunction_server.database.preaggregation import (
     PreAggregation,
     compute_expression_hash,
 )
+from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.internal.preaggregations import (
+    assert_dimension_refs_are_role_qualified,
+)
 from datajunction_server.models.decompose import (
     Aggregability,
     AggregationRule,
@@ -112,6 +116,52 @@ async def _create_daily_balance_metric(client_with_build_v3):
 
 class TestExternalPreAggRouting:
     """Queries route to externally-registered pre-agg tables via source_column."""
+
+    def test_cross_fact_unqualified_dimension_compares_selected_paths(self):
+        """An indirect alternate path cannot change a fact's selected role."""
+        target = SimpleNamespace(name="v3.location")
+        link = SimpleNamespace(dimension=target)
+        ctx = SimpleNamespace(
+            nodes={
+                "v3.sales": SimpleNamespace(current=SimpleNamespace(id=1)),
+                "v3.returns": SimpleNamespace(current=SimpleNamespace(id=2)),
+            },
+            join_paths={
+                (1, "v3.location", "from"): [link],
+                (1, "v3.location", "customer->home"): [
+                    SimpleNamespace(),
+                    link,
+                ],
+                (2, "v3.location", "to"): [link],
+            },
+        )
+        result = SimpleNamespace(
+            ctx=ctx,
+            grain_groups=[
+                SimpleNamespace(parent_name="v3.sales"),
+                SimpleNamespace(parent_name="v3.returns"),
+            ],
+        )
+
+        with pytest.raises(DJInvalidInputException) as exc:
+            assert_dimension_refs_are_role_qualified(
+                result,
+                ["v3.location.country"],
+            )
+        assert exc.value.message == (
+            "Dimension `v3.location.country` is ambiguous across roles. "
+            "Use one of: `v3.location.country[from]`, `v3.location.country[to]`"
+        )
+
+        ctx.join_paths[(2, "v3.location", "from")] = ctx.join_paths.pop(
+            (2, "v3.location", "to"),
+        )
+        assert_dimension_refs_are_role_qualified(result, ["v3.location.country"])
+
+        # A dimension's own column has no join path and needs no role.
+        ctx.nodes["v3.location"] = SimpleNamespace(current=SimpleNamespace(id=3))
+        result.grain_groups = [SimpleNamespace(parent_name="v3.location")]
+        assert_dimension_refs_are_role_qualified(result, ["v3.location.country"])
 
     @pytest.mark.asyncio
     async def test_external_preagg_used_at_exact_grain(self, client_with_build_v3):

@@ -16,8 +16,8 @@ from sqlalchemy.orm import selectinload
 from datajunction_server.api.helpers import get_catalog_by_name
 from datajunction_server.construction.build_v3.builder import build_measures_sql
 from datajunction_server.construction.build_v3.dimensions import (
+    find_join_path,
     parse_dimension_ref,
-    roles_reaching_dimension,
 )
 from datajunction_server.construction.build_v3.types import GeneratedMeasuresSQL
 from datajunction_server.database.availabilitystate import AvailabilityState
@@ -84,29 +84,31 @@ def assert_dimension_refs_are_role_qualified(
     dimensions: list[str],
 ) -> None:
     """
-    Reject a bare dimension reference that reaches its dimension by more than one
-    role, since it names none of them.
+    Reject a bare dimension reference that selects different roles across fact
+    groups, since one pre-aggregation column cannot represent both meanings.
 
-    Mirrors how such a reference resolves: a role-free link wins, a single named
-    role is unambiguous, and anything else has to be qualified rather than
-    resolved to whichever path happens to sort first.
+    Use the same shortest-path resolution as the measures builder. An indirect
+    alternate route cannot make a unique direct link ambiguous here.
     """
     for ref in dimensions:
         dim_ref = parse_dimension_ref(ref)
         if dim_ref.role:
             continue
-        roles: set[str] = set()
+        selected_roles: set[str] = set()
         for grain_group in measures_result.grain_groups:
             parent_node = measures_result.ctx.nodes.get(grain_group.parent_name)
             if not parent_node or not parent_node.current:  # pragma: no cover
                 continue
-            roles |= roles_reaching_dimension(
+            join_path = find_join_path(
                 measures_result.ctx,
-                parent_node.current.id,
+                parent_node,
                 dim_ref.node_name,
+                column_name=dim_ref.column_name,
             )
-        named = sorted(role for role in roles if role)
-        if "" not in roles and len(named) > 1:
+            if join_path:
+                selected_roles.add(join_path.role or "")
+        named = sorted(role for role in selected_roles if role)
+        if "" not in selected_roles and len(named) > 1:
             options = ", ".join(f"`{ref}[{role}]`" for role in named)
             raise DJInvalidInputException(
                 message=(
