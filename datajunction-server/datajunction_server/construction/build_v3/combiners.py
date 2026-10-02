@@ -29,6 +29,7 @@ from datajunction_server.construction.build_v3.decomposition import (
 )
 from datajunction_server.construction.build_v3.preagg_matcher import (
     get_temporal_partitions,
+    preagg_covers_components,
 )
 from datajunction_server.construction.build_v3.types import GrainGroupSQL
 from datajunction_server.construction.build_v3.utils import build_join_from_clause
@@ -37,7 +38,6 @@ from datajunction_server.database.preaggregation import (
     compute_expression_hash,
     compute_grain_group_hash,
     compute_preagg_hash_from_hashes,
-    get_measure_identities,
     measure_identity_token,
 )
 from datajunction_server.errors import DJWarning
@@ -604,9 +604,6 @@ async def build_combiner_sql_from_preaggs(
             grain_group_hash,
         )
 
-        # Find a pre-agg covering the required measures, compared by identity
-        # token so a SUM-backed pre-agg isn't mistaken for a MAX-backed one.
-        # MetricComponent has no expr_hash, so compute it from the expression.
         required_measure_identities = [
             measure_identity_token(
                 compute_expression_hash(m.expression),
@@ -616,10 +613,14 @@ async def build_combiner_sql_from_preaggs(
             for m in gg.components
             if m.expression
         ]
+
+        # Find a pre-agg covering each component's expression, aggregation,
+        # and family-normalized parameters.
         matching_preagg = None
         for preagg in preaggs:
-            if set(required_measure_identities) <= get_measure_identities(
+            if preagg_covers_components(
                 preagg.measures,
+                [m for m in gg.components if m.expression],
             ):
                 matching_preagg = preagg
                 break

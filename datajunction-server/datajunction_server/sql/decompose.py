@@ -843,6 +843,28 @@ def get_decomposition(
     return decomp_class()
 
 
+def component_params_match(
+    component: MetricComponent,
+    stored_params: dict[str, Any] | None,
+) -> bool:
+    """Compare a new component with parameters persisted before normalization.
+
+    A family's decomposition owns its defaults. Reapplying it to old parameters
+    preserves both legacy omitted-default and explicit-default rows without
+    treating a non-default sketch as interchangeable.
+    """
+    if (component.params or {}) == (stored_params or {}):
+        return True
+    if component.reaggregation_family is None:
+        return False
+    family = FAMILY_DECOMPOSITION_REGISTRY.get(component.reaggregation_family)
+    return bool(
+        family is not None
+        and (component.params or {})
+        == (family.decomposition(params=stored_params).params or {})
+    )
+
+
 def merge_inflates(merge: str | None) -> bool:
     """
     Whether re-applying this merge over duplicated rows inflates the result.
@@ -1883,14 +1905,16 @@ class MetricComponentExtractor:
             family
             and reaggregate is not None
             and dj_function in family.aggregate_functions
-            and decomposition.params
         ):
             for component in components:
+                component.reaggregation_family = reaggregate.fn
                 # The implementation may normalize equivalent spellings
                 # (e.g. an explicit default to no stored parameters). Store
                 # its canonical parameters so identical sketches have the
                 # same measure identity without changing legacy defaults.
-                component.params = dict(decomposition.params)
+                component.params = (
+                    dict(decomposition.params) if decomposition.params else None
+                )
 
         # Build combiner AST
         is_distinct = func.quantifier == ast.SetQuantifier.Distinct

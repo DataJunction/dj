@@ -23,10 +23,15 @@ from datajunction_server.database.preaggregation import (
     measure_identity_token,
 )
 from datajunction_server.errors import DJInvalidInputException
-from datajunction_server.models.decompose import Aggregability, MetricComponent
+from datajunction_server.models.decompose import (
+    Aggregability,
+    MetricComponent,
+    PreAggMeasure,
+)
 from datajunction_server.models.dimensionlink import JoinType
 from datajunction_server.models.preaggregation import TemporalPartitionColumn
 from datajunction_server.naming import SEPARATOR
+from datajunction_server.sql.decompose import component_params_match
 
 if TYPE_CHECKING:
     from datajunction_server.construction.build_v3.types import (
@@ -69,6 +74,31 @@ def get_required_measure_identities(
         )
         for _, component in grain_group.components
     }
+
+
+def preagg_measure_matches_component(
+    stored: PreAggMeasure,
+    component: MetricComponent,
+) -> bool:
+    """Match a stored measure, including pre-normalization family parameters."""
+    return bool(
+        stored.expr_hash
+        and stored.expr_hash == compute_expression_hash(component.expression)
+        and (stored.aggregation or "").strip().upper()
+        == component.normalized_aggregation
+        and component_params_match(component, stored.params)
+    )
+
+
+def preagg_covers_components(
+    measures: list[PreAggMeasure],
+    components: list[MetricComponent],
+) -> bool:
+    """Require every component to have an equivalent stored measure."""
+    return all(
+        any(preagg_measure_matches_component(stored, component) for stored in measures)
+        for component in components
+    )
 
 
 def required_reaggregate_grain(
@@ -357,7 +387,10 @@ def find_matching_preagg(
         # Coverage check on measure identity -- see
         # get_required_measure_identities for what that comprises.
         preagg_measures = get_measure_identities(preagg.measures)
-        if not required_measures.issubset(preagg_measures):
+        if not preagg_covers_components(
+            preagg.measures,
+            [component for _, component in grain_group.components],
+        ):
             logger.debug(
                 f"[BuildV3] Pre-agg {preagg.id} measures {preagg_measures} "
                 f"don't cover required measures {required_measures}",
@@ -408,21 +441,8 @@ def get_preagg_measure_column(
     Returns:
         Column name in the pre-agg, or None if not found
     """
-    target = measure_identity_token(
-        compute_expression_hash(component.expression),
-        component.aggregation,
-        component.params,
-    )
-
     for measure in preagg.measures:
-        if (
-            measure_identity_token(
-                measure.expr_hash,
-                measure.aggregation,
-                measure.params,
-            )
-            == target
-        ):
+        if preagg_measure_matches_component(measure, component):
             # Externally-registered pre-aggs bind the measure to a physical
             # column name that may differ from the DJ component name.
             return measure.source_column or measure.name
