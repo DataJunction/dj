@@ -9430,6 +9430,11 @@ class TestParentCteFilterLanding:
         binds to ``a``. Filtering ``a2`` too could change which lifecycle
         rows join to the retained events, since the join only equates
         account_id and does not equate event_date.
+
+        This mirrors the XP-style transform where an inner subquery joins
+        allocation_core_d again for an account lookup. The older expectation
+        pushed a date filter into both scans for partition pruning, but that
+        changed the authored join's meaning when their dates differed.
         """
         client = client_with_build_v3
 
@@ -9850,6 +9855,11 @@ class TestParentCteFilterLanding:
         """A derived table projects an allocation date while a joined
         sibling exposes a same-named column. The filter must constrain the
         projected allocation date, never the sibling's unrelated date.
+
+        This models the XP query with allocation_core_d joined to a lifecycle
+        table that also has snapshot_utc_date. The allocation date dimension
+        is linked only to the allocation source; matching column names alone
+        cannot identify which input owns the filter.
         """
         client = client_with_build_v3
 
@@ -10295,7 +10305,8 @@ class TestParentCteFilterLanding:
         A user filter on ``observation_window`` resolves to the outer
         ``a.observation_window``. Copying it into the inner scope would be
         invalid because inner ``a`` is an allocation table without that
-        column. The outer predicate already filters the projected value.
+        column (Spark reports that it does not exist). The outer predicate
+        already filters the projected value.
         """
         client = client_with_build_v3
 
