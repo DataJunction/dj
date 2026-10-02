@@ -1061,13 +1061,11 @@ default_hard_hat AS (
     postal_code,
     country
   FROM default.roads.hard_hats
-  WHERE  state = 'AZ'
 ),
 default_hard_hat_to_delete AS (
   SELECT  hard_hat_id,
     hire_date
   FROM default.roads.hard_hats
-  WHERE  state = 'AZ'
 ),
 default_municipality_dim AS (
   SELECT  m.municipality_id AS municipality_id,
@@ -1187,7 +1185,6 @@ async def test_cube_filters_merged_with_request_filters(
           SELECT  dispatcher_id,
             company_name
           FROM default.roads.dispatchers
-          WHERE  company_name = 'Potts LLC'
         ),
         default_hard_hat AS (
           SELECT  hard_hat_id,
@@ -1196,13 +1193,11 @@ async def test_cube_filters_merged_with_request_filters(
             postal_code,
             country
           FROM default.roads.hard_hats
-          WHERE  state = 'AZ'
         ),
         default_hard_hat_to_delete AS (
           SELECT  hard_hat_id,
             hire_date
           FROM default.roads.hard_hats
-          WHERE  state = 'AZ'
         ),
         default_municipality_dim AS (
           SELECT  m.municipality_id AS municipality_id,
@@ -1524,11 +1519,9 @@ async def test_cube_only_no_metrics_no_dims(client_with_repairs_cube: AsyncClien
         ),
         default_hard_hat AS (
           SELECT hard_hat_id, city, state, postal_code, country FROM default.roads.hard_hats
-          WHERE  state = 'AZ'
         ),
         default_hard_hat_to_delete AS (
           SELECT hard_hat_id, hire_date FROM default.roads.hard_hats
-          WHERE state = 'AZ'
         ),
         default_municipality_dim AS (
           SELECT m.municipality_id AS municipality_id, local_region

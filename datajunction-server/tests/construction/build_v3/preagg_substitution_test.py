@@ -1686,9 +1686,9 @@ class TestExternalPreAggRouting:
         self,
         client_with_build_v3,
     ):
-        """A bare reference is rejected only when several roles reach the
-        dimension, since it then names none of them. Single-role dimensions,
-        locally-owned columns and role-free links stay legal.
+        """A bare reference is rejected when multiple shortest paths reach
+        the dimension. Single-path dimensions, locally-owned columns and
+        role-free links stay legal.
         """
         rejected = await _register_external_preagg(
             client_with_build_v3,
@@ -1705,8 +1705,7 @@ class TestExternalPreAggRouting:
         )
         assert rejected.json()["message"] == (
             "Dimension `v3.location.country` is ambiguous across roles. "
-            "Use one of: `v3.location.country[customer->home]`, "
-            "`v3.location.country[from]`, `v3.location.country[to]`"
+            "Use one of: `v3.location.country[from]`, `v3.location.country[to]`"
         )
 
         # References that are legal stay legal: a role-qualified dimension, a

@@ -19,6 +19,7 @@ from datajunction_server.construction.build_v3.cte import (
 from datajunction_server.construction.build_v3.dimensions import (
     _local_reference_dimension_column,
     _rewrite_filter_col_refs,
+    find_join_path,
     parse_dimension_ref,
 )
 from datajunction_server.errors import DJException
@@ -737,6 +738,34 @@ class TestFilterPushdownOperators:
 
 class TestFilterPushdownMultiRole:
     """Multi-role dim filter pushdown — each role's filter targets a distinct CTE / join."""
+
+    def test_unqualified_dimension_uses_only_shortest_path(self):
+        """An unrelated indirect path does not displace a unique direct link."""
+        target = SimpleNamespace(name="v3.date")
+        direct = [SimpleNamespace(dimension=target)]
+        indirect = [SimpleNamespace(), SimpleNamespace(dimension=target)]
+        ctx = SimpleNamespace(
+            join_paths={
+                (1, "v3.date", "customer->registration"): indirect,
+                (1, "v3.date", "order"): direct,
+            },
+        )
+        source = SimpleNamespace(current=SimpleNamespace(id=1))
+
+        selected = find_join_path(ctx, source, "v3.date", column_name="week")
+        assert selected is not None
+        assert selected.links is direct
+        assert selected.role == "order"
+        assert (
+            find_join_path(ctx, source, "v3.date", role="customer->registration").links
+            is indirect
+        )
+
+        ctx.join_paths[(1, "v3.date", "registration")] = [
+            SimpleNamespace(dimension=target),
+        ]
+        with pytest.raises(DJException, match="ambiguous across roles"):
+            find_join_path(ctx, source, "v3.date", column_name="week")
 
     def test_reference_column_requires_matching_explicit_role(self):
         """A [from] column annotation cannot satisfy a [to] reference."""

@@ -100,9 +100,9 @@ def find_join_path(
     For multi-hop joins (role like "customer->home"):
         fact -> customer -> location
 
-    An unqualified reference uses a role-free path, or the sole available
-    role path. Multiple available role paths are ambiguous. An explicit role
-    must match a path exactly.
+    An unqualified reference uses the shortest path. Among equally short
+    paths, a role-free link is the default; otherwise the role is ambiguous.
+    An explicit role must match a path exactly.
 
     Returns None if no path found.
     """
@@ -112,36 +112,39 @@ def find_join_path(
     source_revision_id = from_node.current.id
     role_path = role or ""
 
-    # Look up preloaded path with exact role match
-    key = (source_revision_id, target_dim_name, role_path)
-    links = ctx.join_paths.get(key)
-
-    if links:
-        # Path found in preloaded cache
+    if role:
+        links = ctx.join_paths.get((source_revision_id, target_dim_name, role_path))
+        if not links:
+            return None
         return JoinPath(
             links=links,
             target_dimension=links[-1].dimension,
             role=role,
         )
 
-    if role:
-        return None
-
-    # The role-free path was checked above. A sole named path is a safe
-    # shorthand; multiple named paths require an explicit role.
-    fallback_paths = []
+    available_paths = []
     for (src_id, dim_name, stored_role), path_links in ctx.join_paths.items():
         if src_id == source_revision_id and dim_name == target_dim_name:
-            fallback_paths.append((stored_role, path_links))
+            available_paths.append((stored_role, path_links))
 
-    if fallback_paths:
-        if len(fallback_paths) > 1:
+    if available_paths:
+        min_hops = min(len(links) for _, links in available_paths)
+        nearest_paths = [
+            (path_role, links)
+            for path_role, links in available_paths
+            if len(links) == min_hops
+        ]
+        default_path = next(
+            (item for item in nearest_paths if item[0] == ""),
+            None,
+        )
+        if len(nearest_paths) > 1 and default_path is None:
             raise _ambiguous_role_error(
                 target_dim_name,
                 column_name,
-                [path_role for path_role, _ in fallback_paths],
+                [path_role for path_role, _ in nearest_paths],
             )
-        stored_role, path_links = fallback_paths[0]
+        stored_role, path_links = default_path or nearest_paths[0]
 
         return JoinPath(
             links=path_links,
