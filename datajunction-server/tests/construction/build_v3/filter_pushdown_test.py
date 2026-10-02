@@ -738,6 +738,138 @@ class TestFilterPushdownOperators:
 class TestFilterPushdownMultiRole:
     """Multi-role dim filter pushdown — each role's filter targets a distinct CTE / join."""
 
+    @pytest.mark.parametrize(
+        ("join_on", "expected_scans", "expected_rows"),
+        [
+            ("a.account_id = s.account_id", 1, [(1, 20260101, 50), (1, 20260101, 50)]),
+            (
+                "a.account_id = s.account_id AND a.event_date = s.event_date",
+                2,
+                [(1, 20260101, 50)],
+            ),
+        ],
+    )
+    @pytest.mark.parametrize(
+        ("predicate_suffix", "physical_suffix"),
+        [
+            ("= 20260101", "= 20260101"),
+            ("BETWEEN 20260101 AND 20260131", "BETWEEN 20260101 AND 20260131"),
+        ],
+    )
+    def test_nested_same_table_prunes_only_when_join_proves_date_equivalence(
+        self,
+        join_on,
+        expected_scans,
+        expected_rows,
+        predicate_suffix,
+        physical_suffix,
+    ):
+        """An equal join key permits scan pruning; an account-only join does not."""
+        query = parse(
+            "SELECT a.account_id, a.event_date, s.lifecycle_id "
+            "FROM demo.events AS a "
+            "LEFT JOIN ("
+            "  SELECT b.account_id, b.event_date, rev.lifecycle_id "
+            "  FROM demo.events AS b "
+            "  JOIN demo.lifecycle AS rev ON b.account_id = rev.account_id"
+            f") AS s ON {join_on}",
+        )
+        node = SimpleNamespace(
+            name="demo.fact",
+            type=NodeType.TRANSFORM,
+            current=SimpleNamespace(
+                columns=[
+                    SimpleNamespace(name="account_id"),
+                    SimpleNamespace(name="event_date"),
+                    SimpleNamespace(name="lifecycle_id"),
+                ],
+                dimension_links=[],
+            ),
+        )
+        predicate = f"demo.date.dateint[measure] {predicate_suffix}"
+        injections, consumed = _resolve_pushdown_filters_for_cte(
+            node,
+            query,
+            [predicate],
+            {"demo.date.dateint[measure]": "event_date"},
+        )
+        assert len(injections) == expected_scans
+        assert consumed == {predicate}
+        for select, filter_ast in injections:
+            inject_filter_into_select(select, filter_ast)
+
+        sql = " ".join(
+            str(query)
+            .replace("demo.events", "events")
+            .replace("demo.lifecycle", "lifecycle")
+            .split(),
+        )
+        assert f"WHERE a.event_date {physical_suffix}" in sql
+        assert (f"WHERE b.event_date {physical_suffix}" in sql) == (expected_scans == 2)
+        with sqlite3.connect(":memory:") as db:
+            db.executescript(
+                """
+                CREATE TABLE events (
+                    account_id INTEGER, event_date INTEGER
+                );
+                CREATE TABLE lifecycle (
+                    account_id INTEGER, lifecycle_id INTEGER
+                );
+                INSERT INTO events VALUES (1, 20260101), (1, 20251231);
+                INSERT INTO lifecycle VALUES (1, 50);
+                """,
+            )
+            rows = db.execute(sql).fetchall()
+        assert rows == expected_rows
+
+    def test_nested_window_output_is_not_pruned_before_window(self):
+        """Date equality does not justify changing a nested window's input."""
+        query = parse(
+            "SELECT a.account_id, a.event_date, s.rn "
+            "FROM demo.events AS a "
+            "LEFT JOIN ("
+            "  SELECT b.account_id, b.event_date, "
+            "         ROW_NUMBER() OVER (PARTITION BY b.account_id "
+            "                            ORDER BY b.event_date) AS rn "
+            "  FROM demo.events AS b"
+            ") AS s ON a.account_id = s.account_id "
+            "AND a.event_date = s.event_date",
+        )
+        node = SimpleNamespace(
+            name="demo.fact",
+            type=NodeType.TRANSFORM,
+            current=SimpleNamespace(
+                columns=[
+                    SimpleNamespace(name="account_id"),
+                    SimpleNamespace(name="event_date"),
+                    SimpleNamespace(name="rn"),
+                ],
+                dimension_links=[],
+            ),
+        )
+        predicate = "demo.date.dateint[measure] = 20260101"
+        injections, consumed = _resolve_pushdown_filters_for_cte(
+            node,
+            query,
+            [predicate],
+            {"demo.date.dateint[measure]": "event_date"},
+        )
+        assert len(injections) == 1
+        assert consumed == {predicate}
+        for select, filter_ast in injections:
+            inject_filter_into_select(select, filter_ast)
+
+        sql = str(query).replace("demo.events", "events")
+        with sqlite3.connect(":memory:") as db:
+            db.executescript(
+                """
+                CREATE TABLE events (account_id INTEGER, event_date INTEGER);
+                INSERT INTO events VALUES (1, 20251231), (1, 20260101);
+                """,
+            )
+            rows = db.execute(sql).fetchall()
+        assert rows == [(1, 20260101, 2)]
+
     def test_reference_column_requires_matching_explicit_role(self):
         """A [from] column annotation cannot satisfy a [to] reference."""
         ctx = SimpleNamespace(reference_dimension_names={7: "v3.location"})

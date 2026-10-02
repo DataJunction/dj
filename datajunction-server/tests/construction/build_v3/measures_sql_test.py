@@ -9421,17 +9421,20 @@ class TestParentCteFilterLanding:
             normalize_aliases=True,
         )
 
+    @pytest.mark.parametrize("match_date", [False, True])
     @pytest.mark.asyncio
     async def test_nested_source_reuse_preserves_metric_count(
         self,
         client_with_build_v3,
+        match_date,
     ):
         """Transform body references the same source table twice: once
         at the top-level FROM (alias ``a``) and once inside a nested
         subquery on the LEFT-joined side (alias ``a2``). The output filter
         binds to ``a``. Filtering ``a2`` too could change which lifecycle
         rows join to the retained events, since the join only equates
-        account_id and does not equate event_date.
+        account_id and does not equate event_date. When the authored join
+        equates both dates, pruning the nested scan becomes safe.
 
         This mirrors the XP-style transform where an inner subquery joins
         allocation_core_d again for an account lookup. The older expectation
@@ -9469,6 +9472,8 @@ class TestParentCteFilterLanding:
 
         # Transform with the XP-shape: top-level FROM references the
         # source once (a), inner subquery references it again (a2).
+        nested_date_col = ", a2.event_date" if match_date else ""
+        date_join = " AND a.event_date = s.event_date" if match_date else ""
         resp = await client.post(
             "/nodes/transform/",
             json={
@@ -9478,11 +9483,13 @@ class TestParentCteFilterLanding:
                     "       s.lifecycle_id "
                     f"FROM {src} AS a "
                     "LEFT JOIN ("
-                    "  SELECT rev.account_id, rev.lifecycle_id "
+                    "  SELECT rev.account_id, rev.lifecycle_id"
+                    f"{nested_date_col} "
                     "  FROM v3.src_subs_lifecycle AS rev "
                     f"  JOIN {src} AS a2 ON a2.account_id = rev.account_id "
                     "  WHERE rev.signup_ts_ms > 0 "
                     ") AS s ON a.account_id = s.account_id"
+                    f"{date_join}"
                 ),
                 "mode": "published",
                 "primary_key": ["account_id", "event_date"],
@@ -9512,10 +9519,10 @@ class TestParentCteFilterLanding:
         )
         assert response.status_code == 200, response.json()
         sql = get_first_grain_group(response.json())["sql"]
-        # The nested scan reads the same physical table, but its row set has
-        # a different role in the authored query. Keep its WHERE unchanged.
-        # The inner account lookup sees both dates. Copying the outer date
-        # predicate to a2 drops one match and changes COUNT(*) from 2 to 1.
+        # The nested scan reads the same table under a different role. A date
+        # equality in the join proves when its partition can also be pruned.
+        # With only the account join, the inner lookup sees both dates:
+        # copying the outer predicate would change COUNT(*) from 2 to 1.
         with sqlite3.connect(":memory:") as db:
             db.executescript(
                 """
@@ -9535,21 +9542,24 @@ class TestParentCteFilterLanding:
                 """,
             )
             rows = db.execute(sql.replace("default.v3.", "")).fetchall()
-        assert rows == [(1, 2)]
+        assert rows == [(1, 1 if match_date else 2)]
 
         assert_sql_equal(
             sql,
-            """
+            f"""
             WITH v3_events_with_nested_self AS (
               SELECT a.account_id
               FROM default.v3.events_nested_self_ref AS a
               LEFT JOIN (
                 SELECT rev.account_id, rev.lifecycle_id
+                  {", a2.event_date" if match_date else ""}
                 FROM default.v3.subs_lifecycle AS rev
                 JOIN default.v3.events_nested_self_ref AS a2
                   ON a2.account_id = rev.account_id
                 WHERE rev.signup_ts_ms > 0
+                  {"AND a2.event_date = 20260101" if match_date else ""}
               ) AS s ON a.account_id = s.account_id
+                {"AND a.event_date = s.event_date" if match_date else ""}
               WHERE a.event_date = 20260101
             )
             SELECT t1.account_id, COUNT(*) count_HASH
