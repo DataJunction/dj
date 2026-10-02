@@ -57,6 +57,12 @@ class BuildContext:
     dimension_filters: list[str] = field(default_factory=list)
     metric_filters: list[str] = field(default_factory=list)
 
+    # Final metrics SQL deduplicates dimension CTEs across grain groups by
+    # name. When groups differ, per-group filter pushdown into those CTEs can
+    # change the other group's role joins after deduplication.
+    final_metrics_query: bool = False
+    disable_dimension_cte_pushdown: bool = False
+
     # Whether to use materialized tables when available (default: True)
     # Set to False when building SQL for materialization to avoid circular references
     use_materialized: bool = True
@@ -251,12 +257,16 @@ class PushdownFilters:
             attribute sharing a name with the raw FK column, so it must not be
             pushed into ANY CTE (incl. an upstream ancestor that projects the FK
             without owning the link).  See ``_resolve_pushdown_filters_for_cte``.
+        shared_dim_ctes: Dimension nodes joined under multiple roles in this
+            query. A role-specific predicate must stay on its join alias so it
+            does not filter the shared CTE for the other roles.
     """
 
     filters: list[str]
     column_aliases: dict[str, str]
     outer_only_refs: set[str] = field(default_factory=set)
     fk_collision_cols: set[str] = field(default_factory=set)
+    shared_dim_ctes: set[str] = field(default_factory=set)
 
 
 @dataclass

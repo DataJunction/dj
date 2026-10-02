@@ -9420,22 +9420,16 @@ class TestParentCteFilterLanding:
         )
 
     @pytest.mark.asyncio
-    async def test_filter_pushes_into_nested_subquery_self_reference(
+    async def test_filter_does_not_narrow_nested_self_reference(
         self,
         client_with_build_v3,
     ):
         """Transform body references the same source table twice: once
         at the top-level FROM (alias ``a``) and once inside a nested
-        subquery on the LEFT-joined side (alias ``a2``).  A filter on
-        a column owned by that source must land at BOTH references —
-        not just the top-level one — so Spark partition pruning fires
-        at both scans (and the inner subquery doesn't full-scan).
-
-        Mirrors the XP-style transform pattern where an inner subquery
-        joins ``allocation_core_d a2`` for account-FK lookup.  The
-        direct dim-link pushdown path used to inject only at the
-        top-level alias; the inner ``a2`` reference would scan
-        unfiltered.  This test pins down the v2-parity fix.
+        subquery on the LEFT-joined side (alias ``a2``). The output filter
+        binds to ``a``. Filtering ``a2`` too could change which lifecycle
+        rows join to the retained events, since the join only equates
+        account_id and does not equate event_date.
         """
         client = client_with_build_v3
 
@@ -9511,13 +9505,8 @@ class TestParentCteFilterLanding:
         )
         assert response.status_code == 200, response.json()
         sql = get_first_grain_group(response.json())["sql"]
-        # The filter ``event_date = 20260101`` is pushed into BOTH:
-        #   - the top-level CTE WHERE (qualified to ``a``), and
-        #   - the inner subquery's WHERE (qualified to ``a2``),
-        # because both ``a`` and ``a2`` reference the same source table
-        # ``events_nested_self_ref``.  Without the per-Table-reference
-        # walk, only the top-level injection would happen and the inner
-        # scan would run unfiltered.
+        # The nested scan reads the same physical table, but its row set has
+        # a different role in the authored query. Keep its WHERE unchanged.
         assert_sql_equal(
             sql,
             """
@@ -9529,7 +9518,7 @@ class TestParentCteFilterLanding:
                 FROM default.v3.subs_lifecycle AS rev
                 JOIN default.v3.events_nested_self_ref AS a2
                   ON a2.account_id = rev.account_id
-                WHERE rev.signup_ts_ms > 0 AND a2.event_date = 20260101
+                WHERE rev.signup_ts_ms > 0
               ) AS s ON a.account_id = s.account_id
               WHERE a.event_date = 20260101
             )
@@ -9854,24 +9843,13 @@ class TestParentCteFilterLanding:
         )
 
     @pytest.mark.asyncio
-    async def test_filter_disambiguates_joined_tables_via_dim_link(
+    async def test_filter_uses_projected_column_with_name_collision(
         self,
         client_with_build_v3,
     ):
-        """When an inner subquery's FROM has two Tables exposing the
-        same bare column, the filter must route to the Table whose
-        ``dimension_link`` references the filter's dim — not a
-        first-write-wins arbitrary pick.
-
-        Regression from a real Netflix XP query: an inner subquery
-        had ``subscription_lifecycle_cohort_d rev JOIN
-        allocation_core_d a2 ON ...`` where BOTH tables expose
-        ``snapshot_utc_date``.  The filter
-        ``allocation_snapshot_date.dateint = X`` is supposed to
-        constrain allocation_core_d (a2) since that's the linked
-        table; first-write-wins picked ``rev`` instead, sending
-        the predicate to the wrong table and changing result
-        semantics.  This test pins the dim-link-aware routing.
+        """A derived table projects an allocation date while a joined
+        sibling exposes a same-named column. The filter must constrain the
+        projected allocation date, never the sibling's unrelated date.
         """
         client = client_with_build_v3
 
@@ -9997,12 +9975,12 @@ class TestParentCteFilterLanding:
         )
         assert response.status_code == 200, response.json()
         sql = get_first_grain_group(response.json())["sql"]
-        # Filter routes to ``a`` (allocation table) via the dim
-        # link, NOT to ``sib`` (sibling table) — even though sib is
-        # processed first in the inner subquery's FROM and would
-        # otherwise win first-write-wins.
-        assert "a.snapshot_utc_date = 20260520" in sql, (
-            f"Filter not routed to allocation table via dim link:\n{sql}"
+        # The derived table projects ``a.snapshot_utc_date`` as
+        # ``s.snapshot_utc_date``. Filtering that output constrains the
+        # allocation rows without touching the sibling's same-named column.
+        assert "a.snapshot_utc_date" in sql
+        assert "s.snapshot_utc_date = 20260520" in sql, (
+            f"Filter not applied to the projected allocation date:\n{sql}"
         )
         assert "sib.snapshot_utc_date = 20260520" not in sql, (
             f"Filter mis-routed to sibling table that has no dim link:\n{sql}"
@@ -10296,14 +10274,12 @@ class TestParentCteFilterLanding:
         ), f"Filter dropped from outer wrapping WHERE entirely:\n{sql}"
 
     @pytest.mark.asyncio
-    async def test_alias_substitution_skips_subquery_alias_collision(
+    async def test_subquery_alias_collision_keeps_outer_filter(
         self,
         client_with_build_v3,
     ):
-        """Alias-substitution must NOT propagate a filter whose
-        primary qualifier is a *subquery* alias at the parent CTE's
-        target_select to a deeper scope where the same name happens
-        to be a Table alias for a different relation.
+        """A filter on a derived-table alias must stay at its owning scope,
+        even when an inner table happens to reuse that alias name.
 
         Real regression from an XP cs_contact-style transform whose
         body wraps an inline derived table aliased ``a``:
@@ -10316,20 +10292,10 @@ class TestParentCteFilterLanding:
         Outer ``a`` is the derived table (exposes ``observation_window``
         via the CROSS JOIN's projection).  Inner ``a`` is the alloc
         CTE Table-reference (does NOT have ``observation_window``).
-        A user filter on ``observation_window`` resolves at
-        target_select to ``a.observation_window IN (...)``; without
-        this guard, alias-substitution would find the inner Table
-        aliased ``a`` and inject ``a.observation_window IN (...)``
-        there — invalid because the alloc CTE has no such column,
-        and Spark fails with
-        ``Column 'a.observation_window' does not exist``.
-
-        The fix only fires alias-substitution when the primary
-        qualifier is a *direct* Table alias at target_select; here
-        ``a`` is a subquery alias so alias-substitution is skipped,
-        and the inner scope is handled instead by column-aware
-        retargeting using the obs_window dim's self-PK entry
-        (``w.observation_window IN (...)``).
+        A user filter on ``observation_window`` resolves to the outer
+        ``a.observation_window``. Copying it into the inner scope would be
+        invalid because inner ``a`` is an allocation table without that
+        column. The outer predicate already filters the projected value.
         """
         client = client_with_build_v3
 
@@ -10426,15 +10392,9 @@ class TestParentCteFilterLanding:
         assert response.status_code == 200, response.json()
         sql = get_first_grain_group(response.json())["sql"]
 
-        # Outer WHERE qualifies window_label with ``a`` (the
-        # derived-table alias, which exposes the column via the
-        # CROSS JOIN's projection).  Inner derived-table scope
-        # qualifies it with ``w`` (the obs_window-style dim
-        # subquery alias, which IS the dim and has the column).
-        # The dim CTE itself also gets the filter at its own
-        # WHERE via dim self-PK push.  No ``a.window_label`` may
-        # appear inside the inner derived's body — that was the
-        # bug.
+        # Outer ``a`` is the derived table that projects w.window_label.
+        # The dimension CTE is also filtered, but the inner derived body
+        # must not gain a predicate on its different ``a`` alias.
         assert_sql_equal(
             sql,
             """
@@ -10449,7 +10409,6 @@ class TestParentCteFilterLanding:
                 SELECT a.account_id, a.event_date, a.value, w.window_label
                 FROM default.v3.events_alias_collide AS a
                 CROSS JOIN v3_alias_collide_label_dim AS w
-                WHERE w.window_label = 'demo'
               ) AS a
               WHERE a.window_label = 'demo'
             )

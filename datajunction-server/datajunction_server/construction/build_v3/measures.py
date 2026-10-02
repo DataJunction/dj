@@ -41,6 +41,7 @@ from datajunction_server.construction.build_v3.dimensions import (
     resolve_metric_expression_dimensions,
 )
 from datajunction_server.construction.build_v3.filters import (
+    add_unique_role_fallbacks,
     parse_and_resolve_filters,
     parse_filter,
     resolve_filter_references,
@@ -312,7 +313,7 @@ def _get_filter_column_name_for_dimension(
         return None  # pragma: no cover
 
     for link in parent_node.current.dimension_links:
-        if link.dimension.name == dim_node_name:
+        if link.dimension.name == dim_node_name and link.role == parsed_ref.role:
             fk_columns = link.foreign_key_column_names
             if fk_columns:  # pragma: no branch
                 return next(iter(fk_columns))
@@ -505,8 +506,8 @@ def build_filter_column_aliases(
     - Identity: ``v3.product.category`` → ``category``
     - Skip-join override: ``dimensions.time.date.dateint`` → ``utc_date``
 
-    Also adds bare-key fallbacks (role suffix stripped) so filters resolve
-    even when the role is missing or mismatched.
+    Also adds bare-key entries for unqualified dimension references. Explicit
+    role-qualified references still require their exact key.
     """
     aliases: dict[str, str] = {}
 
@@ -526,14 +527,7 @@ def build_filter_column_aliases(
     for dim_ref, local_col in ctx.skip_join_column_mapping.items():
         aliases[dim_ref] = local_col
 
-    # Bare-key fallbacks (strip role suffix)
-    for original_ref in list(aliases.keys()):
-        if "[" in original_ref:
-            base_ref = original_ref.split("[")[0]
-            if base_ref not in aliases:  # pragma: no branch
-                aliases[base_ref] = aliases[original_ref]
-
-    return aliases
+    return add_unique_role_fallbacks(aliases)
 
 
 def outer_only_filter_refs(
@@ -585,9 +579,27 @@ def build_outer_where(
     Returns the combined WHERE expression with table-qualified column names,
     or None if no filters parse successfully.
     """
+    # Qualify each semantic reference before resolving it to a bare column.
+    # Two roles of one dimension can have the same column name, and a later
+    # bare-column pass would assign both predicates to the last join alias.
+    qualified_aliases: dict[str, str | ast.Name] = dict(filter_column_aliases)
+    for resolved_dim in resolved_dimensions:
+        column_name = filter_column_aliases.get(
+            resolved_dim.original_ref,
+            resolved_dim.column_name,
+        )
+        table_alias = get_dimension_table_alias(
+            resolved_dim,
+            main_alias,
+            dim_aliases,
+        )
+        qualified_aliases[resolved_dim.original_ref] = ast.Name(
+            column_name,
+            namespace=ast.Name(table_alias),
+        )
     where_clause = parse_and_resolve_filters(
         filters,
-        filter_column_aliases,
+        qualified_aliases,
         cte_alias=None,
         nodes=nodes,
     )
@@ -1145,6 +1157,24 @@ def build_dimension_joins(
     return dim_aliases, joins
 
 
+def shared_dimension_ctes(
+    resolved_dimensions: list[ResolvedDimension],
+) -> set[str]:
+    """Dimension nodes joined under more than one role in this query."""
+    roles_by_node: dict[str, set[str]] = {}
+    for resolved_dim in resolved_dimensions:
+        if resolved_dim.is_local or not resolved_dim.join_path:
+            continue
+        role_parts: list[str] = []
+        for link in resolved_dim.join_path.links:
+            if link.role:
+                role_parts.append(link.role)
+            roles_by_node.setdefault(link.dimension.name, set()).add(
+                "->".join(role_parts),
+            )
+    return {node_name for node_name, roles in roles_by_node.items() if len(roles) > 1}
+
+
 def build_select_ast(
     ctx: BuildContext,
     metric_expressions: list[tuple[str, ast.Expression]],
@@ -1394,6 +1424,7 @@ def build_select_ast(
             column_aliases=filter_column_aliases,
             outer_only_refs=pushdown_outer_only_refs,
             fk_collision_cols=pushdown_fk_collision_cols,
+            shared_dim_ctes=shared_dimension_ctes(resolved_dimensions),
         )
         if all_filters
         else None,
@@ -2597,6 +2628,12 @@ def process_metric_group(
     # This optimization reduces duplicate JOINs by outputting raw values
     # at finest grain, with aggregations applied in final SELECT
     grain_groups = merge_grain_groups(grain_groups)
+
+    # Final metrics SQL shares dimension CTEs by name. If one metric group
+    # yields several grains, a filter inside one group's copy would affect
+    # every copy after deduplication.
+    if len(grain_groups) > 1 and ctx.final_metrics_query:
+        ctx.disable_dimension_cte_pushdown = True
 
     # Build SQL for each grain group. Fan-out risk is flagged inside
     # build_grain_group_sql, where the full set of emitted join paths is known.
