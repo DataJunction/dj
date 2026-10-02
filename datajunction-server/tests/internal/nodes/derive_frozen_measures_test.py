@@ -161,12 +161,18 @@ async def test_legacy_explicit_default_frozen_measure_is_reused(
     class Digest(AggDecomposition):
         def __init__(self, params=None):
             super().__init__(params)
-            compression = int(self.params.get("compression", 1))
-            self.params = {} if compression == 1 else {"compression": compression}
+            compression = int(self.params.get("compression", 200))
+            self.params = {} if compression == 200 else {"compression": compression}
 
         @property
         def components(self):
-            return [ComponentDef("_sketch", "build_sketch({}, 1)", "merge_sketch")]
+            return [
+                ComponentDef(
+                    "_sketch",
+                    f"build_sketch({{}}, {self.params.get('compression', 200)})",
+                    "merge_sketch",
+                ),
+            ]
 
         def combine(self, components, func, dialect=None):
             return make_func("read_sketch", components[0].name)
@@ -192,7 +198,7 @@ async def test_legacy_explicit_default_frozen_measure_is_reused(
             session,
         )
         legacy = _new_frozen_measure(components[0], source.current.id)
-        legacy.params = {"compression": 1}
+        legacy.params = {"compression": 200}
         session.add(legacy)
         await session.flush()
 
@@ -204,7 +210,7 @@ async def test_legacy_explicit_default_frozen_measure_is_reused(
 
         await session.refresh(metric.current, ["frozen_measures"])
         assert [fm.id for fm in metric.current.frozen_measures] == [legacy.id]
-        assert legacy.params == {"compression": 1}
+        assert legacy.params == {"compression": 200}
     finally:
         FAMILY_DECOMPOSITION_REGISTRY.pop(ReaggregationFunction.TDIGEST, None)
 

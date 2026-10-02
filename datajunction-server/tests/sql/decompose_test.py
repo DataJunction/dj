@@ -3143,11 +3143,11 @@ def registered_family():
     class _FamilyDecomposition(AggDecomposition):
         def __init__(self, params=None):
             super().__init__(params)
-            compression = int(self.params.get("compression", 1))
+            compression = int(self.params.get("compression", 200))
             self.params = {
                 key: value for key, value in self.params.items() if key != "compression"
             }
-            if compression != 1:
+            if compression != 200:
                 self.params["compression"] = compression
 
         @property
@@ -3155,7 +3155,7 @@ def registered_family():
             return [
                 ComponentDef(
                     suffix="_sketch",
-                    accumulate=f"build_sketch({{}}, {self.params.get('compression', 1)})",
+                    accumulate=f"build_sketch({{}}, {self.params.get('compression', 200)})",
                     merge="merge_sketch",
                 ),
             ]
@@ -3202,7 +3202,7 @@ def test_mixed_family_metric_attaches_params_only_to_family_component(
     """SUM remains ordinary while the opted-in percentile carries tuning."""
     spec = ReaggregateSpec(
         fn=ReaggregationFunction.TDIGEST,
-        params={"compression": 200},
+        params={"compression": 500},
     )
     components, _ = MetricComponentExtractor(0)._extract_base(
         parse("SELECT APPROX_PERCENTILE(price, 0.95) + SUM(quantity) FROM t"),
@@ -3210,7 +3210,7 @@ def test_mixed_family_metric_attaches_params_only_to_family_component(
     )
 
     by_merge = {component.merge: component for component in components}
-    assert by_merge["merge_sketch"].params == {"compression": 200}
+    assert by_merge["merge_sketch"].params == {"compression": 500}
     assert by_merge["SUM"].params is None
 
 
@@ -3307,8 +3307,8 @@ async def test_family_components_use_effective_parameters_for_identity(
     query = "SELECT APPROX_PERCENTILE(price, 0.95) FROM parent_node"
     specs = [
         {"fn": "tdigest"},
-        {"fn": "tdigest", "params": {"compression": 1}},
-        {"fn": "tdigest", "params": {"compression": 1.0}},
+        {"fn": "tdigest", "params": {"compression": 200}},
+        {"fn": "tdigest", "params": {"compression": 200.0}},
     ]
     components = []
     for spec in specs:

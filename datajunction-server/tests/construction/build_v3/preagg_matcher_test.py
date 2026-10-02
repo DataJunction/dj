@@ -89,8 +89,8 @@ async def test_preupgrade_explicit_default_preagg_matches_canonical_component(
     class Digest(AggDecomposition):
         def __init__(self, params=None):
             super().__init__(params)
-            compression = int(self.params.get("compression", 1))
-            self.params = {} if compression == 1 else {"compression": compression}
+            compression = int(self.params.get("compression", 200))
+            self.params = {} if compression == 200 else {"compression": compression}
 
         @property
         def components(self):
@@ -104,7 +104,7 @@ async def test_preupgrade_explicit_default_preagg_matches_canonical_component(
         component.reaggregation_family = ReaggregationFunction.TDIGEST
         assert "reaggregation_family" not in component.model_dump()
         old_measure = make_preagg_measure("latency_sketch", "latency", "BUILD_SKETCH")
-        old_measure.params = {"compression": 1}
+        old_measure.params = {"compression": 200}
         old_measure.source_column = "stored_sketch"
         availability = AvailabilityState(
             catalog="test",
@@ -145,7 +145,7 @@ async def test_preupgrade_explicit_default_preagg_matches_canonical_component(
         assert matched is not None
         assert matched.preagg is preagg
 
-        old_measure.params = {"compression": 2}
+        old_measure.params = {"compression": 500}
         assert not preagg_covers_components(preagg.measures, [component])
         assert get_preagg_measure_column(preagg, component) is None
         assert (
