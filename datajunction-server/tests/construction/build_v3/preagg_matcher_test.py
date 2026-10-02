@@ -137,7 +137,10 @@ async def test_preupgrade_explicit_default_preagg_matches_canonical_component(
         assert preagg_covers_components(preagg.measures, [component])
         assert get_preagg_measure_column(preagg, component) == "stored_sketch"
         matched = find_matching_preagg(
-            ctx, parent_node, _resolved_grain(ctx, ["dim1"]), grain_group
+            ctx,
+            parent_node,
+            _resolved_grain(ctx, ["dim1"]),
+            grain_group,
         )
         assert matched is not None
         assert matched.preagg is preagg
@@ -147,7 +150,10 @@ async def test_preupgrade_explicit_default_preagg_matches_canonical_component(
         assert get_preagg_measure_column(preagg, component) is None
         assert (
             find_matching_preagg(
-                ctx, parent_node, _resolved_grain(ctx, ["dim1"]), grain_group
+                ctx,
+                parent_node,
+                _resolved_grain(ctx, ["dim1"]),
+                grain_group,
             )
             is None
         )

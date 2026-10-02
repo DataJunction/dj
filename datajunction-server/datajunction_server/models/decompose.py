@@ -121,7 +121,8 @@ class MetricComponent(BaseModel):
     # canonical parameters. It is derived from the metric, never persisted on a
     # pre-aggregation measure.
     reaggregation_family: ReaggregationFunction | None = Field(
-        default=None, exclude=True
+        default=None,
+        exclude=True,
     )
     # Fixed arguments appended after the column in the Phase 2 merge call, as SQL
     # literals: `nflx_tdigest_agg(col, 200.0)` is merge="nflx_tdigest_agg" plus

@@ -86,7 +86,7 @@ def preagg_measure_matches_component(
         and stored.expr_hash == compute_expression_hash(component.expression)
         and (stored.aggregation or "").strip().upper()
         == component.normalized_aggregation
-        and component_params_match(component, stored.params)
+        and component_params_match(component, stored.params),
     )
 
 

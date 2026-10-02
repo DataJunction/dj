@@ -189,7 +189,7 @@ async def test_legacy_explicit_default_frozen_measure_is_reused(
         )
         await session.refresh(metric, ["current"])
         components, _ = await MetricComponentExtractor(metric.current.id).extract(
-            session
+            session,
         )
         legacy = _new_frozen_measure(components[0], source.current.id)
         legacy.params = {"compression": 1}

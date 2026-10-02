@@ -861,7 +861,7 @@ def component_params_match(
     return bool(
         family is not None
         and (component.params or {})
-        == (family.decomposition(params=stored_params).params or {})
+        == (family.decomposition(params=stored_params).params or {}),
     )
 
 
