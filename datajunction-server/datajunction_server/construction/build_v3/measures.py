@@ -882,7 +882,7 @@ def _coalesce_partner_for_full_skipped_fk(
 
     Returns ``None`` when no co-joined sibling carries the FK.
     """
-    if resolved_dim.pre_skip_join_path is None:
+    if not resolved_dim.is_local or resolved_dim.pre_skip_join_path is None:
         return None
 
     parent_fk_fqn = f"{parent_node_name}{SEPARATOR}{resolved_dim.column_name}"
@@ -1160,13 +1160,22 @@ def build_dimension_joins(
 def shared_dimension_ctes(
     resolved_dimensions: list[ResolvedDimension],
 ) -> set[str]:
-    """Dimension nodes joined under more than one role in this query."""
+    """Dimension nodes used under more than one role in this query.
+
+    A role whose join was fully or partially skipped can still name the same
+    dimension CTE used by a joined role. Its filter must not narrow that CTE.
+    """
     roles_by_node: dict[str, set[str]] = {}
     for resolved_dim in resolved_dimensions:
-        if resolved_dim.is_local or not resolved_dim.join_path:
+        join_path = resolved_dim.pre_skip_join_path or resolved_dim.join_path
+        if not join_path:
+            local_ref = parse_dimension_ref(resolved_dim.original_ref)
+            roles_by_node.setdefault(local_ref.node_name, set()).add(
+                local_ref.role or "",
+            )
             continue
         role_parts: list[str] = []
-        for link in resolved_dim.join_path.links:
+        for link in join_path.links:
             if link.role:
                 role_parts.append(link.role)
             roles_by_node.setdefault(link.dimension.name, set()).add(

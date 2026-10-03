@@ -25,6 +25,7 @@ from datajunction_server.construction.build_v3.dimensions import (
 from datajunction_server.construction.build_v3.filters import rewrite_filter_atomically
 from datajunction_server.construction.build_v3.measures import (
     _add_table_prefixes_to_filter,
+    shared_dimension_ctes,
 )
 from datajunction_server.errors import DJException
 from datajunction_server.models.node import NodeType
@@ -840,6 +841,62 @@ class TestFilterPushdownOperators:
 class TestFilterPushdownMultiRole:
     """Multi-role dim filter pushdown — each role's filter targets a distinct CTE / join."""
 
+    def test_local_role_counts_when_identifying_shared_dimension_ctes(self):
+        """A skipped join or a local reference still names a distinct role."""
+        location = SimpleNamespace(name="v3.location")
+        joined = SimpleNamespace(
+            original_ref="v3.location.city[to]",
+            is_local=False,
+            join_path=SimpleNamespace(
+                links=[SimpleNamespace(dimension=location, role="to")],
+            ),
+            pre_skip_join_path=None,
+        )
+        skipped_key = SimpleNamespace(
+            original_ref="v3.location.location_id[from]",
+            is_local=True,
+            join_path=None,
+            pre_skip_join_path=SimpleNamespace(
+                links=[SimpleNamespace(dimension=location, role="from")],
+            ),
+        )
+        local_reference = SimpleNamespace(
+            original_ref="v3.location.city[from]",
+            is_local=True,
+            join_path=None,
+            pre_skip_join_path=None,
+        )
+
+        assert shared_dimension_ctes([joined, skipped_key]) == {"v3.location"}
+        assert shared_dimension_ctes([joined, local_reference]) == {"v3.location"}
+
+    def test_partially_skipped_role_counts_for_terminal_dimension_cte(self):
+        """A skipped terminal link still uses its role if another path joins it."""
+        customer = SimpleNamespace(name="v3.customer")
+        location = SimpleNamespace(name="v3.location")
+        customer_link = SimpleNamespace(dimension=customer, role="customer")
+        partially_skipped = SimpleNamespace(
+            original_ref="v3.location.location_id[customer->home]",
+            is_local=False,
+            join_path=SimpleNamespace(links=[customer_link]),
+            pre_skip_join_path=SimpleNamespace(
+                links=[
+                    customer_link,
+                    SimpleNamespace(dimension=location, role="home"),
+                ],
+            ),
+        )
+        joined = SimpleNamespace(
+            original_ref="v3.location.city[ship]",
+            is_local=False,
+            join_path=SimpleNamespace(
+                links=[SimpleNamespace(dimension=location, role="ship")],
+            ),
+            pre_skip_join_path=None,
+        )
+
+        assert shared_dimension_ctes([partially_skipped, joined]) == {"v3.location"}
+
     def test_unqualified_dimension_uses_only_shortest_path(self):
         """An unrelated indirect path does not displace a unique direct link."""
         target = SimpleNamespace(name="v3.date")
@@ -973,6 +1030,78 @@ class TestFilterPushdownMultiRole:
             )
             rows = db.execute(sql.replace("default.v3.", "")).fetchall()
         assert rows == [("A", "B", 10.0)]
+
+    @pytest.mark.asyncio
+    async def test_local_key_filter_does_not_filter_joined_role_of_shared_cte(
+        self,
+        client_with_build_v3,
+    ):
+        """A fact-local [from] key must not remove rows needed by [to]."""
+        client = client_with_build_v3
+        response = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.same_key_fact",
+                "columns": [
+                    {"name": "location_id", "type": "int"},
+                    {"name": "to_location_id", "type": "int"},
+                    {"name": "amount", "type": "double"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "same_key_fact",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+        for role, fact_key in (("from", "location_id"), ("to", "to_location_id")):
+            response = await client.post(
+                "/nodes/v3.same_key_fact/link",
+                json={
+                    "dimension_node": "v3.location",
+                    "join_on": (
+                        f"v3.same_key_fact.{fact_key} = v3.location.location_id"
+                    ),
+                    "role": role,
+                },
+            )
+            assert response.status_code in (200, 201), response.json()
+        response = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.same_key_amount",
+                "query": "SELECT SUM(amount) FROM v3.same_key_fact",
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+        response = await client.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.same_key_amount"],
+                "dimensions": ["v3.location.city[to]"],
+                "filters": ["v3.location.location_id[from] = 1"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = response.json()["sql"]
+
+        with sqlite3.connect(":memory:") as db:
+            db.executescript(
+                """
+                CREATE TABLE locations (location_id INTEGER, city TEXT);
+                CREATE TABLE same_key_fact (
+                    location_id INTEGER, to_location_id INTEGER, amount REAL
+                );
+                INSERT INTO locations VALUES (1, 'A'), (2, 'B'), (3, 'C');
+                INSERT INTO same_key_fact VALUES (1, 2, 10), (3, 1, 7);
+                """,
+            )
+            rows = db.execute(sql.replace("default.v3.", "")).fetchall()
+        assert rows == [("B", 10.0)]
+        location_cte = sql.split("v3_location AS (", 1)[1].split("),", 1)[0]
+        assert "WHERE" not in location_cte.upper()
 
     @pytest.mark.asyncio
     async def test_metric_sql_keeps_role_filter_after_grain_group_build(
