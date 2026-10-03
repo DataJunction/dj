@@ -57,6 +57,12 @@ class BuildContext:
     dimension_filters: list[str] = field(default_factory=list)
     metric_filters: list[str] = field(default_factory=list)
 
+    # Final metrics SQL deduplicates dimension CTEs across grain groups by
+    # name. When groups differ, per-group filter pushdown into those CTEs can
+    # change the other group's role joins after deduplication.
+    final_metrics_query: bool = False
+    disable_dimension_cte_pushdown: bool = False
+
     # Whether to use materialized tables when available (default: True)
     # Set to False when building SQL for materialization to avoid circular references
     use_materialized: bool = True
@@ -251,12 +257,16 @@ class PushdownFilters:
             attribute sharing a name with the raw FK column, so it must not be
             pushed into ANY CTE (incl. an upstream ancestor that projects the FK
             without owning the link).  See ``_resolve_pushdown_filters_for_cte``.
+        shared_dim_ctes: Dimension nodes joined under multiple roles in this
+            query. A role-specific predicate must stay on its join alias so it
+            does not filter the shared CTE for the other roles.
     """
 
     filters: list[str]
     column_aliases: dict[str, str]
     outer_only_refs: set[str] = field(default_factory=set)
     fk_collision_cols: set[str] = field(default_factory=set)
+    shared_dim_ctes: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -475,12 +485,10 @@ class ResolvedDimension:
     role: str | None  # Role if specified (e.g., "order")
     join_path: JoinPath | None  # Join path from fact to this dimension (None if local)
     is_local: bool  # True if dimension is on the fact table itself
-    # The full original join path before any full-skip optimization.  Used by
-    # the projection layer to find intermediate joined dims whose columns are
-    # FK-aligned with the requested column — those columns can be COALESCEd
-    # in so the projected value survives OUTER joins that null-fill the FK
-    # side.  ``None`` when no skipping occurred (the regular ``join_path`` is
-    # authoritative).
+    # The original join path before full or partial FK-aligned join skipping.
+    # Used for role accounting and, for full skips, to find joined dimensions
+    # whose equivalent columns can preserve values under OUTER joins.
+    # ``None`` when no skipping occurred (``join_path`` is authoritative).
     pre_skip_join_path: JoinPath | None = None
 
 

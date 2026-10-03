@@ -1902,7 +1902,6 @@ class TestMetricsSQLDerived:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
-                WHERE category = 'Electronics'
             ),
             v3_page_views_enriched AS (
                 SELECT view_id, product_id
@@ -2672,14 +2671,12 @@ class TestFilterOnlyDimensionLoop:
     """Tests for filter-only dimension loop iteration in metrics.py."""
 
     @pytest.mark.asyncio
-    async def test_filter_subscript_matches_second_filter_dimension(
+    async def test_second_filter_dimension_is_applied(
         self,
         client_with_build_v3,
     ):
         """
-        Filter with a role-qualified subscript whose base ref is checked against
-        multiple filter-only dimensions exercises the ctx.filter_dimensions loop
-        in metrics.py.
+        Both filter-only product columns are resolved and applied.
         """
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
@@ -2688,13 +2685,11 @@ class TestFilterOnlyDimensionLoop:
                 "dimensions": ["v3.order_details.status"],
                 "filters": [
                     "v3.product.subcategory = 'tools'",
-                    "v3.product.category[buyer->home] = 'electronics'",
+                    "v3.product.category = 'electronics'",
                 ],
             },
         )
 
-        # The query may succeed or raise a dimension resolution error; either way
-        # the filter_dimensions loop is exercised with multiple entries.
         assert response.status_code == 200
         assert_sql_equal(
             response.json()["sql"],
@@ -3484,8 +3479,8 @@ class TestNonDecomposableMetrics:
     ):
         """A non-literal bound on the order column bails on scan expansion.
 
-        The query returns 200 with the user's filter passed through intact
-        (normal filter pushdown), which may starve the frame but is the safe fallback.
+        The query returns 200 and applies the filter at the fact scan. This
+        may starve the frame, but the non-literal bound cannot be expanded.
         """
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
@@ -3521,7 +3516,6 @@ class TestNonDecomposableMetrics:
             SELECT  base_metrics.date_id_order AS date_id_order,
               SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
              FROM base_metrics
-             WHERE  base_metrics.date_id_order = 20240130 + 1
             """,
         )
 
@@ -3670,8 +3664,8 @@ SELECT  base_metrics.date_id_order AS date_id_order,
     async def test_cumulative_revenue_live(self, client_with_build_v3):
         """Cumulative (UNBOUNDED PRECEDING) window metric. Unlike bounded trailing
         windows, UNBOUNDED has no finite N so DJ does NOT expand the scan; the
-        filter is pushed straight to the fact table and the window runs over
-        whatever rows match."""
+        filter is pushed straight to the fact table and consumed there. The
+        window runs over whatever rows match."""
         r = await client_with_build_v3.post(
             "/nodes/metric/",
             json={
@@ -3725,7 +3719,6 @@ SELECT  order_details_0.date_id_order AS date_id_order,
 SELECT  base_metrics.date_id_order AS date_id_order,
 	SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)  AS cumulative_revenue
  FROM base_metrics
- WHERE  base_metrics.date_id_order = 20240131
 """,
         )
 

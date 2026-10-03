@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from functools import reduce
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING
 
 from datajunction_server.errors import (
@@ -48,6 +48,62 @@ def parse_filter(filter_str: str) -> ast.Expression:
     if query.select.where is None:  # pragma: no cover
         raise DJInvalidInputException(f"Failed to parse filter: {filter_str}")
     return query.select.where
+
+
+def rewrite_filter_atomically(
+    filter_str: str,
+    resolve: Callable[[str], ast.Column | None],
+) -> ast.Expression | None:
+    """Rewrite a predicate only when every column reference binds in one scope.
+
+    A role subscript names one semantic reference, including multi-hop roles;
+    its marker columns are never treated as independent SQL columns. The
+    resolver chooses the physical column for each complete reference.
+    """
+    filter_ast = parse_filter(filter_str)
+    replacements: list[tuple[ast.Expression, ast.Column]] = []
+    handled_columns: set[int] = set()
+
+    for subscript in list(filter_ast.find_all(ast.Subscript)):
+        ref = dimension_ref_of_expression(subscript)
+        if ref is None:
+            continue
+        replacement = resolve(ref)
+        if replacement is None:
+            return None
+        replacements.append((subscript, replacement))
+        handled_columns.update(id(col) for col in subscript.find_all(ast.Column))
+
+    for col in list(filter_ast.find_all(ast.Column)):
+        if id(col) in handled_columns:
+            continue
+        ref = _extract_full_column_ref(col)
+        replacement = resolve(ref)
+        if replacement is None:
+            return None
+        replacements.append((col, replacement))
+
+    if not replacements:
+        return None
+    for original, replacement in replacements:
+        if original is filter_ast:
+            filter_ast = replacement
+        else:
+            original.swap(replacement)
+    return filter_ast
+
+
+def add_unique_role_fallbacks(aliases: Mapping[str, str]) -> dict[str, str]:
+    """Let a bare ref reuse a role alias only when exactly one role is present."""
+    result = dict(aliases)
+    roles_by_base: dict[str, list[str]] = {}
+    for ref in aliases:
+        if "[" in ref:
+            roles_by_base.setdefault(ref.split("[")[0], []).append(ref)
+    for base_ref, role_refs in roles_by_base.items():
+        if base_ref not in result and len(role_refs) == 1:
+            result[base_ref] = result[role_refs[0]]
+    return result
 
 
 def extract_subscript_role(subscript: ast.Subscript) -> str | None:
@@ -199,7 +255,6 @@ def resolve_filter_references(
         if not base_col_ref:
             continue  # pragma: no cover
 
-        # The base ref is kept for the fallback lookup below.
         dim_ref_with_role = dimension_ref_of_expression(subscript)
         if dim_ref_with_role is None:
             continue  # pragma: no cover
@@ -212,10 +267,9 @@ def resolve_filter_references(
             for inner_col in subscript.index.find_all(ast.Column):
                 role_marker_ids.add(id(inner_col))
 
-        # Look up with role first, then fall back to base ref without role
-        alias_to_use = column_aliases.get(dim_ref_with_role) or column_aliases.get(
-            base_col_ref,
-        )
+        # An explicit role must resolve through its own mapping. Falling back
+        # to a bare ref can silently bind the predicate to another link.
+        alias_to_use = column_aliases.get(dim_ref_with_role)
 
         if alias_to_use:
             if cte_alias:
@@ -334,7 +388,7 @@ def combine_filters(filters: list[ast.Expression]) -> ast.Expression | None:
 
 def parse_and_resolve_filters(
     filter_strs: list[str],
-    column_aliases: dict[str, str],
+    column_aliases: Mapping[str, str | ast.Name],
     cte_alias: str | None = None,
     nodes: dict[str, Node] | None = None,
 ) -> ast.Expression | None:

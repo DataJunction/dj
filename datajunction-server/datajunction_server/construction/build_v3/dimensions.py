@@ -5,7 +5,6 @@ Dimension + join path resolution and building functions
 from __future__ import annotations
 
 import difflib
-import logging
 from collections.abc import Callable
 from http import HTTPStatus
 from typing import cast
@@ -28,6 +27,7 @@ from datajunction_server.construction.build_v3.types import (
     ResolvedDimension,
 )
 from datajunction_server.construction.build_v3.utils import (
+    extract_filter_dimension_refs,
     get_short_name,
     iter_namespaced_columns,
     make_name,
@@ -49,8 +49,6 @@ from datajunction_server.sql.decompose import (
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.utils import SEPARATOR
-
-logger = logging.getLogger(__name__)
 
 
 def parse_dimension_ref(dim_ref: str) -> DimensionRef:
@@ -88,6 +86,7 @@ def find_join_path(
     from_node: Node,
     target_dim_name: str,
     role: str | None = None,
+    column_name: str | None = None,
 ) -> JoinPath | None:
     """
     Find the join path from a node to a target dimension.
@@ -101,9 +100,9 @@ def find_join_path(
     For multi-hop joins (role like "customer->home"):
         fact -> customer -> location
 
-    If no role is specified, will find ANY path to the dimension (first match).
-    This handles cases where the dimension link has a role but the user
-    doesn't specify one.
+    An unqualified reference uses the shortest path. Among equally short
+    paths, a role-free link is the default; otherwise the role is ambiguous.
+    An explicit role must match a path exactly.
 
     Returns None if no path found.
     """
@@ -113,43 +112,39 @@ def find_join_path(
     source_revision_id = from_node.current.id
     role_path = role or ""
 
-    # Look up preloaded path with exact role match
-    key = (source_revision_id, target_dim_name, role_path)
-    links = ctx.join_paths.get(key)
-
-    if links:
-        # Path found in preloaded cache
+    if role:
+        links = ctx.join_paths.get((source_revision_id, target_dim_name, role_path))
+        if not links:
+            return None
         return JoinPath(
             links=links,
             target_dimension=links[-1].dimension,
             role=role,
         )
 
-    # Fallback: if exact role not found, try to find any path to this dimension
-    # This handles cases where:
-    # 1. User didn't specify a role, but link has one
-    # 2. User specified a role that doesn't match, so we use the actual link's role
-    # We prefer empty role (null) over named roles when falling back
-    fallback_paths = []
+    available_paths = []
     for (src_id, dim_name, stored_role), path_links in ctx.join_paths.items():
         if src_id == source_revision_id and dim_name == target_dim_name:
-            fallback_paths.append((stored_role, path_links))
+            available_paths.append((stored_role, path_links))
 
-    if fallback_paths:
-        # Prefer paths with no role (empty string) as they're the "default" link
-        # Also prefer shorter paths (fewer hops) over longer ones
-        fallback_paths.sort(
-            key=lambda x: (len(x[1]), x[0] != "", x[0]),
-        )  # Shortest path, then empty role, then alphabetical
-        stored_role, path_links = fallback_paths[0]
-
-        if role and stored_role != role_path:
-            logger.info(  # pragma: no cover
-                "[BuildV3] Role mismatch: requested '%s' but using '%s' for dimension %s",
-                role,
-                stored_role or "null",
+    if available_paths:
+        min_hops = min(len(links) for _, links in available_paths)
+        nearest_paths = [
+            (path_role, links)
+            for path_role, links in available_paths
+            if len(links) == min_hops
+        ]
+        default_path = next(
+            (item for item in nearest_paths if item[0] == ""),
+            None,
+        )
+        if len(nearest_paths) > 1 and default_path is None:
+            raise _ambiguous_role_error(
                 target_dim_name,
+                column_name,
+                [path_role for path_role, _ in nearest_paths],
             )
+        stored_role, path_links = default_path or nearest_paths[0]
 
         return JoinPath(
             links=path_links,
@@ -158,6 +153,20 @@ def find_join_path(
         )
 
     return None  # pragma: no cover
+
+
+def _ambiguous_role_error(
+    dimension_name: str,
+    column_name: str | None,
+    roles: list[str],
+) -> DJException:
+    """Give a bare reference actionable role-qualified alternatives."""
+    ref = f"{dimension_name}{SEPARATOR}{column_name}" if column_name else dimension_name
+    options = ", ".join(f"`{ref}[{role}]`" for role in sorted(set(roles)))
+    return DJException(
+        http_status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
+        message=f"Dimension `{ref}` is ambiguous across roles. Use one of: {options}",
+    )
 
 
 def roles_reaching_dimension(
@@ -318,8 +327,7 @@ def _resolve_filter_only_dim(
     direct_parents_set: set[str] = set(ctx.parent_map.get(parent_node.name, []))
     visited: set[str] = {parent_node.name}
     queue: list[str] = sorted(direct_parents_set)
-    passthrough: list[tuple[Node, str]] = []
-    pushdown_candidates: list[tuple[Node, str]] = []
+    upstream_links: list[tuple[Node, str, str | None, bool]] = []
     while queue:
         up_name = queue.pop(0)
         if up_name in visited:
@@ -328,17 +336,40 @@ def _resolve_filter_only_dim(
         up_node = ctx.nodes.get(up_name)
         if up_node and up_node.current:  # pragma: no branch
             for link in up_node.current.dimension_links:
-                if link.dimension.name != dim_ref.node_name:
+                if link.dimension.name != dim_ref.node_name or (
+                    dim_ref.role and (link.role or None) != dim_ref.role
+                ):
                     continue
                 fk_fqn = link.foreign_keys_reversed.get(target_fqn)
                 if fk_fqn is None:  # pragma: no cover
                     continue
                 fk_col = get_short_name(fk_fqn)
-                if fk_col in parent_cols and up_name in direct_parents_set:
-                    passthrough.append((up_node, fk_col))
-                else:
-                    pushdown_candidates.append((up_node, fk_col))
+                upstream_links.append(
+                    (
+                        up_node,
+                        fk_col,
+                        link.role or None,
+                        fk_col in parent_cols and up_name in direct_parents_set,
+                    ),
+                )
         queue.extend(sorted(ctx.parent_map.get(up_name, [])))
+
+    if dim_ref.role is None:
+        available_roles = {role for _, _, role, _ in upstream_links}
+        if None in available_roles:
+            # A role-free link is the default even when named paths coexist.
+            upstream_links = [item for item in upstream_links if item[2] is None]
+        elif len(available_roles) > 1:
+            raise _ambiguous_role_error(
+                dim_ref.node_name,
+                dim_ref.column_name,
+                [role for role in available_roles if role is not None],
+            )
+
+    passthrough = [(node, col) for node, col, _, direct in upstream_links if direct]
+    pushdown_candidates = [
+        (node, col) for node, col, _, direct in upstream_links if not direct
+    ]
 
     # One passthrough col → resolve locally. Multiple → a filter-only dim has
     # no output-column ambiguity, so apply to all: push each into its owning CTE.
@@ -380,26 +411,20 @@ def _register_pushdown_into_upstream(
     FK column.
     """
     from datajunction_server.construction.build_v3.cte import (
-        get_column_full_name,
         inject_filter_into_select,
     )
-    from datajunction_server.construction.build_v3.filters import parse_filter
 
-    # Find filter strings that reference this dim ref. Parse each once.
-    base_ref = original_ref.split("[")[0]
+    # Match the complete semantic ref, including its role.
     matching: list[str] = []
     for filter_str in ctx.dimension_filters:
         if filter_str in ctx.pushdown_consumed_filters:  # pragma: no cover
             continue
         try:
-            f_ast = parse_filter(filter_str)
+            refs = extract_filter_dimension_refs([filter_str], include_bare=True)
         except Exception:  # pragma: no cover
             continue
-        for col in f_ast.find_all(ast.Column):
-            full = get_column_full_name(col)
-            if full and full.split("[")[0] == base_ref:
-                matching.append(filter_str)
-                break
+        if original_ref in refs:
+            matching.append(filter_str)
     if not matching:
         return False  # pragma: no cover
 
@@ -416,6 +441,7 @@ def _register_pushdown_into_upstream(
         children_cache[node_name] = result
         return result
 
+    any_consumed = False
     for filter_str in matching:
         consumed = False
         for linked_node, fk_col in candidates:  # pragma: no branch
@@ -430,7 +456,7 @@ def _register_pushdown_into_upstream(
             for target_name, qualifier, arm_select in targets:
                 rewritten = _rewrite_filter_col_refs(
                     filter_str,
-                    base_ref,
+                    original_ref,
                     fk_col,
                     qualifier,
                 )
@@ -447,10 +473,11 @@ def _register_pushdown_into_upstream(
                         target_name,
                         [],
                     ).append(rewritten)
-            consumed = True
+                consumed = True
         if consumed:  # pragma: no branch
             ctx.pushdown_consumed_filters.add(filter_str)
-    return bool(ctx.pushdown_consumed_filters)
+            any_consumed = True
+    return any_consumed
 
 
 def _resolve_pushdown_targets(
@@ -541,34 +568,32 @@ def _enclosing_select(node: ast.Node) -> ast.Select | None:
 
 def _rewrite_filter_col_refs(
     filter_str: str,
-    base_ref: str,
+    original_ref: str,
     fk_col: str,
     qualifier: str | None,
 ) -> ast.Expression | None:
     """
-    Parse ``filter_str`` and replace every column ref matching ``base_ref``
-    (a dim FQN sans role) with ``[qualifier.]fk_col``. Returns the
-    rewritten AST or ``None`` on parse failure.
+    Replace the complete semantic ref with its upstream FK column. The whole
+    predicate must bind here, including every branch of an OR or NOT.
     """
-    from datajunction_server.construction.build_v3.cte import get_column_full_name
-    from datajunction_server.construction.build_v3.filters import parse_filter
+    from datajunction_server.construction.build_v3.filters import (
+        rewrite_filter_atomically,
+    )
 
-    try:
-        rewritten = parse_filter(filter_str)
-    except Exception:  # pragma: no cover
-        return None
-    for col in list(rewritten.find_all(ast.Column)):  # pragma: no branch
-        full = get_column_full_name(col)
-        if full is None or full.split("[")[0] != base_ref:  # pragma: no cover
-            continue
+    def resolve(ref: str) -> ast.Column | None:
+        if ref != original_ref:
+            return None
         new_name = (
             ast.Name(fk_col, namespace=ast.Name(qualifier))
             if qualifier
             else ast.Name(fk_col)
         )
-        if col.parent is not None:  # pragma: no branch
-            col.parent.replace(col, ast.Column(name=new_name), copy=False)
-    return rewritten
+        return ast.Column(name=new_name)
+
+    try:
+        return rewrite_filter_atomically(filter_str, resolve)
+    except Exception:  # pragma: no cover
+        return None
 
 
 def _local_reference_dimension_column(
@@ -591,6 +616,7 @@ def _local_reference_dimension_column(
 
     if not parent_node.current or not parent_node.current.columns:  # pragma: no cover
         return None
+    matches: list[tuple[str, str | None]] = []
     for col in parent_node.current.columns:
         if col.dimension_id is None:
             continue
@@ -598,10 +624,27 @@ def _local_reference_dimension_column(
             continue
         # dimension_column may carry a "[role]" suffix; fall back to the column's
         # own name when unset.
-        target = strip_role_suffix(col.dimension_column or col.name)
-        if target == dim_ref.column_name:
-            return col.name
-    return None
+        annotated = col.dimension_column or col.name
+        target = strip_role_suffix(annotated)
+        annotated_role = (
+            annotated.rsplit("[", 1)[1].rstrip("]") if "[" in annotated else None
+        )
+        if target == dim_ref.column_name and (
+            dim_ref.role is None or annotated_role == dim_ref.role
+        ):
+            matches.append((col.name, annotated_role))
+
+    if not matches:
+        return None
+    if dim_ref.role is not None:
+        return matches[0][0]
+    for column_name, role in matches:
+        if role is None:
+            return column_name
+    roles = {role for _, role in matches if role is not None}
+    if len(roles) > 1:
+        raise _ambiguous_role_error(dim_ref.node_name, dim_ref.column_name, list(roles))
+    return matches[0][0]
 
 
 def resolve_dimensions(
@@ -659,6 +702,7 @@ def resolve_dimensions(
                 parent_node,
                 dim_ref.node_name,
                 dim_ref.role,
+                dim_ref.column_name,
             )
 
             if not join_path and dim_ref.role:  # pragma: no cover
@@ -673,6 +717,7 @@ def resolve_dimensions(
                         parent_node,
                         dim_ref.node_name,
                         dim_ref.role,
+                        dim_ref.column_name,
                     )
 
             # Validate that we found a join path
@@ -764,7 +809,8 @@ def resolve_dimensions(
             elif can_skip and local_col and hops_skipped > 0:
                 # Partial skip: keep only the leading links of the join
                 # path; the column lives on the dim we stop at. We rewrite the
-                # ResolvedDimension to point at that intermediate node.
+                # ResolvedDimension to point at that intermediate node, while
+                # retaining the original path for role accounting.
                 kept_links = join_path.links[:-hops_skipped]
                 intermediate_dim = kept_links[-1].dimension
                 reduced_path = JoinPath(
@@ -780,6 +826,7 @@ def resolve_dimensions(
                         role=dim_ref.role,
                         join_path=reduced_path,
                         is_local=False,
+                        pre_skip_join_path=join_path,
                     ),
                 )
             else:
@@ -852,7 +899,7 @@ def resolve_metric_expression_dimensions(
 
             # The referenced column itself is validated against the dimension
             # node at metric-creation time, so we only need the join path here.
-            join_path = find_join_path(ctx, parent_node, nc.node, None)
+            join_path = find_join_path(ctx, parent_node, nc.node, None, nc.name)
             if not join_path:
                 raise DJException(
                     http_status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
