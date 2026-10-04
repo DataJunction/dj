@@ -20,7 +20,9 @@ use [review-result.model.schema.json](review-result.model.schema.json) for
 generation, then validate the result against the stricter handoff schema before
 publishing. `status: "incomplete"` is not a clean review: use it for timeout,
 missing source, truncated coverage, model failure, or another material blind
-spot. Give the reason and affected areas. Use `status: "complete"` only when the
+spot. Give the reason and affected areas, and use `request_changes` or `block`,
+never `approve`. The publisher must not publish an incomplete review or treat
+it as a passing check. Use `status: "complete"` only when the
 selected scope was actually reviewed. A complete review may have an empty
 `findings` array.
 
