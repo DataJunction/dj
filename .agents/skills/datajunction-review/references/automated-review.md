@@ -21,8 +21,9 @@ generation, then validate the result against the stricter handoff schema before
 publishing. `status: "incomplete"` is not a clean review: use it for timeout,
 missing source, truncated coverage, model failure, or another material blind
 spot. Give the reason and affected areas, and use `request_changes` or `block`,
-never `approve`. The publisher must not publish an incomplete review or treat
-it as a passing check. Use `status: "complete"` only when the
+never `approve`. An incomplete result is an operational failure: the worker
+rejects it before any PR write and exits nonzero. Do not post its limitations
+as PR comments or create a passing check. Use `status: "complete"` only when the
 selected scope was actually reviewed. A complete review may have an empty
 `findings` array.
 
