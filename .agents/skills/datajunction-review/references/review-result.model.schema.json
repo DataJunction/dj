@@ -1,31 +1,15 @@
 {
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "repository", "pr_number", "head_sha", "status", "context_digest", "thread_actions", "verdict", "required_actions", "test_gaps", "summary", "findings", "limitations"],
+  "required": ["schema_version", "repository", "pr_number", "head_sha", "status", "context_digest", "resolved_thread_ids", "verdict", "required_actions", "test_gaps", "summary", "findings", "limitations"],
   "properties": {
-    "schema_version": {"type": "integer", "const": 1},
+    "schema_version": {"type": "integer", "const": 2},
     "repository": {"type": "string", "enum": ["DataJunction/dj", "robinld/dj"]},
     "pr_number": {"type": "integer"},
     "head_sha": {"type": "string"},
     "status": {"type": "string", "enum": ["complete", "incomplete"]},
     "context_digest": {"type": "string"},
-    "thread_actions": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["thread_id", "decision", "finding_index", "reason", "reply_kind", "reply_to_comment_id", "reply_body"],
-        "properties": {
-          "thread_id": {"type": "string"},
-          "decision": {"type": "string", "enum": ["keep_open", "resolve", "reopen", "leave_as_is"]},
-          "finding_index": {"type": ["integer", "null"]},
-          "reason": {"type": "string"},
-          "reply_kind": {"type": ["string", "null"], "enum": [null, "answer_question", "false_fixed_claim"]},
-          "reply_to_comment_id": {"type": ["integer", "null"]},
-          "reply_body": {"type": ["string", "null"]}
-        }
-      }
-    },
+    "resolved_thread_ids": {"type": "array", "items": {"type": "string"}},
     "verdict": {"type": "string", "enum": ["approve", "request_changes", "block"]},
     "required_actions": {"type": "array", "items": {"type": "string"}},
     "test_gaps": {"type": "array", "items": {"type": "string"}},
@@ -36,14 +20,15 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["severity", "confidence", "title", "path", "line", "body"],
+        "required": ["severity", "confidence", "title", "path", "line", "body", "existing_thread_id"],
         "properties": {
           "severity": {"type": "string", "enum": ["P0", "P1", "P2", "P3"]},
           "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
           "title": {"type": "string"},
           "path": {"type": "string"},
           "line": {"type": ["integer", "null"]},
-          "body": {"type": "string"}
+          "body": {"type": "string"},
+          "existing_thread_id": {"type": ["string", "null"]}
         }
       }
     }

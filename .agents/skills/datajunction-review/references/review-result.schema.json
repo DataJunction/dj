@@ -1,38 +1,18 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:datajunction:review-result:v1",
+  "$id": "urn:datajunction:review-result:v2",
   "title": "DataJunction automated PR review result",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "repository", "pr_number", "head_sha", "status", "context_digest", "thread_actions", "verdict", "required_actions", "test_gaps", "summary", "findings", "limitations"],
+  "required": ["schema_version", "repository", "pr_number", "head_sha", "status", "context_digest", "resolved_thread_ids", "verdict", "required_actions", "test_gaps", "summary", "findings", "limitations"],
   "properties": {
-    "schema_version": {"const": 1},
+    "schema_version": {"const": 2},
     "repository": {"enum": ["DataJunction/dj", "robinld/dj"]},
     "pr_number": {"type": "integer", "minimum": 1},
     "head_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "status": {"enum": ["complete", "incomplete"]},
     "context_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-    "thread_actions": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["thread_id", "decision", "finding_index", "reason", "reply_kind", "reply_to_comment_id", "reply_body"],
-        "properties": {
-          "thread_id": {"type": "string", "minLength": 1},
-          "decision": {"enum": ["keep_open", "resolve", "reopen", "leave_as_is"]},
-          "finding_index": {"type": ["integer", "null"], "minimum": 0},
-          "reason": {"type": "string", "minLength": 1},
-          "reply_kind": {"enum": [null, "answer_question", "false_fixed_claim"]},
-          "reply_to_comment_id": {"type": ["integer", "null"], "minimum": 1},
-          "reply_body": {"type": ["string", "null"]}
-        },
-        "allOf": [
-          {"if": {"properties": {"decision": {"const": "resolve"}}}, "then": {"properties": {"finding_index": {"type": "null"}}}},
-          {"if": {"properties": {"decision": {"enum": ["keep_open", "reopen"]}}}, "then": {"properties": {"finding_index": {"type": "integer"}}}}
-        ]
-      }
-    },
+    "resolved_thread_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
     "verdict": {"enum": ["approve", "request_changes", "block"]},
     "required_actions": {"type": "array", "items": {"type": "string", "minLength": 1}},
     "test_gaps": {"type": "array", "items": {"type": "string", "minLength": 1}},
@@ -43,14 +23,15 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["severity", "confidence", "title", "path", "line", "body"],
+        "required": ["severity", "confidence", "title", "path", "line", "body", "existing_thread_id"],
         "properties": {
           "severity": {"enum": ["P0", "P1", "P2", "P3"]},
           "confidence": {"enum": ["high", "medium", "low"]},
           "title": {"type": "string", "minLength": 1},
           "path": {"type": "string", "minLength": 1},
           "line": {"type": ["integer", "null"], "minimum": 1},
-          "body": {"type": "string", "minLength": 1}
+          "body": {"type": "string", "minLength": 1},
+          "existing_thread_id": {"type": ["string", "null"], "minLength": 1}
         }
       }
     }
