@@ -788,6 +788,8 @@ async def build_deployment_fingerprints(
         len(target_specs),
         len(external),
         (time.perf_counter() - started) * 1000,
-        ", ".join(f"{name}={elapsed * 1000:.0f}ms" for name, elapsed in timings.items()),
+        ", ".join(
+            f"{name}={elapsed * 1000:.0f}ms" for name, elapsed in timings.items()
+        ),
     )
     return current, proposed_hashes
