@@ -772,8 +772,9 @@ async def build_deployment_fingerprints(
         deleted_names | additional_target_names | unchanged_names,
     )
     timings["current_hashes"] = time.perf_counter() - step_started
-    # A target can have different ancestors in the proposed graph. Drop its
-    # current hash from the shared cache instead of deep-copying every target.
+    # The shared cache is keyed only by spec identity. A target can keep the
+    # same spec object but have a new hash when its proposed ancestors change,
+    # so evict its current hash before evaluating the proposed graph.
     for spec in target_specs.values():
         shared_fingerprints.pop(id(spec), None)
     step_started = time.perf_counter()
