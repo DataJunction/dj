@@ -291,13 +291,12 @@ async def _load_external_specs(
 ) -> dict[str, NodeSpec]:
     """Transitively load names unresolved within the deployment's own specs."""
     started = time.perf_counter()
-    db_elapsed = 0.0
-    conversion_elapsed = 0.0
-    parent_elapsed = 0.0
+    db_elapsed = conversion_elapsed = parent_elapsed = 0.0
     rounds = 0
     known_names = set(known_names)
     external_specs: dict[str, NodeSpec] = {}
     frontier = sorted(set(initial_frontier) - known_names)
+
     while frontier:
         rounds += 1
         known_names.update(frontier)
@@ -332,6 +331,7 @@ async def _load_external_specs(
                     )
         frontier = sorted(candidates - known_names)
         parent_elapsed += time.perf_counter() - step_started
+
     if rounds:
         logger.info(
             "External fingerprint specs: %d nodes in %d rounds; "
@@ -343,6 +343,7 @@ async def _load_external_specs(
             parent_elapsed * 1000,
             (time.perf_counter() - started) * 1000,
         )
+
     return external_specs
 
 

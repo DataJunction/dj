@@ -74,6 +74,7 @@ def build_fingerprint(
     # current and proposed fingerprints instead of parsing each copy again.
     if rendered.rendered_query is not None:
         rendered._query_ast = spec.query_ast
+
     fields = {
         field: normalize_field(
             rendered,
