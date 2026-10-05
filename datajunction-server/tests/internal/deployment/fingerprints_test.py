@@ -30,7 +30,11 @@ from datajunction_server.models.semantic_fingerprint import (
     UNKNOWN_SEMANTIC_FINGERPRINT,
     SemanticFingerprint,
 )
-from datajunction_server.semantic_fingerprints.engine import local_node_fingerprint
+from datajunction_server.semantic_fingerprints.engine import (
+    compose_node_fingerprint,
+    local_node_fingerprint,
+)
+from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 
 def source_spec(
@@ -595,6 +599,42 @@ async def test_build_deployment_fingerprints_only_proposed_names_reuses_unchange
 
 
 @pytest.mark.asyncio
+async def test_external_target_is_rehashed_when_its_ancestor_changes():
+    """An external target needs separate current and proposed graph hashes."""
+    current_source = source_spec("source", table="before")
+    proposed_source = source_spec("source", table="after")
+    downstream = transform_spec(
+        "downstream",
+        "SELECT * FROM ns.source",
+        namespace="other",
+    )
+    node = MagicMock()
+    node.to_spec = AsyncMock(return_value=downstream)
+
+    with patch(
+        "datajunction_server.internal.deployment.fingerprints.Node.get_by_names",
+        AsyncMock(return_value=[node]),
+    ):
+        current, proposed = await build_deployment_fingerprints(
+            MagicMock(),
+            {current_source.rendered_name: current_source},
+            [proposed_source],
+            [],
+            additional_target_names=[downstream.rendered_name],
+        )
+
+    expected_current = SemanticFingerprintGraph(
+        spec_map(current_source, downstream),
+    ).fingerprint(downstream.rendered_name)
+    expected_proposed = SemanticFingerprintGraph(
+        spec_map(proposed_source, downstream),
+    ).fingerprint(downstream.rendered_name)
+    assert current[downstream.rendered_name] == expected_current
+    assert proposed[downstream.rendered_name] == expected_proposed
+    assert expected_current != expected_proposed
+
+
+@pytest.mark.asyncio
 async def test_build_deployment_fingerprints_without_external_parents():
     source = source_spec("source", table="table")
     transform = transform_spec(
@@ -808,3 +848,21 @@ def test_semantic_fingerprint_graph_caches_whole_graph_result():
     # A subsequent scoped call also reuses the already-cached result.
     scoped = graph.fingerprints({transform.rendered_name})
     assert scoped[transform.rendered_name] == first[transform.rendered_name]
+
+
+def test_fingerprinting_reuses_parsed_query_across_rendered_copies():
+    metric = MetricSpec(
+        namespace="ns",
+        name="metric",
+        query="SELECT COUNT(*) FROM ${prefix}source",
+    )
+
+    with patch(
+        "datajunction_server.sql.parsing.backends.antlr4.parse",
+        wraps=parse,
+    ) as parse_query:
+        first = compose_node_fingerprint(metric, parent_fingerprints=[])
+        second = compose_node_fingerprint(metric, parent_fingerprints=[])
+
+    assert first == second
+    assert parse_query.call_count == 1
