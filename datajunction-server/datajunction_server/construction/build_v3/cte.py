@@ -1531,15 +1531,13 @@ def _resolve_pushdown_filters_for_cte(
     ctx: BuildContext | None = None,
     outer_only_refs: set[str] | None = None,
     fk_collision_cols: set[str] | None = None,
-    shared_dim_ctes: set[str] | None = None,
 ) -> tuple[list[tuple[ast.Select, ast.Expression]], set[str]]:
     """Determine which user filters can be pushed into this CTE.
 
-    For each filter, extracts the dimension references, resolves them to bare
-    column names via filter_column_aliases, and checks whether this CTE outputs
-    those columns.  If all referenced columns are present, the filter is rewritten
-    using the CTE's internal table-qualified column names and returned, paired
-    with the Select node it should be injected into.
+    Dimension nodes reject request-filter pushdown because their CTEs may be
+    consumed by LEFT JOINs or multiple roles. For other nodes, extract each
+    filter's dimension references, resolve them via filter_column_aliases, and
+    inject the filter into a scope only when all references bind there.
 
     Set-operation CTEs (UNION / INTERSECT / EXCEPT): the filter is injected
     into the **primary** Select only — i.e. the first arm of the union
@@ -1562,19 +1560,18 @@ def _resolve_pushdown_filters_for_cte(
 
     if not node_output_cols:  # pragma: no cover
         return [], set()
-    if (
-        ctx
-        and getattr(ctx, "disable_dimension_cte_pushdown", False)
-        and node.type == NodeType.DIMENSION
-    ):
+    # A request filter belongs to the consuming SELECT's alias. Narrowing the
+    # dimension CTE can turn a real LEFT JOIN match into a null-extended row,
+    # which changes the result of predicates such as IS NULL. The same CTE may
+    # also serve another role or grain group.
+    if node.type == NodeType.DIMENSION:
         return [], set()
 
-    # Per-CTE alias resolution: each node may have its own dim links pointing
-    # different columns at the same dim ref (e.g. fact maps measure_date to
-    # ``instance_start_utc_date`` while a related dim transform maps the same
-    # dim to its own ``calendar_date`` column).  The parent-derived
-    # ``filter_column_aliases`` would only push to the parent's column, so
-    # dim CTEs whose local columns are named differently are missed.
+    # Per-CTE alias resolution: each fact or transform may have its own dim
+    # links pointing different columns at the same dim ref (e.g. a fact maps
+    # measure_date to ``instance_start_utc_date`` while a related transform
+    # maps it to ``calendar_date``). The parent-derived aliases would only
+    # push to the parent's column, so locally renamed columns are missed.
     # Consult the current node's own ``dimension_links`` and override the
     # parent's mapping where the node has its own link for the dim.
     local_aliases = _build_local_dim_aliases(node)
@@ -1596,8 +1593,7 @@ def _resolve_pushdown_filters_for_cte(
     # transform feeding a linked one) — where a node-local check is blind.  This
     # single ``blocked_refs`` set is consulted by every pushdown path below.
     # Genuine dimension attributes (e.g. ``state``) are not FK columns, so they
-    # are never blocked; the dim's own CTE / join-key filters stay exempt via
-    # ``local_aliases``.
+    # are never blocked; locally mapped join-key filters stay exempt.
     collision_cols = _fk_key_column_names(node) | (fk_collision_cols or set())
     blocked_refs: set[str] = set()
     for ref in outer_only_refs or set():
@@ -1652,12 +1648,6 @@ def _resolve_pushdown_filters_for_cte(
             cursor = cursor.set_op.right
 
     for filter_str in pushdown_filters:
-        # A dimension CTE may be joined more than once under different roles.
-        # Any predicate injected into it would narrow every join alias, even
-        # when the predicate names a different dimension linked from this CTE.
-        # Leave it for the role-specific outer join alias.
-        if shared_dim_ctes and node.name in shared_dim_ctes:
-            continue
         rewritten = _rewrite_filter_for_select(
             filter_str,
             effective_aliases,
@@ -1746,11 +1736,9 @@ def _build_local_dim_aliases(node: Node) -> dict[str, str]:
     override entries in the parent-derived ``filter_column_aliases``.
     Values are the bare short name of the node's FK column.
 
-    This is the per-CTE complement to the parent-derived alias map: when
-    a dim CTE has its own link that maps a dim ref to a column with a
-    *different* local name than the parent uses, this lets the CTE-level
-    pushdown resolve to its own column instead of looking for the
-    parent's column name (which it doesn't have).
+    This complements the parent-derived alias map: when a fact or transform
+    has its own link mapping a dim ref to a different local column, CTE
+    pushdown can use that column instead of the parent's column name.
     """
     result: dict[str, str] = {}
     if not node.current:  # pragma: no cover
@@ -2376,7 +2364,6 @@ def collect_node_ctes(
                 ctx,
                 pushdown.outer_only_refs,
                 pushdown.fk_collision_cols,
-                pushdown.shared_dim_ctes,
             )
             for target_select, filter_ast in injections:
                 inject_filter_into_select(target_select, filter_ast)

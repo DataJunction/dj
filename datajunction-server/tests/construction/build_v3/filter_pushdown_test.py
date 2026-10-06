@@ -1,8 +1,5 @@
 """
-Tests for filter pushdown into CTEs.
-
-Verifies that user-supplied dimension filters are pushed down into the
-appropriate CTE WHERE clauses, not just applied on the outer query.
+Tests for request-filter placement in CTEs and consuming queries.
 """
 
 import sqlite3
@@ -25,7 +22,6 @@ from datajunction_server.construction.build_v3.dimensions import (
 from datajunction_server.construction.build_v3.filters import rewrite_filter_atomically
 from datajunction_server.construction.build_v3.measures import (
     _add_table_prefixes_to_filter,
-    shared_dimension_ctes,
 )
 from datajunction_server.errors import DJException
 from datajunction_server.models.node import NodeType
@@ -176,16 +172,16 @@ class TestFilterPushdownToParentCTE:
         )
 
 
-class TestFilterPushdownToDimensionCTE:
-    """Filters on dimension columns push into the dimension node's CTE."""
+class TestFilterPlacementOnDimensionJoin:
+    """Filters on dimension columns apply at the consuming join alias."""
 
     @pytest.mark.asyncio
-    async def test_product_filter_pushed_to_dimension_cte(
+    async def test_product_filter_stays_on_join_alias(
         self,
         client_with_build_v3,
     ):
         """
-        Filter on v3.product.category should push into the v3_product CTE.
+        Filter on v3.product.category belongs on the product join alias.
         """
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
@@ -209,7 +205,6 @@ class TestFilterPushdownToDimensionCTE:
             v3_product AS (
               SELECT product_id, category
               FROM default.v3.products
-              WHERE category = 'Electronics'
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -222,7 +217,7 @@ class TestFilterPushdownToDimensionCTE:
 
 
 class TestFilterPushdownMultiple:
-    """Multiple filters push into their respective CTEs."""
+    """Fact filters push down while dimension filters stay on join aliases."""
 
     @pytest.mark.asyncio
     async def test_multiple_filters_pushed_to_different_ctes(
@@ -230,7 +225,7 @@ class TestFilterPushdownMultiple:
         client_with_build_v3,
     ):
         """
-        Date filter → parent CTE (via FK), product filter → product dim CTE.
+        Date filter → parent CTE (via FK), product filter → product join alias.
         """
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
@@ -258,7 +253,6 @@ class TestFilterPushdownMultiple:
             v3_product AS (
               SELECT product_id, category
               FROM default.v3.products
-              WHERE category = 'Electronics'
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -482,7 +476,7 @@ class TestFilterPushdownEdgeCases:
 
 
 class TestFilterPushdownOperators:
-    """Operator coverage: each predicate shape should push into the right CTE."""
+    """Operator coverage for request-filter placement."""
 
     @pytest.mark.asyncio
     async def test_in_list_filter_pushed_to_parent_cte(
@@ -523,11 +517,11 @@ class TestFilterPushdownOperators:
         )
 
     @pytest.mark.asyncio
-    async def test_not_in_list_filter_pushed_to_dim_cte(
+    async def test_not_in_list_filter_stays_on_join_alias(
         self,
         client_with_build_v3,
     ):
-        """NOT IN (...) on a dim column pushes into the dim CTE."""
+        """NOT IN (...) on a dim column stays at the join alias."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -552,7 +546,6 @@ class TestFilterPushdownOperators:
             v3_product AS (
               SELECT product_id, category
               FROM default.v3.products
-              WHERE category NOT IN ('Electronics', 'Clothing')
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -564,11 +557,11 @@ class TestFilterPushdownOperators:
         )
 
     @pytest.mark.asyncio
-    async def test_is_null_filter_pushed_to_dim_cte(
+    async def test_is_null_filter_stays_on_join_alias(
         self,
         client_with_build_v3,
     ):
-        """IS NULL pushes into the dim CTE."""
+        """IS NULL stays on the join alias so real matches remain visible."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -591,7 +584,6 @@ class TestFilterPushdownOperators:
             v3_product AS (
               SELECT product_id, category, subcategory
               FROM default.v3.products
-              WHERE subcategory IS NULL
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -603,11 +595,54 @@ class TestFilterPushdownOperators:
         )
 
     @pytest.mark.asyncio
-    async def test_is_not_null_filter_pushed_to_dim_cte(
+    async def test_is_null_filter_on_left_join_preserves_real_matches(
         self,
         client_with_build_v3,
     ):
-        """IS NOT NULL pushes into the dim CTE."""
+        """Filtering a dimension CTE must not turn a real match into a null join."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+                "filters": ["v3.product.subcategory IS NULL"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = response.json()["sql"]
+
+        with sqlite3.connect(":memory:") as db:
+            db.executescript(
+                """
+                CREATE TABLE orders (order_id INTEGER);
+                CREATE TABLE order_items (
+                    order_id INTEGER, product_id INTEGER,
+                    quantity INTEGER, unit_price REAL
+                );
+                CREATE TABLE products (
+                    product_id INTEGER, category TEXT, subcategory TEXT
+                );
+                INSERT INTO orders VALUES (1), (2), (3);
+                INSERT INTO order_items VALUES
+                    (1, 1, 1, 10), (2, 2, 1, 7), (3, 3, 1, 5);
+                INSERT INTO products VALUES
+                    (1, 'A', 'known'), (2, 'B', NULL);
+                """,
+            )
+            rows = db.execute(sql.replace("default.v3.", "")).fetchall()
+        assert sorted(rows, key=lambda row: row[0] or "") == [
+            (None, 5.0),
+            ("B", 7.0),
+        ]
+        product_cte = sql.split("v3_product AS (", 1)[1].split("),", 1)[0]
+        assert "WHERE" not in product_cte.upper()
+
+    @pytest.mark.asyncio
+    async def test_is_not_null_filter_stays_on_join_alias(
+        self,
+        client_with_build_v3,
+    ):
+        """IS NOT NULL stays on the dimension join alias."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -630,7 +665,6 @@ class TestFilterPushdownOperators:
             v3_product AS (
               SELECT product_id, category, subcategory
               FROM default.v3.products
-              WHERE subcategory IS NOT NULL
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -682,11 +716,11 @@ class TestFilterPushdownOperators:
         )
 
     @pytest.mark.asyncio
-    async def test_like_filter_pushed_to_dim_cte(
+    async def test_like_filter_stays_on_join_alias(
         self,
         client_with_build_v3,
     ):
-        """LIKE pushes into the dim CTE."""
+        """LIKE stays on the dimension join alias."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -709,7 +743,6 @@ class TestFilterPushdownOperators:
             v3_product AS (
               SELECT product_id, category
               FROM default.v3.products
-              WHERE category LIKE 'Elect%'
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -721,11 +754,11 @@ class TestFilterPushdownOperators:
         )
 
     @pytest.mark.asyncio
-    async def test_not_equal_filter_pushed_to_dim_cte(
+    async def test_not_equal_filter_stays_on_join_alias(
         self,
         client_with_build_v3,
     ):
-        """<> pushes into the dim CTE."""
+        """<> stays on the dimension join alias."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -748,7 +781,6 @@ class TestFilterPushdownOperators:
             v3_product AS (
               SELECT product_id, category
               FROM default.v3.products
-              WHERE category <> 'Electronics'
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -760,11 +792,11 @@ class TestFilterPushdownOperators:
         )
 
     @pytest.mark.asyncio
-    async def test_not_wrapped_predicate_pushed_to_dim_cte(
+    async def test_not_wrapped_predicate_stays_on_join_alias(
         self,
         client_with_build_v3,
     ):
-        """NOT (...) wrapping a single-CTE predicate pushes that CTE."""
+        """NOT (...) wrapping a dimension predicate stays on the join alias."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -787,7 +819,6 @@ class TestFilterPushdownOperators:
             v3_product AS (
               SELECT product_id, category
               FROM default.v3.products
-              WHERE NOT (category = 'Electronics')
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -799,11 +830,11 @@ class TestFilterPushdownOperators:
         )
 
     @pytest.mark.asyncio
-    async def test_function_wrapped_filter_pushed_to_dim_cte(
+    async def test_function_wrapped_filter_stays_on_join_alias(
         self,
         client_with_build_v3,
     ):
-        """A predicate that wraps the column in a function still pushes."""
+        """A function-wrapped dimension predicate stays on the join alias."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -826,7 +857,6 @@ class TestFilterPushdownOperators:
             v3_product AS (
               SELECT product_id, category
               FROM default.v3.products
-              WHERE LOWER(category) = 'electronics'
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -839,63 +869,7 @@ class TestFilterPushdownOperators:
 
 
 class TestFilterPushdownMultiRole:
-    """Multi-role dim filter pushdown — each role's filter targets a distinct CTE / join."""
-
-    def test_local_role_counts_when_identifying_shared_dimension_ctes(self):
-        """A skipped join or a local reference still names a distinct role."""
-        location = SimpleNamespace(name="v3.location")
-        joined = SimpleNamespace(
-            original_ref="v3.location.city[to]",
-            is_local=False,
-            join_path=SimpleNamespace(
-                links=[SimpleNamespace(dimension=location, role="to")],
-            ),
-            pre_skip_join_path=None,
-        )
-        skipped_key = SimpleNamespace(
-            original_ref="v3.location.location_id[from]",
-            is_local=True,
-            join_path=None,
-            pre_skip_join_path=SimpleNamespace(
-                links=[SimpleNamespace(dimension=location, role="from")],
-            ),
-        )
-        local_reference = SimpleNamespace(
-            original_ref="v3.location.city[from]",
-            is_local=True,
-            join_path=None,
-            pre_skip_join_path=None,
-        )
-
-        assert shared_dimension_ctes([joined, skipped_key]) == {"v3.location"}
-        assert shared_dimension_ctes([joined, local_reference]) == {"v3.location"}
-
-    def test_partially_skipped_role_counts_for_terminal_dimension_cte(self):
-        """A skipped terminal link still uses its role if another path joins it."""
-        customer = SimpleNamespace(name="v3.customer")
-        location = SimpleNamespace(name="v3.location")
-        customer_link = SimpleNamespace(dimension=customer, role="customer")
-        partially_skipped = SimpleNamespace(
-            original_ref="v3.location.location_id[customer->home]",
-            is_local=False,
-            join_path=SimpleNamespace(links=[customer_link]),
-            pre_skip_join_path=SimpleNamespace(
-                links=[
-                    customer_link,
-                    SimpleNamespace(dimension=location, role="home"),
-                ],
-            ),
-        )
-        joined = SimpleNamespace(
-            original_ref="v3.location.city[ship]",
-            is_local=False,
-            join_path=SimpleNamespace(
-                links=[SimpleNamespace(dimension=location, role="ship")],
-            ),
-            pre_skip_join_path=None,
-        )
-
-        assert shared_dimension_ctes([partially_skipped, joined]) == {"v3.location"}
+    """Multi-role filters must bind to their consuming join aliases."""
 
     def test_unqualified_dimension_uses_only_shortest_path(self):
         """An unrelated indirect path does not displace a unique direct link."""
@@ -1348,8 +1322,8 @@ class TestFilterPushdownMultiRole:
         assert injections == []
         assert consumed == set()
 
-    def test_shared_dimension_cte_rejects_other_dimension_filter(self):
-        """A shared CTE cannot be narrowed by a filter on one of its links."""
+    def test_dimension_cte_rejects_request_filter(self):
+        """Even one consuming LEFT JOIN cannot safely use CTE pushdown."""
         location = SimpleNamespace(
             name="v3.location",
             type=NodeType.DIMENSION,
@@ -1364,7 +1338,6 @@ class TestFilterPushdownMultiRole:
             parse("SELECT launch_date FROM v3.location"),
             [predicate],
             {"v3.date.date_id[planned]": "launch_date"},
-            shared_dim_ctes={"v3.location"},
         )
 
         assert injections == []
@@ -1691,11 +1664,11 @@ class TestFilterPushdownMultiHop:
     """Filter on a dim two hops from the parent (parent → customer → location)."""
 
     @pytest.mark.asyncio
-    async def test_filter_on_multi_hop_dim_pushes_into_terminal_dim_cte(
+    async def test_filter_on_multi_hop_dim_stays_on_join_alias(
         self,
         client_with_build_v3,
     ):
-        """A non-PK filter on a multi-hop dim pushes into that dim's CTE."""
+        """A non-PK filter on a multi-hop dim stays on its join alias."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -1718,7 +1691,6 @@ class TestFilterPushdownMultiHop:
             v3_location AS (
               SELECT location_id, country
               FROM default.v3.locations
-              WHERE country = 'US'
             ),
             v3_order_details AS (
               SELECT o.customer_id,
@@ -1738,12 +1710,7 @@ class TestFilterPushdownMultiHop:
 
 
 class TestDimCteFilterOnNonFkColumn:
-    """Regression: when the parent's FK column shares a name with a
-    non-PK column on the dim, a filter on the dim's PK column must
-    resolve to the dim's own column inside the dim CTE — not to the
-    parent's FK column name, which would silently collide with the
-    dim's same-named column and filter against the wrong data.
-    """
+    """A dimension PK filter must not bind to a same-named fact FK label."""
 
     @pytest.mark.asyncio
     async def test_filter_on_non_fk_dim_column_resolves_correctly(
@@ -1838,7 +1805,6 @@ class TestDimCteFilterOnNonFkColumn:
                 UNION ALL
                 SELECT 1, 'true'
               ) t
-              WHERE t.is_fraud_key IN (0)
             )
             SELECT t2.is_fraud,
                    SUM(t1.amount) amount_sum_HASH
@@ -2000,7 +1966,6 @@ class TestFilterPushdownCrossJoinAggregatesColumnAway:
             v3_time_window_dim AS (
               SELECT window_id, window_size
               FROM default.v3.time_window
-              WHERE window_id IN ('7day')
             ),
             v3_entity_window_config AS (
               SELECT e.entity_id
@@ -2740,9 +2705,8 @@ class TestDimLabelFilterNameCollision:
         )
         assert response.status_code == 200, response.json()
         sql = get_first_grain_group(response.json())["sql"]
-        # The label predicate is pushed into the dimension's own CTE
-        # (string = string, correct) and applied at the post-join outer
-        # WHERE, but NOT into the transform CTE (which exposes the int FK).
+        # The label predicate applies to the dimension join alias (string =
+        # string), never the transform's integer foreign key.
         assert_sql_equal(
             sql,
             """
@@ -2757,7 +2721,6 @@ class TestDimLabelFilterNameCollision:
                 UNION ALL
                 SELECT 1, 'true'
               ) t
-              WHERE t.is_bot = 'false'
             )
             SELECT t2.is_bot,
                    SUM(t1.amount) amount_sum_HASH
@@ -2781,8 +2744,8 @@ class TestDimLabelFilterNameCollision:
         transform that does not itself carry the dimension link, the filter can
         be pushed past the link into that ancestor's CTE — where a node-local
         FK-column guard is blind because the ancestor has no link.  The label
-        predicate must stay in the dimension's own CTE and the post-join outer
-        WHERE; no upstream CTE may receive ``is_bot = 'false'`` on the raw int
+        predicate must stay in the post-join outer WHERE; no upstream CTE may
+        receive ``is_bot = 'false'`` on the raw int
         column.  (The linked transform selects its FK column from an upstream
         transform that only projects the raw key and carries no link of its own.)
         """
@@ -2884,7 +2847,6 @@ class TestDimLabelFilterNameCollision:
                 UNION ALL
                 SELECT 1, 'true'
               ) t
-              WHERE t.is_bot = 'false'
             ),
             v3_ml_long AS (
               SELECT is_bot, amount

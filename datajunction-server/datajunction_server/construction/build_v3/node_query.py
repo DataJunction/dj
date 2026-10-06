@@ -49,7 +49,6 @@ from datajunction_server.construction.build_v3.measures import (
     build_outer_where,
     collect_cte_nodes,
     outer_only_filter_refs,
-    shared_dimension_ctes,
 )
 from datajunction_server.construction.build_v3.materialization import (
     get_table_reference_parts_with_materialization,
@@ -581,7 +580,6 @@ def _build_with_dimensions(
             column_aliases=filter_column_aliases,
             outer_only_refs=pushdown_outer_only_refs,
             fk_collision_cols=_fk_key_column_names(starting),
-            shared_dim_ctes=shared_dimension_ctes(resolved_dims),
         )
         if filter_list
         else None,

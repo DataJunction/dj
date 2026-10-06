@@ -372,7 +372,6 @@ class TestDimensionJoins:
             v3_customer AS (
                 SELECT customer_id, name
                 FROM default.v3.customers
-                WHERE name = 'Abcd'
             ),
             v3_order_details AS (
                 SELECT o.customer_id, oi.quantity, oi.quantity * oi.unit_price AS line_total
@@ -1060,7 +1059,6 @@ class TestMeasuresSQLRoles:
             v3_location AS (
                 SELECT location_id, country
                 FROM default.v3.locations
-                WHERE country = 'US'
             ),
             v3_order_details AS (
                 SELECT o.customer_id, oi.quantity * oi.unit_price AS line_total
@@ -2731,7 +2729,6 @@ class TestMeasuresSQLFilters:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
-                WHERE category = 'Electronics'
             )
             SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
@@ -2771,7 +2768,6 @@ class TestMeasuresSQLFilters:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
-                WHERE category = 'Electronics'
             )
             SELECT t1.status, t2.category, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
@@ -2802,7 +2798,6 @@ class TestMeasuresSQLFilters:
             v3_date AS (
                 SELECT date_id, year
                 FROM default.v3.dates
-                WHERE year >= 2024
             ),
             v3_order_details AS (
                 SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
@@ -4587,7 +4582,6 @@ class TestFilterOnlyDimensions:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
-                WHERE category = 'Electronics'
             )
             SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
@@ -8200,7 +8194,6 @@ class TestWrapperCTEAbsorption:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
-                WHERE category = 'Electronics'
             ),
             v3_order_details_filtered AS (
                 SELECT *, t2.category
@@ -8247,7 +8240,6 @@ class TestWrapperCTEAbsorption:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
-                WHERE category = 'Electronics'
             )
             SELECT t2.category, SUM(t1.line_total) line_total_sum_HASH
             FROM v3_order_details t1
@@ -8623,7 +8615,6 @@ class TestWrapperCTEAbsorption:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
-                WHERE category = 'Electronics'
             ),
             v3_order_details_filtered AS (
                 SELECT *, t2.category
@@ -9257,7 +9248,6 @@ class TestParentCteFilterLanding:
             v3_right_spine_dim AS (
               SELECT spine_id, account_id
               FROM default.v3.right_spine
-              WHERE account_id IN (1, 2, 3)
             )
             SELECT t2.spine_id, SUM(t1.value) value_sum_HASH
             FROM (SELECT *
@@ -9560,25 +9550,18 @@ class TestParentCteFilterLanding:
         )
 
     @pytest.mark.asyncio
-    async def test_filter_pushes_into_dim_cte_via_local_link(
+    async def test_direct_fact_link_filter_leaves_indirect_dimension_cte_unfiltered(
         self,
         client_with_build_v3,
     ):
-        """Each CTE consults its OWN dim links for pushdown, not just the
-        parent's.
-
-        When a fact and a separately-linked dim each map the same dim ref
-        to differently-named local columns, the parent-derived alias map
-        only knows the fact's column.  The dim CTE has its own column
-        for the same dim, but pushdown used to miss it.  This test pins
-        the per-CTE alias resolution that consults each node's own
-        ``dimension_links``.
+        """A direct fact link can take the filter without narrowing a dim CTE.
 
         Shape: a single dim node ``v3.shared_date_dim`` is linked by
         both a fact (``column_a → shared_date_dim.dateint``) and a
         separate dim transform (``column_b → shared_date_dim.dateint``).
-        A filter on ``shared_date_dim.dateint`` must land in both CTEs,
-        using each one's own local column name.
+        The unqualified filter selects the fact's shorter link and lands
+        on ``column_a``. It does not narrow the separately joined dimension
+        transform through its own ``column_b`` link.
         """
         client = client_with_build_v3
 
@@ -9724,20 +9707,14 @@ class TestParentCteFilterLanding:
         )
         assert response.status_code == 200, response.json()
         sql = get_first_grain_group(response.json())["sql"]
-        # The filter on ``shared_date_dim.dateint`` is pushed into both
-        # CTEs, each using its OWN local column name: the fact CTE
-        # filters ``column_a`` (its own FK to the dim), and the dim
-        # CTE filters ``column_b`` (its own FK to the same dim).  This
-        # is the per-CTE alias resolution: each node consults its own
-        # ``dimension_links`` rather than relying solely on the
-        # parent's alias map.
+        # The direct fact link filters column_a. The dimension CTE stays
+        # unfiltered even though it also links to shared_date_dim.
         assert_sql_equal(
             sql,
             """
             WITH v3_dim_transform_dual AS (
               SELECT account_id, column_b
               FROM default.v3.dim_dual
-              WHERE column_b = 20260101
             ),
             v3_fact_transform_dual AS (
               SELECT account_id, value
@@ -10437,7 +10414,6 @@ class TestParentCteFilterLanding:
             WITH v3_alias_collide_label_dim AS (
               SELECT window_label
               FROM default.v3.alias_collide_labels
-              WHERE window_label = 'demo'
             ),
             v3_alias_collide_xform AS (
               SELECT a.account_id

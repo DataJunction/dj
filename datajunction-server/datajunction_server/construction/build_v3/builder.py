@@ -650,19 +650,6 @@ async def build_metrics_sql(
         )
     else:
         # No cube - build grain groups
-        ctx.final_metrics_query = True
-        # Window grain groups are added after base groups are built, so detect
-        # them now before any dimension CTE receives a group-local predicate.
-        has_window_grains = bool(
-            detect_window_metrics_requiring_grain_groups(
-                ctx,
-                ctx.decomposed_metrics,
-                set(),
-            ),
-        )
-        ctx.disable_dimension_cte_pushdown = (
-            len(ctx.metric_groups) > 1 or has_window_grains
-        )
         measures_result = await build_grain_groups(ctx, metrics)
 
         if not measures_result.grain_groups:  # pragma: no cover

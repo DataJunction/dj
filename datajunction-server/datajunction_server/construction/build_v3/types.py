@@ -57,12 +57,6 @@ class BuildContext:
     dimension_filters: list[str] = field(default_factory=list)
     metric_filters: list[str] = field(default_factory=list)
 
-    # Final metrics SQL deduplicates dimension CTEs across grain groups by
-    # name. When groups differ, per-group filter pushdown into those CTEs can
-    # change the other group's role joins after deduplication.
-    final_metrics_query: bool = False
-    disable_dimension_cte_pushdown: bool = False
-
     # Whether to use materialized tables when available (default: True)
     # Set to False when building SQL for materialization to avoid circular references
     use_materialized: bool = True
@@ -248,25 +242,21 @@ class PushdownFilters:
         outer_only_refs: Dimension refs that resolve only to a joined
             dimension's bare attribute name and so must not be pushed into an
             upstream transform/source CTE under that name (the same-named
-            column there is the raw FK value, not the attribute).  Such a
-            filter still pushes into the dimension's *own* CTE and lands in the
-            outer WHERE.  See ``outer_only_filter_refs``.
+            column there is the raw FK value, not the attribute). Such a
+            filter stays on the dimension's consuming join alias. See
+            ``outer_only_filter_refs``.
         fk_collision_cols: Foreign-key *value* column short-names on the linking
             (parent) node's dimension links.  An ``outer_only`` ref whose bare
             column collides with one of these is a joined dimension's non-key
             attribute sharing a name with the raw FK column, so it must not be
             pushed into ANY CTE (incl. an upstream ancestor that projects the FK
             without owning the link).  See ``_resolve_pushdown_filters_for_cte``.
-        shared_dim_ctes: Dimension nodes joined under multiple roles in this
-            query. A role-specific predicate must stay on its join alias so it
-            does not filter the shared CTE for the other roles.
     """
 
     filters: list[str]
     column_aliases: dict[str, str]
     outer_only_refs: set[str] = field(default_factory=set)
     fk_collision_cols: set[str] = field(default_factory=set)
-    shared_dim_ctes: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -485,10 +475,10 @@ class ResolvedDimension:
     role: str | None  # Role if specified (e.g., "order")
     join_path: JoinPath | None  # Join path from fact to this dimension (None if local)
     is_local: bool  # True if dimension is on the fact table itself
-    # The original join path before full or partial FK-aligned join skipping.
-    # Used for role accounting and, for full skips, to find joined dimensions
-    # whose equivalent columns can preserve values under OUTER joins.
-    # ``None`` when no skipping occurred (``join_path`` is authoritative).
+    # The full original join path before any full-skip optimization. Used by
+    # the projection layer to find intermediate joined dimensions whose columns
+    # are FK-aligned with the requested column, preserving their values under
+    # OUTER joins. ``None`` when no skipping occurred.
     pre_skip_join_path: JoinPath | None = None
 
 

@@ -666,7 +666,6 @@ async def test_transform_sql_filter_joinable_dimension(
         	manager,
         	contractor_id
          FROM default.roads.hard_hats
-         WHERE  state = 'NY'
         ),
         default_repair_orders_fact AS (
         SELECT  repair_orders.repair_order_id,
@@ -1261,7 +1260,6 @@ async def test_source_node_query_with_filter_joinable_dimension(
         	manager,
         	contractor_id
          FROM default.roads.hard_hats
-         WHERE  state = 'NY'
         ),
         default_repair_order AS (
         SELECT  repair_order_id,
@@ -1579,7 +1577,6 @@ async def test_metric_with_node_level_and_nth_order_filters(
         SELECT  hard_hat_id,
         	state
          FROM default.roads.hard_hats
-         WHERE  state = 'AZ'
         ),
         default_repair_orders_fact AS (
         SELECT  repair_orders.repair_order_id,
@@ -1655,7 +1652,6 @@ async def test_metric_with_nth_order_dimensions_filters(
         	company_name,
         	phone
          FROM default.roads.dispatchers
-         WHERE  dispatcher_id = 1 AND phone = '4082021022'
         ),
         default_hard_hat AS (
         SELECT  hard_hat_id,
@@ -1663,7 +1659,6 @@ async def test_metric_with_nth_order_dimensions_filters(
         	city,
         	state
          FROM default.roads.hard_hats
-         WHERE  state != 'AZ'
         ),
         default_municipality_dim AS (
         SELECT  m.municipality_id AS municipality_id,
@@ -1984,7 +1979,6 @@ async def test_source_sql_joinable_dimension_and_filter(
         	manager,
         	contractor_id
          FROM default.roads.hard_hats
-         WHERE  state = 'NY'
         ),
         default_repair_order AS (
         SELECT  repair_order_id,
@@ -4224,7 +4218,6 @@ async def test_role_path_dimensions_in_filters_single_hop(
         SELECT  country_code,
         	name
          FROM default.examples.countries
-         WHERE  name = 'United States'
         ),
         default_user_dim AS (
         SELECT  birth_country,
@@ -4282,7 +4275,6 @@ async def test_role_path_dimensions_in_filters_multi_hop_geographic(
         SELECT  continent_id,
         	continent_name
          FROM default.public.continents
-         WHERE  continent_name = 'North America'
         ),
         default_regions AS (
         SELECT  region_id,
@@ -4371,7 +4363,6 @@ async def test_role_path_dimensions_in_filters_multi_hop_temporal(
         SELECT  year_id,
         	year_number
          FROM default.public.years
-         WHERE  year_number = 2024
         ),
         user_dim_0 AS (
         SELECT  t5.year_number year_number_month_year,
@@ -4503,7 +4494,6 @@ async def test_role_path_dimensions_mixed_hierarchies(
         	region_name,
         	continent_id
          FROM default.public.regions
-         WHERE  region_name = 'APAC'
         ),
         default_special_country_dim AS (
         SELECT  country_code
@@ -4525,7 +4515,6 @@ async def test_role_path_dimensions_mixed_hierarchies(
         SELECT  year_id,
         	year_number
          FROM default.public.years
-         WHERE  year_number = 1940
         ),
         user_dim_0 AS (
         SELECT  t4.continent_name continent_name_region_continent,
@@ -4717,7 +4706,6 @@ async def test_multiple_filters_same_role_path(
             name,
             formation_date
           FROM default.examples.countries
-          WHERE  name IS NOT NULL AND formation_date > 20000101
         ),
         default_user_dim AS (
           SELECT  birth_country,
@@ -4782,13 +4770,11 @@ async def test_role_path_dimensions_performance_complex_query(
         	month_name,
         	year_id
          FROM default.public.months
-         WHERE  month_name IN ('January', 'February', 'March')
         ),
         default_regions AS (
         SELECT  region_id,
         	region_name
          FROM default.public.regions
-         WHERE  region_name = 'North America'
         ),
         default_special_country_dim AS (
         SELECT  country_code,
@@ -4812,7 +4798,6 @@ async def test_role_path_dimensions_performance_complex_query(
         SELECT  year_id,
         	year_number
          FROM default.public.years
-         WHERE  year_number >= 2020
         ),
         user_dim_0 AS (
         SELECT  t2.name name_user_birth_country,

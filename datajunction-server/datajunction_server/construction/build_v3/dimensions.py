@@ -809,8 +809,7 @@ def resolve_dimensions(
             elif can_skip and local_col and hops_skipped > 0:
                 # Partial skip: keep only the leading links of the join
                 # path; the column lives on the dim we stop at. We rewrite the
-                # ResolvedDimension to point at that intermediate node, while
-                # retaining the original path for role accounting.
+                # ResolvedDimension to point at that intermediate node.
                 kept_links = join_path.links[:-hops_skipped]
                 intermediate_dim = kept_links[-1].dimension
                 reduced_path = JoinPath(
@@ -826,7 +825,6 @@ def resolve_dimensions(
                         role=dim_ref.role,
                         join_path=reduced_path,
                         is_local=False,
-                        pre_skip_join_path=join_path,
                     ),
                 )
             else:
