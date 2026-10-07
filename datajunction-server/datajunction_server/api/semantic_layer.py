@@ -15,12 +15,15 @@ from typing import Any
 from fastapi import Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field  # pylint: disable=no-name-in-module
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.internal.namespaces import resolve_git_info_from_map
 from datajunction_server.internal.sql import (
     build_row_count_sql,
     generate_dimensions_sql,
@@ -296,6 +299,12 @@ class QueryRequest(BaseModel):
     query: QueryPayload
 
 
+class ListViewsRequest(BaseModel):
+    """Discovery options shared by the semantic listing endpoints."""
+
+    runtime_configuration: dict[str, Any] = Field(default_factory=dict)
+
+
 class ValuesRequest(BaseModel):
     """Body for POST /views/{view_name}/values."""
 
@@ -352,6 +361,8 @@ class ViewSummary(BaseModel):
     display_name: str | None = None
     uid: str
     features: list[str]
+    namespace: str | None = None
+    branch: str | None = None
 
 
 class ViewDetail(ViewSummary):
@@ -382,35 +393,166 @@ class GeneratedSQLResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.post("/views/list", response_model=list[ViewSummary])
+async def _active_git_namespaces(
+    session: AsyncSession,
+) -> dict[str, NodeNamespace]:
+    """Load Git metadata once so view locations do not cause per-cube queries."""
+    rows = await session.execute(
+        select(NodeNamespace).where(NodeNamespace.deactivated_at.is_(None)),
+    )
+    return {namespace.namespace: namespace for namespace in rows.scalars()}
+
+
+def _git_location(
+    node_namespace: str,
+    namespaces: dict[str, NodeNamespace],
+) -> tuple[str, str] | None:
+    """Resolve the repository owner and effective branch for a node namespace."""
+    info = resolve_git_info_from_map(node_namespace, namespaces)
+    if not info:
+        return None
+    root = info["git_root_namespace"]
+    branch = info["branch"] or info["default_branch"]
+    if not root or not branch:
+        return None
+    return root, branch
+
+
+def _discovery_filter(configuration: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Validate the selectors while leaving unrelated runtime options alone."""
+    namespace = configuration.get("namespace")
+    branch = configuration.get("branch")
+    for key, value in (("namespace", namespace), ("branch", branch)):
+        if value is not None and (not isinstance(value, str) or not value):
+            raise DJException(
+                message=f"runtime_configuration.{key} must be a non-empty string",
+                http_status_code=400,
+            )
+    if branch is not None and namespace is None:
+        raise DJException(
+            message="runtime_configuration.branch requires namespace",
+            http_status_code=400,
+        )
+    return namespace, branch
+
+
+async def _cube_summaries(
+    session: AsyncSession,
+    namespace: str | None,
+) -> list[tuple[str, str | None, str]]:
+    """Select only the columns needed for discovery, scoped in SQL when possible."""
+    statement = (
+        select(Node.name, NodeRevision.display_name, Node.namespace)
+        .join(
+            NodeRevision,
+            and_(
+                NodeRevision.node_id == Node.id,
+                NodeRevision.version == Node.current_version,
+            ),
+        )
+        .where(Node.deactivated_at.is_(None), Node.type == NodeType.CUBE)
+    )
+    if namespace:
+        statement = statement.where(
+            or_(
+                Node.namespace == namespace,
+                Node.namespace.startswith(f"{namespace}.", autoescape=True),
+            ),
+        )
+    return list((await session.execute(statement)).all())
+
+
+@router.post("/namespaces/", response_model=list[str])
+async def list_semantic_namespaces(
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> list[str]:
+    """List active Git repository roots available for semantic browsing."""
+    namespaces = await _active_git_namespaces(session)
+    return sorted(
+        namespace.namespace
+        for namespace in namespaces.values()
+        if namespace.github_repo_path
+        and not namespace.git_branch
+        and not namespace.parent_namespace
+    )
+
+
+@router.post("/namespaces/{namespace}/branches/", response_model=list[str])
+async def list_semantic_branches(
+    namespace: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> list[str] | JSONResponse:
+    """List actual Git branch names for one repository root."""
+    namespaces = await _active_git_namespaces(session)
+    root = namespaces.get(namespace)
+    if (
+        not root
+        or not root.github_repo_path
+        or root.parent_namespace
+        or root.git_branch
+    ):
+        return _problem(404, f"Git namespace `{namespace}` does not exist.")
+    branches = {root.default_branch} if root.default_branch else set()
+    branches.update(
+        location[1]
+        for candidate in namespaces.values()
+        if candidate.git_branch
+        and (location := _git_location(candidate.namespace, namespaces)) is not None
+        and location[0] == namespace
+    )
+    return sorted(branches)
+
+
+@router.post(
+    "/views/", response_model=list[ViewSummary], response_model_exclude_unset=True
+)
+@router.post(
+    "/views/list",
+    response_model=list[ViewSummary],
+    response_model_exclude_unset=True,
+)
 async def list_views(
+    request: ListViewsRequest,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> list[ViewSummary] | JSONResponse:
     """List the semantic views (DJ cubes) available to the caller.
 
-    The spec's ``/views/list`` returns summaries only;
+    The spec's ``/views/`` returns summaries only;
     full metrics/dimensions are fetched per-view via ``/views/{view}``.
     """
     try:
-        cubes = await Node.find_names_and_display_names(
-            session,
-            node_type=NodeType.CUBE,
-        )
+        namespace, branch = _discovery_filter(request.runtime_configuration)
+        namespaces = await _active_git_namespaces(session)
+        cubes = await _cube_summaries(session, namespace)
     except DJException as exc:
         return _problem(exc.http_status_code or 400, exc.message)
-    return [
-        ViewSummary(
+    summaries = []
+    for cube_name, display_name, node_namespace in cubes:
+        location = _git_location(node_namespace, namespaces)
+        if namespace is not None and (location is None or location[0] != namespace):
+            continue
+        if branch is not None and (location is None or location[1] != branch):
+            continue
+        summary = ViewSummary(
             name=cube_name,
             display_name=display_name or None,
             uid=cube_name,
             features=[],
         )
-        for cube_name, display_name in cubes
-    ]
+        if location:
+            summary.namespace, summary.branch = location
+        summaries.append(summary)
+    return summaries
 
 
-@router.post("/views/{view_name}", response_model=ViewDetail)
+@router.post(
+    "/views/{view_name}",
+    response_model=ViewDetail,
+    response_model_exclude_unset=True,
+)
 async def get_view(
     view_name: str,
     session: AsyncSession = Depends(get_session),

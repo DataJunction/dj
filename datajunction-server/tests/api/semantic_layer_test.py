@@ -19,6 +19,7 @@ from datajunction_server.api.semantic_layer import (
     _arrow_type_name,
     _dimensions_payload,
     _filter_to_sql,
+    _git_location,
     _generated_column_arrow_type_name,
     _metrics_payload,
     _quote_value,
@@ -27,6 +28,7 @@ from datajunction_server.api.semantic_layer import (
 from datajunction_server.construction.build_v3.types import (
     GeneratedSQL as V3GeneratedSQL,
 )
+from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.errors import DJException
 from datajunction_server.internal.sql import build_row_count_sql
 from datajunction_server.models.dialect import Dialect, DialectRegistry
@@ -255,6 +257,27 @@ class TestSemanticViewPayloadTypes:
         column = SimpleNamespace(type=None, semantic_type="metric")
 
         assert _generated_column_arrow_type_name(column) == "floating"
+
+
+def test_git_location_uses_root_and_actual_branch() -> None:
+    root = NodeNamespace(
+        namespace="demo.metrics",
+        github_repo_path="team/metrics",
+        default_branch="main",
+    )
+    branch = NodeNamespace(
+        namespace="demo.metrics.feature",
+        parent_namespace="demo.metrics",
+        git_branch="feature/foo",
+    )
+    namespaces = {root.namespace: root, branch.namespace: branch}
+
+    assert _git_location("demo.metrics", namespaces) == ("demo.metrics", "main")
+    assert _git_location("demo.metrics.feature.cubes", namespaces) == (
+        "demo.metrics",
+        "feature/foo",
+    )
+    assert _git_location("plain.main", namespaces) is None
 
 
 @pytest.mark.parametrize(
@@ -544,6 +567,93 @@ async def test_semantic_endpoints_end_to_end(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_semantic_git_discovery_and_view_filtering(
+    client: AsyncClient,
+    monkeypatch,
+):
+    view = await _setup_cube(client)
+    root = NodeNamespace(
+        namespace="sem",
+        github_repo_path="team/sem",
+        default_branch="main",
+    )
+    branch_ns = NodeNamespace(
+        namespace="sem.feature",
+        parent_namespace="sem",
+        git_branch="feature/foo",
+    )
+    monkeypatch.setattr(
+        "datajunction_server.api.semantic_layer._active_git_namespaces",
+        AsyncMock(return_value={"sem": root, "sem.feature": branch_ns}),
+    )
+
+    roots = await client.post("/semantic/namespaces/", json={})
+    branches = await client.post("/semantic/namespaces/sem/branches/", json={})
+    assert roots.status_code == 200, roots.text
+    assert roots.json() == ["sem"]
+    assert branches.status_code == 200, branches.text
+    assert branches.json() == ["feature/foo", "main"]
+
+    payload = {"runtime_configuration": {"namespace": "sem", "branch": "main"}}
+    for path in ("/semantic/views/", "/semantic/views/list"):
+        response = await client.post(path, json=payload)
+        assert response.status_code == 200, response.text
+        assert response.json() == [
+            {
+                "name": view,
+                "display_name": "Sales Cube",
+                "uid": view,
+                "features": [],
+                "namespace": "sem",
+                "branch": "main",
+            },
+        ]
+
+    response = await client.post(
+        "/semantic/views/",
+        json={
+            "runtime_configuration": {
+                "namespace": "sem",
+                "branch": "feature/foo",
+            },
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json() == []
+
+    monkeypatch.setattr(
+        "datajunction_server.api.semantic_layer._cube_summaries",
+        AsyncMock(
+            return_value=[
+                ("sem.feature.cubes.download", "Branch Cube", "sem.feature.cubes"),
+            ],
+        ),
+    )
+    response = await client.post(
+        "/semantic/views/",
+        json={
+            "runtime_configuration": {
+                "namespace": "sem",
+                "branch": "feature/foo",
+            },
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()[0]["namespace"] == "sem"
+    assert response.json()[0]["branch"] == "feature/foo"
+
+    response = await client.post(
+        "/semantic/views/",
+        json={"runtime_configuration": {"branch": "main"}},
+    )
+    assert response.status_code == 400, response.text
+    assert "requires namespace" in response.json()["detail"]
+
+    missing = await client.post("/semantic/namespaces/missing/branches/", json={})
+    assert missing.status_code == 404, missing.text
+
+
+@pytest.mark.asyncio
 async def test_list_views_query_count(
     client: AsyncClient,
     capture_queries: list[str],
@@ -560,11 +670,13 @@ async def test_list_views_query_count(
     )
     assert resp.json()
 
-    node_queries = [query for query in capture_queries if "FROM node" in query]
+    node_queries = [
+        query for query in capture_queries if "FROM node JOIN noderevision" in query
+    ]
     assert len(node_queries) == 1, "\n\n".join(node_queries)
 
-    # The remaining queries are per-request auth/RBAC.
-    assert len(capture_queries) <= 4, "\n\n".join(capture_queries)
+    # The remaining queries are Git metadata and per-request auth/RBAC.
+    assert len(capture_queries) <= 5, "\n\n".join(capture_queries)
 
 
 @pytest.mark.asyncio
@@ -580,8 +692,8 @@ async def test_view_endpoints_use_null_for_missing_display_name(
         cube_node_dimensions=["sem.region.region_name"],
     )
     monkeypatch.setattr(
-        "datajunction_server.api.semantic_layer.Node.find_names_and_display_names",
-        AsyncMock(return_value=[(cube_revision.name, None)]),
+        "datajunction_server.api.semantic_layer._cube_summaries",
+        AsyncMock(return_value=[(cube_revision.name, None, "sem")]),
     )
     monkeypatch.setattr(
         "datajunction_server.api.semantic_layer.Node.get_cube_by_name",
@@ -747,7 +859,7 @@ async def test_list_views_djexception_returns_problem(
 ):
     """A failed cube summary lookup returns a problem response."""
     monkeypatch.setattr(
-        "datajunction_server.api.semantic_layer.Node.find_names_and_display_names",
+        "datajunction_server.api.semantic_layer._cube_summaries",
         AsyncMock(
             side_effect=DJException(message="find blew up", http_status_code=418),
         ),
