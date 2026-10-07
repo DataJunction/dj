@@ -579,10 +579,14 @@ async def test_semantic_git_discovery_and_view_filtering(
         "demo",
         "demo.metrics",
         "demo.metrics.main",
+        "demo.metrics.literal",
         "legacy",
         "legacy.feature",
         "flat",
         "flat.release",
+        "plain",
+        "plain.metrics",
+        "plain.metrics.deep",
     ):
         await _expect(await client.post(f"/namespaces/{namespace}"), 200, 201, 409)
 
@@ -606,18 +610,31 @@ async def test_semantic_git_discovery_and_view_filtering(
     main_view = "demo.metrics.main.download_session"
     feature_view = "legacy.feature.thumb_report"
     flat_view = "flat.release.report"
-    for name in (main_view, feature_view, flat_view):
+    literal_view = "demo.metrics.literal.report"
+    plain_view = "plain.metrics.report"
+    plain_child_view = "plain.metrics.deep.report"
+    for name in (
+        main_view,
+        feature_view,
+        flat_view,
+        literal_view,
+        plain_view,
+        plain_child_view,
+    ):
         await create_cube(name)
 
     root = await NodeNamespace.get(session, "demo.metrics")
     main = await NodeNamespace.get(session, "demo.metrics.main")
+    literal = await NodeNamespace.get(session, "demo.metrics.literal")
     feature = await NodeNamespace.get(session, "legacy.feature")
     flat = await NodeNamespace.get(session, "flat.release")
-    assert root and main and feature and flat
+    assert root and main and literal and feature and flat
     root.github_repo_path = "team/metrics"
     root.default_branch = "main"
     main.parent_namespace = root.namespace
     main.git_branch = "main"
+    literal.parent_namespace = root.namespace
+    literal.git_branch = "unversioned"
     feature.parent_namespace = root.namespace  # legacy Git link outside root prefix
     feature.git_branch = "feature/foo"
     flat.github_repo_path = "team/flat"
@@ -630,7 +647,7 @@ async def test_semantic_git_discovery_and_view_filtering(
     assert "demo.metrics" in roots.json()
     assert "flat.release" in roots.json()
     assert branches.status_code == 200, branches.text
-    assert branches.json() == ["feature/foo", "main"]
+    assert branches.json() == ["feature/foo", "main", "unversioned"]
 
     first_level = await client.post("/semantic/views/discover/", json={})
     assert first_level.status_code == 200, first_level.text
@@ -639,6 +656,8 @@ async def test_semantic_git_discovery_and_view_filtering(
         "display_name": "Namespace",
     }
     assert "demo.metrics" in first_level.json()["values"]
+    assert "plain.metrics" in first_level.json()["values"]
+    assert "plain.metrics.deep" in first_level.json()["values"]
     assert first_level.json()["has_next"] is True
     second_level = await client.post(
         "/semantic/views/discover/",
@@ -646,7 +665,16 @@ async def test_semantic_git_discovery_and_view_filtering(
     )
     assert second_level.json() == {
         "level": {"id": "branch", "display_name": "Branch"},
-        "values": ["feature/foo", "main"],
+        "values": ["feature/foo", "main", "unversioned"],
+        "has_next": False,
+    }
+    plain_level = await client.post(
+        "/semantic/views/discover/",
+        json={"path": ["plain.metrics"]},
+    )
+    assert plain_level.json() == {
+        "level": {"id": "branch", "display_name": "Branch"},
+        "values": [None],
         "has_next": False,
     }
     assert (
@@ -679,11 +707,37 @@ async def test_semantic_git_discovery_and_view_filtering(
     )
     assert filtered.status_code == 200, filtered.text
     assert [view["name"] for view in filtered.json()] == [main_view]
+    plain_filtered = await client.post(
+        "/semantic/views/",
+        json={"path": ["plain.metrics", None]},
+    )
+    assert plain_filtered.status_code == 200, plain_filtered.text
+    assert [view["name"] for view in plain_filtered.json()] == [plain_view]
+    assert "namespace" not in plain_filtered.json()[0]
+    assert "branch" not in plain_filtered.json()[0]
+    plain_partial = await client.post(
+        "/semantic/views/",
+        json={"path": ["plain.metrics"]},
+    )
+    assert [view["name"] for view in plain_partial.json()] == [plain_view]
+    literal_filtered = await client.post(
+        "/semantic/views/",
+        json={"path": ["demo.metrics", "unversioned"]},
+    )
+    assert [view["name"] for view in literal_filtered.json()] == [literal_view]
+    assert (
+        await client.post(
+            "/semantic/views/",
+            json={"path": ["plain.metrics", "unversioned"]},
+        )
+    ).status_code == 404
     partial = await client.post(
         "/semantic/views/",
         json={"path": ["demo.metrics"]},
     )
-    assert {view["name"] for view in partial.json()} == {main_view, feature_view}
+    assert {view["name"] for view in partial.json()} == {
+        main_view, feature_view, literal_view,
+    }
     invalid_path = await client.post(
         "/semantic/views/",
         json={"path": ["demo.metrics", "missing"]},
@@ -771,6 +825,11 @@ async def test_semantic_git_discovery_and_view_filtering(
     assert [view["name"] for view in views.json()] == [main_view]
     feature_views = await client.post("/semantic/views/", json=feature_payload)
     assert feature_views.json() == []
+    denied_plain = await client.post(
+        "/semantic/views/",
+        json={"path": ["plain.metrics", None]},
+    )
+    assert denied_plain.status_code == 404
 
 
 @pytest.mark.asyncio

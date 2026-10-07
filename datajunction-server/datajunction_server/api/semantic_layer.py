@@ -27,14 +27,18 @@ from datajunction_server.internal.access.authorization import (
     AccessChecker,
     get_access_checker,
 )
-from datajunction_server.internal.namespaces import resolve_git_info_from_map
+from datajunction_server.internal.namespaces import (
+    get_git_info_for_namespace,
+    get_parent_namespaces,
+    resolve_git_info_from_map,
+)
 from datajunction_server.internal.sql import (
     build_row_count_sql,
     generate_dimensions_sql,
     generate_metrics_sql,
 )
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.models.access import ResourceAction
+from datajunction_server.models.access import ResourceAction, ResourceType
 from datajunction_server.utils import get_current_user, get_session
 
 logger = logging.getLogger(__name__)
@@ -308,14 +312,14 @@ class ListViewsRequest(BaseModel):
     """Discovery options shared by the semantic listing endpoints."""
 
     runtime_configuration: dict[str, Any] = Field(default_factory=dict)
-    path: list[str] | None = None
+    path: list[str | None] | None = None
 
 
 class DiscoverRequest(BaseModel):
     """A positional selection in the view discovery hierarchy."""
 
     runtime_configuration: dict[str, Any] = Field(default_factory=dict)
-    path: list[str] = Field(default_factory=list)
+    path: list[str | None] = Field(default_factory=list)
 
 
 class DiscoverLevel(BaseModel):
@@ -325,7 +329,7 @@ class DiscoverLevel(BaseModel):
 
 class DiscoverResponse(BaseModel):
     level: DiscoverLevel
-    values: list[str]
+    values: list[str | None]
     has_next: bool
 
 
@@ -499,9 +503,15 @@ def _discovery_filter(configuration: dict[str, Any]) -> tuple[str | None, str | 
     return namespace, branch
 
 
-def _path_filter(path: list[str]) -> tuple[str | None, str | None]:
-    if len(path) > 2 or any(
-        not isinstance(value, str) or not value for value in path
+def _path_filter(path: list[str | None]) -> tuple[str | None, str | None]:
+    if (
+        len(path) > 2
+        or (path and (not isinstance(path[0], str) or not path[0]))
+        or (
+            len(path) == 2
+            and path[1] is not None
+            and (not isinstance(path[1], str) or not path[1])
+        )
     ):
         raise DJException(message="Invalid view discovery path", http_status_code=400)
     return (path[0] if path else None, path[1] if len(path) == 2 else None)
@@ -510,6 +520,7 @@ def _path_filter(path: list[str]) -> tuple[str | None, str | None]:
 async def _cube_summaries(
     session: AsyncSession,
     scopes: set[str] | None,
+    exact_namespace: str | None = None,
 ) -> list[tuple[str, str | None, str]]:
     """Select only the columns needed for discovery, scoped in SQL when possible."""
     if scopes is not None and not scopes:
@@ -525,7 +536,9 @@ async def _cube_summaries(
         )
         .where(Node.deactivated_at.is_(None), Node.type == NodeType.CUBE)
     )
-    if scopes is not None:
+    if exact_namespace is not None:
+        statement = statement.where(Node.namespace == exact_namespace)
+    elif scopes is not None:
         statement = statement.where(
             or_(
                 *(
@@ -539,6 +552,71 @@ async def _cube_summaries(
             ),
         )
     return list((await session.execute(statement)).all())
+
+
+async def _plain_cube_summaries(
+    session: AsyncSession,
+    namespace: str,
+    access_checker: AccessChecker,
+) -> list[tuple[str, str | None, str]] | None:
+    """Return readable cubes in an exact non-Git namespace, or None for Git."""
+    namespace_row = await NodeNamespace.get(
+        session, namespace, raise_if_not_exists=False,
+    )
+    if not namespace_row or namespace_row.deactivated_at is not None:
+        return []
+    if await get_git_info_for_namespace(session, namespace) is not None:
+        return None
+    access_checker.add_namespace(namespace, ResourceAction.READ)
+    cubes = await _cube_summaries(session, None, exact_namespace=namespace)
+    for name, _, _ in cubes:
+        access_checker.add_request_by_node_name(name, ResourceAction.READ)
+    decisions = await access_checker.check()
+    approved_namespaces = {
+        decision.request.access_object.name
+        for decision in decisions
+        if decision.request.access_object.resource_type == ResourceType.NAMESPACE
+    }
+    approved_cubes = {
+        decision.request.access_object.name
+        for decision in decisions
+        if decision.request.access_object.resource_type == ResourceType.NODE
+    }
+    if namespace not in approved_namespaces:
+        return []
+    return [cube for cube in cubes if cube[0] in approved_cubes]
+
+
+async def _namespace_map_for_cubes(
+    session: AsyncSession,
+    cube_namespaces: set[str],
+) -> dict[str, NodeNamespace]:
+    """Load cube namespaces, their string ancestors, and linked Git parents."""
+    if not cube_namespaces:
+        return {}
+    wanted = cube_namespaces | {
+        parent
+        for namespace in cube_namespaces
+        for parent in get_parent_namespaces(namespace)
+    }
+    active = NodeNamespace.deactivated_at.is_(None)
+    rows = await session.execute(
+        select(NodeNamespace).where(active, NodeNamespace.namespace.in_(wanted)),
+    )
+    namespaces = {row.namespace: row for row in rows.scalars()}
+    linked_parents = {
+        row.parent_namespace
+        for row in namespaces.values()
+        if row.parent_namespace and row.parent_namespace not in namespaces
+    }
+    if linked_parents:
+        rows = await session.execute(
+            select(NodeNamespace).where(
+                active, NodeNamespace.namespace.in_(linked_parents),
+            ),
+        )
+        namespaces.update({row.namespace: row for row in rows.scalars()})
+    return namespaces
 
 
 def _view_scopes(
@@ -593,7 +671,7 @@ async def discover_views(
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
 ) -> DiscoverResponse | JSONResponse:
-    """Browse the two-level Git namespace and branch hierarchy."""
+    """Browse Git branches and non-Git cube namespaces in two levels."""
     try:
         if (
             request.runtime_configuration.get("namespace") is not None
@@ -609,13 +687,61 @@ async def discover_views(
     except DJException as exc:
         return _problem(exc.http_status_code or 400, exc.message)
     if not request.path:
-        values = await list_semantic_namespaces(session, access_checker)
+        values = set(await list_semantic_namespaces(session, access_checker))
+        rows = await session.execute(
+            select(Node.name, Node.namespace).where(
+                Node.deactivated_at.is_(None), Node.type == NodeType.CUBE,
+            ),
+        )
+        cubes = list(rows.all())
+        namespaces = await _namespace_map_for_cubes(
+            session, {namespace for _, namespace in cubes},
+        )
+        plain_cubes = [
+            (name, namespace)
+            for name, namespace in cubes
+            if namespace in namespaces
+            and resolve_git_info_from_map(namespace, namespaces) is None
+        ]
+        access_checker.add_namespaces(
+            sorted({namespace for _, namespace in plain_cubes}),
+            ResourceAction.READ,
+        )
+        for name, _ in plain_cubes:
+            access_checker.add_request_by_node_name(name, ResourceAction.READ)
+        decisions = await access_checker.check()
+        approved_namespaces = {
+            decision.request.access_object.name
+            for decision in decisions
+            if decision.request.access_object.resource_type == ResourceType.NAMESPACE
+        }
+        approved_cubes = {
+            decision.request.access_object.name
+            for decision in decisions
+            if decision.request.access_object.resource_type == ResourceType.NODE
+        }
+        values.update(
+            namespace
+            for name, namespace in plain_cubes
+            if namespace in approved_namespaces and name in approved_cubes
+        )
         return DiscoverResponse(
             level=DiscoverLevel(id="namespace", display_name="Namespace"),
-            values=values,
+            values=sorted(values),
             has_next=True,
         )
-    values = await list_semantic_branches(request.path[0], session, access_checker)
+    namespace = request.path[0]
+    assert isinstance(namespace, str)
+    plain_cubes = await _plain_cube_summaries(session, namespace, access_checker)
+    if plain_cubes is not None:
+        if not plain_cubes:
+            return _problem(404, f"Namespace `{namespace}` does not exist.")
+        return DiscoverResponse(
+            level=DiscoverLevel(id="branch", display_name="Branch"),
+            values=[None],
+            has_next=False,
+        )
+    values = await list_semantic_branches(namespace, session, access_checker)
     if isinstance(values, JSONResponse):
         return values
     return DiscoverResponse(
@@ -688,6 +814,21 @@ async def list_views(
                 )
             namespace, branch = _path_filter(request.path)
             if namespace is not None:
+                plain_cubes = await _plain_cube_summaries(
+                    session, namespace, access_checker,
+                )
+                if plain_cubes is not None:
+                    if (len(request.path) == 2 and branch is not None) or not plain_cubes:
+                        return _problem(404, "Invalid view discovery path")
+                    return [
+                        ViewSummary(
+                            name=name,
+                            display_name=display_name or None,
+                            uid=name,
+                            features=[],
+                        )
+                        for name, display_name, _ in plain_cubes
+                    ]
                 branches = await list_semantic_branches(
                     namespace, session, access_checker,
                 )
