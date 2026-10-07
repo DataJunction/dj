@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.semantic_layer import (
     MAX_ROW_LIMIT,
@@ -31,6 +32,7 @@ from datajunction_server.construction.build_v3.types import (
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.errors import DJException
 from datajunction_server.internal.sql import build_row_count_sql
+from datajunction_server.models.access import AccessDecision, ResourceType
 from datajunction_server.models.dialect import Dialect, DialectRegistry
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.transpilation import SQLTranspilationPlugin
@@ -569,78 +571,154 @@ async def test_semantic_endpoints_end_to_end(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_semantic_git_discovery_and_view_filtering(
     client: AsyncClient,
+    session: AsyncSession,
     monkeypatch,
 ):
-    view = await _setup_cube(client)
-    root = NodeNamespace(
-        namespace="sem",
-        github_repo_path="team/sem",
-        default_branch="main",
-    )
-    branch_ns = NodeNamespace(
-        namespace="sem.feature",
-        parent_namespace="sem",
-        git_branch="feature/foo",
-    )
-    monkeypatch.setattr(
-        "datajunction_server.api.semantic_layer._active_git_namespaces",
-        AsyncMock(return_value={"sem": root, "sem.feature": branch_ns}),
-    )
+    await _setup_cube(client)
+    for namespace in (
+        "demo",
+        "demo.metrics",
+        "demo.metrics.main",
+        "legacy",
+        "legacy.feature",
+        "flat",
+        "flat.release",
+    ):
+        await _expect(await client.post(f"/namespaces/{namespace}"), 200, 201, 409)
 
-    roots = await client.post("/semantic/namespaces/", json={})
-    branches = await client.post("/semantic/namespaces/sem/branches/", json={})
+    async def create_cube(name: str) -> None:
+        await _expect(
+            await client.post(
+                "/nodes/cube/",
+                json={
+                    "name": name,
+                    "display_name": name.rsplit(".", 1)[-1],
+                    "description": "",
+                    "mode": "published",
+                    "metrics": ["sem.total_amount"],
+                    "dimensions": ["sem.region.region_name"],
+                },
+            ),
+            200,
+            201,
+        )
+
+    main_view = "demo.metrics.main.download_session"
+    feature_view = "legacy.feature.thumb_report"
+    flat_view = "flat.release.report"
+    for name in (main_view, feature_view, flat_view):
+        await create_cube(name)
+
+    root = await NodeNamespace.get(session, "demo.metrics")
+    main = await NodeNamespace.get(session, "demo.metrics.main")
+    feature = await NodeNamespace.get(session, "legacy.feature")
+    flat = await NodeNamespace.get(session, "flat.release")
+    assert root and main and feature and flat
+    root.github_repo_path = "team/metrics"
+    root.default_branch = "main"
+    main.parent_namespace = root.namespace
+    main.git_branch = "main"
+    feature.parent_namespace = root.namespace  # legacy Git link outside root prefix
+    feature.git_branch = "feature/foo"
+    flat.github_repo_path = "team/flat"
+    flat.git_branch = "release"
+    await session.commit()
+
+    roots = await client.post("/semantic/namespaces/")
+    branches = await client.post("/semantic/namespaces/demo.metrics/branches/")
     assert roots.status_code == 200, roots.text
-    assert roots.json() == ["sem"]
+    assert "demo.metrics" in roots.json()
+    assert "flat.release" in roots.json()
     assert branches.status_code == 200, branches.text
     assert branches.json() == ["feature/foo", "main"]
 
-    payload = {"runtime_configuration": {"namespace": "sem", "branch": "main"}}
+    first_level = await client.post("/semantic/views/discover/", json={})
+    assert first_level.status_code == 200, first_level.text
+    assert first_level.json()["level"] == {
+        "id": "namespace",
+        "display_name": "Namespace",
+    }
+    assert "demo.metrics" in first_level.json()["values"]
+    assert first_level.json()["has_next"] is True
+    second_level = await client.post(
+        "/semantic/views/discover/",
+        json={"path": ["demo.metrics"]},
+    )
+    assert second_level.json() == {
+        "level": {"id": "branch", "display_name": "Branch"},
+        "values": ["feature/foo", "main"],
+        "has_next": False,
+    }
+    assert (
+        await client.post(
+            "/semantic/views/discover/",
+            json={"path": ["demo.metrics", "main"]},
+        )
+    ).status_code == 400
+
+    payload = {
+        "runtime_configuration": {"namespace": "demo.metrics", "branch": "main"},
+    }
     for path in ("/semantic/views/", "/semantic/views/list"):
         response = await client.post(path, json=payload)
         assert response.status_code == 200, response.text
         assert response.json() == [
             {
-                "name": view,
-                "display_name": "Sales Cube",
-                "uid": view,
+                "name": main_view,
+                "display_name": "download_session",
+                "uid": main_view,
                 "features": [],
-                "namespace": "sem",
+                "namespace": "demo.metrics",
                 "branch": "main",
             },
         ]
 
-    response = await client.post(
+    filtered = await client.post(
         "/semantic/views/",
-        json={
-            "runtime_configuration": {
-                "namespace": "sem",
-                "branch": "feature/foo",
-            },
-        },
+        json={"path": ["demo.metrics", "main"]},
     )
-    assert response.status_code == 200, response.text
-    assert response.json() == []
+    assert filtered.status_code == 200, filtered.text
+    assert [view["name"] for view in filtered.json()] == [main_view]
+    partial = await client.post(
+        "/semantic/views/",
+        json={"path": ["demo.metrics"]},
+    )
+    assert {view["name"] for view in partial.json()} == {main_view, feature_view}
+    invalid_path = await client.post(
+        "/semantic/views/",
+        json={"path": ["demo.metrics", "missing"]},
+    )
+    assert invalid_path.status_code == 404
 
-    monkeypatch.setattr(
-        "datajunction_server.api.semantic_layer._cube_summaries",
-        AsyncMock(
-            return_value=[
-                ("sem.feature.cubes.download", "Branch Cube", "sem.feature.cubes"),
-            ],
-        ),
-    )
-    response = await client.post(
+    response = await client.post("/semantic/views/list")
+    assert response.status_code == 200, response.text
+    assert main_view in {view["name"] for view in response.json()}
+
+    feature_payload = {
+        "runtime_configuration": {
+            "namespace": "demo.metrics",
+            "branch": "feature/foo",
+        },
+    }
+    response = await client.post("/semantic/views/", json=feature_payload)
+    assert response.status_code == 200, response.text
+    assert [view["name"] for view in response.json()] == [feature_view]
+    assert response.json()[0]["namespace"] == "demo.metrics"
+    assert response.json()[0]["branch"] == "feature/foo"
+
+    flat_response = await client.post(
         "/semantic/views/",
         json={
             "runtime_configuration": {
-                "namespace": "sem",
-                "branch": "feature/foo",
+                "namespace": "flat.release",
+                "branch": "release",
             },
         },
     )
-    assert response.status_code == 200, response.text
-    assert response.json()[0]["namespace"] == "sem"
-    assert response.json()[0]["branch"] == "feature/foo"
+    assert flat_response.status_code == 200, flat_response.text
+    assert [view["name"] for view in flat_response.json()] == [flat_view]
+    flat_branches = await client.post("/semantic/namespaces/flat.release/branches/")
+    assert flat_branches.json() == ["release"]
 
     response = await client.post(
         "/semantic/views/",
@@ -651,6 +729,48 @@ async def test_semantic_git_discovery_and_view_filtering(
 
     missing = await client.post("/semantic/namespaces/missing/branches/", json={})
     assert missing.status_code == 404, missing.text
+
+    class SelectiveAuthorizationService:
+        def authorize(self, _context, requests):
+            allowed_namespaces = {"demo.metrics", "demo.metrics.main"}
+            allowed_nodes = {main_view}
+            return [
+                AccessDecision(
+                    request=request,
+                    approved=(
+                        request.access_object.name
+                        in (
+                            allowed_namespaces
+                            if request.access_object.resource_type
+                            == ResourceType.NAMESPACE
+                            else allowed_nodes
+                        )
+                    ),
+                )
+                for request in requests
+            ]
+
+    monkeypatch.setattr(
+        "datajunction_server.internal.access.authorization.validator.get_authorization_service",
+        SelectiveAuthorizationService,
+    )
+    roots = await client.post("/semantic/namespaces/")
+    assert roots.json() == ["demo.metrics"]
+    discovered = await client.post("/semantic/views/discover/", json={})
+    assert discovered.json()["values"] == ["demo.metrics"]
+    branches = await client.post("/semantic/namespaces/demo.metrics/branches/")
+    assert branches.json() == ["main"]
+    discovered = await client.post(
+        "/semantic/views/discover/",
+        json={"path": ["demo.metrics"]},
+    )
+    assert discovered.json()["values"] == ["main"]
+    denied_branches = await client.post("/semantic/namespaces/flat.release/branches/")
+    assert denied_branches.status_code == 404
+    views = await client.post("/semantic/views/list")
+    assert [view["name"] for view in views.json()] == [main_view]
+    feature_views = await client.post("/semantic/views/", json=feature_payload)
+    assert feature_views.json() == []
 
 
 @pytest.mark.asyncio
@@ -674,9 +794,13 @@ async def test_list_views_query_count(
         query for query in capture_queries if "FROM node JOIN noderevision" in query
     ]
     assert len(node_queries) == 1, "\n\n".join(node_queries)
+    namespace_queries = [
+        query for query in capture_queries if "FROM nodenamespace " in query
+    ]
+    assert len(namespace_queries) == 1, "\n\n".join(namespace_queries)
 
-    # The remaining queries are Git metadata and per-request auth/RBAC.
-    assert len(capture_queries) <= 5, "\n\n".join(capture_queries)
+    # The remaining queries build the per-request RBAC context.
+    assert len(capture_queries) <= 7, "\n\n".join(capture_queries)
 
 
 @pytest.mark.asyncio

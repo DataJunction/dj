@@ -12,7 +12,7 @@ DJ generates SQL; the client executes it. This router does NOT run queries —
 import logging
 from typing import Any
 
-from fastapi import Depends
+from fastapi import Body, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field  # pylint: disable=no-name-in-module
 from sqlalchemy import and_, or_, select
@@ -23,6 +23,10 @@ from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.user import User
 from datajunction_server.errors import DJException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.internal.access.authorization import (
+    AccessChecker,
+    get_access_checker,
+)
 from datajunction_server.internal.namespaces import resolve_git_info_from_map
 from datajunction_server.internal.sql import (
     build_row_count_sql,
@@ -30,6 +34,7 @@ from datajunction_server.internal.sql import (
     generate_metrics_sql,
 )
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.access import ResourceAction
 from datajunction_server.utils import get_current_user, get_session
 
 logger = logging.getLogger(__name__)
@@ -303,6 +308,25 @@ class ListViewsRequest(BaseModel):
     """Discovery options shared by the semantic listing endpoints."""
 
     runtime_configuration: dict[str, Any] = Field(default_factory=dict)
+    path: list[str] | None = None
+
+
+class DiscoverRequest(BaseModel):
+    """A positional selection in the view discovery hierarchy."""
+
+    runtime_configuration: dict[str, Any] = Field(default_factory=dict)
+    path: list[str] = Field(default_factory=list)
+
+
+class DiscoverLevel(BaseModel):
+    id: str
+    display_name: str
+
+
+class DiscoverResponse(BaseModel):
+    level: DiscoverLevel
+    values: list[str]
+    has_next: bool
 
 
 class ValuesRequest(BaseModel):
@@ -395,12 +419,51 @@ class GeneratedSQLResponse(BaseModel):
 
 async def _active_git_namespaces(
     session: AsyncSession,
+    root: str | None = None,
 ) -> dict[str, NodeNamespace]:
-    """Load Git metadata once so view locations do not cause per-cube queries."""
-    rows = await session.execute(
-        select(NodeNamespace).where(NodeNamespace.deactivated_at.is_(None)),
-    )
-    return {namespace.namespace: namespace for namespace in rows.scalars()}
+    """Load location metadata, following Git links outside a root's name prefix."""
+    active = NodeNamespace.deactivated_at.is_(None)
+    if root is None:
+        rows = await session.execute(select(NodeNamespace).where(active))
+        return {namespace.namespace: namespace for namespace in rows.scalars()}
+
+    namespaces: dict[str, NodeNamespace] = {}
+    pending_prefixes = {root}
+    pending_parents = {root}
+    checked_prefixes: set[str] = set()
+    checked_parents: set[str] = set()
+    while pending_prefixes or pending_parents:
+        predicates = [
+            condition
+            for prefix in pending_prefixes
+            for condition in (
+                NodeNamespace.namespace == prefix,
+                NodeNamespace.namespace.startswith(f"{prefix}.", autoescape=True),
+            )
+        ]
+        if pending_parents:
+            predicates.append(NodeNamespace.parent_namespace.in_(pending_parents))
+        rows = await session.execute(
+            select(NodeNamespace).where(active, or_(*predicates)),
+        )
+        checked_prefixes.update(pending_prefixes)
+        checked_parents.update(pending_parents)
+        new_rows = [row for row in rows.scalars() if row.namespace not in namespaces]
+        namespaces.update({row.namespace: row for row in new_rows})
+        pending_parents = {
+            row.namespace
+            for row in new_rows
+            if (row.git_branch or row.github_repo_path)
+            and row.namespace not in checked_parents
+        }
+        pending_prefixes = {
+            row.namespace
+            for row in new_rows
+            if row.namespace != root
+            and not row.namespace.startswith(f"{root}.")
+            and row.namespace not in checked_prefixes
+        }
+    return namespaces
 
 
 def _git_location(
@@ -436,11 +499,21 @@ def _discovery_filter(configuration: dict[str, Any]) -> tuple[str | None, str | 
     return namespace, branch
 
 
+def _path_filter(path: list[str]) -> tuple[str | None, str | None]:
+    if len(path) > 2 or any(
+        not isinstance(value, str) or not value for value in path
+    ):
+        raise DJException(message="Invalid view discovery path", http_status_code=400)
+    return (path[0] if path else None, path[1] if len(path) == 2 else None)
+
+
 async def _cube_summaries(
     session: AsyncSession,
-    namespace: str | None,
+    scopes: set[str] | None,
 ) -> list[tuple[str, str | None, str]]:
     """Select only the columns needed for discovery, scoped in SQL when possible."""
+    if scopes is not None and not scopes:
+        return []
     statement = (
         select(Node.name, NodeRevision.display_name, Node.namespace)
         .join(
@@ -452,29 +525,103 @@ async def _cube_summaries(
         )
         .where(Node.deactivated_at.is_(None), Node.type == NodeType.CUBE)
     )
-    if namespace:
+    if scopes is not None:
         statement = statement.where(
             or_(
-                Node.namespace == namespace,
-                Node.namespace.startswith(f"{namespace}.", autoescape=True),
+                *(
+                    condition
+                    for scope in scopes
+                    for condition in (
+                        Node.namespace == scope,
+                        Node.namespace.startswith(f"{scope}.", autoescape=True),
+                    )
+                ),
             ),
         )
     return list((await session.execute(statement)).all())
 
 
+def _view_scopes(
+    root: str | None,
+    branch: str | None,
+    namespaces: dict[str, NodeNamespace],
+) -> set[str] | None:
+    """Limit the cube query to the root and matching branch namespace trees."""
+    if root is None:
+        return None
+    scopes = set()
+    root_location = _git_location(root, namespaces)
+    if branch is None or root_location == (root, branch):
+        scopes.add(root)
+    for candidate in namespaces.values():
+        if candidate.namespace == root:
+            continue
+        location = _git_location(candidate.namespace, namespaces)
+        if location is None or location[0] != root:
+            continue
+        if branch is not None and location[1] != branch:
+            continue
+        if (
+            branch is not None and candidate.git_branch
+        ) or not candidate.namespace.startswith(f"{root}."):
+            scopes.add(candidate.namespace)
+    return scopes
+
+
 @router.post("/namespaces/", response_model=list[str])
 async def list_semantic_namespaces(
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> list[str]:
     """List active Git repository roots available for semantic browsing."""
-    namespaces = await _active_git_namespaces(session)
-    return sorted(
-        namespace.namespace
-        for namespace in namespaces.values()
-        if namespace.github_repo_path
-        and not namespace.git_branch
-        and not namespace.parent_namespace
+    rows = await session.execute(
+        select(NodeNamespace.namespace).where(
+            NodeNamespace.deactivated_at.is_(None),
+            NodeNamespace.github_repo_path.is_not(None),
+            NodeNamespace.github_repo_path != "",
+        ),
+    )
+    roots = sorted(rows.scalars())
+    access_checker.add_namespaces(roots, ResourceAction.READ)
+    approved = set(await access_checker.approved_resource_names())
+    return [root for root in roots if root in approved]
+
+
+@router.post("/views/discover/", response_model=DiscoverResponse)
+async def discover_views(
+    request: DiscoverRequest,
+    session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
+) -> DiscoverResponse | JSONResponse:
+    """Browse the two-level Git namespace and branch hierarchy."""
+    try:
+        if (
+            request.runtime_configuration.get("namespace") is not None
+            or request.runtime_configuration.get("branch") is not None
+        ):
+            raise DJException(message="Use path for view discovery", http_status_code=400)
+        _path_filter(request.path)
+        if len(request.path) == 2:
+            raise DJException(
+                message="No hierarchy level follows this path",
+                http_status_code=400,
+            )
+    except DJException as exc:
+        return _problem(exc.http_status_code or 400, exc.message)
+    if not request.path:
+        values = await list_semantic_namespaces(session, access_checker)
+        return DiscoverResponse(
+            level=DiscoverLevel(id="namespace", display_name="Namespace"),
+            values=values,
+            has_next=True,
+        )
+    values = await list_semantic_branches(request.path[0], session, access_checker)
+    if isinstance(values, JSONResponse):
+        return values
+    return DiscoverResponse(
+        level=DiscoverLevel(id="branch", display_name="Branch"),
+        values=values,
+        has_next=False,
     )
 
 
@@ -482,26 +629,34 @@ async def list_semantic_namespaces(
 async def list_semantic_branches(
     namespace: str,
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> list[str] | JSONResponse:
     """List actual Git branch names for one repository root."""
-    namespaces = await _active_git_namespaces(session)
+    namespaces = await _active_git_namespaces(session, namespace)
     root = namespaces.get(namespace)
-    if (
-        not root
-        or not root.github_repo_path
-        or root.parent_namespace
-        or root.git_branch
-    ):
+    if not root or not root.github_repo_path:
         return _problem(404, f"Git namespace `{namespace}` does not exist.")
-    branches = {root.default_branch} if root.default_branch else set()
-    branches.update(
-        location[1]
+
+    access_checker.add_namespace(namespace, ResourceAction.READ)
+    if namespace not in await access_checker.approved_resource_names():
+        return _problem(404, f"Git namespace `{namespace}` does not exist.")
+
+    root_location = _git_location(namespace, namespaces)
+    branches = {root_location[1]} if root_location else set()
+    branch_namespaces = [
+        (candidate.namespace, location[1])
         for candidate in namespaces.values()
-        if candidate.git_branch
+        if candidate.namespace != namespace
+        and candidate.git_branch
         and (location := _git_location(candidate.namespace, namespaces)) is not None
         and location[0] == namespace
+    ]
+    access_checker.add_namespaces(
+        [name for name, _ in branch_namespaces],
+        ResourceAction.READ,
     )
+    approved = set(await access_checker.approved_resource_names())
+    branches.update(branch for name, branch in branch_namespaces if name in approved)
     return sorted(branches)
 
 
@@ -514,9 +669,9 @@ async def list_semantic_branches(
     response_model_exclude_unset=True,
 )
 async def list_views(
-    request: ListViewsRequest,
+    request: ListViewsRequest | None = Body(default=None),
     session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> list[ViewSummary] | JSONResponse:
     """List the semantic views (DJ cubes) available to the caller.
 
@@ -524,13 +679,41 @@ async def list_views(
     full metrics/dimensions are fetched per-view via ``/views/{view}``.
     """
     try:
-        namespace, branch = _discovery_filter(request.runtime_configuration)
-        namespaces = await _active_git_namespaces(session)
-        cubes = await _cube_summaries(session, namespace)
+        configuration = request.runtime_configuration if request else {}
+        if request and request.path is not None:
+            if "namespace" in configuration or "branch" in configuration:
+                raise DJException(
+                    message="Use path or runtime_configuration selectors",
+                    http_status_code=400,
+                )
+            namespace, branch = _path_filter(request.path)
+            if namespace is not None:
+                branches = await list_semantic_branches(
+                    namespace, session, access_checker,
+                )
+                if isinstance(branches, JSONResponse):
+                    return branches
+                if branch is not None and branch not in branches:
+                    raise DJException(
+                        message="Invalid view discovery path",
+                        http_status_code=404,
+                    )
+        else:
+            namespace, branch = _discovery_filter(configuration)
+        namespaces = await _active_git_namespaces(session, namespace)
+        cubes = await _cube_summaries(
+            session,
+            _view_scopes(namespace, branch, namespaces),
+        )
     except DJException as exc:
         return _problem(exc.http_status_code or 400, exc.message)
+    for cube_name, _, _ in cubes:
+        access_checker.add_request_by_node_name(cube_name, ResourceAction.READ)
+    approved = set(await access_checker.approved_resource_names())
     summaries = []
     for cube_name, display_name, node_namespace in cubes:
+        if cube_name not in approved:
+            continue
         location = _git_location(node_namespace, namespaces)
         if namespace is not None and (location is None or location[0] != namespace):
             continue
