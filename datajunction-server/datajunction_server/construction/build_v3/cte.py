@@ -1599,7 +1599,7 @@ def _resolve_pushdown_filters_for_cte(
     for ref in outer_only_refs or set():
         base = ref.split("[")[0]
         if ref in local_aliases or base in local_aliases:
-            continue  # properly mapped locally (dim's own CTE / join key) — safe
+            continue  # properly mapped to this fact or transform's join key
         bare_col = effective_aliases.get(ref) or effective_aliases.get(base)
         if bare_col and bare_col in collision_cols:
             blocked_refs.add(ref)
@@ -1744,15 +1744,6 @@ def _build_local_dim_aliases(node: Node) -> dict[str, str]:
     if not node.current:  # pragma: no cover
         return result
     from datajunction_server.construction.build_v3.utils import get_short_name
-
-    # Inside a dim's own CTE, ``<this_dim>.<col>`` must resolve to the
-    # dim's own column — not to whatever the parent's link mapped it
-    # to.  Without this, a filter on the dim's PK gets resolved via
-    # the parent's FK column name, which can collide with a same-named
-    # but differently-typed column on the dim itself.
-    if node.type == NodeType.DIMENSION and node.current.columns:
-        for col in node.current.columns:
-            result[f"{node.name}{SEPARATOR}{col.name}"] = col.name
 
     if not node.current.dimension_links:
         return result
@@ -1955,7 +1946,8 @@ def _populate_scope_column_aliases(
                     dim_pk_fqn = f"{target_node.name}{SEPARATOR}{col.name}"
                     if dim_pk_fqn not in col_alias:  # pragma: no branch
                         col_alias[dim_pk_fqn] = (alias_name, col.name)
-    elif isinstance(expr, ast.Query):
+    # Other FROM expressions have no safe column mapping to contribute.
+    elif isinstance(expr, ast.Query):  # pragma: no branch
         alias_obj = getattr(expr, "alias", None)
         if alias_obj is None or not hasattr(alias_obj, "name"):  # pragma: no cover
             return
