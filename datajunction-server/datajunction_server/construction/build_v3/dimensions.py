@@ -122,6 +122,21 @@ def find_join_path(
             role=role,
         )
 
+    return find_unqualified_join_path(
+        ctx,
+        source_revision_id,
+        target_dim_name,
+        column_name,
+    )
+
+
+def find_unqualified_join_path(
+    ctx: BuildContext,
+    source_revision_id: int,
+    target_dim_name: str,
+    column_name: str | None = None,
+) -> JoinPath | None:
+    """Choose the default path for a bare dimension reference by hop count."""
     available_paths = []
     for (src_id, dim_name, stored_role), path_links in ctx.join_paths.items():
         if src_id == source_revision_id and dim_name == target_dim_name:
@@ -167,22 +182,6 @@ def _ambiguous_role_error(
         http_status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
         message=f"Dimension `{ref}` is ambiguous across roles. Use one of: {options}",
     )
-
-
-def roles_reaching_dimension(
-    ctx: BuildContext,
-    node_rev_id: int,
-    dim_node_name: str,
-) -> set[str]:
-    """
-    Role paths from a node revision to a dimension node, ``""`` for a role-free
-    link. Read from the join paths preloaded for this build.
-    """
-    return {
-        stored_role
-        for (src_id, dim_name, stored_role) in ctx.join_paths
-        if src_id == node_rev_id and dim_name == dim_node_name
-    }
 
 
 def can_skip_join_for_dimension(
@@ -488,7 +487,7 @@ def _resolve_pushdown_targets(
 ) -> list[tuple[str, str | None, ast.Select | None]]:
     """
     Return one ``(target_cte_name, qualifier, arm_select)`` triple per
-    Table reference to the linked source in the child transform's query.
+    relational Table reference to the linked source in the child transform.
 
     The caller rewrites the filter once per triple (using ``qualifier``)
     and injects it at the right scope — so a self-join with two
@@ -499,6 +498,8 @@ def _resolve_pushdown_targets(
     top-level Select of a non-set-op body — that's the one case where
     the normal CTE-WHERE injection path can handle it.
     """
+    from datajunction_server.construction.build_v3.cte import _is_relational_scope
+
     if linked_node.type != NodeType.SOURCE:
         return [(linked_node.name, None, None)]
     all_targets: list[tuple[str, str | None, ast.Select | None]] = []
@@ -518,10 +519,10 @@ def _resolve_pushdown_targets(
         top_select = child_query.select
         if not isinstance(top_select, ast.Select):
             continue  # pragma: no cover
-        # Walk every Table anywhere in the parsed query — set-op arms,
-        # CTE bodies, subqueries inside WHERE/HAVING.  Collect every
-        # match so a self-join (two refs to the same source) produces
-        # two filter injections, one per alias.
+        # Walk set-op arms and relational subqueries, but exclude scalar and
+        # EXISTS scopes. Their source scans compute values without supplying
+        # rows to the child transform. A self-join still contributes both
+        # row-producing aliases.
         matches: list[tuple[str, ast.Select]] = []
         for tbl in child_query.find_all(ast.Table):
             try:
@@ -536,6 +537,8 @@ def _resolve_pushdown_targets(
             containing_select = _enclosing_select(tbl)
             if containing_select is None:
                 continue  # pragma: no cover
+            if not _is_relational_scope(containing_select, child_query):
+                continue
             matches.append((alias, containing_select))
         if not matches:
             continue  # pragma: no cover

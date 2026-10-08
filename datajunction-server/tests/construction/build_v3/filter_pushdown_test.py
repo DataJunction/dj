@@ -1285,6 +1285,25 @@ class TestFilterPushdownMultiRole:
         )
         assert response.status_code == 422, response.json()
 
+    @pytest.mark.asyncio
+    async def test_compound_filter_rejects_bare_location_reference(
+        self,
+        client_with_build_v3,
+    ):
+        """A qualified occurrence cannot hide an ambiguous bare occurrence."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.location.city[from]"],
+                "filters": [
+                    "v3.location.city[from] = 'A' AND v3.location.city = 'B'",
+                ],
+            },
+        )
+        assert response.status_code == 422, response.json()
+        assert "ambiguous across roles" in str(response.json())
+
     def test_mixed_or_is_not_partially_pushed_into_fact_scope(self):
         """The CTE resolver must leave an OR intact when one ref is absent."""
         date_ref = "v3.date.date_id"
@@ -2158,6 +2177,82 @@ class TestFilterPushdownViaSourceFKLinkAtTopLevel:
                 },
             )
             assert ambiguous.status_code == 422, ambiguous.json()
+
+
+class TestFilterOnlySourceScope:
+    """Source-link filters must preserve unrelated scalar subqueries."""
+
+    @pytest.mark.asyncio
+    async def test_source_filter_preserves_all_time_scalar_count(
+        self,
+        client_with_build_v3,
+    ):
+        client = client_with_build_v3
+        response = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.order_history_src",
+                "columns": [
+                    {"name": "customer_id", "type": "int"},
+                    {"name": "report_date", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "order_history_src",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+        response = await client.post(
+            "/nodes/v3.order_history_src/link",
+            json={
+                "dimension_node": "v3.date",
+                "join_on": "v3.order_history_src.report_date = v3.date.date_id",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+        response = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.order_history",
+                "query": (
+                    "SELECT o.customer_id, "
+                    "(SELECT COUNT(*) FROM v3.order_history_src b "
+                    "WHERE b.customer_id = o.customer_id) AS all_time_orders "
+                    "FROM v3.order_history_src o"
+                ),
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+        response = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.sum_all_time_orders",
+                "query": "SELECT SUM(all_time_orders) FROM v3.order_history",
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.sum_all_time_orders"],
+                "filters": ["v3.date.date_id = 20240101"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        with sqlite3.connect(":memory:") as db:
+            db.executescript(
+                """
+                CREATE TABLE order_history_src (customer_id INTEGER, report_date INTEGER);
+                INSERT INTO order_history_src VALUES (1, 20240101), (1, 20230101);
+                """,
+            )
+            rows = db.execute(sql.replace("default.v3.", "")).fetchall()
+        assert rows == [(2,)]
 
 
 class TestFilterPushdownToMultipleSiblingTransforms:

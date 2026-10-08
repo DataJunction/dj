@@ -24,6 +24,9 @@ from datajunction_server.config import Settings
 from datajunction_server.construction.build_v3.measures import (
     build_grain_group_from_preagg,
 )
+from datajunction_server.construction.build_v3.preagg_matcher import (
+    canonical_dimension_ref,
+)
 from datajunction_server.construction.build_v3.types import BuildContext, GrainGroup
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.preaggregation import (
@@ -116,6 +119,105 @@ async def _create_daily_balance_metric(client_with_build_v3):
 
 class TestExternalPreAggRouting:
     """Queries route to externally-registered pre-agg tables via source_column."""
+
+    def test_bare_grain_uses_unique_shortest_role(self):
+        """An indirect alternate path does not change a bare grain's meaning."""
+        location = SimpleNamespace(name="v3.location")
+        direct = [SimpleNamespace(dimension=location)]
+        ctx = SimpleNamespace(
+            join_paths={
+                (1, "v3.location", "from"): direct,
+                (1, "v3.location", "customer->home"): [
+                    SimpleNamespace(),
+                    SimpleNamespace(dimension=location),
+                ],
+            },
+        )
+        assert canonical_dimension_ref(ctx, 1, "v3.location.country") == (
+            "v3.location.country[from]"
+        )
+        ctx.join_paths[(1, "v3.location", "to")] = [
+            SimpleNamespace(dimension=location),
+        ]
+        assert (
+            canonical_dimension_ref(ctx, 1, "v3.location.country")
+            == "v3.location.country"
+        )
+
+    @pytest.mark.asyncio
+    async def test_bare_shortest_role_preagg_serves_both_spellings(
+        self,
+        client_with_build_v3,
+    ):
+        """A bare registered grain and its explicit direct role route alike."""
+        client = client_with_build_v3
+        response = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.route_fact",
+                "columns": [
+                    {"name": "from_location_id", "type": "int"},
+                    {"name": "customer_id", "type": "int"},
+                    {"name": "amount", "type": "double"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "route_fact",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+        for dimension_node, role, fact_key, dim_key in (
+            ("v3.location", "from", "from_location_id", "location_id"),
+            ("v3.customer", "customer", "customer_id", "customer_id"),
+        ):
+            response = await client.post(
+                "/nodes/v3.route_fact/link",
+                json={
+                    "dimension_node": dimension_node,
+                    "join_on": (
+                        f"v3.route_fact.{fact_key} = {dimension_node}.{dim_key}"
+                    ),
+                    "role": role,
+                },
+            )
+            assert response.status_code in (200, 201), response.json()
+        response = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.route_amount",
+                "query": "SELECT SUM(amount) FROM v3.route_fact",
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+        await _register_external_preagg(
+            client,
+            metrics=["v3.route_amount"],
+            dimensions=["v3.location.country"],
+            table_ref={
+                "catalog": "default",
+                "schema": "analytics",
+                "table": "route_amount_by_from_country",
+                "valid_through_ts": 20250101,
+            },
+            measure_columns={"v3.route_amount": "amount_sum"},
+            table_columns={"country_from": "string", "amount_sum": "double"},
+        )
+
+        for dimension in ("v3.location.country", "v3.location.country[from]"):
+            response = await client.get(
+                "/sql/measures/v3/",
+                params={
+                    "metrics": ["v3.route_amount"],
+                    "dimensions": [dimension],
+                },
+            )
+            assert response.status_code == 200, response.json()
+            sql = get_first_grain_group(response.json())["sql"]
+            assert "FROM default.analytics.route_amount_by_from_country" in sql
+            assert "default.v3.route_fact" not in sql
 
     def test_cross_fact_unqualified_dimension_compares_selected_paths(self):
         """An indirect alternate path cannot change a fact's selected role."""

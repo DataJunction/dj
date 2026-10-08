@@ -13,8 +13,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from datajunction_server.construction.build_v3.dimensions import (
+    find_unqualified_join_path,
     parse_dimension_ref,
-    roles_reaching_dimension,
 )
 from datajunction_server.database.preaggregation import (
     PreAggregation,
@@ -22,7 +22,7 @@ from datajunction_server.database.preaggregation import (
     get_measure_identities,
     measure_identity_token,
 )
-from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.errors import DJException, DJInvalidInputException
 from datajunction_server.models.decompose import Aggregability, MetricComponent
 from datajunction_server.models.dimensionlink import JoinType
 from datajunction_server.models.preaggregation import TemporalPartitionColumn
@@ -99,9 +99,9 @@ def canonical_dimension_ref(
     Canonical form of a dimension reference, so that a pre-agg registered with one
     spelling still matches a query written with the other.
 
-    A bare reference is qualified only when exactly one named role reaches the
-    dimension and no role-free link does -- mirroring how the reference resolves,
-    which prefers the role-free link. Anything else is returned unchanged.
+    A bare reference uses the same shortest-path selection as SQL construction.
+    Ambiguous or unreachable references remain bare, so a stored grain cannot
+    silently match one of several equally short roles.
     """
     try:
         dim_ref = parse_dimension_ref(ref)
@@ -111,10 +111,18 @@ def canonical_dimension_ref(
         return ref
     if dim_ref.role:
         return ref
-    roles = roles_reaching_dimension(ctx, node_rev_id, dim_ref.node_name)
-    if "" in roles or len(roles) != 1:
+    try:
+        selected = find_unqualified_join_path(
+            ctx,
+            node_rev_id,
+            dim_ref.node_name,
+            dim_ref.column_name,
+        )
+    except DJException:
         return ref
-    return f"{ref}[{roles.pop()}]"
+    if selected is None or selected.role is None:
+        return ref
+    return f"{ref}[{selected.role}]"
 
 
 @dataclass(frozen=True)
