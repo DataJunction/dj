@@ -528,6 +528,11 @@ type Query {
     """
     dimensions: [String!] = null
 
+    """
+    Filter to nodes backed by any of these physical tables. Each entry may be fully qualified (catalog.schema.table), partially qualified (schema.table) or a bare table name; matching is case-insensitive. Only source nodes carry a table, so this returns source nodes -- use downstreamNodes to reach the transforms and metrics built on them.
+    """
+    tables: [String!] = null
+
     """Filter to nodes edited by this user"""
     editedBy: String = null
 
@@ -592,6 +597,11 @@ type Query {
     Filter to nodes that have ALL of these dimensions. Accepts dimension node names or dimension attributes
     """
     dimensions: [String!] = null
+
+    """
+    Filter to nodes backed by any of these physical tables. Each entry may be fully qualified (catalog.schema.table), partially qualified (schema.table) or a bare table name; matching is case-insensitive. Only source nodes carry a table, so this returns source nodes -- use downstreamNodes to reach the transforms and metrics built on them.
+    """
+    tables: [String!] = null
 
     """Filter to nodes edited by this user"""
     editedBy: String = null
@@ -672,6 +682,29 @@ type Query {
     nodeType: NodeType = null
 
     """Whether to include deactivated nodes in the result."""
+    includeDeactivated: Boolean! = false
+  ): [Node!]!
+
+  """
+  Find the nodes associated with a physical table: the source nodes on that table and, unless disabled, everything downstream of them.
+  """
+  nodesForTable(
+    """
+    The physical table to look up. May be fully qualified (catalog.schema.table), partially qualified (schema.table) or a bare table name; matching is case-insensitive.
+    """
+    table: String!
+
+    """
+    Filter the returned nodes to these node types. Applies to the whole result, the source nodes included.
+    """
+    nodeTypes: [NodeType!] = null
+
+    """
+    Also return everything transitively downstream of the source nodes on this table (transforms, dimensions, metrics, cubes).
+    """
+    includeDownstream: Boolean! = true
+
+    """Whether to include deactivated downstream nodes."""
     includeDeactivated: Boolean! = false
   ): [Node!]!
 
