@@ -659,6 +659,10 @@ async def test_semantic_git_discovery_and_view_filtering(
     assert "plain.metrics" in first_level.json()["values"]
     assert "plain.metrics.deep" in first_level.json()["values"]
     assert first_level.json()["has_next"] is True
+    assert first_level.json()["next_level"] == {
+        "id": "branch",
+        "display_name": "Branch",
+    }
     second_level = await client.post(
         "/semantic/views/discover/",
         json={"path": ["demo.metrics"]},

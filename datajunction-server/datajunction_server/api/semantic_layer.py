@@ -331,6 +331,7 @@ class DiscoverResponse(BaseModel):
     level: DiscoverLevel
     values: list[str | None]
     has_next: bool
+    next_level: DiscoverLevel | None = None
 
 
 class ValuesRequest(BaseModel):
@@ -665,7 +666,11 @@ async def list_semantic_namespaces(
     return [root for root in roots if root in approved]
 
 
-@router.post("/views/discover/", response_model=DiscoverResponse)
+@router.post(
+    "/views/discover/",
+    response_model=DiscoverResponse,
+    response_model_exclude_none=True,
+)
 async def discover_views(
     request: DiscoverRequest,
     session: AsyncSession = Depends(get_session),
@@ -729,6 +734,7 @@ async def discover_views(
             level=DiscoverLevel(id="namespace", display_name="Namespace"),
             values=sorted(values),
             has_next=True,
+            next_level=DiscoverLevel(id="branch", display_name="Branch"),
         )
     namespace = request.path[0]
     assert isinstance(namespace, str)
