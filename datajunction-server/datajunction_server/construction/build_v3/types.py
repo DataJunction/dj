@@ -242,9 +242,9 @@ class PushdownFilters:
         outer_only_refs: Dimension refs that resolve only to a joined
             dimension's bare attribute name and so must not be pushed into an
             upstream transform/source CTE under that name (the same-named
-            column there is the raw FK value, not the attribute).  Such a
-            filter still pushes into the dimension's *own* CTE and lands in the
-            outer WHERE.  See ``outer_only_filter_refs``.
+            column there is the raw FK value, not the attribute). Such a
+            filter stays on the dimension's consuming join alias. See
+            ``outer_only_filter_refs``.
         fk_collision_cols: Foreign-key *value* column short-names on the linking
             (parent) node's dimension links.  An ``outer_only`` ref whose bare
             column collides with one of these is a joined dimension's non-key
@@ -475,12 +475,10 @@ class ResolvedDimension:
     role: str | None  # Role if specified (e.g., "order")
     join_path: JoinPath | None  # Join path from fact to this dimension (None if local)
     is_local: bool  # True if dimension is on the fact table itself
-    # The full original join path before any full-skip optimization.  Used by
-    # the projection layer to find intermediate joined dims whose columns are
-    # FK-aligned with the requested column — those columns can be COALESCEd
-    # in so the projected value survives OUTER joins that null-fill the FK
-    # side.  ``None`` when no skipping occurred (the regular ``join_path`` is
-    # authoritative).
+    # The full original join path before any full-skip optimization. Used by
+    # the projection layer to find intermediate joined dimensions whose columns
+    # are FK-aligned with the requested column, preserving their values under
+    # OUTER joins. ``None`` when no skipping occurred.
     pre_skip_join_path: JoinPath | None = None
 
 

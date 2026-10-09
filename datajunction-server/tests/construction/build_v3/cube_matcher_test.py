@@ -204,6 +204,12 @@ class TestExtractFilterDimensionRefs:
             ["v3.date.date_id[order] = 20240101"],
         ) == ["v3.date.date_id[order]"]
 
+    def test_role_and_bare_occurrences_are_extracted_independently(self):
+        """A role on one occurrence must not hide a separate bare reference."""
+        assert extract_filter_dimension_refs(
+            ["v3.location.city[from] = 'A' AND v3.location.city = 'B'"],
+        ) == ["v3.location.city[from]", "v3.location.city"]
+
     def test_multiple_refs_deduped(self):
         """Refs across predicates are collected and de-duplicated."""
         refs = extract_filter_dimension_refs(

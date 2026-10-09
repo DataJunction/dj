@@ -41,6 +41,7 @@ from datajunction_server.construction.build_v3.dimensions import (
     resolve_metric_expression_dimensions,
 )
 from datajunction_server.construction.build_v3.filters import (
+    add_unique_role_fallbacks,
     parse_and_resolve_filters,
     parse_filter,
     resolve_filter_references,
@@ -312,7 +313,7 @@ def _get_filter_column_name_for_dimension(
         return None  # pragma: no cover
 
     for link in parent_node.current.dimension_links:
-        if link.dimension.name == dim_node_name:
+        if link.dimension.name == dim_node_name and link.role == parsed_ref.role:
             fk_columns = link.foreign_key_column_names
             if fk_columns:  # pragma: no branch
                 return next(iter(fk_columns))
@@ -505,8 +506,8 @@ def build_filter_column_aliases(
     - Identity: ``v3.product.category`` → ``category``
     - Skip-join override: ``dimensions.time.date.dateint`` → ``utc_date``
 
-    Also adds bare-key fallbacks (role suffix stripped) so filters resolve
-    even when the role is missing or mismatched.
+    Also adds bare-key entries for unqualified dimension references. Explicit
+    role-qualified references still require their exact key.
     """
     aliases: dict[str, str] = {}
 
@@ -526,14 +527,7 @@ def build_filter_column_aliases(
     for dim_ref, local_col in ctx.skip_join_column_mapping.items():
         aliases[dim_ref] = local_col
 
-    # Bare-key fallbacks (strip role suffix)
-    for original_ref in list(aliases.keys()):
-        if "[" in original_ref:
-            base_ref = original_ref.split("[")[0]
-            if base_ref not in aliases:  # pragma: no branch
-                aliases[base_ref] = aliases[original_ref]
-
-    return aliases
+    return add_unique_role_fallbacks(aliases)
 
 
 def outer_only_filter_refs(
@@ -585,9 +579,27 @@ def build_outer_where(
     Returns the combined WHERE expression with table-qualified column names,
     or None if no filters parse successfully.
     """
+    # Qualify each semantic reference before resolving it to a bare column.
+    # Two roles of one dimension can have the same column name, and a later
+    # bare-column pass would assign both predicates to the last join alias.
+    qualified_aliases: dict[str, str | ast.Name] = dict(filter_column_aliases)
+    for resolved_dim in resolved_dimensions:
+        column_name = filter_column_aliases.get(
+            resolved_dim.original_ref,
+            resolved_dim.column_name,
+        )
+        table_alias = get_dimension_table_alias(
+            resolved_dim,
+            main_alias,
+            dim_aliases,
+        )
+        qualified_aliases[resolved_dim.original_ref] = ast.Name(
+            column_name,
+            namespace=ast.Name(table_alias),
+        )
     where_clause = parse_and_resolve_filters(
         filters,
-        filter_column_aliases,
+        qualified_aliases,
         cte_alias=None,
         nodes=nodes,
     )

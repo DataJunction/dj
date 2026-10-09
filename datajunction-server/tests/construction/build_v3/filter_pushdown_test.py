@@ -1,13 +1,130 @@
 """
-Tests for filter pushdown into CTEs.
-
-Verifies that user-supplied dimension filters are pushed down into the
-appropriate CTE WHERE clauses, not just applied on the outer query.
+Tests for request-filter placement in CTEs and consuming queries.
 """
+
+import sqlite3
+from types import SimpleNamespace
 
 import pytest
 
+from datajunction_server.construction.build_v3.cte import (
+    _populate_scope_column_aliases,
+    _resolve_pushdown_filters_for_cte,
+    _rewrite_filter_for_scope,
+    inject_filter_into_select,
+)
+from datajunction_server.construction.build_v3.dimensions import (
+    _local_reference_dimension_column,
+    _rewrite_filter_col_refs,
+    find_join_path,
+    parse_dimension_ref,
+)
+from datajunction_server.construction.build_v3.filters import rewrite_filter_atomically
+from datajunction_server.construction.build_v3.measures import (
+    _add_table_prefixes_to_filter,
+)
+from datajunction_server.errors import DJException
+from datajunction_server.models.node import NodeType
+from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.backends.antlr4 import parse
+
 from tests.construction.build_v3 import assert_sql_equal, get_first_grain_group
+
+
+class TestAtomicFilterRewrite:
+    """A predicate moves only when its complete expression binds in scope."""
+
+    def test_array_index_is_preserved_when_its_column_moves(self):
+        """A numeric array index is SQL, not a dimension role marker."""
+        rewritten = rewrite_filter_atomically(
+            "v3.product.tags[1] = 'featured'",
+            lambda ref: (
+                ast.Column(name=ast.Name("tags")) if ref == "v3.product.tags" else None
+            ),
+        )
+        assert str(rewritten) == "tags[1] = 'featured'"
+
+    def test_constant_filter_has_no_scope_reference_to_rewrite(self):
+        assert rewrite_filter_atomically("1 = 1", lambda ref: None) is None
+
+    def test_root_column_is_replaced(self):
+        rewritten = rewrite_filter_atomically(
+            "v3.product.enabled",
+            lambda ref: (
+                ast.Column(name=ast.Name("enabled"))
+                if ref == "v3.product.enabled"
+                else None
+            ),
+        )
+        assert str(rewritten) == "enabled"
+
+    def test_unresolved_role_marker_is_not_prefixed_as_sql_column(self):
+        """The alias pass must leave a role marker untouched."""
+        expression = parse("SELECT 1 WHERE date_id[order] = 5").select.where
+        _add_table_prefixes_to_filter(
+            expression,
+            resolved_dimensions=[],
+            main_alias="fact",
+            dim_aliases={},
+            parent_node=SimpleNamespace(),
+        )
+        assert str(expression) == "fact.date_id[order] = 5"
+
+    def test_known_dimension_column_uses_its_role_join_alias(self):
+        expression = parse("SELECT 1 WHERE date_id = 5").select.where
+        resolved = SimpleNamespace(
+            original_ref="v3.date.date_id[order]",
+            column_name="date_id",
+            is_local=False,
+            join_path=SimpleNamespace(
+                target_node_name="v3.date",
+                links=[SimpleNamespace(role="order")],
+            ),
+        )
+        _add_table_prefixes_to_filter(
+            expression,
+            resolved_dimensions=[resolved],
+            main_alias="fact",
+            dim_aliases={("v3.date", "order"): "order_date"},
+            parent_node=SimpleNamespace(),
+        )
+        assert str(expression) == "order_date.date_id = 5"
+
+    def test_wrapped_union_arms_cannot_consume_outer_filter(self, monkeypatch):
+        """A hidden column in a derived UNION cannot justify arm pushdown."""
+        query = parse(
+            "SELECT amount FROM ("
+            "SELECT amount, date_id FROM first_source "
+            "UNION ALL SELECT amount, date_id FROM second_source"
+            ") union_rows",
+        )
+        wrapped_union = next(
+            child
+            for child in query.find_all(ast.Query)
+            if child is not query and child.select.set_op is not None
+        )
+        arm = wrapped_union.select
+        monkeypatch.setattr(
+            "datajunction_server.construction.build_v3.cte._build_all_scope_column_alias_maps",
+            lambda *_: [(arm, {"date_id": ("first_source", "date_id")})],
+        )
+        node = SimpleNamespace(
+            name="v3.union_fact",
+            type=NodeType.TRANSFORM,
+            current=SimpleNamespace(
+                columns=[SimpleNamespace(name="amount")],
+                dimension_links=[],
+            ),
+        )
+        injections, consumed = _resolve_pushdown_filters_for_cte(
+            node,
+            query,
+            ["v3.date.date_id = 5"],
+            {"v3.date.date_id": "date_id"},
+            ctx=SimpleNamespace(),
+        )
+        assert injections == []
+        assert consumed == set()
 
 
 class TestFilterPushdownToParentCTE:
@@ -55,16 +172,16 @@ class TestFilterPushdownToParentCTE:
         )
 
 
-class TestFilterPushdownToDimensionCTE:
-    """Filters on dimension columns push into the dimension node's CTE."""
+class TestFilterPlacementOnDimensionJoin:
+    """Filters on dimension columns apply at the consuming join alias."""
 
     @pytest.mark.asyncio
-    async def test_product_filter_pushed_to_dimension_cte(
+    async def test_product_filter_stays_on_join_alias(
         self,
         client_with_build_v3,
     ):
         """
-        Filter on v3.product.category should push into the v3_product CTE.
+        Filter on v3.product.category belongs on the product join alias.
         """
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
@@ -88,7 +205,6 @@ class TestFilterPushdownToDimensionCTE:
             v3_product AS (
               SELECT product_id, category
               FROM default.v3.products
-              WHERE category = 'Electronics'
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -101,7 +217,7 @@ class TestFilterPushdownToDimensionCTE:
 
 
 class TestFilterPushdownMultiple:
-    """Multiple filters push into their respective CTEs."""
+    """Fact filters push down while dimension filters stay on join aliases."""
 
     @pytest.mark.asyncio
     async def test_multiple_filters_pushed_to_different_ctes(
@@ -109,7 +225,7 @@ class TestFilterPushdownMultiple:
         client_with_build_v3,
     ):
         """
-        Date filter → parent CTE (via FK), product filter → product dim CTE.
+        Date filter → parent CTE (via FK), product filter → product join alias.
         """
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
@@ -137,7 +253,6 @@ class TestFilterPushdownMultiple:
             v3_product AS (
               SELECT product_id, category
               FROM default.v3.products
-              WHERE category = 'Electronics'
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -361,7 +476,7 @@ class TestFilterPushdownEdgeCases:
 
 
 class TestFilterPushdownOperators:
-    """Operator coverage: each predicate shape should push into the right CTE."""
+    """Operator coverage for request-filter placement."""
 
     @pytest.mark.asyncio
     async def test_in_list_filter_pushed_to_parent_cte(
@@ -402,11 +517,11 @@ class TestFilterPushdownOperators:
         )
 
     @pytest.mark.asyncio
-    async def test_not_in_list_filter_pushed_to_dim_cte(
+    async def test_not_in_list_filter_stays_on_join_alias(
         self,
         client_with_build_v3,
     ):
-        """NOT IN (...) on a dim column pushes into the dim CTE."""
+        """NOT IN (...) on a dim column stays at the join alias."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -431,7 +546,6 @@ class TestFilterPushdownOperators:
             v3_product AS (
               SELECT product_id, category
               FROM default.v3.products
-              WHERE category NOT IN ('Electronics', 'Clothing')
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -443,11 +557,11 @@ class TestFilterPushdownOperators:
         )
 
     @pytest.mark.asyncio
-    async def test_is_null_filter_pushed_to_dim_cte(
+    async def test_is_null_filter_stays_on_join_alias(
         self,
         client_with_build_v3,
     ):
-        """IS NULL pushes into the dim CTE."""
+        """IS NULL stays on the join alias so real matches remain visible."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -470,7 +584,6 @@ class TestFilterPushdownOperators:
             v3_product AS (
               SELECT product_id, category, subcategory
               FROM default.v3.products
-              WHERE subcategory IS NULL
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -482,11 +595,54 @@ class TestFilterPushdownOperators:
         )
 
     @pytest.mark.asyncio
-    async def test_is_not_null_filter_pushed_to_dim_cte(
+    async def test_is_null_filter_on_left_join_preserves_real_matches(
         self,
         client_with_build_v3,
     ):
-        """IS NOT NULL pushes into the dim CTE."""
+        """Filtering a dimension CTE must not turn a real match into a null join."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+                "filters": ["v3.product.subcategory IS NULL"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = response.json()["sql"]
+
+        with sqlite3.connect(":memory:") as db:
+            db.executescript(
+                """
+                CREATE TABLE orders (order_id INTEGER);
+                CREATE TABLE order_items (
+                    order_id INTEGER, product_id INTEGER,
+                    quantity INTEGER, unit_price REAL
+                );
+                CREATE TABLE products (
+                    product_id INTEGER, category TEXT, subcategory TEXT
+                );
+                INSERT INTO orders VALUES (1), (2), (3);
+                INSERT INTO order_items VALUES
+                    (1, 1, 1, 10), (2, 2, 1, 7), (3, 3, 1, 5);
+                INSERT INTO products VALUES
+                    (1, 'A', 'known'), (2, 'B', NULL);
+                """,
+            )
+            rows = db.execute(sql.replace("default.v3.", "")).fetchall()
+        assert sorted(rows, key=lambda row: row[0] or "") == [
+            (None, 5.0),
+            ("B", 7.0),
+        ]
+        product_cte = sql.split("v3_product AS (", 1)[1].split("),", 1)[0]
+        assert "WHERE" not in product_cte.upper()
+
+    @pytest.mark.asyncio
+    async def test_is_not_null_filter_stays_on_join_alias(
+        self,
+        client_with_build_v3,
+    ):
+        """IS NOT NULL stays on the dimension join alias."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -509,7 +665,6 @@ class TestFilterPushdownOperators:
             v3_product AS (
               SELECT product_id, category, subcategory
               FROM default.v3.products
-              WHERE subcategory IS NOT NULL
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -561,11 +716,11 @@ class TestFilterPushdownOperators:
         )
 
     @pytest.mark.asyncio
-    async def test_like_filter_pushed_to_dim_cte(
+    async def test_like_filter_stays_on_join_alias(
         self,
         client_with_build_v3,
     ):
-        """LIKE pushes into the dim CTE."""
+        """LIKE stays on the dimension join alias."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -588,7 +743,6 @@ class TestFilterPushdownOperators:
             v3_product AS (
               SELECT product_id, category
               FROM default.v3.products
-              WHERE category LIKE 'Elect%'
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -600,11 +754,11 @@ class TestFilterPushdownOperators:
         )
 
     @pytest.mark.asyncio
-    async def test_not_equal_filter_pushed_to_dim_cte(
+    async def test_not_equal_filter_stays_on_join_alias(
         self,
         client_with_build_v3,
     ):
-        """<> pushes into the dim CTE."""
+        """<> stays on the dimension join alias."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -627,7 +781,6 @@ class TestFilterPushdownOperators:
             v3_product AS (
               SELECT product_id, category
               FROM default.v3.products
-              WHERE category <> 'Electronics'
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -639,11 +792,11 @@ class TestFilterPushdownOperators:
         )
 
     @pytest.mark.asyncio
-    async def test_not_wrapped_predicate_pushed_to_dim_cte(
+    async def test_not_wrapped_predicate_stays_on_join_alias(
         self,
         client_with_build_v3,
     ):
-        """NOT (...) wrapping a single-CTE predicate pushes that CTE."""
+        """NOT (...) wrapping a dimension predicate stays on the join alias."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -666,7 +819,6 @@ class TestFilterPushdownOperators:
             v3_product AS (
               SELECT product_id, category
               FROM default.v3.products
-              WHERE NOT (category = 'Electronics')
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -678,11 +830,11 @@ class TestFilterPushdownOperators:
         )
 
     @pytest.mark.asyncio
-    async def test_function_wrapped_filter_pushed_to_dim_cte(
+    async def test_function_wrapped_filter_stays_on_join_alias(
         self,
         client_with_build_v3,
     ):
-        """A predicate that wraps the column in a function still pushes."""
+        """A function-wrapped dimension predicate stays on the join alias."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -705,7 +857,6 @@ class TestFilterPushdownOperators:
             v3_product AS (
               SELECT product_id, category
               FROM default.v3.products
-              WHERE LOWER(category) = 'electronics'
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -718,7 +869,718 @@ class TestFilterPushdownOperators:
 
 
 class TestFilterPushdownMultiRole:
-    """Multi-role dim filter pushdown — each role's filter targets a distinct CTE / join."""
+    """Multi-role filters must bind to their consuming join aliases."""
+
+    def test_unqualified_dimension_uses_only_shortest_path(self):
+        """An unrelated indirect path does not displace a unique direct link."""
+        target = SimpleNamespace(name="v3.date")
+        direct = [SimpleNamespace(dimension=target)]
+        indirect = [SimpleNamespace(), SimpleNamespace(dimension=target)]
+        ctx = SimpleNamespace(
+            join_paths={
+                (1, "v3.date", "customer->registration"): indirect,
+                (1, "v3.date", "order"): direct,
+            },
+        )
+        source = SimpleNamespace(current=SimpleNamespace(id=1))
+
+        selected = find_join_path(ctx, source, "v3.date", column_name="week")
+        assert selected is not None
+        assert selected.links is direct
+        assert selected.role == "order"
+        assert (
+            find_join_path(ctx, source, "v3.date", role="customer->registration").links
+            is indirect
+        )
+
+        ctx.join_paths[(1, "v3.date", "registration")] = [
+            SimpleNamespace(dimension=target),
+        ]
+        with pytest.raises(DJException, match="ambiguous across roles"):
+            find_join_path(ctx, source, "v3.date", column_name="week")
+
+    def test_reference_column_requires_matching_explicit_role(self):
+        """A [from] column annotation cannot satisfy a [to] reference."""
+        ctx = SimpleNamespace(reference_dimension_names={7: "v3.location"})
+        parent = SimpleNamespace(
+            current=SimpleNamespace(
+                columns=[
+                    SimpleNamespace(
+                        name="origin_city",
+                        dimension_id=7,
+                        dimension_column="city[from]",
+                    ),
+                ],
+            ),
+        )
+        assert (
+            _local_reference_dimension_column(
+                ctx,
+                parent,
+                parse_dimension_ref("v3.location.city[to]"),
+            )
+            is None
+        )
+        assert (
+            _local_reference_dimension_column(
+                ctx,
+                parent,
+                parse_dimension_ref("v3.location.city[from]"),
+            )
+            == "origin_city"
+        )
+
+        parent.current.columns.append(
+            SimpleNamespace(
+                name="destination_city",
+                dimension_id=7,
+                dimension_column="city[to]",
+            ),
+        )
+        with pytest.raises(DJException, match="ambiguous across roles"):
+            _local_reference_dimension_column(
+                ctx,
+                parent,
+                parse_dimension_ref("v3.location.city"),
+            )
+
+    @pytest.mark.asyncio
+    async def test_attribute_filter_does_not_filter_another_role_of_shared_cte(
+        self,
+        client_with_build_v3,
+    ):
+        """An A -> B order selected by destination must retain B after
+        filtering origin A.
+        """
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.location.city[from]", "v3.location.city[to]"],
+                "filters": ["v3.location.city[from] = 'A'"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_location AS (
+              SELECT location_id, city FROM default.v3.locations
+            ),
+            v3_order_details AS (
+              SELECT o.from_location_id, o.to_location_id,
+                     oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t2.city city_from, t3.city city_to,
+                   SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_location t2 ON t1.from_location_id = t2.location_id
+            LEFT OUTER JOIN v3_location t3 ON t1.to_location_id = t3.location_id
+            WHERE t2.city = 'A'
+            GROUP BY t2.city, t3.city
+            """,
+        )
+
+        # With an A -> B order, narrowing the shared location CTE to A
+        # makes the destination disappear even though the SQL still parses.
+        with sqlite3.connect(":memory:") as db:
+            db.executescript(
+                """
+                CREATE TABLE locations (location_id INTEGER, city TEXT);
+                CREATE TABLE orders (
+                    order_id INTEGER, from_location_id INTEGER,
+                    to_location_id INTEGER
+                );
+                CREATE TABLE order_items (
+                    order_id INTEGER, quantity INTEGER, unit_price REAL
+                );
+                INSERT INTO locations VALUES (1, 'A'), (2, 'B'), (3, 'C');
+                INSERT INTO orders VALUES (1, 1, 2), (2, 3, 1);
+                INSERT INTO order_items VALUES (1, 2, 5), (2, 1, 7);
+                """,
+            )
+            rows = db.execute(sql.replace("default.v3.", "")).fetchall()
+        assert rows == [("A", "B", 10.0)]
+
+    @pytest.mark.asyncio
+    async def test_local_key_filter_does_not_filter_joined_role_of_shared_cte(
+        self,
+        client_with_build_v3,
+    ):
+        """A fact-local [from] key must not remove rows needed by [to]."""
+        client = client_with_build_v3
+        response = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.same_key_fact",
+                "columns": [
+                    {"name": "location_id", "type": "int"},
+                    {"name": "to_location_id", "type": "int"},
+                    {"name": "amount", "type": "double"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "same_key_fact",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+        for role, fact_key in (("from", "location_id"), ("to", "to_location_id")):
+            response = await client.post(
+                "/nodes/v3.same_key_fact/link",
+                json={
+                    "dimension_node": "v3.location",
+                    "join_on": (
+                        f"v3.same_key_fact.{fact_key} = v3.location.location_id"
+                    ),
+                    "role": role,
+                },
+            )
+            assert response.status_code in (200, 201), response.json()
+        response = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.same_key_amount",
+                "query": "SELECT SUM(amount) FROM v3.same_key_fact",
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+        response = await client.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.same_key_amount"],
+                "dimensions": ["v3.location.city[to]"],
+                "filters": ["v3.location.location_id[from] = 1"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = response.json()["sql"]
+
+        with sqlite3.connect(":memory:") as db:
+            db.executescript(
+                """
+                CREATE TABLE locations (location_id INTEGER, city TEXT);
+                CREATE TABLE same_key_fact (
+                    location_id INTEGER, to_location_id INTEGER, amount REAL
+                );
+                INSERT INTO locations VALUES (1, 'A'), (2, 'B'), (3, 'C');
+                INSERT INTO same_key_fact VALUES (1, 2, 10), (3, 1, 7);
+                """,
+            )
+            rows = db.execute(sql.replace("default.v3.", "")).fetchall()
+        assert rows == [("B", 10.0)]
+        location_cte = sql.split("v3_location AS (", 1)[1].split("),", 1)[0]
+        assert "WHERE" not in location_cte.upper()
+
+    @pytest.mark.asyncio
+    async def test_metric_sql_keeps_role_filter_after_grain_group_build(
+        self,
+        client_with_build_v3,
+    ):
+        """The final metric query must still filter the origin join only."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.location.city[from]", "v3.location.city[to]"],
+                "filters": ["v3.location.city[from] = 'A'"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH v3_location AS (
+              SELECT location_id, city FROM default.v3.locations
+            ),
+            v3_order_details AS (
+              SELECT o.from_location_id, o.to_location_id,
+                     oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+              SELECT t2.city city_from, t3.city city_to,
+                     SUM(t1.line_total) line_total_sum_e1f61696
+              FROM v3_order_details t1
+              LEFT OUTER JOIN v3_location t2 ON t1.from_location_id = t2.location_id
+              LEFT OUTER JOIN v3_location t3 ON t1.to_location_id = t3.location_id
+              WHERE t2.city = 'A'
+              GROUP BY t2.city, t3.city
+            )
+            SELECT order_details_0.city_from AS city_from,
+                   order_details_0.city_to AS city_to,
+                   SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+            FROM order_details_0
+            WHERE order_details_0.city_from = 'A'
+            GROUP BY order_details_0.city_from, order_details_0.city_to
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_filter_only_role_does_not_narrow_selected_role(
+        self,
+        client_with_build_v3,
+    ):
+        """A filter-only [from] join must leave the selected [to] rows intact."""
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.location.city[to]"],
+                "filters": ["v3.location.city[from] = 'A'"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            get_first_grain_group(response.json())["sql"],
+            """
+            WITH v3_location AS (
+              SELECT location_id, city FROM default.v3.locations
+            ),
+            v3_order_details AS (
+              SELECT o.from_location_id, o.to_location_id,
+                     oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t2.city city_to,
+                   SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_location t2 ON t1.to_location_id = t2.location_id
+            LEFT OUTER JOIN v3_location t3 ON t1.from_location_id = t3.location_id
+            WHERE t3.city = 'A'
+            GROUP BY t2.city
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_metric_groups_share_unfiltered_dimension_cte(
+        self,
+        client_with_build_v3,
+    ):
+        """A filtered CTE from one fact cannot replace another fact's role CTE."""
+        client = client_with_build_v3
+        for name, columns in (
+            (
+                "v3.a_local_fact",
+                [
+                    {"name": "origin_city", "type": "string"},
+                    {"name": "to_location_id", "type": "int"},
+                    {"name": "amount", "type": "double"},
+                ],
+            ),
+            (
+                "v3.z_orders",
+                [
+                    {"name": "from_location_id", "type": "int"},
+                    {"name": "to_location_id", "type": "int"},
+                    {"name": "amount", "type": "double"},
+                ],
+            ),
+        ):
+            response = await client.post(
+                "/nodes/source/",
+                json={
+                    "name": name,
+                    "columns": columns,
+                    "mode": "published",
+                    "catalog": "default",
+                    "schema_": "v3",
+                    "table": name.split(".")[-1],
+                },
+            )
+            assert response.status_code in (200, 201), response.json()
+
+        response = await client.post(
+            "/nodes/v3.a_local_fact/columns/origin_city/link",
+            params={
+                "dimension_node": "v3.location",
+                "dimension_column": "city",
+                "role": "from",
+            },
+        )
+        assert response.status_code == 201, response.json()
+
+        for fact_name, role, fk in (
+            ("v3.a_local_fact", "to", "to_location_id"),
+            ("v3.z_orders", "from", "from_location_id"),
+            ("v3.z_orders", "to", "to_location_id"),
+        ):
+            response = await client.post(
+                f"/nodes/{fact_name}/link",
+                json={
+                    "dimension_node": "v3.location",
+                    "join_on": f"{fact_name}.{fk} = v3.location.location_id",
+                    "role": role,
+                },
+            )
+            assert response.status_code in (200, 201), response.json()
+
+        for metric_name, fact_name in (
+            ("v3.a_local_amount", "v3.a_local_fact"),
+            ("v3.z_order_amount", "v3.z_orders"),
+        ):
+            response = await client.post(
+                "/nodes/metric/",
+                json={
+                    "name": metric_name,
+                    "query": f"SELECT SUM(amount) FROM {fact_name}",
+                    "mode": "published",
+                },
+            )
+            assert response.status_code in (200, 201), response.json()
+
+        response = await client.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.a_local_amount", "v3.z_order_amount"],
+                "dimensions": ["v3.location.city[from]", "v3.location.city[to]"],
+                "filters": ["v3.location.city[to] = 'B'"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = response.json()["sql"]
+        location_cte = sql.split("v3_location AS (", 1)[1].split("),", 1)[0]
+        assert "WHERE" not in location_cte.upper()
+
+        with sqlite3.connect(":memory:") as db:
+            db.executescript(
+                """
+                CREATE TABLE locations (location_id INTEGER, city TEXT);
+                CREATE TABLE a_local_fact (
+                    origin_city TEXT, to_location_id INTEGER, amount REAL
+                );
+                CREATE TABLE z_orders (
+                    from_location_id INTEGER, to_location_id INTEGER, amount REAL
+                );
+                INSERT INTO locations VALUES (1, 'A'), (2, 'B');
+                INSERT INTO a_local_fact VALUES ('A', 2, 4);
+                INSERT INTO z_orders VALUES (1, 2, 10);
+                """,
+            )
+            rows = db.execute(sql.replace("default.v3.", "")).fetchall()
+        assert len(rows) == 1
+        assert rows[0][:2] == ("A", "B")
+        assert sorted(rows[0][2:]) == [4.0, 10.0]
+
+    @pytest.mark.asyncio
+    async def test_unqualified_filter_rejects_ambiguous_location_roles(
+        self,
+        client_with_build_v3,
+    ):
+        """A bare location ref cannot choose [from] in one stage and [to] in another."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.location.city[from]", "v3.location.city[to]"],
+                "filters": ["v3.location.city = 'A'"],
+            },
+        )
+        assert response.status_code == 422, response.json()
+
+    @pytest.mark.asyncio
+    async def test_compound_filter_rejects_bare_location_reference(
+        self,
+        client_with_build_v3,
+    ):
+        """A qualified occurrence cannot hide an ambiguous bare occurrence."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.location.city[from]"],
+                "filters": [
+                    "v3.location.city[from] = 'A' AND v3.location.city = 'B'",
+                ],
+            },
+        )
+        assert response.status_code == 422, response.json()
+        assert "ambiguous across roles" in str(response.json())
+
+    def test_mixed_or_is_not_partially_pushed_into_fact_scope(self):
+        """The CTE resolver must leave an OR intact when one ref is absent."""
+        date_ref = "v3.date.date_id"
+        source = SimpleNamespace(
+            name="v3.src_fact",
+            type=NodeType.SOURCE,
+            current=SimpleNamespace(
+                dimension_links=[
+                    SimpleNamespace(
+                        role="order",
+                        foreign_keys_reversed={date_ref: "v3.src_fact.order_date"},
+                    ),
+                ],
+            ),
+        )
+        fact = SimpleNamespace(
+            name="v3.fact",
+            type=NodeType.TRANSFORM,
+            current=SimpleNamespace(
+                columns=[SimpleNamespace(name="order_date")],
+                dimension_links=[],
+            ),
+        )
+        cte_query = parse("SELECT order_date FROM v3.src_fact AS src_fact")
+        predicate = "v3.date.date_id[order] = 20240101 OR v3.product.category = 'Books'"
+
+        injections, consumed = _resolve_pushdown_filters_for_cte(
+            fact,
+            cte_query,
+            [predicate],
+            {date_ref + "[order]": "order_date", "v3.product.category": "category"},
+            SimpleNamespace(nodes={"v3.fact": fact, "v3.src_fact": source}),
+        )
+
+        assert injections == []
+        assert consumed == set()
+
+    def test_dimension_cte_rejects_request_filter(self):
+        """Even one consuming LEFT JOIN cannot safely use CTE pushdown."""
+        location = SimpleNamespace(
+            name="v3.location",
+            type=NodeType.DIMENSION,
+            current=SimpleNamespace(
+                columns=[SimpleNamespace(name="launch_date")],
+                dimension_links=[],
+            ),
+        )
+        predicate = "v3.date.date_id[planned] = 20240101"
+        injections, consumed = _resolve_pushdown_filters_for_cte(
+            location,
+            parse("SELECT launch_date FROM v3.location"),
+            [predicate],
+            {"v3.date.date_id[planned]": "launch_date"},
+        )
+
+        assert injections == []
+        assert consumed == set()
+
+    def test_alias_substitution_requires_every_ref_in_nested_scope(self):
+        """A sibling source scan cannot inherit an OR referencing an outer join."""
+        date_ref = "demo.date.dateint"
+        source = SimpleNamespace(
+            name="demo.src",
+            type=NodeType.SOURCE,
+            current=SimpleNamespace(
+                dimension_links=[
+                    SimpleNamespace(
+                        role="order",
+                        foreign_keys_reversed={date_ref: "demo.src.order_date"},
+                    ),
+                ],
+            ),
+        )
+        product = SimpleNamespace(
+            name="demo.product",
+            type=NodeType.SOURCE,
+            current=SimpleNamespace(dimension_links=[]),
+        )
+        fact = SimpleNamespace(
+            name="demo.fact",
+            type=NodeType.TRANSFORM,
+            current=SimpleNamespace(
+                columns=[
+                    SimpleNamespace(name="order_date"),
+                    SimpleNamespace(name="category"),
+                ],
+                dimension_links=[],
+            ),
+        )
+        query = parse(
+            "SELECT o.order_date, p.category "
+            "FROM demo.src AS o "
+            "JOIN demo.product AS p ON o.product_id = p.product_id "
+            "JOIN (SELECT b.order_date FROM demo.src AS b) AS q "
+            "ON q.order_date = o.order_date",
+        )
+        predicate = "demo.date.dateint[order] = 1 OR demo.product.category = 'Books'"
+        injections, consumed = _resolve_pushdown_filters_for_cte(
+            fact,
+            query,
+            [predicate],
+            {date_ref + "[order]": "order_date", "demo.product.category": "category"},
+            SimpleNamespace(
+                nodes={"demo.fact": fact, "demo.src": source, "demo.product": product},
+            ),
+        )
+
+        assert len(injections) == 1
+        assert injections[0][0] is query.select
+        assert consumed == {predicate}
+
+    def test_correlated_same_table_scan_retains_all_time_value(self):
+        """A fact date filter cannot change an authored scalar subquery's count."""
+        fact = SimpleNamespace(
+            name="demo.fact",
+            type=NodeType.TRANSFORM,
+            current=SimpleNamespace(
+                columns=[
+                    SimpleNamespace(name="order_date"),
+                    SimpleNamespace(name="customer_orders"),
+                ],
+                dimension_links=[],
+            ),
+        )
+        query = parse(
+            "SELECT o.order_date, "
+            "(SELECT COUNT(*) FROM demo.orders AS b "
+            "WHERE b.customer_id = o.customer_id) AS customer_orders "
+            "FROM demo.orders AS o",
+        )
+        predicate = "demo.date.dateint[order] >= 20240101"
+        injections, consumed = _resolve_pushdown_filters_for_cte(
+            fact,
+            query,
+            [predicate],
+            {"demo.date.dateint[order]": "order_date"},
+        )
+
+        assert len(injections) == 1
+        assert injections[0][0] is query.select
+        assert consumed == {predicate}
+        for select, filter_ast in injections:
+            inject_filter_into_select(select, filter_ast)
+        with sqlite3.connect(":memory:") as db:
+            db.executescript(
+                """
+                CREATE TABLE orders (customer_id INTEGER, order_date INTEGER);
+                INSERT INTO orders VALUES (1, 20240101), (1, 20230101);
+                """,
+            )
+            rows = db.execute(str(query).replace("demo.orders", "orders")).fetchall()
+        assert rows == [(20240101, 2)]
+
+    def test_scalar_subquery_cannot_consume_unprojected_filter(self):
+        """A linked table inside a scalar expression is not a fact row source."""
+        date_ref = "demo.date.dateint[order]"
+        orders = SimpleNamespace(
+            name="demo.orders",
+            type=NodeType.SOURCE,
+            current=SimpleNamespace(
+                dimension_links=[
+                    SimpleNamespace(
+                        role="order",
+                        foreign_keys_reversed={
+                            "demo.date.dateint": "demo.orders.order_date",
+                        },
+                    ),
+                ],
+            ),
+        )
+        customers = SimpleNamespace(
+            name="demo.customers",
+            type=NodeType.SOURCE,
+            current=SimpleNamespace(dimension_links=[]),
+        )
+        fact = SimpleNamespace(
+            name="demo.fact",
+            type=NodeType.TRANSFORM,
+            current=SimpleNamespace(
+                columns=[SimpleNamespace(name="customer_orders")],
+                dimension_links=[],
+            ),
+        )
+        query = parse(
+            "SELECT (SELECT COUNT(*) FROM demo.orders b "
+            "WHERE b.customer_id = c.customer_id) AS customer_orders "
+            "FROM demo.customers c",
+        )
+        predicate = f"{date_ref} >= 20240101"
+        injections, consumed = _resolve_pushdown_filters_for_cte(
+            fact,
+            query,
+            [predicate],
+            {date_ref: "order_date"},
+            SimpleNamespace(
+                nodes={
+                    "demo.fact": fact,
+                    "demo.orders": orders,
+                    "demo.customers": customers,
+                },
+            ),
+        )
+        assert injections == []
+        assert consumed == set()
+
+    def test_upstream_role_rewrite_is_atomic(self):
+        """A source FK cannot consume one side of an OR it cannot bind."""
+        assert (
+            _rewrite_filter_col_refs(
+                "demo.date.dateint[event] = 1 OR demo.product.category = 'Books'",
+                "demo.date.dateint[event]",
+                "event_date",
+                "s",
+            )
+            is None
+        )
+
+    def test_nested_scope_keeps_each_date_link_role(self):
+        """A source with two date links must not attach a role to a fact column."""
+        date_ref = "demo.date.dateint"
+        source = SimpleNamespace(
+            name="demo.fact",
+            type=NodeType.SOURCE,
+            current=SimpleNamespace(
+                dimension_links=[
+                    SimpleNamespace(
+                        role="measure",
+                        foreign_keys_reversed={
+                            date_ref: "demo.fact.playback_start_utc_date",
+                        },
+                    ),
+                    SimpleNamespace(
+                        role="allocation_snapshot",
+                        foreign_keys_reversed={
+                            date_ref: "demo.fact.snapshot_utc_date",
+                        },
+                    ),
+                ],
+            ),
+        )
+        table = parse("SELECT 1 FROM demo.fact AS b").select.from_.relations[0].primary
+        scope_aliases = {}
+        _populate_scope_column_aliases(
+            table,
+            scope_aliases,
+            SimpleNamespace(nodes={"demo.fact": source}),
+            {},
+            {},
+        )
+
+        snapshot = _rewrite_filter_for_scope(
+            f"{date_ref}[allocation_snapshot] = 20260930",
+            {},
+            scope_aliases,
+        )
+        measure = _rewrite_filter_for_scope(
+            f"{date_ref}[measure] BETWEEN 20260901 AND 20260908",
+            {},
+            scope_aliases,
+        )
+
+        assert str(snapshot) == "b.snapshot_utc_date = 20260930"
+        assert str(measure) == (
+            "b.playback_start_utc_date BETWEEN 20260901 AND 20260908"
+        )
+        assert (
+            _rewrite_filter_for_scope(f"{date_ref} = 20260930", {}, scope_aliases)
+            is None
+        )
+        assert (
+            _rewrite_filter_for_scope(
+                f"{date_ref}[unknown] = 20260930",
+                {},
+                scope_aliases,
+            )
+            is None
+        )
 
     @pytest.mark.asyncio
     async def test_two_roles_of_same_dim_each_filter_pushed_independently(
@@ -764,16 +1626,68 @@ class TestFilterPushdownMultiRole:
             """,
         )
 
+    @pytest.mark.asyncio
+    async def test_second_role_key_filter_uses_second_fk(
+        self,
+        client_with_build_v3,
+    ):
+        """A [to] key predicate must bind to to_location_id, never from_location_id."""
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+                "filters": ["v3.location.location_id[to] = 5"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            get_first_grain_group(response.json())["sql"],
+            """
+            WITH v3_order_details AS (
+              SELECT oi.product_id,
+                     oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+              WHERE o.to_location_id = 5
+            ),
+            v3_product AS (
+              SELECT product_id, category FROM default.v3.products
+            )
+            SELECT t2.category,
+                   SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            GROUP BY t2.category
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_unknown_explicit_role_does_not_choose_another_link(
+        self,
+        client_with_build_v3,
+    ):
+        """A misspelled role must fail instead of binding to [from] or [to]."""
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.product.category"],
+                "filters": ["v3.location.location_id[unknown] = 5"],
+            },
+        )
+        assert response.status_code == 422, response.json()
+
 
 class TestFilterPushdownMultiHop:
     """Filter on a dim two hops from the parent (parent → customer → location)."""
 
     @pytest.mark.asyncio
-    async def test_filter_on_multi_hop_dim_pushes_into_terminal_dim_cte(
+    async def test_filter_on_multi_hop_dim_stays_on_join_alias(
         self,
         client_with_build_v3,
     ):
-        """A non-PK filter on a multi-hop dim pushes into that dim's CTE."""
+        """A non-PK filter on a multi-hop dim stays on its join alias."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -796,7 +1710,6 @@ class TestFilterPushdownMultiHop:
             v3_location AS (
               SELECT location_id, country
               FROM default.v3.locations
-              WHERE country = 'US'
             ),
             v3_order_details AS (
               SELECT o.customer_id,
@@ -816,12 +1729,7 @@ class TestFilterPushdownMultiHop:
 
 
 class TestDimCteFilterOnNonFkColumn:
-    """Regression: when the parent's FK column shares a name with a
-    non-PK column on the dim, a filter on the dim's PK column must
-    resolve to the dim's own column inside the dim CTE — not to the
-    parent's FK column name, which would silently collide with the
-    dim's same-named column and filter against the wrong data.
-    """
+    """A dimension PK filter must not bind to a same-named fact FK label."""
 
     @pytest.mark.asyncio
     async def test_filter_on_non_fk_dim_column_resolves_correctly(
@@ -916,7 +1824,6 @@ class TestDimCteFilterOnNonFkColumn:
                 UNION ALL
                 SELECT 1, 'true'
               ) t
-              WHERE t.is_fraud_key IN (0)
             )
             SELECT t2.is_fraud,
                    SUM(t1.amount) amount_sum_HASH
@@ -1078,7 +1985,6 @@ class TestFilterPushdownCrossJoinAggregatesColumnAway:
             v3_time_window_dim AS (
               SELECT window_id, window_size
               FROM default.v3.time_window
-              WHERE window_id IN ('7day')
             ),
             v3_entity_window_config AS (
               SELECT e.entity_id
@@ -1118,9 +2024,11 @@ class TestFilterPushdownViaSourceFKLinkAtTopLevel:
     """
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("link_role", [None, "event"])
     async def test_fk_filter_pushed_via_source_link_when_not_projected(
         self,
         client_with_build_v3,
+        link_role,
     ):
         client = client_with_build_v3
 
@@ -1133,6 +2041,7 @@ class TestFilterPushdownViaSourceFKLinkAtTopLevel:
                     {"name": "account_id", "type": "int"},
                     {"name": "value", "type": "double"},
                     {"name": "report_date", "type": "int"},
+                    {"name": "snapshot_date", "type": "int"},
                 ],
                 "mode": "published",
                 "catalog": "default",
@@ -1164,6 +2073,7 @@ class TestFilterPushdownViaSourceFKLinkAtTopLevel:
                 "dimension_node": "v3.snap_date_dim",
                 "join_type": "left",
                 "join_on": "v3.src_snapped_events.report_date = v3.snap_date_dim.dateint",
+                **({"role": link_role} if link_role else {}),
             },
         )
         assert resp.status_code in (200, 201), resp.json()
@@ -1199,7 +2109,10 @@ class TestFilterPushdownViaSourceFKLinkAtTopLevel:
             "/sql/measures/v3/",
             params={
                 "metrics": ["v3.total_event_value"],
-                "filters": ["v3.snap_date_dim.dateint = 20240101"],
+                "filters": [
+                    f"v3.snap_date_dim.dateint{f'[{link_role}]' if link_role else ''}"
+                    " = 20240101",
+                ],
             },
         )
         assert response.status_code == 200, response.json()
@@ -1218,6 +2131,128 @@ class TestFilterPushdownViaSourceFKLinkAtTopLevel:
             """,
             normalize_aliases=True,
         )
+
+        wrong_role = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_event_value"],
+                "filters": ["v3.snap_date_dim.dateint[unknown] = 20240101"],
+            },
+        )
+        assert wrong_role.status_code == 422, wrong_role.json()
+
+        if link_role:
+            mixed = await client.get(
+                "/sql/measures/v3/",
+                params={
+                    "metrics": ["v3.total_event_value"],
+                    "filters": [
+                        "v3.snap_date_dim.dateint[event] = 20240101 OR "
+                        "v3.event_summary.account_id = 5",
+                    ],
+                },
+            )
+            assert mixed.status_code == 422, mixed.json()
+
+            # The parent transform has no dimension link of its own. Its
+            # upstream source now exposes two named paths to the same dim.
+            resp = await client.post(
+                "/nodes/v3.src_snapped_events/link/",
+                json={
+                    "dimension_node": "v3.snap_date_dim",
+                    "join_type": "left",
+                    "join_on": (
+                        "v3.src_snapped_events.snapshot_date = v3.snap_date_dim.dateint"
+                    ),
+                    "role": "snapshot",
+                },
+            )
+            assert resp.status_code in (200, 201), resp.json()
+
+            ambiguous = await client.get(
+                "/sql/measures/v3/",
+                params={
+                    "metrics": ["v3.total_event_value"],
+                    "filters": ["v3.snap_date_dim.dateint = 20240101"],
+                },
+            )
+            assert ambiguous.status_code == 422, ambiguous.json()
+
+
+class TestFilterOnlySourceScope:
+    """Source-link filters must preserve unrelated scalar subqueries."""
+
+    @pytest.mark.asyncio
+    async def test_source_filter_preserves_all_time_scalar_count(
+        self,
+        client_with_build_v3,
+    ):
+        client = client_with_build_v3
+        response = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.order_history_src",
+                "columns": [
+                    {"name": "customer_id", "type": "int"},
+                    {"name": "report_date", "type": "int"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "order_history_src",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+        response = await client.post(
+            "/nodes/v3.order_history_src/link",
+            json={
+                "dimension_node": "v3.date",
+                "join_on": "v3.order_history_src.report_date = v3.date.date_id",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+        response = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.order_history",
+                "query": (
+                    "SELECT o.customer_id, "
+                    "(SELECT COUNT(*) FROM v3.order_history_src b "
+                    "WHERE b.customer_id = o.customer_id) AS all_time_orders "
+                    "FROM v3.order_history_src o"
+                ),
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+        response = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.sum_all_time_orders",
+                "query": "SELECT SUM(all_time_orders) FROM v3.order_history",
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.sum_all_time_orders"],
+                "filters": ["v3.date.date_id = 20240101"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        with sqlite3.connect(":memory:") as db:
+            db.executescript(
+                """
+                CREATE TABLE order_history_src (customer_id INTEGER, report_date INTEGER);
+                INSERT INTO order_history_src VALUES (1, 20240101), (1, 20230101);
+                """,
+            )
+            rows = db.execute(sql.replace("default.v3.", "")).fetchall()
+        assert rows == [(2,)]
 
 
 class TestFilterPushdownToMultipleSiblingTransforms:
@@ -1765,9 +2800,8 @@ class TestDimLabelFilterNameCollision:
         )
         assert response.status_code == 200, response.json()
         sql = get_first_grain_group(response.json())["sql"]
-        # The label predicate is pushed into the dimension's own CTE
-        # (string = string, correct) and applied at the post-join outer
-        # WHERE, but NOT into the transform CTE (which exposes the int FK).
+        # The label predicate applies to the dimension join alias (string =
+        # string), never the transform's integer foreign key.
         assert_sql_equal(
             sql,
             """
@@ -1782,7 +2816,6 @@ class TestDimLabelFilterNameCollision:
                 UNION ALL
                 SELECT 1, 'true'
               ) t
-              WHERE t.is_bot = 'false'
             )
             SELECT t2.is_bot,
                    SUM(t1.amount) amount_sum_HASH
@@ -1806,8 +2839,8 @@ class TestDimLabelFilterNameCollision:
         transform that does not itself carry the dimension link, the filter can
         be pushed past the link into that ancestor's CTE — where a node-local
         FK-column guard is blind because the ancestor has no link.  The label
-        predicate must stay in the dimension's own CTE and the post-join outer
-        WHERE; no upstream CTE may receive ``is_bot = 'false'`` on the raw int
+        predicate must stay in the post-join outer WHERE; no upstream CTE may
+        receive ``is_bot = 'false'`` on the raw int
         column.  (The linked transform selects its FK column from an upstream
         transform that only projects the raw key and carries no link of its own.)
         """
@@ -1909,7 +2942,6 @@ class TestDimLabelFilterNameCollision:
                 UNION ALL
                 SELECT 1, 'true'
               ) t
-              WHERE t.is_bot = 'false'
             ),
             v3_ml_long AS (
               SELECT is_bot, amount

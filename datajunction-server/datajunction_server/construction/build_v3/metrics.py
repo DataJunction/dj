@@ -25,6 +25,7 @@ from datajunction_server.construction.build_v3.cte import (
     replace_metric_refs_in_ast,
 )
 from datajunction_server.construction.build_v3.filters import (
+    add_unique_role_fallbacks,
     combine_filters,
     get_filter_column_references,
     parse_and_resolve_filters,
@@ -691,21 +692,15 @@ def build_dimension_alias_map(
     """
     Build mapping from dimension refs to column aliases.
 
-    Maps both the full reference (with role) and the base reference (without role)
-    to the alias. For example:
+    Maps full references and an unqualified fallback only for a unique role.
+    For example:
     - "v3.date.month[order]" -> "month_order"
     - "v3.date.month" -> "month_order" (if not already mapped)
     """
     dimension_aliases: dict[str, str] = {}
     for original_dim_ref, col_alias in dim_info:
         dimension_aliases[original_dim_ref] = col_alias
-        # Also map the base dimension (without role) if different
-        if "[" in original_dim_ref:
-            base_ref = original_dim_ref.split("[")[0]
-            # Only add base ref if not already mapped (first role wins)
-            if base_ref not in dimension_aliases:  # pragma: no branch
-                dimension_aliases[base_ref] = col_alias
-    return dimension_aliases
+    return add_unique_role_fallbacks(dimension_aliases)
 
 
 def qualify_dimension_refs(
