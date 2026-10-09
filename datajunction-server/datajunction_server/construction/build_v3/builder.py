@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
     from datajunction_server.database.node import NodeRevision
+    from datajunction_server.construction.build_v3.group_others import GroupOthers
 
 from datajunction_server.construction.build_v3.cte import (
     detect_window_metrics_requiring_grain_groups,
@@ -542,6 +543,7 @@ async def build_metrics_sql(
     matched_cube: NodeRevision | None = None,
     query_parameters: dict[str, Any] | None = None,
     lookback_window: str | None = None,
+    group_others: GroupOthers | None = None,
 ) -> GeneratedSQL:
     """
     Build metrics SQL for a set of metrics and dimensions.
@@ -654,6 +656,13 @@ async def build_metrics_sql(
 
         if not measures_result.grain_groups:  # pragma: no cover
             raise DJInvalidInputException("No grain groups produced from measures SQL")
+
+        if group_others is not None:
+            from datajunction_server.construction.build_v3.group_others import (
+                apply_group_others,
+            )
+
+            apply_group_others(measures_result, group_others)
 
         result = apply_orderby_limit(
             generate_metrics_sql(ctx, measures_result, ctx.decomposed_metrics),
