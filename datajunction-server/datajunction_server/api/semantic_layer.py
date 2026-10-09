@@ -28,6 +28,10 @@ from datajunction_server.internal.sql import (
     generate_metrics_sql,
 )
 from datajunction_server.construction.build_v3.builder import apply_orderby_limit
+from datajunction_server.construction.build_v3.group_others import (
+    GroupOthers,
+    bucket_dimension_rows,
+)
 from datajunction_server.construction.build_v3.types import (
     GeneratedSQL as V3GeneratedSQL,
 )
@@ -47,7 +51,7 @@ router = SecureAPIRouter(prefix="/semantic", tags=["semantic-layer"])
 DEFAULT_ROW_LIMIT = 10000
 # An explicit limit above this is rejected (400).
 MAX_ROW_LIMIT = 100000
-SEMANTIC_VIEW_FEATURES = ["GROUP_LIMIT"]
+SEMANTIC_VIEW_FEATURES = ["GROUP_LIMIT", "GROUP_OTHERS"]
 
 DIMENSION_FALLBACK_ARROW_TYPE_NAME = "utf8"
 METRIC_FALLBACK_ARROW_TYPE_NAME = "floating"
@@ -544,6 +548,38 @@ async def _generate_sql(
     limit = payload.limit if payload.limit is not None else DEFAULT_ROW_LIMIT
 
     request_filters = [_filter_to_sql(f) for f in payload.filters]
+    group_limit = payload.group_limit
+    ranked_sql: V3GeneratedSQL | None = None
+    if group_limit and group_limit.group_others and payload.metrics:
+        from datajunction_server.construction.build_v3.cube_matcher import (
+            resolve_dialect_and_engine_for_metrics,
+        )
+
+        execution = await resolve_dialect_and_engine_for_metrics(
+            session=session,
+            metrics=payload.metrics,
+            dimensions=payload.dimensions,
+            filters=request_filters,
+            matched_cube=cube_rev,
+            use_materialized=False,
+        )
+        ranking_metric = group_limit.metric or payload.metrics[0]
+        ranking_filters = (
+            payload.filters if group_limit.filters is None else group_limit.filters
+        )
+        ranked_sql = await generate_metrics_sql(
+            session,
+            metrics=[ranking_metric],
+            dimensions=group_limit.dimensions,
+            filters=[_filter_to_sql(f) for f in ranking_filters],
+            matched_cube=cube_rev,
+            use_materialized=False,
+            dialect=execution.dialect,
+            orderby=[f"{ranking_metric} {group_limit.direction.upper()}"]
+            + [f"{dim} ASC" for dim in group_limit.dimensions],
+            limit=group_limit.top,
+            endpoint="/semantic-layer/views/sql/group-limit",
+        )
 
     if payload.metrics:
         generated_sql = await generate_metrics_sql(
@@ -556,8 +592,14 @@ async def _generate_sql(
             # Build both sides from live sources so an available Druid cube
             # cannot route this SQL to Druid's restricted join planner.
             use_materialized=payload.group_limit is None,
+            dialect=ranked_sql.dialect if ranked_sql else None,
             orderby=None if payload.group_limit else orderby,
             limit=None if payload.group_limit else limit,
+            group_others=(
+                GroupOthers(tuple(group_limit.dimensions), ranked_sql)
+                if group_limit and group_limit.group_others and ranked_sql
+                else None
+            ),
             endpoint="/semantic-layer/views/sql",
         )
     else:
@@ -571,32 +613,41 @@ async def _generate_sql(
             limit=None if payload.group_limit else limit,
             endpoint="/semantic-layer/views/sql",
         )
-    if payload.group_limit:
-        group_limit = payload.group_limit
+    if group_limit:
         metric = group_limit.metric or payload.metrics[0]
         ranking_filters = (
             payload.filters if group_limit.filters is None else group_limit.filters
         )
-        ranked_sql = await generate_metrics_sql(
-            session,
-            metrics=[metric],
-            dimensions=group_limit.dimensions,
-            filters=[_filter_to_sql(f) for f in ranking_filters],
-            matched_cube=cube_rev,
-            use_materialized=False,
-            dialect=generated_sql.dialect,
-            orderby=[f"{metric} {group_limit.direction.upper()}"]
-            + [f"{dim} ASC" for dim in group_limit.dimensions],
-            limit=group_limit.top,
-            endpoint="/semantic-layer/views/sql/group-limit",
-        )
-        generated_sql = _limit_to_ranked_groups(
-            generated_sql,
-            ranked_sql,
-            group_limit.dimensions,
-            orderby,
-            limit,
-        )
+        if ranked_sql is None:
+            ranked_sql = await generate_metrics_sql(
+                session,
+                metrics=[metric],
+                dimensions=group_limit.dimensions,
+                filters=[_filter_to_sql(f) for f in ranking_filters],
+                matched_cube=cube_rev,
+                use_materialized=False,
+                dialect=generated_sql.dialect,
+                orderby=[f"{metric} {group_limit.direction.upper()}"]
+                + [f"{dim} ASC" for dim in group_limit.dimensions],
+                limit=group_limit.top,
+                endpoint="/semantic-layer/views/sql/group-limit",
+            )
+        if group_limit.group_others:
+            if not payload.metrics:
+                generated_sql = bucket_dimension_rows(
+                    generated_sql,
+                    ranked_sql,
+                    tuple(group_limit.dimensions),
+                )
+            generated_sql = apply_orderby_limit(generated_sql, orderby, limit)
+        else:
+            generated_sql = _limit_to_ranked_groups(
+                generated_sql,
+                ranked_sql,
+                group_limit.dimensions,
+                orderby,
+                limit,
+            )
     if row_count:
         generated_sql = build_row_count_sql(generated_sql)
     # ``generated_sql.sql`` renders via ``to_sql(query, dialect)``, which already
@@ -659,8 +710,6 @@ async def _generate_view_sql(
                 f"filter_columns={bad_filters}",
             )
         if group_limit := payload.group_limit:
-            if group_limit.group_others:
-                return _problem(400, "`group_others` is not supported yet.")
             if not payload.metrics and not group_limit.metric:
                 return _problem(400, "`group_limit` requires a ranking metric.")
             if not group_limit.dimensions or len(set(group_limit.dimensions)) != len(

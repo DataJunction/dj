@@ -26,13 +26,19 @@ from datajunction_server.api.semantic_layer import (
     _quote_value,
     _view_payload,
 )
+from datajunction_server.construction.build_v3.group_others import (
+    _bucket_grain_group,
+    bucket_dimension_rows,
+)
 from datajunction_server.construction.build_v3.types import (
     ColumnMetadata as V3ColumnMetadata,
     GeneratedSQL as V3GeneratedSQL,
+    GrainGroupSQL,
 )
 from datajunction_server.errors import DJException
 from datajunction_server.internal.sql import build_row_count_sql
 from datajunction_server.models.dialect import Dialect, DialectRegistry
+from datajunction_server.models.decompose import Aggregability
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.transpilation import SQLTranspilationPlugin
 
@@ -373,6 +379,187 @@ def test_group_limit_keeps_ranked_tuples_including_nulls():
     assert connection.execute(build_row_count_sql(result).sql).fetchone() == (3,)
 
 
+def test_group_others_reaggregates_daily_metric_components():
+    """Remaining countries form one daily series with a correctly merged ratio."""
+    import duckdb
+
+    group = GrainGroupSQL(
+        query=parse(
+            "WITH source_rows AS (SELECT * FROM sales) "
+            "SELECT source_rows.country, source_rows.day, "
+            "SUM(source_rows.views) AS views_sum, "
+            "SUM(source_rows.sessions) AS sessions_sum "
+            "FROM source_rows GROUP BY source_rows.country, source_rows.day",
+        ),
+        columns=[
+            V3ColumnMetadata("country", "sem.country", "string", "dimension"),
+            V3ColumnMetadata("day", "sem.day", "string", "dimension"),
+            V3ColumnMetadata(
+                "views_sum",
+                "sem.views:sum",
+                "bigint",
+                "metric_component",
+            ),
+            V3ColumnMetadata(
+                "sessions_sum",
+                "sem.sessions:sum",
+                "bigint",
+                "metric_component",
+            ),
+        ],
+        grain=["country", "day"],
+        aggregability=Aggregability.FULL,
+        metrics=["sem.views", "sem.sessions"],
+        parent_name="sem.sales",
+        dialect=Dialect.DUCKDB,
+    )
+    ranked = V3GeneratedSQL(
+        query=parse(
+            "WITH ranking_data AS (SELECT * FROM ranking) "
+            "SELECT country, SUM(score) AS score FROM ranking_data "
+            "GROUP BY country ORDER BY score DESC, country LIMIT 1",
+        ),
+        columns=[
+            V3ColumnMetadata("country", "sem.country", "string", "dimension"),
+            V3ColumnMetadata("score", "sem.views", "bigint", "metric"),
+        ],
+        dialect=Dialect.DUCKDB,
+    )
+    _bucket_grain_group(group, ranked, ("sem.country",))
+
+    connection = duckdb.connect()
+    connection.execute(
+        "CREATE TABLE sales(day VARCHAR, country VARCHAR, views INT, sessions INT)",
+    )
+    connection.execute("CREATE TABLE ranking(country VARCHAR, score INT)")
+    connection.executemany(
+        "INSERT INTO sales VALUES (?, ?, ?, ?)",
+        [
+            ("Mon", "US", 100, 10),
+            ("Mon", "Canada", 40, 4),
+            ("Mon", "Mexico", 20, 10),
+            ("Tue", "US", 80, 8),
+            ("Tue", "Canada", 30, 6),
+            ("Tue", "Mexico", 10, 2),
+        ],
+    )
+    connection.executemany(
+        "INSERT INTO ranking VALUES (?, ?)",
+        [("US", 180), ("Canada", 70), ("Mexico", 30)],
+    )
+    result = connection.execute(
+        "SELECT day, country, SUM(views_sum) AS views, "
+        "SUM(views_sum) / SUM(sessions_sum) AS views_per_session "
+        f"FROM ({group.sql}) AS grouped "
+        "GROUP BY day, country ORDER BY day, country",
+    ).fetchall()
+
+    assert result == [
+        ("Mon", "Others", 60, pytest.approx(60 / 14)),
+        ("Mon", "US", 100, 10),
+        ("Tue", "Others", 40, 5),
+        ("Tue", "US", 80, 10),
+    ]
+
+
+def test_group_others_matches_null_tuple_and_casts_numeric_dimension():
+    """A ranked NULL key stays separate from the remaining composite groups."""
+    import duckdb
+
+    group = GrainGroupSQL(
+        query=parse(
+            "SELECT sales.country, sales.channel, SUM(sales.views) AS views_sum "
+            "FROM sales GROUP BY sales.country, sales.channel",
+        ),
+        columns=[
+            V3ColumnMetadata("country", "sem.country", "string", "dimension"),
+            V3ColumnMetadata("channel", "sem.channel", "bigint", "dimension"),
+            V3ColumnMetadata(
+                "views_sum",
+                "sem.views:sum",
+                "bigint",
+                "metric_component",
+            ),
+        ],
+        grain=["country", "channel"],
+        aggregability=Aggregability.FULL,
+        metrics=["sem.views"],
+        parent_name="sem.sales",
+        dialect=Dialect.DUCKDB,
+    )
+    ranked = V3GeneratedSQL(
+        query=parse(
+            "SELECT country, channel, SUM(score) AS score FROM ranking "
+            "GROUP BY country, channel ORDER BY score DESC LIMIT 1",
+        ),
+        columns=[
+            V3ColumnMetadata("country", "sem.country", "string", "dimension"),
+            V3ColumnMetadata("channel", "sem.channel", "bigint", "dimension"),
+            V3ColumnMetadata("score", "sem.views", "bigint", "metric"),
+        ],
+        dialect=Dialect.DUCKDB,
+    )
+    _bucket_grain_group(group, ranked, ("sem.country", "sem.channel"))
+
+    connection = duckdb.connect()
+    connection.execute("CREATE TABLE sales(country VARCHAR, channel INT, views INT)")
+    connection.execute("CREATE TABLE ranking(country VARCHAR, channel INT, score INT)")
+    connection.executemany(
+        "INSERT INTO sales VALUES (?, ?, ?)",
+        [(None, 1, 5), ("US", 1, 10), ("US", 2, 20)],
+    )
+    connection.executemany(
+        "INSERT INTO ranking VALUES (?, ?, ?)",
+        [(None, 1, 50), ("US", 1, 20), ("US", 2, 10)],
+    )
+
+    assert connection.execute(
+        f"SELECT country, channel, SUM(views_sum) FROM ({group.sql}) AS grouped "
+        "GROUP BY country, channel ORDER BY country NULLS FIRST",
+    ).fetchall() == [(None, "1", 5), ("Others", "Others", 30)]
+    assert group.columns[1].type == "string"
+
+
+def test_group_others_dimension_only_query_deduplicates_bucketed_rows():
+    """Dimension-only requests can rank via an explicit metric."""
+    import duckdb
+
+    main = V3GeneratedSQL(
+        query=parse("SELECT DISTINCT country, day FROM sales"),
+        columns=[
+            V3ColumnMetadata("country", "sem.country", "string", "dimension"),
+            V3ColumnMetadata("day", "sem.day", "string", "dimension"),
+        ],
+        dialect=Dialect.DUCKDB,
+    )
+    ranked = V3GeneratedSQL(
+        query=parse(
+            "SELECT country, SUM(score) AS score FROM ranking "
+            "GROUP BY country ORDER BY score DESC LIMIT 1",
+        ),
+        columns=[
+            V3ColumnMetadata("country", "sem.country", "string", "dimension"),
+            V3ColumnMetadata("score", "sem.views", "bigint", "metric"),
+        ],
+        dialect=Dialect.DUCKDB,
+    )
+    result = bucket_dimension_rows(main, ranked, ("sem.country",))
+    connection = duckdb.connect()
+    connection.execute("CREATE TABLE sales(country VARCHAR, day VARCHAR)")
+    connection.execute("CREATE TABLE ranking(country VARCHAR, score INT)")
+    connection.executemany(
+        "INSERT INTO sales VALUES (?, ?)",
+        [("US", "Mon"), ("Canada", "Mon"), ("Mexico", "Mon")],
+    )
+    connection.executemany(
+        "INSERT INTO ranking VALUES (?, ?)",
+        [("US", 100), ("Canada", 40), ("Mexico", 20)],
+    )
+    assert connection.execute(
+        f"SELECT * FROM ({result.sql}) AS bucketed ORDER BY country",
+    ).fetchall() == [("Others", "Mon"), ("US", "Mon")]
+
+
 # ---------------------------------------------------------------------------
 # DB-backed integration tests (require the testcontainers Postgres harness)
 # ---------------------------------------------------------------------------
@@ -533,7 +720,7 @@ async def test_semantic_endpoints_end_to_end(client: AsyncClient):
     )
     summary = next(v for v in resp.json() if v["name"] == view)
     assert summary["display_name"] == "Sales Cube"
-    assert summary["features"] == ["GROUP_LIMIT"]
+    assert summary["features"] == ["GROUP_LIMIT", "GROUP_OTHERS"]
 
     # /views/{view} returns the cube's metrics and dimensions in spec shape.
     resp = await _expect(
@@ -545,7 +732,7 @@ async def test_semantic_endpoints_end_to_end(client: AsyncClient):
     )
     detail = resp.json()
     assert detail["display_name"] == "Sales Cube"
-    assert detail["features"] == ["GROUP_LIMIT"]
+    assert detail["features"] == ["GROUP_LIMIT", "GROUP_OTHERS"]
     assert {m["id"] for m in detail["metrics"]} == {"sem.total_amount"}
     assert any(d["id"] == "sem.region.region_name" for d in detail["dimensions"])
 
@@ -671,15 +858,46 @@ async def test_group_limit_endpoint_builds_independent_ranked_query(
         "'North'",
     )
 
-    unsupported = {
+    with_others = {
         **query,
         "group_limit": {**query["group_limit"], "group_others": True},
     }
-    unsupported_resp = await client.post(
-        f"/semantic/views/{view}/sql",
-        json={"query": unsupported},
+    others_resp = await _expect(
+        await client.post(
+            f"/semantic/views/{view}/sql",
+            json={"query": with_others},
+        ),
+        200,
     )
-    assert unsupported_resp.status_code == 400
+    assert "'Others'" in others_resp.json()["sql"]
+    assert "LEFT OUTER JOIN" in others_resp.json()["sql"]
+    others_count = await _expect(
+        await client.post(
+            f"/semantic/views/{view}/row-count",
+            json={"query": with_others},
+        ),
+        200,
+    )
+    assert "COUNT(*)" in others_count.json()["sql"]
+    assert "'Others'" in others_count.json()["sql"]
+
+    dimension_only = {
+        **with_others,
+        "metrics": [],
+        "order": [{"by": "sem.region.region_name", "direction": "ASC"}],
+    }
+    dimension_only_resp = await _expect(
+        await client.post(
+            f"/semantic/views/{view}/sql",
+            json={"query": dimension_only},
+        ),
+        200,
+    )
+    assert "DISTINCT" in dimension_only_resp.json()["sql"]
+    assert "'Others'" in dimension_only_resp.json()["sql"]
+    assert dimension_only_resp.json()["columns"] == [
+        {"name": "region_name", "type": "utf8"},
+    ]
 
     invalid_filter = {
         **query,
@@ -709,6 +927,52 @@ async def test_group_limit_endpoint_builds_independent_ranked_query(
     assert dimension_resp.json()["columns"] == [
         {"name": "region_name", "type": "utf8"},
     ]
+
+    await _expect(
+        await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "sem.average_amount",
+                "description": "Average sale amount",
+                "mode": "published",
+                "query": "SELECT AVG(amount) FROM sem.sales",
+            },
+        ),
+        200,
+        201,
+    )
+    await _expect(
+        await client.post(
+            "/nodes/cube/",
+            json={
+                "name": "sem.sales_cube_avg",
+                "description": "Sales totals and averages by region",
+                "mode": "published",
+                "metrics": ["sem.total_amount", "sem.average_amount"],
+                "dimensions": ["sem.region.region_name"],
+            },
+        ),
+        200,
+        201,
+    )
+    average_query = {
+        **with_others,
+        "metrics": ["sem.total_amount", "sem.average_amount"],
+        "filters": [],
+    }
+    average_resp = await _expect(
+        await client.post(
+            "/semantic/views/sem.sales_cube_avg/sql",
+            json={"query": average_query},
+        ),
+        200,
+    )
+    assert "'Others'" in average_resp.json()["sql"]
+    assert {column["name"] for column in average_resp.json()["columns"]} == {
+        "region_name",
+        "total_amount",
+        "average_amount",
+    }
 
 
 @pytest.mark.asyncio

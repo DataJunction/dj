@@ -7,6 +7,7 @@ if TYPE_CHECKING:
     from datajunction_server.construction.build_v3.types import (
         GeneratedSQL as BuildV3GeneratedSQL,
     )
+    from datajunction_server.construction.build_v3.group_others import GroupOthers
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -191,6 +192,7 @@ async def generate_metrics_sql(
     endpoint: str = "/sql/metrics/v3/",
     populate_cube_metrics: bool = True,
     query_type: str | None = None,
+    group_others: "GroupOthers | None" = None,
 ) -> "BuildV3GeneratedSQL":
     """
     Shared core for the "generate SQL for specific metrics" flow, used by both the
@@ -275,6 +277,7 @@ async def generate_metrics_sql(
         use_materialized=use_materialized,
         matched_cube=matched_cube,
         query_parameters=query_parameters,
+        group_others=group_others,
     )
 
     elapsed_ms = (time.monotonic() - _t0) * 1000
