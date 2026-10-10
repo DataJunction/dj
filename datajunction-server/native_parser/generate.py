@@ -10,6 +10,7 @@ lexer's `@members` block, which are ported to C++ here.
 """
 
 import argparse
+import keyword
 import re
 import subprocess
 from pathlib import Path
@@ -93,11 +94,17 @@ def parser_tables(header: str, out: Path) -> None:
         )
     (out / "labels_table.inc").write_text("\n".join(entries))
 
-    # ANTLR appends "_" to labels that are C++ keywords (`operator` -> `operator_`);
-    # the Python parser keeps the grammar's name.
+    # Each label has to carry the name the Python parser gives it. ANTLR's C++
+    # target appends "_" to labels that are C++ keywords (`operator` ->
+    # `operator_`), which Python keeps as `operator`; the Python target appends
+    # "_" to labels that are Python keywords (`from` -> `from_`).
+    def python_name(cpp_name: str) -> str:
+        name = cpp_name[:-1] if cpp_name.endswith("_") else cpp_name
+        return f"{name}_" if keyword.iskeyword(name) else name
+
     (out / "label_names.inc").write_text(
         ",".join(
-            f'{{"{name[:-1] if name.endswith("_") else name}", {"true" if is_list else "false"}}}'
+            f'{{"{python_name(name)}", {"true" if is_list else "false"}}}'
             for name, is_list in names
         ),
     )
