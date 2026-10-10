@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 NATIVE = Path(__file__).resolve().parents[4] / "native_parser"
-sys.path[:0] = [str(NATIVE), str(NATIVE / "build")]
+sys.path.insert(0, str(NATIVE / "build"))
 pytest.importorskip("dj_native_parse")
 
 from datajunction_server.sql.parsing.backends.antlr4 import (  # noqa: E402
@@ -18,7 +18,7 @@ from datajunction_server.sql.parsing.backends.antlr4 import (  # noqa: E402
     visit,
 )
 from datajunction_server.sql.parsing.structural import serialize_ast  # noqa: E402
-from native_bridge import native_tree  # noqa: E402
+from datajunction_server.sql.parsing.backends.native import native_tree  # noqa: E402
 
 QUERIES = Path(__file__).resolve().parents[1] / "queries"
 RULE = "singleStatement"

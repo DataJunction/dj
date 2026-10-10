@@ -1,16 +1,33 @@
 """
-Prototype bridge: parse with the ANTLR C++ runtime, then rebuild the same
+Optional parser backend: parse with the ANTLR C++ runtime, then rebuild the same
 `SqlBaseParser.*Context` objects the Python parser would have produced, so
 `visit()` runs unchanged.
+
+Used only when the `dj_native_parse` extension is built (see native_parser/) and
+`DJ_NATIVE_PARSER` is set to 1/true/yes. Anything that goes wrong here makes the
+caller fall back to the Python parser.
 """
 
 from array import array
-import dj_native_parse
+import os
+
+try:
+    import dj_native_parse
+except ImportError:  # the extension is optional
+    dj_native_parse = None
 from antlr4 import ParserRuleContext
 from antlr4.Token import CommonToken
 from antlr4.tree.Tree import TerminalNodeImpl
 from datajunction_server.sql.parsing.backends.grammar.generated.SqlBaseParser import (
     SqlBaseParser,
+)
+
+ENABLED = dj_native_parse is not None and os.environ.get(
+    "DJ_NATIVE_PARSER", ""
+).lower() in (
+    "1",
+    "true",
+    "yes",
 )
 
 _CLASSES: dict[str, tuple[type, bool]] = {}  # name -> (class, takes (parser, ctx))
