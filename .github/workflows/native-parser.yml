@@ -1,0 +1,86 @@
+name: "Native parser prototype: server tests"
+
+# Runs the server suite with the ANTLR C++ parser switched on, to see whether
+# anything differs from the Python parser. Prototype branch only.
+on:
+  push:
+    branches: [ native-antlr-parser-prototype ]
+  workflow_dispatch:
+
+concurrency:
+  group: native-parser-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  server:
+    name: server (native ${{ matrix.native }})
+    runs-on: ubuntu-latest
+
+    # The same suite with the native parser off and on, so the times compare.
+    strategy:
+      fail-fast: false
+      matrix:
+        native: [ 'off', 'on' ]
+
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_USER: dj
+          POSTGRES_PASSWORD: dj
+          POSTGRES_DB: dj
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dj"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    defaults:
+      run:
+        working-directory: ./datajunction-server
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: |
+          uv sync --group test --python 3.13
+          uv pip install pybind11
+
+      - name: Build the native parser
+        if: matrix.native == 'on'
+        run: PYTHON="$(uv run which python)" ./native_parser/build.sh
+
+      - name: Run the server tests (native ${{ matrix.native }})
+        env:
+          DJ_NATIVE_PARSER: ${{ matrix.native == 'on' && '1' || '0' }}
+        run: |
+          if [ "$DJ_NATIVE_PARSER" = "1" ]; then
+            export PYTHONPATH="$PWD/native_parser/build"
+            uv run python -c "from datajunction_server.sql.parsing.backends.native import ENABLED; assert ENABLED, 'native parser is not enabled'"
+          fi
+
+          PG="postgresql://dj:dj@localhost:5432"
+          PGX="postgresql+psycopg://dj:dj@localhost:5432"
+          export DJ_TEST_POSTGRES_URL="$PGX/dj"
+
+          psql "$PG/dj" -c "CREATE ROLE readonly_user WITH LOGIN PASSWORD 'readonly'"
+          psql "$PG/dj" -c "CREATE DATABASE template_all_examples"
+          uv run python tests/helpers/populate_template.py "$PGX/template_all_examples"
+          psql "$PG/dj" -c "CREATE DATABASE template_preaggs TEMPLATE template_all_examples"
+          uv run python tests/helpers/populate_preaggs_template.py "$PGX/template_preaggs"
+          psql "$PG/dj" -c "CREATE DATABASE template_dimension_links"
+          uv run python tests/helpers/populate_template.py "$PGX/template_dimension_links" COMPLEX_DIMENSION_LINK
+
+          uv run pytest -n auto --dist=loadscope -vv tests/ --without-integration --without-slow-integration --durations=15
