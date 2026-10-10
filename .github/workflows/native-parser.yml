@@ -13,7 +13,14 @@ concurrency:
 
 jobs:
   server:
+    name: server (native ${{ matrix.native }})
     runs-on: ubuntu-latest
+
+    # The same suite with the native parser off and on, so the times compare.
+    strategy:
+      fail-fast: false
+      matrix:
+        native: [ 'off', 'on' ]
 
     services:
       postgres:
@@ -52,14 +59,17 @@ jobs:
           uv pip install pybind11
 
       - name: Build the native parser
+        if: matrix.native == 'on'
         run: PYTHON="$(uv run which python)" ./native_parser/build.sh
 
-      - name: Run the server tests with the native parser
+      - name: Run the server tests (native ${{ matrix.native }})
         env:
-          DJ_NATIVE_PARSER: "1"
+          DJ_NATIVE_PARSER: ${{ matrix.native == 'on' && '1' || '0' }}
         run: |
-          export PYTHONPATH="$PWD/native_parser/build"
-          uv run python -c "from datajunction_server.sql.parsing.backends.native import ENABLED; assert ENABLED, 'native parser is not enabled'"
+          if [ "$DJ_NATIVE_PARSER" = "1" ]; then
+            export PYTHONPATH="$PWD/native_parser/build"
+            uv run python -c "from datajunction_server.sql.parsing.backends.native import ENABLED; assert ENABLED, 'native parser is not enabled'"
+          fi
 
           PG="postgresql://dj:dj@localhost:5432"
           PGX="postgresql+psycopg://dj:dj@localhost:5432"
@@ -73,4 +83,4 @@ jobs:
           psql "$PG/dj" -c "CREATE DATABASE template_dimension_links"
           uv run python tests/helpers/populate_template.py "$PGX/template_dimension_links" COMPLEX_DIMENSION_LINK
 
-          uv run pytest -n auto --dist=loadscope -vv tests/ --without-integration --without-slow-integration
+          uv run pytest -n auto --dist=loadscope -vv tests/ --without-integration --without-slow-integration --durations=15
