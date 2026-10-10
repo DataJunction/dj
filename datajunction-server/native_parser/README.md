@@ -2,7 +2,8 @@
 
 Parses SQL with the ANTLR **C++** runtime instead of the pure-Python one, then
 rebuilds the same `SqlBaseParser.*Context` objects so `visit()` runs unchanged.
-It is an experiment and nothing in DJ uses it.
+It is an experiment. DJ uses it only when the extension is built and
+`DJ_NATIVE_PARSER=1` is set; otherwise nothing changes.
 
 ## Build
 
@@ -13,14 +14,17 @@ Needs Java 11+, CMake, a C++17 compiler, and `pybind11` in the Python you build 
 
 This downloads ANTLR 4.13.2 and its C++ runtime, generates the C++ lexer and
 parser from `datajunction_server/sql/parsing/backends/grammar`, and builds
-`build/dj_native_parse*.so`. Then run `tests/sql/parsing/backends/native_parser_test.py`.
+`build/dj_native_parse*.so`. To use it, put `native_parser/build` on `PYTHONPATH` and set
+`DJ_NATIVE_PARSER=1`. `tests/sql/parsing/backends/native_parser_test.py` checks it against the
+Python parser.
 
 ## How it works
 
 - `module.cpp` runs the C++ lexer and parser (SLL first, then LL, the same as the
   Python path) and returns the tree as flat arrays: node kinds, parents, token
   positions, and the rule and token labels the visitor reads (`ctx.name`, ...).
-- `native_bridge.py` rebuilds the Python context objects from those arrays.
+- `datajunction_server/sql/parsing/backends/native.py` rebuilds the Python context objects
+  from those arrays, and `parse_sql_with_sll_fallback` tries it first when enabled.
 - `generate.py` ports the three helper methods in the lexer's `@members` block to
   C++ and generates the rule and label tables from the generated parser header.
 
