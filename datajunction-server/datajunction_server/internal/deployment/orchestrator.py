@@ -6091,12 +6091,19 @@ class DeploymentOrchestrator:
                     if parent.current
                     for col in parent.current.columns
                 ]
-                _, matched_columns = _resolve_required_dimensions(
+                parent_dimension_links = [
+                    link
+                    for parent in new_revision.parents
+                    if parent.current
+                    for link in parent.current.dimension_links
+                ]
+                _, resolved_required_dims = _resolve_required_dimensions(
                     metric_spec.rendered_required_dimensions,
                     parent_columns,
                     dependency_nodes,
+                    parent_dimension_links,
                 )
-                new_revision.required_dimensions = matched_columns
+                new_revision.required_dimensions = resolved_required_dims
             new_revision.reaggregate = dump_reaggregate_spec(
                 metric_spec.rendered_reaggregate,
             )

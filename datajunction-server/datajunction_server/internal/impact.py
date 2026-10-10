@@ -19,13 +19,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, joinedload, selectinload
 from sqlalchemy.sql.operators import is_
 
-from datajunction_server.database.column import Column as DBColumn
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import (
-    BoundDimensionsRelationship,
     Node,
     NodeRelationship,
     NodeRevision,
+    RequiredDimension,
 )
 from datajunction_server.database.user import User
 from datajunction_server.instrumentation.provider import get_metrics_provider
@@ -283,26 +282,19 @@ async def _propagate_via_parent_graph(
             )
         ).all()
 
-        parent_revision = aliased(NodeRevision)
         metric_revision = aliased(NodeRevision)
+        # Bare-column refs have `dimension_id` NULL, so they're naturally
+        # excluded by the `in_(frontier_ids)` filter below.
         required_dimension_rows = (
             await session.execute(
-                select(metric_revision.node_id, parent_revision.node_id)
-                .select_from(BoundDimensionsRelationship)
-                .join(
-                    DBColumn,
-                    DBColumn.id == BoundDimensionsRelationship.bound_dimension_id,
-                )
-                .join(
-                    parent_revision,
-                    parent_revision.id == DBColumn.node_revision_id,
-                )
+                select(metric_revision.node_id, RequiredDimension.dimension_id)
+                .select_from(RequiredDimension)
                 .join(
                     metric_revision,
-                    metric_revision.id == BoundDimensionsRelationship.metric_id,
+                    metric_revision.id == RequiredDimension.metric_id,
                 )
                 .join(Node, Node.id == metric_revision.node_id)
-                .where(parent_revision.node_id.in_(frontier_ids))
+                .where(RequiredDimension.dimension_id.in_(frontier_ids))
                 .where(Node.current_version == metric_revision.version),
             )
         ).all()
