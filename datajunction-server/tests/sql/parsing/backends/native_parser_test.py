@@ -60,6 +60,8 @@ def test_matches_the_python_parser_on_the_test_queries():
         "SELECT CASE WHEN a > 1 THEN 'x' ELSE 'y' END, CAST(z AS DECIMAL(10, 2)) FROM t",
         "WITH c AS (SELECT 1 AS one) SELECT * FROM c JOIN d ON c.one = d.one",
         "SELECT a, SUM(b) OVER (PARTITION BY a ORDER BY c ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) FROM t",
+        # `from` is a Python keyword, so the Python parser names this label `from_`
+        "SELECT CAST(id AS INTERVAL DAY TO SECOND) FROM t",
     ],
 )
 def test_matches_on_typical_queries(sql):
