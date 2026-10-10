@@ -3,12 +3,19 @@ Tests for custom antlr4 parser
 """
 # mypy: ignore-errors
 
+from types import SimpleNamespace
+
 import pytest
+from antlr4 import InputStream
+from antlr4.tree.Trees import Trees
 
 from datajunction_server.sql.parsing.backends.antlr4 import (
+    UpperCaseInputStream,
     _definition_tree_parser,
     _request_tree_parser,
     ast,
+    build_parser,
+    build_string_parser,
     cached_request_tree,
     parse,
     report_parse_cache_stats,
@@ -366,3 +373,52 @@ def test_request_parse_cache_size_comes_from_settings(settings):
     assert (
         _request_tree_parser().cache_info().maxsize == settings.request_parse_cache_size
     )
+
+
+def _tree_string(parser, rule="singleStatement"):
+    tree = getattr(parser, rule)()
+    return Trees.toStringTree(tree, None, parser)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "SELECT a, COUNT(*) AS n FROM t WHERE b > 1 GROUP BY a",
+        "select Foo, bar from `Mixed Case`.Table_X where Name like 'AbC%'",
+        "SeLeCt CAST(x AS bigint), CaSe WhEn y THEN 1 eLsE 2 EnD FROM t",
+        "WITH c AS (SELECT 1 AS one) SELECT * FROM c JOIN d ON c.one = d.one",
+        "SELECT 'ǆ' AS lowercase_digraph FROM t",
+    ],
+)
+def test_upper_case_input_stream_matches_the_char_stream_wrapper(query):
+    """The up-front upper-casing gives the same parse as the per-character wrapper."""
+    wrapped = build_parser(InputStream(query), early_bail=False)
+    upfront = build_string_parser(query, early_bail=False)
+    assert _tree_string(upfront) == _tree_string(wrapped)
+
+
+def test_upper_case_input_stream_keeps_the_original_text():
+    """Keywords match in any case, but tokens keep the spelling they were written with."""
+    query = parse("select Foo, bAr from Some_Table where Foo = 'MiXeD'")
+
+    names = {name.name for name in query.find_all(ast.Name)}
+    assert {"Foo", "bAr", "Some_Table"} <= names
+    assert "'MiXeD'" in str(query)
+
+
+def test_upper_case_input_stream_handles_characters_that_upper_case_to_many():
+    """`ß` upper-cases to `SS`; positions must not shift for what follows it."""
+    stream = UpperCaseInputStream("ß select")
+    assert len(stream.data) == len("ß select")
+    assert stream.getText(0, 0) == "ß"
+    assert stream.getText(2, 7) == "select"
+
+
+def test_upper_case_input_stream_empty_interval_has_no_text():
+    stream = UpperCaseInputStream("")
+    assert stream.getText(SimpleNamespace(a=0, b=-1)) == ""
+
+
+def test_strict_mode_stays_case_sensitive():
+    stream = build_string_parser("select 1", strict_mode=True).getInputStream()
+    assert not isinstance(stream, UpperCaseInputStream)
