@@ -16,6 +16,7 @@ __all__ = [
     "Node",
     "NodeNamespace",
     "NodeRevision",
+    "NodeRulesetVerdict",
     "NotificationPreference",
     "Partition",
     "PreAggregation",
@@ -41,6 +42,7 @@ from datajunction_server.database.group_member import GroupMember
 from datajunction_server.database.measure import Measure
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.node_ruleset_verdict import NodeRulesetVerdict
 from datajunction_server.database.notification_preference import NotificationPreference
 from datajunction_server.database.partition import Partition
 from datajunction_server.database.preaggregation import PreAggregation

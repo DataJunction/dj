@@ -199,6 +199,13 @@ async def find_nodes(
             description="Filter to dimension nodes that are not linked to by any other node",
         ),
     ] = False,
+    reached_rulesets: Annotated[
+        list[str] | None,
+        strawberry.argument(
+            description="Filter to nodes that passed ALL of these rulesets, as "
+            "of the deploy that last evaluated them",
+        ),
+    ] = None,
     custom_metadata_filters: Annotated[
         list[CustomMetadataFilterInput] | None,
         strawberry.argument(
@@ -256,6 +263,7 @@ async def find_nodes(
         statuses=statuses,
         has_materialization=has_materialization,
         orphaned_dimension=orphaned_dimension,
+        reached_rulesets=reached_rulesets,
         custom_metadata_filters=pyd_filters,
         limit=limit,
         order_by=order_by,
@@ -379,6 +387,13 @@ async def find_nodes_paginated(
             description="Filter to dimension nodes that are not linked to by any other node",
         ),
     ] = False,
+    reached_rulesets: Annotated[
+        list[str] | None,
+        strawberry.argument(
+            description="Filter to nodes that passed ALL of these rulesets, as "
+            "of the deploy that last evaluated them",
+        ),
+    ] = None,
     custom_metadata_filters: Annotated[
         list[CustomMetadataFilterInput] | None,
         strawberry.argument(
@@ -434,6 +449,7 @@ async def find_nodes_paginated(
         statuses=statuses,
         has_materialization=has_materialization,
         orphaned_dimension=orphaned_dimension,
+        reached_rulesets=reached_rulesets,
         search=search,
         custom_metadata_filters=pyd_filters,
     )
@@ -459,6 +475,7 @@ async def find_nodes_paginated(
             statuses=statuses,
             has_materialization=has_materialization,
             orphaned_dimension=orphaned_dimension,
+            reached_rulesets=reached_rulesets,
             search=search,
             custom_metadata_filters=pyd_filters,
         )
