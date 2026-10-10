@@ -23,7 +23,8 @@ from datajunction_server.sql.parsing.backends.grammar.generated.SqlBaseParser im
 )
 
 ENABLED = dj_native_parse is not None and os.environ.get(
-    "DJ_NATIVE_PARSER", ""
+    "DJ_NATIVE_PARSER",
+    "",
 ).lower() in (
     "1",
     "true",
@@ -79,13 +80,16 @@ def native_tree(sql: str, rule: str):
     tType, tStart, tStop, tLine, tCol = map(_ints, (tType, tStart, tStop, tLine, tCol))
     lOwner, lId, lTarget = map(_ints, (lOwner, lId, lTarget))
     classes = [_cls(n) for n in names]
-    tokens = {}
+    tokens: dict[int, CommonToken] = {}
 
     def token(i):
         t = tokens.get(i)
         if t is None:
             t = CommonToken(
-                source=(None, None), type=tType[i], start=tStart[i], stop=tStop[i]
+                source=(None, None),
+                type=tType[i],
+                start=tStart[i],
+                stop=tStop[i],
             )
             t.line = tLine[i]
             t.column = tCol[i]
