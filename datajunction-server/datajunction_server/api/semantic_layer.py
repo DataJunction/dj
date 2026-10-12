@@ -46,6 +46,7 @@ from datajunction_server.construction.build_v3.group_others import (
 from datajunction_server.construction.build_v3.types import (
     GeneratedSQL as V3GeneratedSQL,
 )
+from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.access import ResourceAction, ResourceType
 from datajunction_server.sql.parsing import ast
@@ -300,7 +301,11 @@ class FilterPayload(BaseModel):
 
 
 class GroupLimitPayload(BaseModel):
-    """Top or bottom groups selected independently of the displayed rows."""
+    """Top or bottom groups selected independently of the displayed rows.
+
+    GROUP_OTHERS currently uses the fixed label ``Others``. A real ranked value
+    with that label can merge with the synthetic bucket in the displayed result.
+    """
 
     dimensions: list[str]
     top: int
@@ -997,6 +1002,33 @@ def _limit_to_ranked_groups(
     return apply_orderby_limit(result, orderby, limit)
 
 
+async def _build_ranked_groups_sql(
+    session: AsyncSession,
+    cube_rev: NodeRevision,
+    payload: QueryPayload,
+    group_limit: GroupLimitPayload,
+    dialect: Dialect,
+) -> V3GeneratedSQL:
+    """Build the top or bottom group tuples with the chosen filter override."""
+    ranking_metric = group_limit.metric or payload.metrics[0]
+    ranking_filters = (
+        payload.filters if group_limit.filters is None else group_limit.filters
+    )
+    return await generate_metrics_sql(
+        session,
+        metrics=[ranking_metric],
+        dimensions=group_limit.dimensions,
+        filters=[_filter_to_sql(f) for f in ranking_filters],
+        matched_cube=cube_rev,
+        use_materialized=False,
+        dialect=dialect,
+        orderby=[f"{ranking_metric} {group_limit.direction.upper()}"]
+        + [f"{dim} ASC" for dim in group_limit.dimensions],
+        limit=group_limit.top,
+        endpoint="/semantic-layer/views/sql/group-limit",
+    )
+
+
 async def _generate_sql(
     session: AsyncSession,
     payload: QueryPayload,
@@ -1030,22 +1062,12 @@ async def _generate_sql(
             matched_cube=cube_rev,
             use_materialized=False,
         )
-        ranking_metric = group_limit.metric or payload.metrics[0]
-        ranking_filters = (
-            payload.filters if group_limit.filters is None else group_limit.filters
-        )
-        ranked_sql = await generate_metrics_sql(
+        ranked_sql = await _build_ranked_groups_sql(
             session,
-            metrics=[ranking_metric],
-            dimensions=group_limit.dimensions,
-            filters=[_filter_to_sql(f) for f in ranking_filters],
-            matched_cube=cube_rev,
-            use_materialized=False,
-            dialect=execution.dialect,
-            orderby=[f"{ranking_metric} {group_limit.direction.upper()}"]
-            + [f"{dim} ASC" for dim in group_limit.dimensions],
-            limit=group_limit.top,
-            endpoint="/semantic-layer/views/sql/group-limit",
+            cube_rev,
+            payload,
+            group_limit,
+            execution.dialect,
         )
 
     if payload.metrics:
@@ -1081,23 +1103,13 @@ async def _generate_sql(
             endpoint="/semantic-layer/views/sql",
         )
     if group_limit:
-        metric = group_limit.metric or payload.metrics[0]
-        ranking_filters = (
-            payload.filters if group_limit.filters is None else group_limit.filters
-        )
         if ranked_sql is None:
-            ranked_sql = await generate_metrics_sql(
+            ranked_sql = await _build_ranked_groups_sql(
                 session,
-                metrics=[metric],
-                dimensions=group_limit.dimensions,
-                filters=[_filter_to_sql(f) for f in ranking_filters],
-                matched_cube=cube_rev,
-                use_materialized=False,
-                dialect=generated_sql.dialect,
-                orderby=[f"{metric} {group_limit.direction.upper()}"]
-                + [f"{dim} ASC" for dim in group_limit.dimensions],
-                limit=group_limit.top,
-                endpoint="/semantic-layer/views/sql/group-limit",
+                cube_rev,
+                payload,
+                group_limit,
+                generated_sql.dialect,
             )
         if group_limit.group_others:
             if not payload.metrics:

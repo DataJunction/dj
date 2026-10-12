@@ -662,6 +662,63 @@ def test_group_others_matches_null_tuple_and_casts_numeric_dimension():
         "GROUP BY country, channel ORDER BY country NULLS FIRST",
     ).fetchall() == [(None, "1", 5), ("Others", "Others", 30)]
     assert group.columns[1].type == "string"
+    assert _generated_column_arrow_type_name(group.columns[1]) == "utf8"
+
+
+def test_group_others_does_not_shadow_unqualified_source_columns():
+    """Ranked dimensions and metrics must not make source references ambiguous."""
+    import duckdb
+
+    group = GrainGroupSQL(
+        query=parse(
+            "SELECT country, SUM(__dj_ranked_key_0) AS views_sum "
+            "FROM sales GROUP BY country",
+        ),
+        columns=[
+            V3ColumnMetadata("country", "sem.country", "string", "dimension"),
+            V3ColumnMetadata(
+                "views_sum",
+                "sem.views:sum",
+                "bigint",
+                "metric_component",
+            ),
+        ],
+        grain=["country"],
+        aggregability=Aggregability.FULL,
+        metrics=["sem.views"],
+        parent_name="sem.sales",
+        dialect=Dialect.DUCKDB,
+    )
+    ranked = V3GeneratedSQL(
+        query=parse(
+            "SELECT country, SUM(views_sum) AS views_sum FROM ranking "
+            "GROUP BY country ORDER BY views_sum DESC LIMIT 1",
+        ),
+        columns=[
+            V3ColumnMetadata("country", "sem.country", "string", "dimension"),
+            V3ColumnMetadata("views_sum", "sem.views", "bigint", "metric"),
+        ],
+        dialect=Dialect.DUCKDB,
+    )
+    _bucket_grain_group(group, ranked, ("sem.country",))
+    connection = duckdb.connect()
+    connection.execute(
+        "CREATE TABLE sales(country VARCHAR, __dj_ranked_key_0 INT)",
+    )
+    connection.execute("CREATE TABLE ranking(country VARCHAR, views_sum INT)")
+    connection.executemany(
+        "INSERT INTO sales VALUES (?, ?)",
+        [("US", 10), ("Canada", 4), ("Mexico", 2)],
+    )
+    connection.executemany(
+        "INSERT INTO ranking VALUES (?, ?)",
+        [("US", 10), ("Canada", 4), ("Mexico", 2)],
+    )
+    assert connection.execute(
+        f"SELECT country, SUM(views_sum) FROM ({group.sql}) AS grouped "
+        "GROUP BY country ORDER BY country",
+    ).fetchall() == [("Others", 6), ("US", 10)]
+    assert "__dj_ranked_key_0_1" in group.sql
 
 
 def test_group_others_dimension_only_query_deduplicates_bucketed_rows():
@@ -1617,6 +1674,50 @@ async def test_group_limit_endpoint_builds_independent_ranked_query(
     assert inherited_resp.json()["sql"].count("'North'") > body["sql"].count(
         "'North'",
     )
+    omitted = {
+        **query,
+        "group_limit": {
+            key: value
+            for key, value in query["group_limit"].items()
+            if key != "filters"
+        },
+    }
+    omitted_resp = await _expect(
+        await client.post(f"/semantic/views/{view}/sql", json={"query": omitted}),
+        200,
+    )
+    assert omitted_resp.json()["sql"] == inherited_resp.json()["sql"]
+
+    ascending = {
+        **query,
+        "group_limit": {**query["group_limit"], "direction": "ASC"},
+    }
+    ascending_resp = await _expect(
+        await client.post(f"/semantic/views/{view}/sql", json={"query": ascending}),
+        200,
+    )
+    assert "total_amount ASC" in ascending_resp.json()["sql"]
+
+    having = {
+        **query,
+        "group_limit": {
+            **query["group_limit"],
+            "filters": [
+                {
+                    "type": "HAVING",
+                    "column": "sem.total_amount",
+                    "operator": ">",
+                    "value": 10,
+                },
+            ],
+        },
+    }
+    having_resp = await _expect(
+        await client.post(f"/semantic/views/{view}/sql", json={"query": having}),
+        200,
+    )
+    assert "HAVING" in having_resp.json()["sql"]
+    assert "> 10" in having_resp.json()["sql"]
 
     with_others = {
         **query,
@@ -1671,6 +1772,34 @@ async def test_group_limit_endpoint_builds_independent_ranked_query(
         json={"query": invalid_filter},
     )
     assert invalid_resp.status_code == 400
+
+    invalid_group_limits = [
+        ({**query["group_limit"], "top": 0}, "top"),
+        ({**query["group_limit"], "top": MAX_ROW_LIMIT + 1}, "top"),
+        (
+            {
+                **query["group_limit"],
+                "filters": [
+                    {"type": "JOIN", "column": "sem.region.region_name"},
+                ],
+            },
+            "filters.type",
+        ),
+    ]
+    for group_limit, expected_detail in invalid_group_limits:
+        invalid_resp = await client.post(
+            f"/semantic/views/{view}/sql",
+            json={"query": {**query, "group_limit": group_limit}},
+        )
+        assert invalid_resp.status_code == 400
+        assert expected_detail in invalid_resp.json()["detail"]
+
+    nonselected_resp = await client.post(
+        f"/semantic/views/{view}/sql",
+        json={"query": {**query, "dimensions": []}},
+    )
+    assert nonselected_resp.status_code == 400
+    assert "selected dimensions" in nonselected_resp.json()["detail"]
 
     dimension_only = {
         **query,
