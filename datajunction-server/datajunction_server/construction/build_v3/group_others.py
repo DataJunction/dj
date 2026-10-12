@@ -19,7 +19,8 @@ from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.types import StringType
 
 _RANKED_ALIAS = "__dj_ranked_groups"
-_MEMBER_COLUMN = "__dj_group_member"
+# A real ranked value named "Others" is indistinguishable from this bucket in
+# the current API. A request-level label override needs a spec change.
 _OTHERS_LABEL = "Others"
 
 
@@ -54,15 +55,57 @@ def _unaliased(expr: ast.Aliasable | ast.Expression) -> ast.Expression:
     return cast(ast.Expression, raw)
 
 
-def _ranked_query(ranked: GeneratedSQL) -> ast.Query:
-    query = deepcopy(ranked.query)
-    marker = ast.Alias(child=ast.Number(1), alias=ast.Name(_MEMBER_COLUMN))
-    marker.set_as(True)
-    query.select.projection.append(marker)
+def _ranked_query(
+    ranked: GeneratedSQL,
+    dimensions: tuple[str, ...],
+    occupied_names: set[str],
+) -> tuple[ast.Query, dict[str, str], str]:
+    """Expose only ranked keys under names absent from the source query."""
+    ranked_columns = {col.semantic_name: col.name for col in ranked.columns}
+    if any(dimension not in ranked_columns for dimension in dimensions):
+        raise DJInvalidInputException("GROUP_OTHERS cannot resolve ranking dimensions.")
+
+    occupied = {name.lower() for name in occupied_names}
+
+    def unused_name(base: str) -> str:
+        candidate = base
+        suffix = 1
+        while candidate.lower() in occupied:
+            candidate = f"{base}_{suffix}"
+            suffix += 1
+        occupied.add(candidate.lower())
+        return candidate
+
+    key_names = {
+        dimension: unused_name(f"__dj_ranked_key_{index}")
+        for index, dimension in enumerate(dimensions)
+    }
+    member_name = unused_name("__dj_group_member")
+    source_alias = "__dj_ranked_source"
+    source = deepcopy(ranked.query)
+    source.parenthesized = True
+    source.alias = ast.Name(source_alias)
+    source.as_ = True
+    projection: list[ast.Aliasable | ast.Expression] = [
+        ast.Alias(
+            child=_column(ranked_columns[dimension], source_alias),
+            alias=ast.Name(key_names[dimension]),
+        ).set_as(True)
+        for dimension in dimensions
+    ]
+    projection.append(
+        ast.Alias(child=ast.Number(1), alias=ast.Name(member_name)).set_as(True),
+    )
+    query = ast.Query(
+        select=ast.Select(
+            projection=projection,
+            from_=ast.From(relations=[ast.Relation(primary=source)]),
+        ),
+    )
     query.parenthesized = True
     query.alias = ast.Name(_RANKED_ALIAS)
     query.as_ = True
-    return query
+    return query, key_names, member_name
 
 
 def _null_safe_match(left: ast.Expression, right: ast.Expression) -> ast.Expression:
@@ -79,10 +122,10 @@ def _null_safe_match(left: ast.Expression, right: ast.Expression) -> ast.Express
     return match
 
 
-def _bucket_expression(original: ast.Expression) -> ast.Case:
+def _bucket_expression(original: ast.Expression, member_name: str) -> ast.Case:
     return ast.Case(
         conditions=[
-            ast.IsNull(expr=_column(_MEMBER_COLUMN, _RANKED_ALIAS), negated=True),
+            ast.IsNull(expr=_column(member_name, _RANKED_ALIAS), negated=True),
         ],
         results=[ast.Cast(data_type=StringType(), expression=deepcopy(original))],
         else_result=ast.String(f"'{_OTHERS_LABEL}'"),
@@ -102,17 +145,15 @@ def _bucket_grain_group(
     ):
         raise DJInvalidInputException("GROUP_OTHERS requires a grouped metrics query.")
 
-    ranked_columns = {col.semantic_name: col.name for col in ranked.columns}
     dimension_columns = {
         col.semantic_name: col
         for col in group.columns
         if col.semantic_type == "dimension"
     }
     selected: list[tuple[int, ast.Expression, str]] = []
-    matches: list[ast.Expression] = []
 
     for dimension in dimensions:
-        if dimension not in dimension_columns or dimension not in ranked_columns:
+        if dimension not in dimension_columns:
             raise DJInvalidInputException(
                 f"GROUP_OTHERS cannot resolve dimension `{dimension}` in a metric grain.",
             )
@@ -132,17 +173,27 @@ def _bucket_grain_group(
         index, projection = selected_projection
         original = _unaliased(projection)
         selected.append((index, original, dimension))
-        matches.append(
-            _null_safe_match(
-                deepcopy(original),
-                _column(ranked_columns[dimension], _RANKED_ALIAS),
-            ),
+
+    occupied_names = {
+        col.name.name for col in select.find_all(ast.Column) if not col._table
+    }
+    ranked_query, ranked_keys, member_name = _ranked_query(
+        ranked,
+        dimensions,
+        occupied_names,
+    )
+    matches = [
+        _null_safe_match(
+            deepcopy(original),
+            _column(ranked_keys[dimension], _RANKED_ALIAS),
         )
+        for _, original, dimension in selected
+    ]
 
     select.from_.relations[0].extensions.append(
         ast.Join(
             join_type="LEFT OUTER",
-            right=_ranked_query(ranked),
+            right=ranked_query,
             criteria=ast.JoinCriteria(on=ast.BinaryOp.And(*matches)),
         ),
     )
@@ -150,7 +201,7 @@ def _bucket_grain_group(
     for index, original, dimension in selected:
         alias = dimension_columns[dimension].name
         bucketed = ast.Alias(
-            child=_bucket_expression(original),
+            child=_bucket_expression(original, member_name),
             alias=ast.Name(alias),
         )
         bucketed.set_as(True)
@@ -167,14 +218,17 @@ def _bucket_grain_group(
                 raise DJInvalidInputException(
                     f"GROUP_OTHERS cannot group dimension `{dimension}` at its source grain.",
                 )
-            select.group_by[matching_positions[0]] = _bucket_expression(original)
+            select.group_by[matching_positions[0]] = _bucket_expression(
+                original,
+                member_name,
+            )
 
 
 def apply_group_others(
     measures: GeneratedMeasuresSQL,
     group_others: GroupOthers,
 ) -> None:
-    """Bucket grain dimensions before component merge and derived metrics."""
+    """Bucket grain dimensions and remove their already-applied context filters."""
     for group in measures.grain_groups:
         _bucket_grain_group(group, group_others.ranked, group_others.dimensions)
 
@@ -200,11 +254,11 @@ def bucket_dimension_rows(
     main_query.parenthesized = True
     main_query.alias = ast.Name(main_alias)
     main_query.as_ = True
-    ranked_columns = {col.semantic_name: col.name for col in ranked.columns}
+    ranked_query, ranked_keys, member_name = _ranked_query(ranked, dimensions, set())
     matches = [
         _null_safe_match(
             _column(col.name, main_alias),
-            _column(ranked_columns[col.semantic_name], _RANKED_ALIAS),
+            _column(ranked_keys[col.semantic_name], _RANKED_ALIAS),
         )
         for col in main.columns
         if col.semantic_name in dimensions
@@ -217,7 +271,7 @@ def bucket_dimension_rows(
     for col in columns:
         original = _column(col.name, main_alias)
         expression = (
-            _bucket_expression(original)
+            _bucket_expression(original, member_name)
             if col.semantic_name in dimensions
             else original
         )
@@ -238,7 +292,7 @@ def bucket_dimension_rows(
                         extensions=[
                             ast.Join(
                                 join_type="LEFT OUTER",
-                                right=_ranked_query(ranked),
+                                right=ranked_query,
                                 criteria=ast.JoinCriteria(
                                     on=ast.BinaryOp.And(*matches),
                                 ),
