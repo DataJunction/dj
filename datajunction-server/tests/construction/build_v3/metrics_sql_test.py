@@ -5589,6 +5589,51 @@ class TestFilterOnlyDimensions:
             },
         ]
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "date_filter",
+        ["v3.date.week = 1", "v3.date.week IN (1, 2)"],
+    )
+    async def test_filter_on_required_dimension_stays_grouped(
+        self,
+        client_with_build_v3,
+        date_filter,
+    ):
+        """
+        A required dimension named in a filter is still part of the grain, so the
+        window function sees one row per remaining value.
+        """
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.wow_revenue_change_filtered",
+                "description": "Week-over-week revenue change",
+                "query": """
+                    SELECT v3.total_revenue
+                        - LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.week)
+                """,
+                "mode": "published",
+                "required_dimensions": ["v3.date.week"],
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.wow_revenue_change_filtered"],
+                "filters": [date_filter],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        result = response.json()
+
+        assert "GROUP BY t2.week" in result["sql"].replace("  ", " ")
+        assert [col["semantic_entity"] for col in result["columns"]] == [
+            "v3.date.week",
+            "v3.wow_revenue_change_filtered",
+        ]
+
 
 class TestMultiHopIntermediateDimensionColumns:
     """
