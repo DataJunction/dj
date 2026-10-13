@@ -5224,6 +5224,83 @@ class TestCubeMaterializeV2SuccessPaths:
         assert len(data["workflow_urls"]) == 1
 
     @pytest.mark.asyncio
+    async def test_materialize_cube_forwards_platform(
+        self,
+        client_with_repairs_cube: AsyncClient,
+        mocker,
+    ):
+        """The declared platform reaches the query service and the stored config."""
+        cube_name = "default.test_materialize_platform_cube"
+        await make_a_test_cube(
+            client_with_repairs_cube,
+            cube_name,
+            with_materialization=False,
+        )
+        mock_combined_result = _create_mock_combined_result(
+            mocker,
+            columns=[
+                V3ColumnMetadata(
+                    name="state",
+                    type="string",
+                    semantic_name="default.hard_hat.state",
+                    semantic_type="dimension",
+                ),
+                V3ColumnMetadata(
+                    name="date_id",
+                    type="int",
+                    semantic_name="default.hard_hat.hire_date",
+                    semantic_type="dimension",
+                ),
+                V3ColumnMetadata(
+                    name="total_repair_cost",
+                    type="double",
+                    semantic_name="default.total_repair_cost",
+                    semantic_type="measure",
+                ),
+            ],
+            shared_dimensions=["default.hard_hat.state", "default.hard_hat.hire_date"],
+            sql_string="SELECT state, date_id, SUM(cost) AS total_repair_cost FROM preagg GROUP BY state, date_id",
+        )
+        mocker.patch(
+            "datajunction_server.api.cubes.build_combiner_sql_from_preaggs",
+            return_value=(
+                mock_combined_result,
+                [
+                    PreAggSourceInfo(
+                        table_ref="catalog.schema.preagg_table1",
+                        parent_name="default.repair_orders",
+                        strategy=None,
+                    ),
+                ],
+                TemporalPartitionInfo(
+                    column_name="date_id",
+                    format="yyyyMMdd",
+                    granularity="day",
+                ),
+            ),
+        )
+        qs_client = client_with_repairs_cube.app.dependency_overrides[
+            get_query_service_client
+        ]()
+        materialize = mocker.patch.object(
+            qs_client,
+            "materialize_cube_v2",
+            return_value=mocker.MagicMock(urls=["http://workflow/cube-workflow"]),
+        )
+
+        response = await client_with_repairs_cube.post(
+            f"/cubes/{cube_name}/materialize",
+            json={
+                "strategy": "full",
+                "schedule": "0 0 * * *",
+                "platform": {"druid_cluster": "prod"},
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        assert materialize.call_args[0][0].platform == {"druid_cluster": "prod"}
+
+    @pytest.mark.asyncio
     async def test_materialize_cube_surfaces_fanout_warning(
         self,
         client_with_repairs_cube: AsyncClient,
