@@ -710,7 +710,8 @@ async def test_semantic_git_discovery_and_view_filtering(
     assert filtered.status_code == 200, filtered.text
     assert [view["name"] for view in filtered.json()] == [main_view]
     invalid_git_null = await client.post(
-        "/semantic/views/", json={"path": ["demo.metrics", None]},
+        "/semantic/views/",
+        json={"path": ["demo.metrics", None]},
     )
     assert invalid_git_null.status_code == 404
     plain_filtered = await client.post(
@@ -742,7 +743,9 @@ async def test_semantic_git_discovery_and_view_filtering(
         json={"path": ["demo.metrics"]},
     )
     assert {view["name"] for view in partial.json()} == {
-        main_view, feature_view, literal_view,
+        main_view,
+        feature_view,
+        literal_view,
     }
     invalid_path = await client.post(
         "/semantic/views/",

@@ -561,7 +561,9 @@ async def _plain_cube_summaries(
 ) -> list[tuple[str, str | None, str]] | None:
     """Return readable cubes in an exact non-Git namespace, or None for Git."""
     namespace_row = await NodeNamespace.get(
-        session, namespace, raise_if_not_exists=False,
+        session,
+        namespace,
+        raise_if_not_exists=False,
     )
     if not namespace_row or namespace_row.deactivated_at is not None:
         return []
@@ -612,7 +614,8 @@ async def _namespace_map_for_cubes(
     if linked_parents:
         rows = await session.execute(
             select(NodeNamespace).where(
-                active, NodeNamespace.namespace.in_(linked_parents),
+                active,
+                NodeNamespace.namespace.in_(linked_parents),
             ),
         )
         namespaces.update({row.namespace: row for row in rows.scalars()})
@@ -681,7 +684,10 @@ async def discover_views(
             request.runtime_configuration.get("namespace") is not None
             or request.runtime_configuration.get("branch") is not None
         ):
-            raise DJException(message="Use path for view discovery", http_status_code=400)
+            raise DJException(
+                message="Use path for view discovery",
+                http_status_code=400,
+            )
         _path_filter(request.path)
         if len(request.path) == 2:
             raise DJException(
@@ -694,12 +700,14 @@ async def discover_views(
         values = set(await list_semantic_namespaces(session, access_checker))
         rows = await session.execute(
             select(Node.name, Node.namespace).where(
-                Node.deactivated_at.is_(None), Node.type == NodeType.CUBE,
+                Node.deactivated_at.is_(None),
+                Node.type == NodeType.CUBE,
             ),
         )
         cubes = list(rows.all())
         namespaces = await _namespace_map_for_cubes(
-            session, {namespace for _, namespace in cubes},
+            session,
+            {namespace for _, namespace in cubes},
         )
         unversioned_cubes = [
             (name, namespace)
@@ -789,7 +797,9 @@ async def list_semantic_branches(
 
 
 @router.post(
-    "/views/", response_model=list[ViewSummary], response_model_exclude_unset=True,
+    "/views/",
+    response_model=list[ViewSummary],
+    response_model_exclude_unset=True,
 )
 @router.post(
     "/views/list",
@@ -817,10 +827,14 @@ async def list_views(
             namespace, branch = _path_filter(request.path)
             if namespace is not None:
                 plain_cubes = await _plain_cube_summaries(
-                    session, namespace, access_checker,
+                    session,
+                    namespace,
+                    access_checker,
                 )
                 if plain_cubes is not None:
-                    if (len(request.path) == 2 and branch is not None) or not plain_cubes:
+                    if (
+                        len(request.path) == 2 and branch is not None
+                    ) or not plain_cubes:
                         return _problem(404, "Invalid view discovery path")
                     return [
                         ViewSummary(
@@ -837,7 +851,9 @@ async def list_views(
                         http_status_code=404,
                     )
                 branches = await list_semantic_branches(
-                    namespace, session, access_checker,
+                    namespace,
+                    session,
+                    access_checker,
                 )
                 if isinstance(branches, JSONResponse):
                     return branches
