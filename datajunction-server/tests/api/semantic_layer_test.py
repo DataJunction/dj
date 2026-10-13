@@ -649,7 +649,7 @@ async def test_semantic_git_discovery_and_view_filtering(
     assert branches.status_code == 200, branches.text
     assert branches.json() == ["feature/foo", "main", "unversioned"]
 
-    first_level = await client.post("/semantic/views/discover/", json={})
+    first_level = await client.post("/semantic/discover", json={})
     assert first_level.status_code == 200, first_level.text
     assert first_level.json()["level"] == {
         "id": "namespace",
@@ -664,7 +664,7 @@ async def test_semantic_git_discovery_and_view_filtering(
         "display_name": "Branch",
     }
     second_level = await client.post(
-        "/semantic/views/discover/",
+        "/semantic/discover",
         json={"path": ["demo.metrics"]},
     )
     assert second_level.json() == {
@@ -672,7 +672,7 @@ async def test_semantic_git_discovery_and_view_filtering(
         "values": ["feature/foo", "main", "unversioned"],
     }
     plain_level = await client.post(
-        "/semantic/views/discover/",
+        "/semantic/discover",
         json={"path": ["plain.metrics"]},
     )
     assert plain_level.json() == {
@@ -681,7 +681,7 @@ async def test_semantic_git_discovery_and_view_filtering(
     }
     assert (
         await client.post(
-            "/semantic/views/discover/",
+            "/semantic/discover",
             json={"path": ["demo.metrics", "main"]},
         )
     ).status_code == 400
@@ -709,6 +709,10 @@ async def test_semantic_git_discovery_and_view_filtering(
     )
     assert filtered.status_code == 200, filtered.text
     assert [view["name"] for view in filtered.json()] == [main_view]
+    invalid_git_null = await client.post(
+        "/semantic/views/", json={"path": ["demo.metrics", None]},
+    )
+    assert invalid_git_null.status_code == 404
     plain_filtered = await client.post(
         "/semantic/views/",
         json={"path": ["plain.metrics", None]},
@@ -812,12 +816,12 @@ async def test_semantic_git_discovery_and_view_filtering(
     )
     roots = await client.post("/semantic/namespaces/")
     assert roots.json() == ["demo.metrics"]
-    discovered = await client.post("/semantic/views/discover/", json={})
+    discovered = await client.post("/semantic/discover", json={})
     assert discovered.json()["values"] == ["demo.metrics"]
     branches = await client.post("/semantic/namespaces/demo.metrics/branches/")
     assert branches.json() == ["main"]
     discovered = await client.post(
-        "/semantic/views/discover/",
+        "/semantic/discover",
         json={"path": ["demo.metrics"]},
     )
     assert discovered.json()["values"] == ["main"]
@@ -963,6 +967,14 @@ async def test_get_view_unknown_returns_404(client: AsyncClient):
     )
     assert resp.status_code == 404, resp.text
     assert "does not exist" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_view_named_discover_uses_detail_route(client: AsyncClient):
+    """Discovery at /semantic/discover leaves this view name available."""
+    resp = await client.post("/semantic/views/discover", json={})
+    assert resp.status_code == 404, resp.text
+    assert "View `discover` does not exist" in resp.json()["detail"]
 
 
 @pytest.mark.asyncio

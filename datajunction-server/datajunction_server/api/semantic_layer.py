@@ -666,7 +666,7 @@ async def list_semantic_namespaces(
 
 
 @router.post(
-    "/views/discover/",
+    "/discover",
     response_model=DiscoverResponse,
     response_model_exclude_none=True,
 )
@@ -701,17 +701,17 @@ async def discover_views(
         namespaces = await _namespace_map_for_cubes(
             session, {namespace for _, namespace in cubes},
         )
-        plain_cubes = [
+        unversioned_cubes = [
             (name, namespace)
             for name, namespace in cubes
             if namespace in namespaces
             and resolve_git_info_from_map(namespace, namespaces) is None
         ]
         access_checker.add_namespaces(
-            sorted({namespace for _, namespace in plain_cubes}),
+            sorted({namespace for _, namespace in unversioned_cubes}),
             ResourceAction.READ,
         )
-        for name, _ in plain_cubes:
+        for name, _ in unversioned_cubes:
             access_checker.add_request_by_node_name(name, ResourceAction.READ)
         decisions = await access_checker.check()
         approved_namespaces = {
@@ -726,7 +726,7 @@ async def discover_views(
         }
         values.update(
             namespace
-            for name, namespace in plain_cubes
+            for name, namespace in unversioned_cubes
             if namespace in approved_namespaces and name in approved_cubes
         )
         return DiscoverResponse(
@@ -789,7 +789,7 @@ async def list_semantic_branches(
 
 
 @router.post(
-    "/views/", response_model=list[ViewSummary], response_model_exclude_unset=True
+    "/views/", response_model=list[ViewSummary], response_model_exclude_unset=True,
 )
 @router.post(
     "/views/list",
@@ -831,6 +831,11 @@ async def list_views(
                         )
                         for name, display_name, _ in plain_cubes
                     ]
+                if len(request.path) == 2 and branch is None:
+                    raise DJException(
+                        message="Invalid view discovery path",
+                        http_status_code=404,
+                    )
                 branches = await list_semantic_branches(
                     namespace, session, access_checker,
                 )
