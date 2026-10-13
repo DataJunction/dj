@@ -102,7 +102,10 @@ class TestMetricsSQLBasic:
               order_details_0 AS (
                 SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
-                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                LEFT OUTER JOIN v3_product t2
+                  ON t1.product_id = t2.product_id
+                  AND t2.category = 'Electronics'
+                  AND t2.subcategory = 'Smartphones'
                 WHERE t2.category = 'Electronics'
                   AND t2.subcategory = 'Smartphones'
                 GROUP BY t2.category
@@ -1845,7 +1848,8 @@ class TestMetricsSQLDerived:
             order_details_0 AS (
                 SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
-                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                LEFT OUTER JOIN v3_product t2
+                  ON t1.product_id = t2.product_id AND t2.category = 'Electronics'
                 WHERE t2.category = 'Electronics'
                 GROUP BY t2.category
             )
@@ -1908,14 +1912,16 @@ class TestMetricsSQLDerived:
             order_details_0 AS (
                 SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
-                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                LEFT OUTER JOIN v3_product t2
+                  ON t1.product_id = t2.product_id AND t2.category = 'Electronics'
                 WHERE t2.category = 'Electronics'
                 GROUP BY t2.category
             ),
             page_views_enriched_0 AS (
                 SELECT t2.category, COUNT(t1.view_id) view_id_count_f41e2db4
                 FROM v3_page_views_enriched t1
-                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                LEFT OUTER JOIN v3_product t2
+                  ON t1.product_id = t2.product_id AND t2.category = 'Electronics'
                 WHERE t2.category = 'Electronics'
                 GROUP BY t2.category
             )
@@ -2121,7 +2127,8 @@ class TestMetricsSQLDerived:
             order_details_0 AS (
                 SELECT t1.status, t2.category, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
-                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                LEFT OUTER JOIN v3_product t2
+                  ON t1.product_id = t2.product_id AND t2.category = 'Electronics'
                 WHERE t2.category = 'Electronics'
                 GROUP BY t1.status, t2.category
             )
@@ -2710,7 +2717,10 @@ class TestFilterOnlyDimensionLoop:
               SELECT
                 t1.status,
                 SUM(t1.line_total) line_total_sum_e1f61696
-              FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+              FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2
+                ON t1.product_id = t2.product_id
+                AND t2.subcategory = 'tools'
+                AND t2.category = 'electronics'
               WHERE  t2.subcategory = 'tools' AND t2.category = 'electronics'
               GROUP BY  t1.status
             )
@@ -5549,7 +5559,8 @@ class TestFilterOnlyDimensions:
             order_details_0 AS (
                 SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
-                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                LEFT OUTER JOIN v3_product t2
+                  ON t1.product_id = t2.product_id AND t2.category = 'Electronics'
                 WHERE t2.category = 'Electronics'
                 GROUP BY t1.status
             )
@@ -5792,7 +5803,8 @@ class TestMultiHopIntermediateDimensionColumns:
                 SUM(t1.line_total) line_total_sum_e1f61696
               FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
               LEFT OUTER JOIN v3_customer t3 ON t1.customer_id = t3.customer_id
-              LEFT OUTER JOIN v3_location t4 ON t3.location_id = t4.location_id
+              LEFT OUTER JOIN v3_location t4
+                ON t3.location_id = t4.location_id AND t4.country = 'US'
               WHERE  t4.country = 'US'
               GROUP BY  t2.category
             )
@@ -6236,7 +6248,8 @@ class TestFilterOnRoleDimension:
             order_details_0 AS (
                 SELECT t2.country country_from, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
-                LEFT OUTER JOIN v3_location t2 ON t1.from_location_id = t2.location_id
+                LEFT OUTER JOIN v3_location t2
+                  ON t1.from_location_id = t2.location_id AND t2.country = 'US'
                 WHERE t2.country = 'US'
                 GROUP BY t2.country
             )
@@ -6413,7 +6426,8 @@ class TestFilterOnRoleDimension:
                 SELECT t3.country country_home, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
                 LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
-                LEFT OUTER JOIN v3_location t3 ON t2.location_id = t3.location_id
+                LEFT OUTER JOIN v3_location t3
+                  ON t2.location_id = t3.location_id AND t3.country = 'US'
                 WHERE t3.country = 'US'
                 GROUP BY t3.country
             )

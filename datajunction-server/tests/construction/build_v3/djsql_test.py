@@ -521,7 +521,8 @@ class TestDJSQLFilterOnlyDimensions:
             order_details_0 AS (
                 SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
-                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                LEFT OUTER JOIN v3_product t2
+                    ON t1.product_id = t2.product_id AND t2.category = 'Electronics'
                 WHERE t2.category = 'Electronics'
                 GROUP BY t1.status
             )

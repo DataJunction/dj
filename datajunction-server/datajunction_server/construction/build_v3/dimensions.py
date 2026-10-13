@@ -81,6 +81,31 @@ def parse_dimension_ref(dim_ref: str) -> DimensionRef:
     return DimensionRef(node_name=node_name, column_name=column_name, role=role)
 
 
+def _select_nearest_role(
+    dimension_name: str,
+    column_name: str | None,
+    candidates: list[tuple[str | None, int]],
+) -> tuple[str | None, int]:
+    """Select a bare ref's role from nonempty ``(role, distance)`` candidates.
+
+    A role-free candidate wins at the nearest distance. Distinct named roles
+    at that same distance require an explicit role.
+    """
+    nearest_distance = min(distance for _, distance in candidates)
+    nearest_roles = {
+        role for role, distance in candidates if distance == nearest_distance
+    }
+    if None in nearest_roles:
+        return None, nearest_distance
+    if len(nearest_roles) > 1:
+        raise _ambiguous_role_error(
+            dimension_name,
+            column_name,
+            [role for role in nearest_roles if role is not None],
+        )
+    return next(iter(nearest_roles)), nearest_distance
+
+
 def find_join_path(
     ctx: BuildContext,
     from_node: Node,
@@ -143,23 +168,16 @@ def find_unqualified_join_path(
             available_paths.append((stored_role, path_links))
 
     if available_paths:
-        min_hops = min(len(links) for _, links in available_paths)
-        nearest_paths = [
-            (path_role, links)
-            for path_role, links in available_paths
-            if len(links) == min_hops
-        ]
-        default_path = next(
-            (item for item in nearest_paths if item[0] == ""),
-            None,
+        selected_role, min_hops = _select_nearest_role(
+            target_dim_name,
+            column_name,
+            [(role or None, len(links)) for role, links in available_paths],
         )
-        if len(nearest_paths) > 1 and default_path is None:
-            raise _ambiguous_role_error(
-                target_dim_name,
-                column_name,
-                [path_role for path_role, _ in nearest_paths],
-            )
-        stored_role, path_links = default_path or nearest_paths[0]
+        stored_role, path_links = next(
+            (role, links)
+            for role, links in available_paths
+            if len(links) == min_hops and (role or None) == selected_role
+        )
 
         return JoinPath(
             links=path_links,
@@ -280,6 +298,63 @@ def _format_column_validation_error(
     )
 
 
+def _projected_fk_outputs(
+    ctx: BuildContext,
+    parent_node: Node,
+    source_name: str,
+    fk_col: str,
+) -> set[str]:
+    """Find output names that directly project one linked source's FK.
+
+    A qualified column identifies its source. An unqualified column or ``*``
+    proves passthrough only when the linked source is the sole FROM relation.
+    """
+    if not parent_node.current or not parent_node.current.query:
+        return set()
+    query = ctx.get_parsed_query(parent_node)
+    select = query.select
+    if not isinstance(select, ast.Select) or select.set_op or not select.from_:
+        return set()
+
+    sources = [
+        expr
+        for relation in select.from_.relations
+        for expr in (relation.primary, *(join.right for join in relation.extensions))
+    ]
+    source_refs = [
+        expr
+        for expr in sources
+        if isinstance(expr, ast.Table)
+        and expr.name.identifier(quotes=False) == source_name
+    ]
+    if len(source_refs) != 1:
+        return set()
+    source = source_refs[0]
+    qualifiers = (
+        {source.alias.name} if source.alias else {source_name, source.name.name}
+    )
+    sole_source = len(sources) == 1 and not select.lateral_views
+    output_columns = {col.name for col in parent_node.current.columns}
+    result: set[str] = set()
+    for projection in select.projection:
+        expr = projection.child if isinstance(projection, ast.Alias) else projection
+        if isinstance(expr, ast.Wildcard) and sole_source:
+            if fk_col in output_columns:
+                result.add(fk_col)
+            continue
+        if not isinstance(expr, ast.Column) or expr.name.name != fk_col:
+            continue
+        full_name = expr.name.identifier(quotes=False)
+        if not (
+            (full_name == fk_col and sole_source)
+            or (full_name != fk_col and full_name.rsplit(SEPARATOR, 1)[0] in qualifiers)
+        ):
+            continue
+        output_name = projection.alias.name if projection.alias else fk_col
+        result.add(output_name)
+    return result
+
+
 def _resolve_filter_only_dim(
     ctx: BuildContext,
     parent_node: Node,
@@ -290,11 +365,9 @@ def _resolve_filter_only_dim(
     Resolve a filter-only dim ref via the parent's upstream lineage in a
     single BFS walk over ``ctx.parent_map``. Returns one of:
 
-    - A column name on ``parent_node`` if the dim is resolvable there:
-      either via a column-level ``dimension``/``dimension_column`` annotation
-      on the parent, or via an upstream's FK link whose FK column survives
-      unchanged on the parent's projection. Caller treats this as a
-      full-skip (no join, filter lands on the parent CTE).
+    - A column name on ``parent_node`` if a direct upstream's linked FK is
+      projected there as a simple column. Caller treats this as a full-skip
+      (no join, filter lands on the parent CTE).
 
     - ``None`` if no local match. In that case, when at least one upstream's
       dim link aligns the requested column to an FK column, this function
@@ -307,28 +380,28 @@ def _resolve_filter_only_dim(
 
     Performance notes:
     - One BFS over the parent_map. No AST traversal of unrelated nodes.
-    - Parsed queries are only inspected for nodes we actually need to
-      inject into (linked transform, or a direct child of a linked source).
-      ``ctx.get_parsed_query`` is cached.
+    - The parent's parsed query proves direct projection passthrough. Upstream
+      queries are inspected only for nodes we inject into (linked transform,
+      or a direct child of a linked source). ``ctx.get_parsed_query`` is cached.
     """
     if not parent_node.current or not parent_node.current.columns:
         return None  # pragma: no cover
-    parent_cols = {col.name for col in parent_node.current.columns}
     target_fqn = f"{dim_ref.node_name}{SEPARATOR}{dim_ref.column_name}"
 
     # (Reference/denormalized dimensions are resolved earlier in resolve_dimensions
     # via _local_reference_dimension_column, so they never reach this function.)
 
     # BFS up parent_map in sorted order so resolution is deterministic across
-    # processes (never set/hash order). Passthrough is only valid for DIRECT
-    # parents — a transitive upstream may share a column name without sharing
-    # lineage, so it goes to pushdown_candidates instead.
+    # processes (never set/hash order). The nearest matching depth determines
+    # the default role for a bare ref, as it does for ordinary join paths.
+    # Passthrough requires proof from the parent's projection; a shared column
+    # name alone does not establish which upstream supplied the value.
     direct_parents_set: set[str] = set(ctx.parent_map.get(parent_node.name, []))
     visited: set[str] = {parent_node.name}
-    queue: list[str] = sorted(direct_parents_set)
-    upstream_links: list[tuple[Node, str, str | None, bool]] = []
+    queue: list[tuple[str, int]] = [(name, 1) for name in sorted(direct_parents_set)]
+    upstream_links: list[tuple[Node, str, str | None, int]] = []
     while queue:
-        up_name = queue.pop(0)
+        up_name, depth = queue.pop(0)
         if up_name in visited:
             continue  # pragma: no cover
         visited.add(up_name)
@@ -348,38 +421,52 @@ def _resolve_filter_only_dim(
                         up_node,
                         fk_col,
                         link.role or None,
-                        fk_col in parent_cols and up_name in direct_parents_set,
+                        depth,
                     ),
                 )
-        queue.extend(sorted(ctx.parent_map.get(up_name, [])))
+        queue.extend(
+            (name, depth + 1) for name in sorted(ctx.parent_map.get(up_name, []))
+        )
 
-    if dim_ref.role is None:
-        available_roles = {role for _, _, role, _ in upstream_links}
-        if None in available_roles:
-            # A role-free link is the default even when named paths coexist.
-            upstream_links = [item for item in upstream_links if item[2] is None]
-        elif len(available_roles) > 1:
-            raise _ambiguous_role_error(
-                dim_ref.node_name,
-                dim_ref.column_name,
-                [role for role in available_roles if role is not None],
-            )
+    if dim_ref.role is None and upstream_links:
+        selected_role, _ = _select_nearest_role(
+            dim_ref.node_name,
+            dim_ref.column_name,
+            [(role, depth) for _, _, role, depth in upstream_links],
+        )
 
-    passthrough = [(node, col) for node, col, _, direct in upstream_links if direct]
-    pushdown_candidates = [
-        (node, col) for node, col, _, direct in upstream_links if not direct
-    ]
+        # Keep all occurrences of the selected role: a filter-only ref may
+        # need pushdown into several contributing branches at different depths.
+        upstream_links = [item for item in upstream_links if item[2] == selected_role]
+
+    passthrough: list[tuple[Node, str, str]] = []
+    pushdown_candidates: list[tuple[Node, str]] = []
+    for node, fk_col, _, depth in upstream_links:
+        projected_cols = (
+            _projected_fk_outputs(ctx, parent_node, node.name, fk_col)
+            if depth == 1
+            else set()
+        )
+        if projected_cols:
+            passthrough.extend((node, fk_col, col) for col in sorted(projected_cols))
+        else:
+            pushdown_candidates.append((node, fk_col))
 
     # One passthrough col → resolve locally. Multiple → a filter-only dim has
     # no output-column ambiguity, so apply to all: push each into its owning CTE.
-    passthrough_cols = sorted({fk_col for _, fk_col in passthrough})
+    passthrough_cols = sorted({local_col for _, _, local_col in passthrough})
     if len(passthrough_cols) == 1:
         return passthrough_cols[0]
     if len(passthrough_cols) > 1:
         if _register_pushdown_into_upstream(  # pragma: no branch
             ctx,
             original_ref,
-            passthrough,
+            list(
+                {
+                    (node.name, fk_col): (node, fk_col)
+                    for node, fk_col, _ in passthrough
+                }.values(),
+            ),
         ):
             ctx.pushdown_resolved_dims.add(original_ref)
         return None
@@ -487,7 +574,7 @@ def _resolve_pushdown_targets(
 ) -> list[tuple[str, str | None, ast.Select | None]]:
     """
     Return one ``(target_cte_name, qualifier, arm_select)`` triple per
-    relational Table reference to the linked source in the child transform.
+    linked-source scan, preferring row-producing scans over scalar/EXISTS ones.
 
     The caller rewrites the filter once per triple (using ``qualifier``)
     and injects it at the right scope — so a self-join with two
@@ -503,6 +590,7 @@ def _resolve_pushdown_targets(
     if linked_node.type != NodeType.SOURCE:
         return [(linked_node.name, None, None)]
     all_targets: list[tuple[str, str | None, ast.Select | None]] = []
+    expression_targets: list[tuple[str, str | None, ast.Select | None]] = []
     for child_name in children_of(linked_node.name):
         child = ctx.nodes.get(child_name)
         if (
@@ -519,10 +607,9 @@ def _resolve_pushdown_targets(
         top_select = child_query.select
         if not isinstance(top_select, ast.Select):
             continue  # pragma: no cover
-        # Walk set-op arms and relational subqueries, but exclude scalar and
-        # EXISTS scopes. Their source scans compute values without supplying
-        # rows to the child transform. A self-join still contributes both
-        # row-producing aliases.
+        # Prefer row-producing scans. A scalar or EXISTS scan can accept the
+        # filter only when no relational scan of this linked source exists;
+        # otherwise it may compute an all-time value for the selected rows.
         matches: list[tuple[str, ast.Select]] = []
         for tbl in child_query.find_all(ast.Table):
             try:
@@ -537,9 +624,10 @@ def _resolve_pushdown_targets(
             containing_select = _enclosing_select(tbl)
             if containing_select is None:
                 continue  # pragma: no cover
-            if not _is_relational_scope(containing_select, child_query):
-                continue
-            matches.append((alias, containing_select))
+            if _is_relational_scope(containing_select, child_query):
+                matches.append((alias, containing_select))
+            else:
+                expression_targets.append((child.name, alias, containing_select))
         if not matches:
             continue  # pragma: no cover
         # Optimization: a single match in the top-level Select of a
@@ -551,7 +639,7 @@ def _resolve_pushdown_targets(
                 all_targets.append((child.name, alias, None))
                 continue
         all_targets.extend((child.name, alias, sel) for alias, sel in matches)
-    return all_targets
+    return all_targets or expression_targets
 
 
 def _enclosing_select(node: ast.Node) -> ast.Select | None:
@@ -641,13 +729,12 @@ def _local_reference_dimension_column(
         return None
     if dim_ref.role is not None:
         return matches[0][0]
-    for column_name, role in matches:
-        if role is None:
-            return column_name
-    roles = {role for _, role in matches if role is not None}
-    if len(roles) > 1:
-        raise _ambiguous_role_error(dim_ref.node_name, dim_ref.column_name, list(roles))
-    return matches[0][0]
+    selected_role, _ = _select_nearest_role(
+        dim_ref.node_name,
+        dim_ref.column_name,
+        [(role, 0) for _, role in matches],
+    )
+    return next(column for column, role in matches if role == selected_role)
 
 
 def resolve_dimensions(

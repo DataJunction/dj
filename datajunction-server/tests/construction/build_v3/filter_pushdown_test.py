@@ -5,6 +5,7 @@ Tests for request-filter placement in CTEs and consuming queries.
 import sqlite3
 from types import SimpleNamespace
 
+import duckdb
 import pytest
 
 from datajunction_server.construction.build_v3.cte import (
@@ -15,6 +16,8 @@ from datajunction_server.construction.build_v3.cte import (
 )
 from datajunction_server.construction.build_v3.dimensions import (
     _local_reference_dimension_column,
+    _projected_fk_outputs,
+    _resolve_filter_only_dim,
     _rewrite_filter_col_refs,
     find_join_path,
     parse_dimension_ref,
@@ -22,6 +25,7 @@ from datajunction_server.construction.build_v3.dimensions import (
 from datajunction_server.construction.build_v3.filters import rewrite_filter_atomically
 from datajunction_server.construction.build_v3.measures import (
     _add_table_prefixes_to_filter,
+    _push_simple_dim_filters_to_join,
 )
 from datajunction_server.errors import DJException
 from datajunction_server.models.node import NodeType
@@ -175,6 +179,19 @@ class TestFilterPushdownToParentCTE:
 class TestFilterPlacementOnDimensionJoin:
     """Filters on dimension columns apply at the consuming join alias."""
 
+    def test_unqualified_filter_is_not_copied_to_a_join(self):
+        """An unqualified column does not identify which join input owns it."""
+        query = parse(
+            "SELECT d.city FROM demo.fact f LEFT JOIN demo.dim d "
+            "ON f.id = d.id WHERE city = 'A'",
+        )
+        join = query.select.from_.relations[0].extensions[0]
+        original_on = str(join.criteria.on)
+
+        _push_simple_dim_filters_to_join(query.select, {("demo.dim", None): "d"})
+
+        assert str(join.criteria.on) == original_on
+
     @pytest.mark.asyncio
     async def test_product_filter_stays_on_join_alias(
         self,
@@ -209,7 +226,8 @@ class TestFilterPlacementOnDimensionJoin:
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
-            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            LEFT OUTER JOIN v3_product t2
+              ON t1.product_id = t2.product_id AND t2.category = 'Electronics'
             WHERE t2.category = 'Electronics'
             GROUP BY t2.category
             """,
@@ -257,7 +275,8 @@ class TestFilterPushdownMultiple:
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
-            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            LEFT OUTER JOIN v3_product t2
+              ON t1.product_id = t2.product_id AND t2.category = 'Electronics'
             WHERE t2.category = 'Electronics'
             GROUP BY t2.category
             """,
@@ -868,6 +887,543 @@ class TestFilterPushdownOperators:
         )
 
 
+class TestFilterOnlyRoleSelection:
+    """Bare filter-only references choose a role at the nearest upstream depth."""
+
+    @staticmethod
+    def upstream_node(name, role, fk):
+        ref = "v3.date.dateint"
+        return SimpleNamespace(
+            name=name,
+            current=SimpleNamespace(
+                columns=[SimpleNamespace(name=fk)],
+                dimension_links=[
+                    SimpleNamespace(
+                        dimension=SimpleNamespace(name="v3.date"),
+                        role=role,
+                        foreign_keys_reversed={ref: f"{name}.{fk}"},
+                    ),
+                ],
+            ),
+        )
+
+    @pytest.mark.parametrize("ancestor_role", ["to", None])
+    def test_direct_parent_wins_over_different_ancestor_role(self, ancestor_role):
+        """A deeper link cannot make a direct FK mapping ambiguous or override it."""
+        ref = "v3.date.dateint"
+        parent = SimpleNamespace(
+            name="v3.report_fact",
+            current=SimpleNamespace(
+                columns=[SimpleNamespace(name="event_date")],
+                query="SELECT event_date FROM v3.daily_events",
+            ),
+        )
+        direct = self.upstream_node("v3.daily_events", "from", "event_date")
+        ancestor = self.upstream_node(
+            "v3.raw_events",
+            ancestor_role,
+            "historical_date",
+        )
+        ctx = SimpleNamespace(
+            nodes={direct.name: direct, ancestor.name: ancestor},
+            parent_map={parent.name: [direct.name]},
+            get_parsed_query=lambda node: parse(node.current.query),
+        )
+
+        assert (
+            _resolve_filter_only_dim(ctx, parent, parse_dimension_ref(ref), ref)
+            == "event_date"
+        )
+        ctx.parent_map[direct.name] = [ancestor.name]
+        assert (
+            _resolve_filter_only_dim(ctx, parent, parse_dimension_ref(ref), ref)
+            == "event_date"
+        )
+
+    def test_renamed_direct_fk_resolves_to_projected_name(self):
+        """A simple alias carries the linked FK to the parent's output."""
+        ref = "v3.date.dateint"
+        parent = SimpleNamespace(
+            name="v3.report_fact",
+            current=SimpleNamespace(
+                columns=[SimpleNamespace(name="report_date")],
+                query="SELECT d.event_date AS report_date FROM v3.daily_events d",
+            ),
+        )
+        direct = self.upstream_node("v3.daily_events", "from", "event_date")
+        ctx = SimpleNamespace(
+            nodes={direct.name: direct},
+            parent_map={parent.name: [direct.name]},
+            get_parsed_query=lambda node: parse(node.current.query),
+        )
+
+        assert (
+            _resolve_filter_only_dim(ctx, parent, parse_dimension_ref(ref), ref)
+            == "report_date"
+        )
+
+    @pytest.mark.parametrize(
+        ("query", "columns", "expected"),
+        [
+            (None, ["event_date"], set()),
+            (
+                "SELECT event_date FROM v3.daily_events "
+                "UNION ALL SELECT event_date FROM v3.daily_events",
+                ["event_date"],
+                set(),
+            ),
+            (
+                "SELECT a.event_date FROM v3.daily_events a "
+                "JOIN v3.daily_events b ON a.id = b.id",
+                ["event_date"],
+                set(),
+            ),
+            ("SELECT * FROM v3.daily_events", ["event_date"], {"event_date"}),
+            ("SELECT * FROM v3.daily_events", ["amount"], set()),
+        ],
+    )
+    def test_passthrough_requires_one_clear_source(self, query, columns, expected):
+        """Only a direct projection from one source can use the local fast path."""
+        parent = SimpleNamespace(
+            current=SimpleNamespace(
+                query=query,
+                columns=[SimpleNamespace(name=name) for name in columns],
+            ),
+        )
+        ctx = SimpleNamespace(
+            get_parsed_query=lambda node: parse(node.current.query),
+        )
+        assert (
+            _projected_fk_outputs(ctx, parent, "v3.daily_events", "event_date")
+            == expected
+        )
+
+    def test_same_named_sibling_column_is_not_a_passthrough(self, monkeypatch):
+        """A projected sibling column cannot stand in for the linked FK."""
+        ref = "v3.date.dateint"
+        parent = SimpleNamespace(
+            name="v3.report_fact",
+            current=SimpleNamespace(
+                columns=[SimpleNamespace(name="event_date")],
+                query=(
+                    "SELECT other.event_date FROM v3.daily_events d "
+                    "JOIN v3.other_events other ON d.id = other.id"
+                ),
+            ),
+        )
+        direct = self.upstream_node("v3.daily_events", "from", "event_date")
+        sibling = SimpleNamespace(
+            name="v3.other_events",
+            current=SimpleNamespace(
+                columns=[SimpleNamespace(name="event_date")],
+                dimension_links=[],
+            ),
+        )
+        ctx = SimpleNamespace(
+            nodes={direct.name: direct, sibling.name: sibling},
+            parent_map={parent.name: [direct.name, sibling.name]},
+            get_parsed_query=lambda node: parse(node.current.query),
+            pushdown_resolved_dims=set(),
+        )
+        candidates_seen = []
+
+        def record_candidates(_ctx, _ref, candidates):
+            candidates_seen.extend(candidates)
+            return True
+
+        monkeypatch.setattr(
+            "datajunction_server.construction.build_v3.dimensions._register_pushdown_into_upstream",
+            record_candidates,
+        )
+        assert (
+            _resolve_filter_only_dim(ctx, parent, parse_dimension_ref(ref), ref) is None
+        )
+        assert candidates_seen == [(direct, "event_date")]
+        assert ref in ctx.pushdown_resolved_dims
+
+    def test_unknown_sibling_cannot_prove_unqualified_passthrough(self, monkeypatch):
+        """An unqualified column might come from a source without a loaded schema."""
+        ref = "v3.date.dateint"
+        parent = SimpleNamespace(
+            name="v3.report_fact",
+            current=SimpleNamespace(
+                columns=[SimpleNamespace(name="event_date")],
+                query=(
+                    "SELECT event_date FROM v3.daily_events d "
+                    "JOIN v3.unknown_events u ON d.id = u.id"
+                ),
+            ),
+        )
+        direct = self.upstream_node("v3.daily_events", "from", "event_date")
+        ctx = SimpleNamespace(
+            nodes={direct.name: direct},
+            parent_map={parent.name: [direct.name]},
+            get_parsed_query=lambda node: parse(node.current.query),
+            pushdown_resolved_dims=set(),
+        )
+        candidates_seen = []
+
+        def record_candidates(_ctx, _ref, candidates):
+            candidates_seen.extend(candidates)
+            return True
+
+        monkeypatch.setattr(
+            "datajunction_server.construction.build_v3.dimensions._register_pushdown_into_upstream",
+            record_candidates,
+        )
+        assert (
+            _resolve_filter_only_dim(ctx, parent, parse_dimension_ref(ref), ref) is None
+        )
+        assert candidates_seen == [(direct, "event_date")]
+
+        # Qualification makes the provenance unambiguous despite the unknown source.
+        parent.current.query = parent.current.query.replace(
+            "SELECT event_date", "SELECT d.event_date"
+        )
+        assert (
+            _resolve_filter_only_dim(ctx, parent, parse_dimension_ref(ref), ref)
+            == "event_date"
+        )
+
+    def test_equally_near_named_roles_are_ambiguous(self):
+        """Two direct parent roles still require an explicit role."""
+        ref = "v3.date.dateint"
+        parent = SimpleNamespace(
+            name="v3.report_fact",
+            current=SimpleNamespace(
+                columns=[SimpleNamespace(name="event_date")],
+            ),
+        )
+        from_node = self.upstream_node("v3.from_events", "from", "event_date")
+        to_node = self.upstream_node("v3.to_events", "to", "historical_date")
+        ctx = SimpleNamespace(
+            nodes={from_node.name: from_node, to_node.name: to_node},
+            parent_map={parent.name: [from_node.name, to_node.name]},
+        )
+
+        with pytest.raises(DJException, match="ambiguous across roles"):
+            _resolve_filter_only_dim(ctx, parent, parse_dimension_ref(ref), ref)
+
+    def test_explicit_deeper_role_remains_available(self, monkeypatch):
+        """An explicit role may select a deeper link past another named role."""
+        ref = "v3.date.dateint[to]"
+        parent = SimpleNamespace(
+            name="v3.report_fact",
+            current=SimpleNamespace(columns=[SimpleNamespace(name="event_date")]),
+        )
+        direct = self.upstream_node("v3.daily_events", "from", "event_date")
+        ancestor = self.upstream_node("v3.raw_events", "to", "historical_date")
+        ctx = SimpleNamespace(
+            nodes={direct.name: direct, ancestor.name: ancestor},
+            parent_map={
+                parent.name: [direct.name],
+                direct.name: [ancestor.name],
+            },
+            pushdown_resolved_dims=set(),
+        )
+        candidates_seen = []
+
+        def record_candidates(_ctx, _ref, candidates):
+            candidates_seen.extend(candidates)
+            return True
+
+        monkeypatch.setattr(
+            "datajunction_server.construction.build_v3.dimensions._register_pushdown_into_upstream",
+            record_candidates,
+        )
+        assert (
+            _resolve_filter_only_dim(ctx, parent, parse_dimension_ref(ref), ref) is None
+        )
+        assert candidates_seen == [(ancestor, "historical_date")]
+        assert ref in ctx.pushdown_resolved_dims
+
+    def test_selected_role_keeps_matching_links_at_deeper_depth(self, monkeypatch):
+        """A bare filter keeps deeper links with the selected role."""
+        ref = "v3.date.dateint"
+        parent = SimpleNamespace(
+            name="v3.report_fact",
+            current=SimpleNamespace(
+                columns=[SimpleNamespace(name="amount")],
+                query="SELECT amount FROM v3.daily_events",
+            ),
+        )
+        direct = self.upstream_node("v3.daily_events", "from", "event_date")
+        direct.current.columns.append(SimpleNamespace(name="amount"))
+        ancestor = self.upstream_node("v3.raw_events", "from", "historical_date")
+        ctx = SimpleNamespace(
+            nodes={direct.name: direct, ancestor.name: ancestor},
+            parent_map={
+                parent.name: [direct.name],
+                direct.name: [ancestor.name],
+            },
+            get_parsed_query=lambda node: parse(node.current.query),
+            pushdown_resolved_dims=set(),
+        )
+        candidates_seen = []
+
+        def record_candidates(_ctx, _ref, candidates):
+            candidates_seen.extend(candidates)
+            return True
+
+        monkeypatch.setattr(
+            "datajunction_server.construction.build_v3.dimensions._register_pushdown_into_upstream",
+            record_candidates,
+        )
+        assert (
+            _resolve_filter_only_dim(ctx, parent, parse_dimension_ref(ref), ref) is None
+        )
+        assert candidates_seen == [
+            (direct, "event_date"),
+            (ancestor, "historical_date"),
+        ]
+        assert ref in ctx.pushdown_resolved_dims
+
+
+class TestFilterOnlyNearestRoleSQL:
+    """The public SQL endpoint uses the nearest filter-only role."""
+
+    @pytest.mark.asyncio
+    async def test_direct_role_wins_over_ancestor_role(self, client_with_build_v3):
+        client = client_with_build_v3
+        for name, table, columns in (
+            (
+                "v3.nearest_role_date_source",
+                "nearest_role_dates",
+                [{"name": "dateint", "type": "int"}],
+            ),
+            (
+                "v3.nearest_role_raw_events",
+                "nearest_role_events",
+                [
+                    {"name": "event_date", "type": "int"},
+                    {"name": "historical_date", "type": "int"},
+                    {"name": "amount", "type": "double"},
+                ],
+            ),
+        ):
+            response = await client.post(
+                "/nodes/source/",
+                json={
+                    "name": name,
+                    "columns": columns,
+                    "mode": "published",
+                    "catalog": "default",
+                    "schema_": "v3",
+                    "table": table,
+                },
+            )
+            assert response.status_code in (200, 201), response.json()
+
+        response = await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.nearest_role_date",
+                "query": "SELECT dateint FROM v3.nearest_role_date_source",
+                "mode": "published",
+                "primary_key": ["dateint"],
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+        response = await client.post(
+            "/nodes/v3.nearest_role_raw_events/link/",
+            json={
+                "dimension_node": "v3.nearest_role_date",
+                "join_on": (
+                    "v3.nearest_role_raw_events.historical_date = "
+                    "v3.nearest_role_date.dateint"
+                ),
+                "role": "to",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+        response = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.nearest_role_daily_events",
+                "query": (
+                    "SELECT event_date, historical_date, amount "
+                    "FROM v3.nearest_role_raw_events"
+                ),
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+        response = await client.post(
+            "/nodes/v3.nearest_role_daily_events/link/",
+            json={
+                "dimension_node": "v3.nearest_role_date",
+                "join_on": (
+                    "v3.nearest_role_daily_events.event_date = "
+                    "v3.nearest_role_date.dateint"
+                ),
+                "role": "from",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+        response = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.nearest_role_report_fact",
+                "query": "SELECT event_date, amount FROM v3.nearest_role_daily_events",
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+        response = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.nearest_role_amount",
+                "query": "SELECT SUM(amount) FROM v3.nearest_role_report_fact",
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.nearest_role_amount"],
+                "filters": ["v3.nearest_role_date.dateint = 20260101"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        with sqlite3.connect(":memory:") as db:
+            db.executescript(
+                """
+                CREATE TABLE nearest_role_events (
+                    event_date INTEGER, historical_date INTEGER, amount REAL
+                );
+                INSERT INTO nearest_role_events VALUES
+                    (20260101, 20260102, 10),
+                    (20260102, 20260101, 7);
+                """,
+            )
+            rows = db.execute(sql.replace("default.v3.", "")).fetchall()
+        assert rows == [(10.0,)]
+
+
+class TestFilterOnlyDirectProjectionSQL:
+    """Direct-source filter placement follows projected column provenance."""
+
+    @pytest.mark.asyncio
+    async def test_same_named_sibling_does_not_steal_filter(
+        self,
+        client_with_build_v3,
+    ):
+        client = client_with_build_v3
+        for name, table, columns in (
+            (
+                "v3.provenance_date_source",
+                "provenance_dates",
+                [{"name": "dateint", "type": "int"}],
+            ),
+            (
+                "v3.provenance_linked_events",
+                "provenance_linked_events",
+                [
+                    {"name": "id", "type": "int"},
+                    {"name": "event_date", "type": "int"},
+                    {"name": "amount", "type": "double"},
+                ],
+            ),
+            (
+                "v3.provenance_other_events",
+                "provenance_other_events",
+                [
+                    {"name": "id", "type": "int"},
+                    {"name": "event_date", "type": "int"},
+                ],
+            ),
+        ):
+            response = await client.post(
+                "/nodes/source/",
+                json={
+                    "name": name,
+                    "columns": columns,
+                    "mode": "published",
+                    "catalog": "default",
+                    "schema_": "v3",
+                    "table": table,
+                },
+            )
+            assert response.status_code in (200, 201), response.json()
+
+        response = await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.provenance_date",
+                "query": "SELECT dateint FROM v3.provenance_date_source",
+                "mode": "published",
+                "primary_key": ["dateint"],
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+        response = await client.post(
+            "/nodes/v3.provenance_linked_events/link/",
+            json={
+                "dimension_node": "v3.provenance_date",
+                "join_on": (
+                    "v3.provenance_linked_events.event_date = "
+                    "v3.provenance_date.dateint"
+                ),
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+        response = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.provenance_joined_fact",
+                "query": (
+                    "SELECT b.event_date, a.amount "
+                    "FROM v3.provenance_linked_events a "
+                    "JOIN v3.provenance_other_events b ON a.id = b.id"
+                ),
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+        response = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.provenance_amount",
+                "query": "SELECT SUM(amount) FROM v3.provenance_joined_fact",
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.provenance_amount"],
+                "filters": ["v3.provenance_date.dateint = 20260101"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        with sqlite3.connect(":memory:") as db:
+            db.executescript(
+                """
+                CREATE TABLE provenance_linked_events (
+                    id INTEGER, event_date INTEGER, amount REAL
+                );
+                CREATE TABLE provenance_other_events (
+                    id INTEGER, event_date INTEGER
+                );
+                INSERT INTO provenance_linked_events VALUES
+                    (1, 20260101, 10), (2, 20260102, 20);
+                INSERT INTO provenance_other_events VALUES
+                    (1, 20260102), (2, 20260101);
+                """,
+            )
+            rows = db.execute(sql.replace("default.v3.", "")).fetchall()
+        assert rows == [(10.0,)]
+
+
 class TestFilterPushdownMultiRole:
     """Multi-role filters must bind to their consuming join aliases."""
 
@@ -943,6 +1499,21 @@ class TestFilterPushdownMultiRole:
                 parent,
                 parse_dimension_ref("v3.location.city"),
             )
+        parent.current.columns.append(
+            SimpleNamespace(
+                name="default_city",
+                dimension_id=7,
+                dimension_column="city",
+            ),
+        )
+        assert (
+            _local_reference_dimension_column(
+                ctx,
+                parent,
+                parse_dimension_ref("v3.location.city"),
+            )
+            == "default_city"
+        )
 
     @pytest.mark.asyncio
     async def test_attribute_filter_does_not_filter_another_role_of_shared_cte(
@@ -977,7 +1548,8 @@ class TestFilterPushdownMultiRole:
             SELECT t2.city city_from, t3.city city_to,
                    SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
-            LEFT OUTER JOIN v3_location t2 ON t1.from_location_id = t2.location_id
+            LEFT OUTER JOIN v3_location t2
+              ON t1.from_location_id = t2.location_id AND t2.city = 'A'
             LEFT OUTER JOIN v3_location t3 ON t1.to_location_id = t3.location_id
             WHERE t2.city = 'A'
             GROUP BY t2.city, t3.city
@@ -1108,7 +1680,8 @@ class TestFilterPushdownMultiRole:
               SELECT t2.city city_from, t3.city city_to,
                      SUM(t1.line_total) line_total_sum_e1f61696
               FROM v3_order_details t1
-              LEFT OUTER JOIN v3_location t2 ON t1.from_location_id = t2.location_id
+              LEFT OUTER JOIN v3_location t2
+                ON t1.from_location_id = t2.location_id AND t2.city = 'A'
               LEFT OUTER JOIN v3_location t3 ON t1.to_location_id = t3.location_id
               WHERE t2.city = 'A'
               GROUP BY t2.city, t3.city
@@ -1153,7 +1726,8 @@ class TestFilterPushdownMultiRole:
                    SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_location t2 ON t1.to_location_id = t2.location_id
-            LEFT OUTER JOIN v3_location t3 ON t1.from_location_id = t3.location_id
+            LEFT OUTER JOIN v3_location t3
+              ON t1.from_location_id = t3.location_id AND t3.city = 'A'
             WHERE t3.city = 'A'
             GROUP BY t2.city
             """,
@@ -1249,8 +1823,8 @@ class TestFilterPushdownMultiRole:
         location_cte = sql.split("v3_location AS (", 1)[1].split("),", 1)[0]
         assert "WHERE" not in location_cte.upper()
 
-        with sqlite3.connect(":memory:") as db:
-            db.executescript(
+        with duckdb.connect(":memory:") as db:
+            db.execute(
                 """
                 CREATE TABLE locations (location_id INTEGER, city TEXT);
                 CREATE TABLE a_local_fact (
@@ -1721,7 +2295,8 @@ class TestFilterPushdownMultiHop:
               SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
-            LEFT OUTER JOIN v3_location t3 ON t2.location_id = t3.location_id
+            LEFT OUTER JOIN v3_location t3
+              ON t2.location_id = t3.location_id AND t3.country = 'US'
             WHERE t3.country = 'US'
             GROUP BY t3.country
             """,
@@ -2821,7 +3396,7 @@ class TestDimLabelFilterNameCollision:
                    SUM(t1.amount) amount_sum_HASH
             FROM v3_lbl_events_xform t1
             LEFT OUTER JOIN v3_lbl_is_bot_dim t2
-              ON t1.is_bot = t2.is_bot_key
+              ON t1.is_bot = t2.is_bot_key AND t2.is_bot = 'false'
             WHERE t2.is_bot = 'false'
             GROUP BY t2.is_bot
             """,
@@ -2951,7 +3526,7 @@ class TestDimLabelFilterNameCollision:
                    SUM(t1.amount) amount_sum_HASH
             FROM v3_ml_long t1
             LEFT OUTER JOIN v3_ml_is_bot_dim t2
-              ON t1.is_bot = t2.is_bot_key
+              ON t1.is_bot = t2.is_bot_key AND t2.is_bot = 'false'
             WHERE t2.is_bot = 'false'
             GROUP BY t2.is_bot
             """,

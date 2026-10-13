@@ -380,7 +380,8 @@ class TestDimensionJoins:
             )
             SELECT t2.name, SUM(t1.line_total) line_total_sum_e1f61696, SUM(t1.quantity) quantity_sum_06b64d2e
             FROM v3_order_details t1
-            LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
+            LEFT OUTER JOIN v3_customer t2
+              ON t1.customer_id = t2.customer_id AND t2.name = 'Abcd'
             WHERE  t2.name = 'Abcd'
             GROUP BY t2.name
             """,
@@ -1068,7 +1069,8 @@ class TestMeasuresSQLRoles:
             SELECT t3.country country_home, SUM(t1.line_total) line_total_sum_HASH
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
-            LEFT OUTER JOIN v3_location t3 ON t2.location_id = t3.location_id
+            LEFT OUTER JOIN v3_location t3
+              ON t2.location_id = t3.location_id AND t3.country = 'US'
             WHERE t3.country = 'US'
             GROUP BY t3.country
             """,
@@ -2732,7 +2734,8 @@ class TestMeasuresSQLFilters:
             )
             SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
-            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            LEFT OUTER JOIN v3_product t2
+              ON t1.product_id = t2.product_id AND t2.category = 'Electronics'
             WHERE t2.category = 'Electronics'
             GROUP BY t2.category
             """,
@@ -2771,7 +2774,8 @@ class TestMeasuresSQLFilters:
             )
             SELECT t1.status, t2.category, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
-            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            LEFT OUTER JOIN v3_product t2
+              ON t1.product_id = t2.product_id AND t2.category = 'Electronics'
             WHERE t2.category = 'Electronics'
             GROUP BY t1.status, t2.category
             """,
@@ -4585,7 +4589,8 @@ class TestFilterOnlyDimensions:
             )
             SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
-            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            LEFT OUTER JOIN v3_product t2
+              ON t1.product_id = t2.product_id AND t2.category = 'Electronics'
             WHERE t2.category = 'Electronics'
             GROUP BY t1.status
             """,
@@ -8243,7 +8248,8 @@ class TestWrapperCTEAbsorption:
             )
             SELECT t2.category, SUM(t1.line_total) line_total_sum_HASH
             FROM v3_order_details t1
-            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            LEFT OUTER JOIN v3_product t2
+              ON t1.product_id = t2.product_id AND t2.category = 'Electronics'
             WHERE t2.category = 'Electronics'
             GROUP BY t2.category
             """,
@@ -9988,10 +9994,10 @@ class TestParentCteFilterLanding:
         assert response.status_code == 200, response.json()
         sql = get_first_grain_group(response.json())["sql"]
         # The derived table projects ``a.snapshot_utc_date`` as
-        # ``s.snapshot_utc_date``. Filtering that output constrains the
-        # allocation rows without touching the sibling's same-named column.
+        # ``s.snapshot_utc_date``. Filtering the linked source's column
+        # constrains allocation rows without touching the sibling's column.
         assert "a.snapshot_utc_date" in sql
-        assert "s.snapshot_utc_date = 20260520" in sql, (
+        assert "a.snapshot_utc_date = 20260520" in sql, (
             f"Filter not applied to the projected allocation date:\n{sql}"
         )
         assert "sib.snapshot_utc_date = 20260520" not in sql, (

@@ -665,6 +665,55 @@ def _apply_outer_where_atoms(
             select.where = atom
 
 
+def _push_simple_dim_filters_to_join(
+    select: ast.Select,
+    dim_aliases: dict[tuple[str, str | None], str],
+) -> None:
+    """Copy simple, null-rejecting dimension filters onto their own joins.
+
+    Keep the WHERE predicate: it still determines which rows survive a LEFT
+    JOIN. The ON copy lets the engine filter that particular dimension scan
+    without narrowing a CTE shared by other roles or grain groups.
+    """
+    if select.where is None or select.from_ is None:
+        return
+    from datajunction_server.construction.build_v3.cte import (
+        _filter_namespaces,
+        _get_relation_side_id,
+        _split_and_atoms,
+    )
+
+    literals = (ast.Number, ast.String, ast.Boolean)
+    dimension_aliases = set(dim_aliases.values())
+    for atom in _split_and_atoms(select.where):
+        if not isinstance(atom, ast.BinaryOp) or atom.op != ast.BinaryOpKind.Eq:
+            continue
+        if not (
+            (isinstance(atom.left, ast.Column) and isinstance(atom.right, literals))
+            or (isinstance(atom.right, ast.Column) and isinstance(atom.left, literals))
+        ):
+            continue
+        namespaces = _filter_namespaces(atom)
+        if len(namespaces) != 1:
+            continue
+        alias = next(iter(namespaces))
+        if alias not in dimension_aliases:
+            continue
+        for relation in select.from_.relations:
+            for join in relation.extensions:
+                if (
+                    _get_relation_side_id(join.right) == alias
+                    and (join.join_type or "").upper().strip()
+                    in {"LEFT", "LEFT OUTER", "INNER"}
+                    and join.criteria is not None
+                    and join.criteria.on is not None
+                ):
+                    join.criteria.on = ast.BinaryOp.And(
+                        join.criteria.on,
+                        deepcopy(atom),
+                    )
+
+
 def _set_col_table_alias(col: ast.Column, new_alias: str) -> None:
     """Rewrite the table-qualifier on a column to ``new_alias``,
     matching the qualification style already on the column.
@@ -1480,6 +1529,7 @@ def build_select_ast(
         main_alias,
         parent_pushdown_active=parent_pushdown_active,
     )
+    _push_simple_dim_filters_to_join(select, dim_aliases)
     if temporal_filter_ast is not None:  # pragma: no cover
         # ``_build_temporal_pushdown`` always pushes the filter into a
         # CTE and returns ``None``, so this branch is currently dead.
