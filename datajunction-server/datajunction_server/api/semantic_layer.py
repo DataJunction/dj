@@ -330,7 +330,6 @@ class DiscoverLevel(BaseModel):
 class DiscoverResponse(BaseModel):
     level: DiscoverLevel
     values: list[str | None]
-    has_next: bool
     next_level: DiscoverLevel | None = None
 
 
@@ -733,7 +732,6 @@ async def discover_views(
         return DiscoverResponse(
             level=DiscoverLevel(id="namespace", display_name="Namespace"),
             values=sorted(values),
-            has_next=True,
             next_level=DiscoverLevel(id="branch", display_name="Branch"),
         )
     namespace = request.path[0]
@@ -745,7 +743,6 @@ async def discover_views(
         return DiscoverResponse(
             level=DiscoverLevel(id="branch", display_name="Branch"),
             values=[None],
-            has_next=False,
         )
     values = await list_semantic_branches(namespace, session, access_checker)
     if isinstance(values, JSONResponse):
@@ -753,7 +750,6 @@ async def discover_views(
     return DiscoverResponse(
         level=DiscoverLevel(id="branch", display_name="Branch"),
         values=values,
-        has_next=False,
     )
 
 
