@@ -109,10 +109,6 @@ INTENTIONAL_EXCLUSIONS: dict[str, list[tuple[str, str]]] = {
     # These take a POST body to describe what to read, but mutate nothing.
     "read-only; mutates nothing": [
         ("POST", "/nodes/validate"),
-        ("POST", "/semantic/namespaces"),
-        ("POST", "/semantic/namespaces/{namespace}/branches"),
-        ("POST", "/semantic/views"),
-        ("POST", "/semantic/views/list"),
         ("POST", "/semantic/views/{view_name}"),
         ("POST", "/semantic/views/{view_name}/sql"),
         ("POST", "/semantic/views/{view_name}/row-count"),

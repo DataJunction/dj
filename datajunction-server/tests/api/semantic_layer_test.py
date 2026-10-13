@@ -641,14 +641,6 @@ async def test_semantic_git_discovery_and_view_filtering(
     flat.git_branch = "release"
     await session.commit()
 
-    roots = await client.post("/semantic/namespaces/")
-    branches = await client.post("/semantic/namespaces/demo.metrics/branches/")
-    assert roots.status_code == 200, roots.text
-    assert "demo.metrics" in roots.json()
-    assert "flat.release" in roots.json()
-    assert branches.status_code == 200, branches.text
-    assert branches.json() == ["feature/foo", "main", "unversioned"]
-
     first_level = await client.post("/semantic/discover", json={})
     assert first_level.status_code == 200, first_level.text
     assert first_level.json()["level"] == {
@@ -656,6 +648,7 @@ async def test_semantic_git_discovery_and_view_filtering(
         "display_name": "Namespace",
     }
     assert "demo.metrics" in first_level.json()["values"]
+    assert "flat.release" in first_level.json()["values"]
     assert "plain.metrics" in first_level.json()["values"]
     assert "plain.metrics.deep" in first_level.json()["values"]
     assert "has_next" not in first_level.json()
@@ -780,8 +773,11 @@ async def test_semantic_git_discovery_and_view_filtering(
     )
     assert flat_response.status_code == 200, flat_response.text
     assert [view["name"] for view in flat_response.json()] == [flat_view]
-    flat_branches = await client.post("/semantic/namespaces/flat.release/branches/")
-    assert flat_branches.json() == ["release"]
+    flat_branches = await client.post(
+        "/semantic/discover",
+        json={"path": ["flat.release"]},
+    )
+    assert flat_branches.json()["values"] == ["release"]
 
     response = await client.post(
         "/semantic/views/",
@@ -790,7 +786,10 @@ async def test_semantic_git_discovery_and_view_filtering(
     assert response.status_code == 400, response.text
     assert "requires namespace" in response.json()["detail"]
 
-    missing = await client.post("/semantic/namespaces/missing/branches/", json={})
+    missing = await client.post(
+        "/semantic/discover",
+        json={"path": ["missing"]},
+    )
     assert missing.status_code == 404, missing.text
 
     class SelectiveAuthorizationService:
@@ -817,18 +816,17 @@ async def test_semantic_git_discovery_and_view_filtering(
         "datajunction_server.internal.access.authorization.validator.get_authorization_service",
         SelectiveAuthorizationService,
     )
-    roots = await client.post("/semantic/namespaces/")
-    assert roots.json() == ["demo.metrics"]
     discovered = await client.post("/semantic/discover", json={})
     assert discovered.json()["values"] == ["demo.metrics"]
-    branches = await client.post("/semantic/namespaces/demo.metrics/branches/")
-    assert branches.json() == ["main"]
     discovered = await client.post(
         "/semantic/discover",
         json={"path": ["demo.metrics"]},
     )
     assert discovered.json()["values"] == ["main"]
-    denied_branches = await client.post("/semantic/namespaces/flat.release/branches/")
+    denied_branches = await client.post(
+        "/semantic/discover",
+        json={"path": ["flat.release"]},
+    )
     assert denied_branches.status_code == 404
     views = await client.post("/semantic/views/list")
     assert [view["name"] for view in views.json()] == [main_view]

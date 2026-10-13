@@ -649,10 +649,9 @@ def _view_scopes(
     return scopes
 
 
-@router.post("/namespaces/", response_model=list[str])
-async def list_semantic_namespaces(
-    session: AsyncSession = Depends(get_session),
-    access_checker: AccessChecker = Depends(get_access_checker),
+async def _list_semantic_namespaces(
+    session: AsyncSession,
+    access_checker: AccessChecker,
 ) -> list[str]:
     """List active Git repository roots available for semantic browsing."""
     rows = await session.execute(
@@ -697,7 +696,7 @@ async def discover_views(
     except DJException as exc:
         return _problem(exc.http_status_code or 400, exc.message)
     if not request.path:
-        values = set(await list_semantic_namespaces(session, access_checker))
+        values = set(await _list_semantic_namespaces(session, access_checker))
         rows = await session.execute(
             select(Node.name, Node.namespace).where(
                 Node.deactivated_at.is_(None),
@@ -752,20 +751,19 @@ async def discover_views(
             level=DiscoverLevel(id="branch", display_name="Branch"),
             values=[None],
         )
-    values = await list_semantic_branches(namespace, session, access_checker)
-    if isinstance(values, JSONResponse):
-        return values
+    branch_values = await _list_semantic_branches(namespace, session, access_checker)
+    if isinstance(branch_values, JSONResponse):
+        return branch_values
     return DiscoverResponse(
         level=DiscoverLevel(id="branch", display_name="Branch"),
-        values=values,
+        values=branch_values,
     )
 
 
-@router.post("/namespaces/{namespace}/branches/", response_model=list[str])
-async def list_semantic_branches(
+async def _list_semantic_branches(
     namespace: str,
-    session: AsyncSession = Depends(get_session),
-    access_checker: AccessChecker = Depends(get_access_checker),
+    session: AsyncSession,
+    access_checker: AccessChecker,
 ) -> list[str] | JSONResponse:
     """List actual Git branch names for one repository root."""
     namespaces = await _active_git_namespaces(session, namespace)
@@ -850,7 +848,7 @@ async def list_views(
                         message="Invalid view discovery path",
                         http_status_code=404,
                     )
-                branches = await list_semantic_branches(
+                branches = await _list_semantic_branches(
                     namespace,
                     session,
                     access_checker,
