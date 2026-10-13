@@ -15,7 +15,10 @@ from pydantic import BaseModel, Field
 
 from datajunction_server.enum import StrEnum
 from datajunction_server.models.materialization import MaterializationTarget
-from datajunction_server.models.reaggregate import DimensionReaggregateRule
+from datajunction_server.models.reaggregate import (
+    DimensionReaggregateRule,
+    ReaggregationFunction,
+)
 
 
 class Aggregability(StrEnum):
@@ -114,6 +117,13 @@ class MetricComponent(BaseModel):
     # `measure_identity_token` -- because a sketch built at one accuracy must not
     # satisfy a query asking for another.
     params: dict[str, Any] | None = None
+    # Runtime context for comparing legacy stored parameters with this family's
+    # canonical parameters. It is derived from the metric, never persisted on a
+    # pre-aggregation measure.
+    reaggregation_family: ReaggregationFunction | None = Field(
+        default=None,
+        exclude=True,
+    )
     # Fixed arguments appended after the column in the Phase 2 merge call, as SQL
     # literals: `nflx_tdigest_agg(col, 200.0)` is merge="nflx_tdigest_agg" plus
     # merge_args=["200.0"]. `merge` stays a bare function name because two things

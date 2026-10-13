@@ -69,6 +69,12 @@ def build_fingerprint(
     """Build a version 1 semantic fingerprint."""
     fingerprint_fields = semantic_fields(type(spec))
     rendered = spec.rendered_spec()
+    # rendered_spec() reconstructs the model and drops private attributes.
+    # Both specs have the same rendered query, so reuse its parsed AST across
+    # current and proposed fingerprints instead of parsing each copy again.
+    if rendered.rendered_query is not None:
+        rendered._query_ast = spec.query_ast
+
     fields = {
         field: normalize_field(
             rendered,

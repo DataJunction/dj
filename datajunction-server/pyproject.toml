@@ -161,6 +161,7 @@ testpaths = [
 ]
 norecursedirs = [
     "tests/helpers",
+    ".hypothesis",
 ]
 
 [tool.ruff.lint]
@@ -188,4 +189,5 @@ test = [
     "sqlparse<1.0.0,>=0.4.3",
     "asgi-lifespan>=2",
     "mcp>=1.0.0",
+    "hypothesis>=6.168.1",
 ]

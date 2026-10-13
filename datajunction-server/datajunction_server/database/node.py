@@ -151,6 +151,37 @@ def _name_in(names: list[str]) -> sa.ColumnElement:
     return Node.name == sa.any_(sa.literal(names, type_=ARRAY(String)))
 
 
+def _table_filter_clause(node_revision, tables: list[str]) -> sa.ColumnElement:
+    """
+    Build a predicate matching node revisions that point at any of the given
+    physical tables.
+
+    Each entry may be fully qualified (``catalog.schema.table``), partially
+    qualified (``schema.table``) or a bare ``table``; only the parts supplied
+    are required to match, and matching is case-insensitive. Parts are read
+    from the right, so a source node name (``source.catalog.schema.table``)
+    also works as an entry.
+    """
+    clauses = []
+    for table in tables:
+        parts = [part for part in table.strip().split(SEPARATOR) if part]
+        if not parts:
+            continue
+        conditions = [func.lower(node_revision.table) == parts[-1].lower()]
+        if len(parts) > 1:
+            conditions.append(func.lower(node_revision.schema_) == parts[-2].lower())
+        if len(parts) > 2:
+            conditions.append(
+                node_revision.catalog.has(
+                    func.lower(Catalog.name) == parts[-3].lower(),
+                ),
+            )
+        clauses.append(and_(*conditions))
+    # The false() seed makes an empty clause list match no rows -- no usable
+    # entry means the caller asked for nothing, not for everything.
+    return sa.or_(sa.false(), *clauses)
+
+
 def _normalize_for_search(text_col):
     """
     Normalize a text column for search by replacing dots and underscores with spaces.
@@ -1064,6 +1095,7 @@ class Node(Base):
         missing_description: bool = False,
         missing_owner: bool = False,
         dimensions: list[str] | None = None,
+        tables: list[str] | None = None,
         statuses: list[NodeStatus] | None = None,
         has_materialization: bool = False,
         orphaned_dimension: bool = False,
@@ -1130,6 +1162,11 @@ class Node(Base):
             )
         if names:
             statement = statement.where(_name_in(names))
+        if tables:
+            if not join_revision:
+                statement = statement.join(NodeRevisionAlias, Node.current)
+                join_revision = True
+            statement = statement.where(_table_filter_clause(NodeRevisionAlias, tables))
         if fragment:
             statement = statement.where(
                 or_(
@@ -1343,6 +1380,7 @@ class Node(Base):
         missing_description: bool = False,
         missing_owner: bool = False,
         dimensions: list[str] | None = None,
+        tables: list[str] | None = None,
         statuses: list[NodeStatus] | None = None,
         has_materialization: bool = False,
         orphaned_dimension: bool = False,
@@ -1373,6 +1411,7 @@ class Node(Base):
             missing_description=missing_description,
             missing_owner=missing_owner,
             dimensions=dimensions,
+            tables=tables,
             statuses=statuses,
             has_materialization=has_materialization,
             orphaned_dimension=orphaned_dimension,
@@ -1436,6 +1475,7 @@ class Node(Base):
         missing_description: bool = False,
         missing_owner: bool = False,
         dimensions: list[str] | None = None,
+        tables: list[str] | None = None,
         statuses: list[NodeStatus] | None = None,
         has_materialization: bool = False,
         orphaned_dimension: bool = False,
@@ -1459,6 +1499,7 @@ class Node(Base):
             missing_description=missing_description,
             missing_owner=missing_owner,
             dimensions=dimensions,
+            tables=tables,
             statuses=statuses,
             has_materialization=has_materialization,
             orphaned_dimension=orphaned_dimension,
@@ -1488,6 +1529,7 @@ class Node(Base):
         missing_description: bool = False,
         missing_owner: bool = False,
         dimensions: list[str] | None = None,
+        tables: list[str] | None = None,
         statuses: list[NodeStatus] | None = None,
         has_materialization: bool = False,
         orphaned_dimension: bool = False,
@@ -1509,6 +1551,7 @@ class Node(Base):
             missing_description=missing_description,
             missing_owner=missing_owner,
             dimensions=dimensions,
+            tables=tables,
             statuses=statuses,
             has_materialization=has_materialization,
             orphaned_dimension=orphaned_dimension,
@@ -1634,6 +1677,14 @@ class NodeRevision(
     __table_args__ = (
         UniqueConstraint("version", "node_id"),
         Index("ix_noderevision_node_id", "node_id"),
+        # Backs the ``tables`` filter, which matches on lower(table) and
+        # lower(schema_); ``table`` leads so bare-table lookups use it too.
+        Index(
+            "ix_noderevision_table",
+            sa.text('lower("table")'),
+            sa.text("lower(schema_)"),
+            "catalog_id",
+        ),
         Index(
             "ix_noderevision_display_name",
             "display_name",

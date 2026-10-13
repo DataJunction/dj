@@ -71,6 +71,34 @@ class UpperCaseCharStream:
         return getattr(self.wrapped, item)
 
 
+class UpperCaseInputStream(InputStream):
+    """
+    An input stream that the lexer sees in upper case, with its text unchanged.
+
+    Same effect as `UpperCaseCharStream`, but the input is upper-cased once up
+    front instead of one character at a time on every lookahead, and nothing is
+    forwarded through `__getattr__`.
+    """
+
+    def __init__(self, data: str):
+        super().__init__(data)
+        upper = data.upper()
+        if len(upper) == len(data):
+            self.data = [ord(char) for char in upper]
+        else:
+            # Some characters upper-case to several (e.g. "ß" to "SS"), which
+            # would shift every later position. Keep those as they are.
+            self.data = [
+                ord(upper_char) if len(upper_char := char.upper()) == 1 else ord(char)
+                for char in data
+            ]
+
+    def getText(self, interval, *args):
+        if args or (self._size > 0 and (interval.b - interval.a >= 0)):
+            return super().getText(interval, *args)
+        return ""
+
+
 class ExplicitBailErrorStrategy(BailErrorStrategy):
     """
     Bail Error Strategy throws a ParseCancellationException,
@@ -99,7 +127,7 @@ def build_parser(stream, strict_mode=False, early_bail=True, prediction_mode=Non
         early_bail: If True, bail out early on errors
         prediction_mode: PredictionMode.SLL for fast parsing, PredictionMode.LL for full parsing
     """
-    if not strict_mode:
+    if not strict_mode and not isinstance(stream, UpperCaseInputStream):
         stream = UpperCaseCharStream(stream)
     if early_bail:
         lexer = EarlyBailSqlLexer(stream)
@@ -147,7 +175,9 @@ def build_string_parser(
     early_bail=True,
     prediction_mode=None,
 ):
-    string_as_stream = InputStream(string)
+    string_as_stream = (
+        InputStream(string) if strict_mode else UpperCaseInputStream(string)
+    )
     parser = build_parser(string_as_stream, strict_mode, early_bail, prediction_mode)
     return parser
 

@@ -127,6 +127,17 @@ async def find_nodes(
             "Accepts dimension node names or dimension attributes",
         ),
     ] = None,
+    tables: Annotated[
+        list[str] | None,
+        strawberry.argument(
+            description="Filter to nodes backed by any of these physical tables. "
+            "Each entry may be fully qualified (catalog.schema.table), partially "
+            "qualified (schema.table) or a bare table name; matching is "
+            "case-insensitive. Only source nodes carry a table, so this returns "
+            "source nodes -- use downstreamNodes to reach the transforms and "
+            "metrics built on them.",
+        ),
+    ] = None,
     edited_by: Annotated[
         str | None,
         strawberry.argument(
@@ -234,6 +245,7 @@ async def find_nodes(
         node_types=node_types,
         tags=tags,
         dimensions=dimensions,
+        tables=tables,
         edited_by=edited_by,
         namespace=namespace,
         mode=mode,
@@ -293,6 +305,17 @@ async def find_nodes_paginated(
         strawberry.argument(
             description="Filter to nodes that have ALL of these dimensions. "
             "Accepts dimension node names or dimension attributes",
+        ),
+    ] = None,
+    tables: Annotated[
+        list[str] | None,
+        strawberry.argument(
+            description="Filter to nodes backed by any of these physical tables. "
+            "Each entry may be fully qualified (catalog.schema.table), partially "
+            "qualified (schema.table) or a bare table name; matching is "
+            "case-insensitive. Only source nodes carry a table, so this returns "
+            "source nodes -- use downstreamNodes to reach the transforms and "
+            "metrics built on them.",
         ),
     ] = None,
     edited_by: Annotated[
@@ -395,6 +418,7 @@ async def find_nodes_paginated(
         node_types=node_types,
         tags=tags,
         dimensions=dimensions,
+        tables=tables,
         edited_by=edited_by,
         namespace=namespace,
         limit=limit + 1,
@@ -424,6 +448,7 @@ async def find_nodes_paginated(
             node_types=node_types,
             tags=tags,
             dimensions=dimensions,
+            tables=tables,
             edited_by=edited_by,
             namespace=namespace,
             mode=mode,

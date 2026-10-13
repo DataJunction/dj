@@ -16,6 +16,7 @@ from datajunction_server.construction.build_v3.preagg_matcher import (
     get_preagg_measure_column,
     get_required_measure_identities,
     get_temporal_partitions,
+    preagg_covers_components,
 )
 from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
 from datajunction_server.construction.build_v3.types import (
@@ -46,7 +47,14 @@ from datajunction_server.models.dimensionlink import JoinType
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import Granularity, PartitionType
 from datajunction_server.models.query import V3ColumnMetadata
+from datajunction_server.models.reaggregate import ReaggregationFunction
 from datajunction_server.models.user import OAuthProvider
+from datajunction_server.sql.decompose import (
+    FAMILY_DECOMPOSITION_REGISTRY,
+    AggDecomposition,
+    decomposes_family,
+)
+from datajunction_server.sql import functions as dj_functions
 from datajunction_server.sql.parsing.types import IntegerType, StringType
 
 
@@ -64,6 +72,93 @@ def make_component(
         merge=merge,
         rule=AggregationRule(type=Aggregability.FULL),
     )
+
+
+@pytest.mark.asyncio
+async def test_preupgrade_explicit_default_preagg_matches_canonical_component(
+    session: AsyncSession,
+    parent_node: Node,
+    metric_node: Node,
+):
+    """Stored measure tokens can retain a default after new queries omit it."""
+
+    @decomposes_family(
+        ReaggregationFunction.TDIGEST,
+        aggregate_functions=(dj_functions.ApproxPercentile,),
+    )
+    class Digest(AggDecomposition):
+        def __init__(self, params=None):
+            super().__init__(params)
+            compression = int(self.params.get("compression", 200))
+            self.params = {} if compression == 200 else {"compression": compression}
+
+        @property
+        def components(self):
+            return []
+
+        def combine(self, components, func, dialect=None):
+            raise NotImplementedError
+
+    try:
+        component = make_component("latency_sketch", "latency", "BUILD_SKETCH")
+        component.reaggregation_family = ReaggregationFunction.TDIGEST
+        assert "reaggregation_family" not in component.model_dump()
+        old_measure = make_preagg_measure("latency_sketch", "latency", "BUILD_SKETCH")
+        old_measure.params = {"compression": 200}
+        old_measure.source_column = "stored_sketch"
+        availability = AvailabilityState(
+            catalog="test",
+            schema_="test",
+            table="legacy_sketch",
+            valid_through_ts=9999999999,
+        )
+        session.add(availability)
+        await session.flush()
+        preagg = PreAggregation(
+            node_revision_id=parent_node.current.id,
+            grain_columns=["dim1"],
+            measures=[old_measure],
+            sql="SELECT ...",
+            grain_group_hash="legacy_sketch_grain",
+            preagg_hash="legacy01",
+            availability_id=availability.id,
+        )
+        session.add(preagg)
+        await session.flush()
+        ctx = BuildContext(
+            session=session,
+            metrics=[metric_node.name],
+            dimensions=["dim1"],
+            use_materialized=True,
+            available_preaggs={parent_node.current.id: [preagg]},
+        )
+        grain_group = make_grain_group(parent_node, [(metric_node, component)])
+
+        assert preagg_covers_components(preagg.measures, [component])
+        assert get_preagg_measure_column(preagg, component) == "stored_sketch"
+        matched = find_matching_preagg(
+            ctx,
+            parent_node,
+            _resolved_grain(ctx, ["dim1"]),
+            grain_group,
+        )
+        assert matched is not None
+        assert matched.preagg is preagg
+
+        old_measure.params = {"compression": 500}
+        assert not preagg_covers_components(preagg.measures, [component])
+        assert get_preagg_measure_column(preagg, component) is None
+        assert (
+            find_matching_preagg(
+                ctx,
+                parent_node,
+                _resolved_grain(ctx, ["dim1"]),
+                grain_group,
+            )
+            is None
+        )
+    finally:
+        FAMILY_DECOMPOSITION_REGISTRY.pop(ReaggregationFunction.TDIGEST, None)
 
 
 def make_preagg_measure(

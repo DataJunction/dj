@@ -35,6 +35,7 @@ from datajunction_server.api.graphql.queries.sql import (
     materialization_plan,
     measures_sql,
 )
+from datajunction_server.api.graphql.queries.tables import nodes_for_table
 from datajunction_server.api.graphql.queries.tags import (
     list_tag_types,
     list_tags,
@@ -272,6 +273,11 @@ class Query:
     upstream_nodes: list[Node] = strawberry.field(
         resolver=log_resolver(upstream_nodes),
         description="Find upstream nodes (optionally, of a given type) from a given node.",
+    )
+    nodes_for_table: list[Node] = strawberry.field(
+        resolver=log_resolver(nodes_for_table),
+        description="Find the nodes associated with a physical table: the source "
+        "nodes on that table and, unless disabled, everything downstream of them.",
     )
 
     # Generate SQL queries

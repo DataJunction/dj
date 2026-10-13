@@ -146,7 +146,10 @@ from datajunction_server.sql.dag import (
     get_nodes_with_common_dimensions,
     topological_sort,
 )
-from datajunction_server.sql.decompose import MetricComponentExtractor
+from datajunction_server.sql.decompose import (
+    MetricComponentExtractor,
+    component_params_match,
+)
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import parse, parse_rule
@@ -1103,7 +1106,7 @@ def _raise_if_frozen_measure_conflicts(
     if (
         frozen_measure.expression == measure.expression
         and frozen_measure.aggregation == measure.aggregation
-        and (frozen_measure.params or None) == (measure.params or None)
+        and component_params_match(measure, frozen_measure.params)
         and _aggregation_rule_identity(frozen_measure.rule)
         == _aggregation_rule_identity(measure.rule)
     ):

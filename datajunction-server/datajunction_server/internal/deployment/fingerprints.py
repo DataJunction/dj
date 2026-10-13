@@ -1,4 +1,5 @@
 import logging
+import time
 from collections.abc import Callable, Iterable
 from heapq import heappop, heappush
 
@@ -289,11 +290,17 @@ async def _load_external_specs(
     parent_cache: ParentCandidateCache,
 ) -> dict[str, NodeSpec]:
     """Transitively load names unresolved within the deployment's own specs."""
+    started = time.perf_counter()
+    db_elapsed = conversion_elapsed = parent_elapsed = 0.0
+    rounds = 0
     known_names = set(known_names)
     external_specs: dict[str, NodeSpec] = {}
     frontier = sorted(set(initial_frontier) - known_names)
+
     while frontier:
+        rounds += 1
         known_names.update(frontier)
+        step_started = time.perf_counter()
         nodes = await Node.get_by_names(
             session,
             frontier,
@@ -305,8 +312,12 @@ async def _load_external_specs(
                 selectinload(Node.owners),
             ],
         )
+        db_elapsed += time.perf_counter() - step_started
+        step_started = time.perf_counter()
         pending = [await node.to_spec(session) for node in nodes]
+        conversion_elapsed += time.perf_counter() - step_started
         external_specs.update({spec.rendered_name: spec for spec in pending})
+        step_started = time.perf_counter()
         candidates: set[str] = set()
         for spec in pending:
             try:
@@ -319,6 +330,20 @@ async def _load_external_specs(
                         exc,
                     )
         frontier = sorted(candidates - known_names)
+        parent_elapsed += time.perf_counter() - step_started
+
+    if rounds:
+        logger.info(
+            "External fingerprint specs: %d nodes in %d rounds; "
+            "db=%0.fms, conversion=%0.fms, parents=%0.fms, total=%0.fms",
+            len(external_specs),
+            rounds,
+            db_elapsed * 1000,
+            conversion_elapsed * 1000,
+            parent_elapsed * 1000,
+            (time.perf_counter() - started) * 1000,
+        )
+
     return external_specs
 
 
@@ -389,6 +414,7 @@ def _compute_merkle_fingerprints(
     shared_fingerprints: dict[int, SemanticFingerprintValue] | None = None,
 ) -> FingerprintMap:
     """`shared_fingerprints` is a cache keyed by id(spec), shared across snapshots."""
+    started = time.perf_counter()
     parent_cache = parent_cache if parent_cache is not None else {}
     shared_fingerprints = shared_fingerprints if shared_fingerprints is not None else {}
     names_to_process = sorted(specs) if only_names is None else sorted(only_names)
@@ -433,6 +459,7 @@ def _compute_merkle_fingerprints(
             if name not in ignored_parse_errors:
                 logger.warning("Fingerprint unavailable for %s: %s", name, exc)
 
+    graph_elapsed = time.perf_counter() - started
     components = strongly_connected_components(graph)
     component_by_name = {
         name: component_index
@@ -465,6 +492,7 @@ def _compute_merkle_fingerprints(
         if remaining == 0:
             heappush(ready, component_index)
 
+    scc_elapsed = time.perf_counter() - started - graph_elapsed
     processed = 0
     while ready:
         component_index = heappop(ready)
@@ -555,6 +583,16 @@ def _compute_merkle_fingerprints(
     if processed != len(components):  # pragma: no cover
         raise RuntimeError("SCC condensation graph contains a cycle")
 
+    logger.info(
+        "Semantic fingerprint graph: %d nodes, %d cached, %d components; "
+        "parents=%0.fms, components=%0.fms, hashing=%0.fms",
+        len(names_to_process),
+        len(cached_results),
+        len(components),
+        graph_elapsed * 1000,
+        scc_elapsed * 1000,
+        (time.perf_counter() - started - graph_elapsed - scc_elapsed) * 1000,
+    )
     return {
         name: component_results[component_by_name[name]][name]
         for name in names_to_process
@@ -637,6 +675,8 @@ async def build_deployment_fingerprints(
     pre_parsed_queries: dict[str, ReusableQuery] | None = None,
 ) -> tuple[FingerprintMap, FingerprintMap]:
     """`only_proposed_names` limits which nodes get a fresh proposed hash."""
+    started = time.perf_counter()
+    timings: dict[str, float] = {}
     proposed_specs = list(proposed_specs)
     additional_target_names = set(additional_target_names)
     deleted_names = {spec.rendered_name for spec in deleted_specs}
@@ -652,11 +692,13 @@ async def build_deployment_fingerprints(
         deleted_names,
         unchanged_names,
     )
+    timings["setup"] = time.perf_counter() - started
     target_specs: dict[str, NodeSpec] = {}
     target_names_to_load = (
         additional_target_names - existing_specs.keys() - submitted_names
     )
     if target_names_to_load:
+        step_started = time.perf_counter()
         target_nodes = await Node.get_by_names(
             session,
             sorted(target_names_to_load),
@@ -668,11 +710,15 @@ async def build_deployment_fingerprints(
                 selectinload(Node.owners),
             ],
         )
+        timings["target_db"] = time.perf_counter() - step_started
+        step_started = time.perf_counter()
         target_specs = {
             spec.rendered_name: spec
             for spec in [await node.to_spec(session) for node in target_nodes]
         }
+        timings["target_to_spec"] = time.perf_counter() - step_started
 
+    step_started = time.perf_counter()
     parent_cache: ParentCandidateCache = {}
     # Reuse ASTs propagate_impact already parsed.
     current_seed_specs = {**existing_specs, **target_specs}
@@ -693,6 +739,8 @@ async def build_deployment_fingerprints(
         proposed,
         parent_cache,
     )
+    timings["ancestor_closure"] = time.perf_counter() - step_started
+    step_started = time.perf_counter()
     external = await _load_external_specs(
         session,
         current_unresolved | proposed_unresolved,
@@ -700,13 +748,10 @@ async def build_deployment_fingerprints(
         ignored_parse_errors=deleted_names,
         parent_cache=parent_cache,
     )
-    # target_specs need a separate copy per side so the id()-keyed
-    # shared_fingerprints cache can't cross-reuse a stale ancestor chain.
+    timings["external_load"] = time.perf_counter() - step_started
+    step_started = time.perf_counter()
     current_external = {**external, **target_specs}
-    proposed_external = {
-        **external,
-        **{name: spec.model_copy(deep=True) for name, spec in target_specs.items()},
-    }
+    proposed_external = {**external, **target_specs}
     shared_fingerprints: dict[int, SemanticFingerprintValue] = {}
     current_graph = SemanticFingerprintGraph(
         {**current_external, **existing_specs},
@@ -721,9 +766,30 @@ async def build_deployment_fingerprints(
         version=version,
         shared_fingerprints=shared_fingerprints,
     )
+    timings["snapshot_setup"] = time.perf_counter() - step_started
+    step_started = time.perf_counter()
     # unchanged_names gives no-op nodes a current fingerprint to fall back on.
     current = current_graph.fingerprints(
         deleted_names | additional_target_names | unchanged_names,
     )
+    timings["current_hashes"] = time.perf_counter() - step_started
+    # The shared cache is keyed only by spec identity. A target can keep the
+    # same spec object but have a new hash when its proposed ancestors change,
+    # so evict its current hash before evaluating the proposed graph.
+    for spec in target_specs.values():
+        shared_fingerprints.pop(id(spec), None)
+    step_started = time.perf_counter()
     proposed_hashes = proposed_graph.fingerprints(proposed_target_names)
+    timings["proposed_hashes"] = time.perf_counter() - step_started
+    logger.info(
+        "Deployment fingerprints: %d targets (%d loaded), %d external ancestors; "
+        "total=%.0fms, %s",
+        len(additional_target_names),
+        len(target_specs),
+        len(external),
+        (time.perf_counter() - started) * 1000,
+        ", ".join(
+            f"{name}={elapsed * 1000:.0f}ms" for name, elapsed in timings.items()
+        ),
+    )
     return current, proposed_hashes
