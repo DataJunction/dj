@@ -12,18 +12,26 @@ from unittest.mock import AsyncMock
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.responses import JSONResponse
 
 from datajunction_server.api.semantic_layer import (
     MAX_ROW_LIMIT,
     FilterPayload,
     ViewSummary,
     _arrow_type_name,
+    _active_git_namespaces,
+    _cube_summaries,
     _dimensions_payload,
+    _discovery_filter,
     _filter_to_sql,
     _git_location,
     _generated_column_arrow_type_name,
+    _list_semantic_branches,
     _metrics_payload,
+    _namespace_map_for_cubes,
+    _path_filter,
     _quote_value,
+    _view_scopes,
     _view_payload,
 )
 from datajunction_server.construction.build_v3.types import (
@@ -280,6 +288,62 @@ def test_git_location_uses_root_and_actual_branch() -> None:
         "feature/foo",
     )
     assert _git_location("plain.main", namespaces) is None
+
+    # A configured repository without an effective branch has no view location.
+    incomplete_root = NodeNamespace(
+        namespace="demo.incomplete",
+        github_repo_path="team/incomplete",
+    )
+    assert (
+        _git_location(
+            incomplete_root.namespace,
+            {incomplete_root.namespace: incomplete_root},
+        )
+        is None
+    )
+
+
+def test_view_scopes_exclude_a_nested_independent_git_root() -> None:
+    root = NodeNamespace(
+        namespace="demo.metrics",
+        github_repo_path="team/metrics",
+        default_branch="main",
+    )
+    other_root = NodeNamespace(
+        namespace="demo.metrics.other",
+        github_repo_path="team/other",
+        default_branch="main",
+    )
+    namespaces = {root.namespace: root, other_root.namespace: other_root}
+
+    assert _view_scopes("demo.metrics", "main", namespaces) == {"demo.metrics"}
+
+
+@pytest.mark.parametrize(
+    "configuration",
+    [
+        {"namespace": ""},
+        {"branch": ""},
+        {"namespace": 123},
+    ],
+)
+def test_discovery_filter_rejects_invalid_selector(configuration) -> None:
+    with pytest.raises(DJException, match="must be a non-empty string"):
+        _discovery_filter(configuration)
+
+
+@pytest.mark.parametrize("path", [[""], ["demo.metrics", ""], ["a", "b", "c"]])
+def test_path_filter_rejects_invalid_selection(path) -> None:
+    with pytest.raises(DJException, match="Invalid view discovery path"):
+        _path_filter(path)
+
+
+@pytest.mark.asyncio
+async def test_empty_discovery_scopes_do_not_query() -> None:
+    session = AsyncMock(spec=AsyncSession)
+    assert await _cube_summaries(session, set()) == []
+    assert await _namespace_map_for_cubes(session, set()) == {}
+    session.execute.assert_not_awaited()
 
 
 @pytest.mark.parametrize(
@@ -580,8 +644,10 @@ async def test_semantic_git_discovery_and_view_filtering(
         "demo.metrics",
         "demo.metrics.main",
         "demo.metrics.literal",
+        "demo.metrics.other",
         "legacy",
         "legacy.feature",
+        "legacy.feature.child",
         "flat",
         "flat.release",
         "plain",
@@ -611,6 +677,7 @@ async def test_semantic_git_discovery_and_view_filtering(
     feature_view = "legacy.feature.thumb_report"
     flat_view = "flat.release.report"
     literal_view = "demo.metrics.literal.report"
+    other_view = "demo.metrics.other.report"
     plain_view = "plain.metrics.report"
     plain_child_view = "plain.metrics.deep.report"
     for name in (
@@ -618,6 +685,7 @@ async def test_semantic_git_discovery_and_view_filtering(
         feature_view,
         flat_view,
         literal_view,
+        other_view,
         plain_view,
         plain_child_view,
     ):
@@ -628,7 +696,8 @@ async def test_semantic_git_discovery_and_view_filtering(
     literal = await NodeNamespace.get(session, "demo.metrics.literal")
     feature = await NodeNamespace.get(session, "legacy.feature")
     flat = await NodeNamespace.get(session, "flat.release")
-    assert root and main and literal and feature and flat
+    other = await NodeNamespace.get(session, "demo.metrics.other")
+    assert root and main and literal and feature and flat and other
     root.github_repo_path = "team/metrics"
     root.default_branch = "main"
     main.parent_namespace = root.namespace
@@ -639,7 +708,23 @@ async def test_semantic_git_discovery_and_view_filtering(
     feature.git_branch = "feature/foo"
     flat.github_repo_path = "team/flat"
     flat.git_branch = "release"
+    other.github_repo_path = "team/other"
+    other.default_branch = "main"
     await session.commit()
+
+    # A branch linked outside the root's name prefix can have descendants of
+    # its own. Loading a single cube namespace must also follow its Git parent.
+    scoped_namespaces = await _active_git_namespaces(session, "demo.metrics")
+    assert "legacy.feature.child" in scoped_namespaces
+    linked_namespaces = await _namespace_map_for_cubes(session, {"legacy.feature"})
+    assert "demo.metrics" in linked_namespaces
+    branch_is_not_a_root = await _list_semantic_branches(
+        "demo.metrics.main",
+        session,
+        AsyncMock(),
+    )
+    assert isinstance(branch_is_not_a_root, JSONResponse)
+    assert branch_is_not_a_root.status_code == 404
 
     first_level = await client.post("/semantic/discover", json={})
     assert first_level.status_code == 200, first_level.text
@@ -649,6 +734,7 @@ async def test_semantic_git_discovery_and_view_filtering(
     }
     assert "demo.metrics" in first_level.json()["values"]
     assert "flat.release" in first_level.json()["values"]
+    assert "demo.metrics.other" in first_level.json()["values"]
     assert "plain.metrics" in first_level.json()["values"]
     assert "plain.metrics.deep" in first_level.json()["values"]
     assert "has_next" not in first_level.json()
@@ -678,6 +764,18 @@ async def test_semantic_git_discovery_and_view_filtering(
             json={"path": ["demo.metrics", "main"]},
         )
     ).status_code == 400
+    assert (
+        await client.post(
+            "/semantic/discover",
+            json={"runtime_configuration": {"namespace": "demo.metrics"}},
+        )
+    ).status_code == 400
+    assert (
+        await client.post(
+            "/semantic/discover",
+            json={"path": ["demo.metrics.main"]},
+        )
+    ).status_code == 404
 
     payload = {
         "runtime_configuration": {"namespace": "demo.metrics", "branch": "main"},
@@ -702,6 +800,21 @@ async def test_semantic_git_discovery_and_view_filtering(
     )
     assert filtered.status_code == 200, filtered.text
     assert [view["name"] for view in filtered.json()] == [main_view]
+    assert (
+        await client.post(
+            "/semantic/views/",
+            json={
+                "path": ["demo.metrics"],
+                "runtime_configuration": {"branch": "main"},
+            },
+        )
+    ).status_code == 400
+    assert (
+        await client.post(
+            "/semantic/views/",
+            json={"path": ["demo.metrics.main"]},
+        )
+    ).status_code == 404
     invalid_git_null = await client.post(
         "/semantic/views/",
         json={"path": ["demo.metrics", None]},
@@ -740,6 +853,9 @@ async def test_semantic_git_discovery_and_view_filtering(
         feature_view,
         literal_view,
     }
+    all_views = await client.post("/semantic/views/", json={"path": []})
+    assert all_views.status_code == 200, all_views.text
+    assert other_view in {view["name"] for view in all_views.json()}
     invalid_path = await client.post(
         "/semantic/views/",
         json={"path": ["demo.metrics", "missing"]},

@@ -136,6 +136,10 @@ async def test_list_dimension_ranks_main_branch_first(
     assert branch_indegree > 0, "fixture should give the branch dim a real indegree"
     # Every main-branch dimension outranks it, including ones linked to less often.
     assert names.index(branch_dim.name) == len(main_names)
+    assert await Node.main_branch_names(
+        session,
+        [main_names[0], branch_dim.name],
+    ) == {main_names[0]}
 
 
 @pytest.mark.asyncio
