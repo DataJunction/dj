@@ -383,7 +383,7 @@ class DimensionInfo(BaseModel):
 
 
 class ViewSummary(BaseModel):
-    """Summary entry returned by ``/views/list``."""
+    """Summary entry returned by ``/views/`` and ``/views/list``."""
 
     name: str
     display_name: str | None = None
@@ -771,25 +771,29 @@ async def _list_semantic_branches(
     if not root or not root.github_repo_path:
         return _problem(404, f"Git namespace `{namespace}` does not exist.")
 
-    access_checker.add_namespace(namespace, ResourceAction.READ)
-    if namespace not in await access_checker.approved_resource_names():
-        return _problem(404, f"Git namespace `{namespace}` does not exist.")
-
     root_location = _git_location(namespace, namespaces)
-    branches = {root_location[1]} if root_location else set()
-    branch_namespaces = [
-        (candidate.namespace, location[1])
-        for candidate in namespaces.values()
-        if candidate.namespace != namespace
-        and candidate.git_branch
-        and (location := _git_location(candidate.namespace, namespaces)) is not None
-        and location[0] == namespace
-    ]
+    branch_namespaces = []
+    for candidate in namespaces.values():
+        if candidate.namespace == namespace or not candidate.git_branch:
+            continue
+        location = _git_location(candidate.namespace, namespaces)
+        if location is not None and location[0] == namespace:
+            branch_namespaces.append((candidate.namespace, location[1]))
+
+    access_checker.add_namespace(namespace, ResourceAction.READ)
     access_checker.add_namespaces(
         [name for name, _ in branch_namespaces],
         ResourceAction.READ,
     )
-    approved = set(await access_checker.approved_resource_names())
+    approved = {
+        decision.request.access_object.name
+        for decision in await access_checker.check()
+        if decision.request.access_object.resource_type == ResourceType.NAMESPACE
+    }
+    if namespace not in approved:
+        return _problem(404, f"Git namespace `{namespace}` does not exist.")
+
+    branches = {root_location[1]} if root_location else set()
     branches.update(branch for name, branch in branch_namespaces if name in approved)
     return sorted(branches)
 
@@ -816,23 +820,26 @@ async def list_views(
     """
     try:
         configuration = request.runtime_configuration if request else {}
-        if request and request.path is not None:
+        path = request.path if request else None
+        if path is not None:
             if "namespace" in configuration or "branch" in configuration:
                 raise DJException(
                     message="Use path or runtime_configuration selectors",
                     http_status_code=400,
                 )
-            namespace, branch = _path_filter(request.path)
-            if namespace is not None:
+            namespace, branch = _path_filter(path)
+        else:
+            namespace, branch = _discovery_filter(configuration)
+
+        if namespace is not None:
+            if path is not None or branch is None:
                 plain_cubes = await _plain_cube_summaries(
                     session,
                     namespace,
                     access_checker,
                 )
                 if plain_cubes is not None:
-                    if (
-                        len(request.path) == 2 and branch is not None
-                    ) or not plain_cubes:
+                    if path is not None and (branch is not None or not plain_cubes):
                         return _problem(404, "Invalid view discovery path")
                     return [
                         ViewSummary(
@@ -843,11 +850,10 @@ async def list_views(
                         )
                         for name, display_name, _ in plain_cubes
                     ]
-                if len(request.path) == 2 and branch is None:
-                    raise DJException(
-                        message="Invalid view discovery path",
-                        http_status_code=404,
-                    )
+
+            if path is not None:
+                if len(path) == 2 and branch is None:
+                    return _problem(404, "Invalid view discovery path")
                 branches = await _list_semantic_branches(
                     namespace,
                     session,
@@ -860,24 +866,6 @@ async def list_views(
                         message="Invalid view discovery path",
                         http_status_code=404,
                     )
-        else:
-            namespace, branch = _discovery_filter(configuration)
-            if namespace is not None and branch is None:
-                plain_cubes = await _plain_cube_summaries(
-                    session,
-                    namespace,
-                    access_checker,
-                )
-                if plain_cubes is not None:
-                    return [
-                        ViewSummary(
-                            name=name,
-                            display_name=display_name or None,
-                            uid=name,
-                            features=[],
-                        )
-                        for name, display_name, _ in plain_cubes
-                    ]
         namespaces = await _active_git_namespaces(session, namespace)
         cubes = await _cube_summaries(
             session,
