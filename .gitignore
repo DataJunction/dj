@@ -129,6 +129,9 @@ Untitled*
 
 # dev slot config
 .dev-port
+.dev-pg-port
+.dev-redis-port
+.dev-trino-port
 
 # postgres
 postgres_metadata

@@ -795,6 +795,7 @@ async def materialize_cube(
         strategy=data.strategy,
         schedule=data.schedule,
         lookback_window=effective_lookback,
+        platform=data.platform,
     )
 
     # Call the query service to create the workflow.
@@ -855,6 +856,7 @@ async def materialize_cube(
         timestamp_format=timestamp_format,
         workflow_urls=workflow_urls,
         workflow_names=workflow_names,
+        platform=data.platform,
     )
 
     if existing_mats:

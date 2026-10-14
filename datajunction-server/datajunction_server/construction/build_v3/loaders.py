@@ -525,6 +525,9 @@ async def load_nodes(ctx: BuildContext) -> None:
                     logger.debug(
                         f"[BuildV3] Required dimension {req_dim} already covered by {existing_dim}",
                     )
+                    # A filter-only dimension is hidden from the grain; a required
+                    # one must stay grouped since the filter may keep several values.
+                    ctx.filter_dimensions.discard(existing_dim)
                     break
 
             if not is_covered:

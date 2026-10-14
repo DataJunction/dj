@@ -621,6 +621,10 @@ class CubeMaterializeRequest(BaseModel):
         default=True,
         description="Whether to run an initial backfill",
     )
+    platform: dict[str, Any] | None = Field(
+        default=None,
+        description="Platform settings passed through verbatim, e.g. druid_cluster.",
+    )
 
 
 class PreAggTableInfo(BaseModel):
@@ -752,6 +756,10 @@ class CubeMaterializationV2Input(BaseModel):
         default=None,
         description="Lookback window for incremental. None for FULL strategy.",
     )
+    platform: dict[str, Any] | None = Field(
+        default=None,
+        description="Platform settings passed through verbatim, e.g. druid_cluster.",
+    )
 
 
 # The name every cube planner materialization row is stored under. The two cube
@@ -845,6 +853,11 @@ class DruidCubeV3Config(BaseModel):
     workflow_names: list[str] = Field(
         default_factory=list,
         description="Workflow names for deactivation",
+    )
+
+    platform: dict[str, Any] | None = Field(
+        default=None,
+        description="Platform settings the workflow was built with.",
     )
 
     @computed_field  # type: ignore[misc]
