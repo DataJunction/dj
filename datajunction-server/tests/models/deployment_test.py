@@ -1106,6 +1106,21 @@ def test_cube_spec_eq_is_order_sensitive_for_metrics_and_dimensions():
     assert a_cube() != a_cube(metrics=["ns.a"])
 
 
+def test_cube_spec_eq_sees_column_description_changes():
+    def cube(description):
+        return CubeSpec(
+            name="cube",
+            metrics=["m"],
+            dimensions=["d.col"],
+            columns=[ColumnSpec(name="m", description=description)],
+        )
+
+    assert cube("Total.") == cube("Total.")
+    assert cube("Total.") != cube("Sum.")
+    assert cube("Total.") != cube(None)
+    assert cube(None) == cube("")
+
+
 def test_cube_spec_eq_treats_filters_as_a_set():
     """Filters are ANDed, so reordering them is cosmetic and not a change."""
     one = a_cube(filters=["x = 1", "y = 2"])

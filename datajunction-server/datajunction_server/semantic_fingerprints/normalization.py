@@ -158,6 +158,17 @@ def normalize_cube_columns(columns: list[ColumnSpec] | None) -> dict[str, Any]:
     }
 
 
+def normalize_cube_column_descriptions(
+    columns: list[ColumnSpec] | None,
+) -> dict[str, str]:
+    """Normalize the authored descriptions of cube columns."""
+    return {
+        column.name: column.description
+        for column in columns or []
+        if column.description
+    }
+
+
 def normalize_fixed_grain(grain: list[str] | None) -> list[str] | None:
     """
     The fingerprint form of a declared grain.
@@ -303,5 +314,14 @@ def semantic_diff(
         )
         if left_ordered != right_ordered:
             reordered_fields.append(field)
+
+    # Descriptions are metadata, so they stay out of the fingerprint fields.
+    if (
+        isinstance(rendered_one, CubeSpec)
+        and isinstance(rendered_two, CubeSpec)
+        and normalize_cube_column_descriptions(rendered_one.matched_rendered_columns)
+        != normalize_cube_column_descriptions(rendered_two.matched_rendered_columns)
+    ):
+        changed_fields.append("column_descriptions")
 
     return changed_fields, reordered_fields
