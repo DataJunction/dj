@@ -39,8 +39,13 @@ from datajunction_server.construction.build_v3.types import (
 )
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.errors import DJException
+from datajunction_server.internal.access.authorization import AccessChecker
 from datajunction_server.internal.sql import build_row_count_sql
-from datajunction_server.models.access import AccessDecision, ResourceType
+from datajunction_server.models.access import (
+    AccessDecision,
+    ResourceAction,
+    ResourceType,
+)
 from datajunction_server.models.dialect import Dialect, DialectRegistry
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.transpilation import SQLTranspilationPlugin
@@ -645,6 +650,7 @@ async def test_semantic_git_discovery_and_view_filtering(
         "demo.metrics.main",
         "demo.metrics.literal",
         "demo.metrics.other",
+        "demo.metrics.other.release",
         "legacy",
         "legacy.feature",
         "legacy.feature.child",
@@ -697,7 +703,8 @@ async def test_semantic_git_discovery_and_view_filtering(
     feature = await NodeNamespace.get(session, "legacy.feature")
     flat = await NodeNamespace.get(session, "flat.release")
     other = await NodeNamespace.get(session, "demo.metrics.other")
-    assert root and main and literal and feature and flat and other
+    other_release = await NodeNamespace.get(session, "demo.metrics.other.release")
+    assert root and main and literal and feature and flat and other and other_release
     root.github_repo_path = "team/metrics"
     root.default_branch = "main"
     main.parent_namespace = root.namespace
@@ -710,12 +717,36 @@ async def test_semantic_git_discovery_and_view_filtering(
     flat.git_branch = "release"
     other.github_repo_path = "team/other"
     other.default_branch = "main"
+    other_release.parent_namespace = other.namespace
+    other_release.git_branch = "release"
     await session.commit()
 
     # A branch linked outside the root's name prefix can have descendants of
     # its own. Loading a single cube namespace must also follow its Git parent.
     scoped_namespaces = await _active_git_namespaces(session, "demo.metrics")
     assert "legacy.feature.child" in scoped_namespaces
+    checker = AsyncMock(spec=AccessChecker)
+    checker.check.return_value = [
+        AccessDecision(
+            request=AccessChecker.resource_request_from_namespace(
+                namespace,
+                ResourceAction.READ,
+            ),
+            approved=True,
+        )
+        for namespace in (
+            "demo.metrics",
+            "demo.metrics.main",
+            "demo.metrics.literal",
+            "legacy.feature",
+            "demo.metrics.other.release",
+        )
+    ]
+    assert await _list_semantic_branches("demo.metrics", session, checker) == [
+        "feature/foo",
+        "main",
+        "unversioned",
+    ]
     linked_namespaces = await _namespace_map_for_cubes(session, {"legacy.feature"})
     assert "demo.metrics" in linked_namespaces
     branch_is_not_a_root = await _list_semantic_branches(
@@ -750,6 +781,11 @@ async def test_semantic_git_discovery_and_view_filtering(
         "level": {"id": "branch", "display_name": "Branch"},
         "values": ["feature/foo", "main", "unversioned"],
     }
+    other_branches = await client.post(
+        "/semantic/discover",
+        json={"path": ["demo.metrics.other"]},
+    )
+    assert other_branches.json()["values"] == ["main", "release"]
     plain_level = await client.post(
         "/semantic/discover",
         json={"path": ["plain.metrics"]},
