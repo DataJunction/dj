@@ -350,7 +350,11 @@ def _projected_fk_outputs(
             or (full_name != fk_col and full_name.rsplit(SEPARATOR, 1)[0] in qualifiers)
         ):
             continue
-        output_name = projection.alias.name if projection.alias else fk_col
+        output_name = (
+            projection.alias.name
+            if isinstance(projection, ast.Aliasable) and projection.alias
+            else fk_col
+        )
         result.add(output_name)
     return result
 

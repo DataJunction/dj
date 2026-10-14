@@ -1106,7 +1106,7 @@ repair_order_details_0 AS (
     SUM(t1.price) price_sum_252381cf
   FROM default.roads.repair_order_details t1
   INNER JOIN default_repair_order t2 ON t1.repair_order_id = t2.repair_order_id
-  INNER JOIN default_hard_hat t3 ON t2.hard_hat_id = t3.hard_hat_id
+  INNER JOIN default_hard_hat t3 ON t2.hard_hat_id = t3.hard_hat_id AND t3.state = 'AZ'
   INNER JOIN default_dispatcher t4 ON t2.dispatcher_id = t4.dispatcher_id
   INNER JOIN default_municipality_dim t5 ON t2.municipality_id = t5.municipality_id
   LEFT OUTER JOIN default_hard_hat_to_delete t6 ON t2.hard_hat_id = t6.hard_hat_id
@@ -1129,7 +1129,7 @@ repair_orders_fact_0 AS (
     SUM(t1.total_repair_cost) total_repair_cost_sum_67874507,
     SUM(t1.price * t1.discount) price_discount_sum_e4ba5456
   FROM default_repair_orders_fact t1
-  INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id
+  INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id AND t2.state = 'AZ'
   INNER JOIN default_dispatcher t3 ON t1.dispatcher_id = t3.dispatcher_id
   INNER JOIN default_municipality_dim t4 ON t1.municipality_id = t4.municipality_id
   LEFT OUTER JOIN default_hard_hat_to_delete t5 ON t1.hard_hat_id = t5.hard_hat_id
@@ -1238,8 +1238,8 @@ async def test_cube_filters_merged_with_request_filters(
             SUM(t1.price) price_sum_252381cf
           FROM default.roads.repair_order_details t1
           INNER JOIN default_repair_order t2 ON t1.repair_order_id = t2.repair_order_id
-          INNER JOIN default_hard_hat t3 ON t2.hard_hat_id = t3.hard_hat_id
-          INNER JOIN default_dispatcher t4 ON t2.dispatcher_id = t4.dispatcher_id
+          INNER JOIN default_hard_hat t3 ON t2.hard_hat_id = t3.hard_hat_id AND t3.state = 'AZ'
+          INNER JOIN default_dispatcher t4 ON t2.dispatcher_id = t4.dispatcher_id AND t4.company_name = 'Potts LLC'
           INNER JOIN default_municipality_dim t5 ON t2.municipality_id = t5.municipality_id
           LEFT OUTER JOIN default_hard_hat_to_delete t6 ON t2.hard_hat_id = t6.hard_hat_id
           WHERE  t3.state = 'AZ' AND t4.company_name = 'Potts LLC'
@@ -1261,8 +1261,8 @@ async def test_cube_filters_merged_with_request_filters(
             SUM(t1.total_repair_cost) total_repair_cost_sum_67874507,
             SUM(t1.price * t1.discount) price_discount_sum_e4ba5456
           FROM default_repair_orders_fact t1
-          INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id
-          INNER JOIN default_dispatcher t3 ON t1.dispatcher_id = t3.dispatcher_id
+          INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id AND t2.state = 'AZ'
+          INNER JOIN default_dispatcher t3 ON t1.dispatcher_id = t3.dispatcher_id AND t3.company_name = 'Potts LLC'
           INNER JOIN default_municipality_dim t4 ON t1.municipality_id = t4.municipality_id
           LEFT OUTER JOIN default_hard_hat_to_delete t5 ON t1.hard_hat_id = t5.hard_hat_id
           WHERE  t2.state = 'AZ' AND t3.company_name = 'Potts LLC'
@@ -1347,7 +1347,7 @@ async def test_cube_filters_applied_in_v3_sql_via_cube_param(
             SUM(t1.price) price_sum_935e7117,
             SUM(t1.total_repair_cost) total_repair_cost_sum_67874507
           FROM default_repair_orders_fact t1
-          INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id
+          INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id AND t2.state = 'AZ'
           INNER JOIN default_dispatcher t3 ON t1.dispatcher_id = t3.dispatcher_id
           WHERE t2.state = 'AZ'
           GROUP BY t2.state, t3.company_name
@@ -1394,7 +1394,7 @@ async def test_cube_filters_applied_in_v3_sql_via_cube_param(
           SUM(t1.price) price_sum_935e7117,
           SUM(t1.total_repair_cost) total_repair_cost_sum_67874507
         FROM default_repair_orders_fact t1
-        INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id
+        INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id AND t2.state = 'AZ'
         INNER JOIN default_dispatcher t3 ON t1.dispatcher_id = t3.dispatcher_id
         WHERE t2.state = 'AZ'
         GROUP BY t2.state, t3.company_name
@@ -1477,8 +1477,8 @@ async def test_cube_filters_applied_in_v3_sql_via_cube_param(
             SUM(t1.price) price_sum_935e7117,
             SUM(t1.total_repair_cost) total_repair_cost_sum_67874507
           FROM default_repair_orders_fact t1
-          INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id
-          INNER JOIN default_dispatcher t3 ON t1.dispatcher_id = t3.dispatcher_id
+          INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id AND t2.state = 'AZ'
+          INNER JOIN default_dispatcher t3 ON t1.dispatcher_id = t3.dispatcher_id AND t3.company_name = 'Potts LLC'
           WHERE t2.state = 'AZ' AND t3.company_name = 'Potts LLC'
           GROUP BY t2.state, t3.company_name
         )
@@ -1550,7 +1550,7 @@ async def test_cube_only_no_metrics_no_dims(client_with_repairs_cube: AsyncClien
             SUM(t1.price) price_sum_252381cf
           FROM default.roads.repair_order_details t1
           INNER JOIN default_repair_order t2 ON t1.repair_order_id = t2.repair_order_id
-          INNER JOIN default_hard_hat t3 ON t2.hard_hat_id = t3.hard_hat_id
+          INNER JOIN default_hard_hat t3 ON t2.hard_hat_id = t3.hard_hat_id AND t3.state = 'AZ'
           INNER JOIN default_dispatcher t4 ON t2.dispatcher_id = t4.dispatcher_id
           INNER JOIN default_municipality_dim t5 ON t2.municipality_id = t5.municipality_id
           LEFT OUTER JOIN default_hard_hat_to_delete t6 ON t2.hard_hat_id = t6.hard_hat_id
@@ -1569,7 +1569,7 @@ async def test_cube_only_no_metrics_no_dims(client_with_repairs_cube: AsyncClien
             SUM(t1.total_repair_cost) total_repair_cost_sum_67874507,
             SUM(t1.price * t1.discount) price_discount_sum_e4ba5456
           FROM default_repair_orders_fact t1
-          INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id
+          INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id AND t2.state = 'AZ'
           INNER JOIN default_dispatcher t3 ON t1.dispatcher_id = t3.dispatcher_id
           INNER JOIN default_municipality_dim t4 ON t1.municipality_id = t4.municipality_id
           LEFT OUTER JOIN default_hard_hat_to_delete t5 ON t1.hard_hat_id = t5.hard_hat_id
@@ -1646,7 +1646,7 @@ async def test_cube_only_no_metrics_no_dims(client_with_repairs_cube: AsyncClien
           SUM(t1.price) price_sum_252381cf
         FROM default.roads.repair_order_details t1
         INNER JOIN default_repair_order t2 ON t1.repair_order_id = t2.repair_order_id
-        INNER JOIN default_hard_hat t3 ON t2.hard_hat_id = t3.hard_hat_id
+        INNER JOIN default_hard_hat t3 ON t2.hard_hat_id = t3.hard_hat_id AND t3.state = 'AZ'
         INNER JOIN default_dispatcher t4 ON t2.dispatcher_id = t4.dispatcher_id
         INNER JOIN default_municipality_dim t5 ON t2.municipality_id = t5.municipality_id
         LEFT OUTER JOIN default_hard_hat_to_delete t6 ON t2.hard_hat_id = t6.hard_hat_id
@@ -3954,7 +3954,7 @@ async def test_cube_materialization_metadata(
       SUM(t1.total_repair_cost) total_repair_cost_sum_67874507,
       SUM(t1.price * t1.discount) price_discount_sum_e4ba5456
     FROM default_repair_orders_fact t1
-    INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id
+    INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id AND t2.state = 'AZ'
     INNER JOIN default_dispatcher t3 ON t1.dispatcher_id = t3.dispatcher_id
     INNER JOIN default_municipality_dim t4 ON t1.municipality_id = t4.municipality_id
     WHERE t2.state = 'AZ'
