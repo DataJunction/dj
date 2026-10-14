@@ -1066,7 +1066,13 @@ export default function NamespaceHeader({
             (() => {
               const repoBranch =
                 gitConfig?.git_branch || gitConfig?.default_branch;
-              const editableBranch = gitShape === 'branch' && !isGitManaged;
+              // Editable = the branch root (shape `branch`) OR a sub-namespace
+              // of a feature branch (resolves as `flat`, no parent_namespace of
+              // its own, so `gitShape` alone misses it — same trap as the
+              // read-only verdict). Without isFeatureBranch these sub-namespaces
+              // fall through to the not-git "Connect to Git" button.
+              const editableBranch =
+                !isGitManaged && (gitShape === 'branch' || isFeatureBranch);
               const gitUrl = viewInGitUrl();
 
               // Read-only: fork to propose a change; everything else in the menu.
