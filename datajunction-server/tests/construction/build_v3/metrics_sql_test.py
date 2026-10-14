@@ -5600,7 +5600,8 @@ class TestFilterOnlyDimensions:
     ):
         """
         A required dimension named in a filter is still part of the grain, so the
-        window function sees one row per remaining value.
+        window function sees one row per remaining value. The dimension CTE
+        remains shared and unfiltered; the predicate binds to this join role.
         """
         response = await client_with_build_v3.post(
             "/nodes/metric/",
@@ -5633,7 +5634,6 @@ class TestFilterOnlyDimensions:
             WITH v3_date AS (
               SELECT date_id, week
               FROM default.v3.dates
-              WHERE week {week_predicate}
             ),
             v3_order_details AS (
               SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
@@ -5643,7 +5643,8 @@ class TestFilterOnlyDimensions:
             order_details_0 AS (
               SELECT t2.week, SUM(t1.line_total) line_total_sum_e1f61696
               FROM v3_order_details t1
-              LEFT OUTER JOIN v3_date t2 ON t1.order_date = t2.date_id
+              LEFT OUTER JOIN v3_date t2
+                ON t1.order_date = t2.date_id AND t2.week {week_predicate}
               WHERE t2.week {week_predicate}
               GROUP BY t2.week
             ),
@@ -6208,7 +6209,8 @@ class TestFilterOnRoleDimension:
             order_details_0 AS (
                 SELECT t2.year year_order, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
-                LEFT OUTER JOIN v3_date t2 ON t1.order_date = t2.date_id
+                LEFT OUTER JOIN v3_date t2
+                  ON t1.order_date = t2.date_id AND t2.year IN (2023, 2024)
                 WHERE t2.year IN (2023, 2024)
                 GROUP BY t2.year
             )

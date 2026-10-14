@@ -686,12 +686,24 @@ def _push_simple_dim_filters_to_join(
     literals = (ast.Number, ast.String, ast.Boolean)
     dimension_aliases = set(dim_aliases.values())
     for atom in _split_and_atoms(select.where):
-        if not isinstance(atom, ast.BinaryOp) or atom.op != ast.BinaryOpKind.Eq:
-            continue
-        if not (
-            (isinstance(atom.left, ast.Column) and isinstance(atom.right, literals))
-            or (isinstance(atom.right, ast.Column) and isinstance(atom.left, literals))
-        ):
+        simple_equality = (
+            isinstance(atom, ast.BinaryOp)
+            and atom.op == ast.BinaryOpKind.Eq
+            and (
+                (isinstance(atom.left, ast.Column) and isinstance(atom.right, literals))
+                or (
+                    isinstance(atom.right, ast.Column)
+                    and isinstance(atom.left, literals)
+                )
+            )
+        )
+        simple_membership = (
+            isinstance(atom, ast.In)
+            and isinstance(atom.expr, ast.Column)
+            and isinstance(atom.source, list)
+            and all(isinstance(value, literals) for value in atom.source)
+        )
+        if not (simple_equality or simple_membership):
             continue
         namespaces = _filter_namespaces(atom)
         if len(namespaces) != 1:

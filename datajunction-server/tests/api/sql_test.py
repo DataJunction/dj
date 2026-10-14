@@ -4807,12 +4807,12 @@ async def test_role_path_dimensions_performance_complex_query(
         	t8.year_number year_number_month_year,
         	COUNT(t1.age) age_count_4ebaaaaa,
         	SUM(t1.age) age_sum_4ebaaaaa
-         FROM default_user_dim t1 LEFT OUTER JOIN default_special_country_dim t2 ON t1.birth_country = t2.country_code
+         FROM default_user_dim t1 LEFT OUTER JOIN default_special_country_dim t2 ON t1.birth_country = t2.country_code AND t2.name IN ('Canada', 'United States', 'Mexico')
         LEFT OUTER JOIN default_special_country_dim t3 ON t1.residence_country = t3.country_code
         LEFT OUTER JOIN default_regions t4 ON t2.country_code = t4.region_id AND t4.region_name = 'North America'
         LEFT OUTER JOIN default_date_dim t5 ON t1.birth_date = t5.dateint
         LEFT OUTER JOIN default_weeks t6 ON t5.dateint BETWEEN t6.week_start_date AND t6.week_end_date
-        LEFT OUTER JOIN default_months t7 ON t6.month_id = t7.month_id
+        LEFT OUTER JOIN default_months t7 ON t6.month_id = t7.month_id AND t7.month_name IN ('January', 'February', 'March')
         LEFT OUTER JOIN default_years t8 ON t7.year_id = t8.year_id
          WHERE  t2.name IN ('Canada', 'United States', 'Mexico') AND t4.region_name = 'North America' AND t7.month_name IN ('January', 'February', 'March') AND t8.year_number >= 2020
          GROUP BY  t2.name, t3.name, t4.region_name, t7.month_name, t8.year_number

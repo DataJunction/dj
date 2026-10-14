@@ -569,7 +569,9 @@ class TestFilterPushdownOperators:
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
-            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            LEFT OUTER JOIN v3_product t2
+              ON t1.product_id = t2.product_id
+              AND t2.category NOT IN ('Electronics', 'Clothing')
             WHERE t2.category NOT IN ('Electronics', 'Clothing')
             GROUP BY t2.category
             """,
@@ -1517,9 +1519,11 @@ class TestFilterPushdownMultiRole:
         )
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("predicate", ["= 'A'", "IN ('A', 'Z')"])
     async def test_attribute_filter_does_not_filter_another_role_of_shared_cte(
         self,
         client_with_build_v3,
+        predicate,
     ):
         """An A -> B order selected by destination must retain B after
         filtering origin A.
@@ -1529,14 +1533,14 @@ class TestFilterPushdownMultiRole:
             params={
                 "metrics": ["v3.total_revenue"],
                 "dimensions": ["v3.location.city[from]", "v3.location.city[to]"],
-                "filters": ["v3.location.city[from] = 'A'"],
+                "filters": [f"v3.location.city[from] {predicate}"],
             },
         )
         assert response.status_code == 200, response.json()
         sql = get_first_grain_group(response.json())["sql"]
         assert_sql_equal(
             sql,
-            """
+            f"""
             WITH v3_location AS (
               SELECT location_id, city FROM default.v3.locations
             ),
@@ -1550,9 +1554,9 @@ class TestFilterPushdownMultiRole:
                    SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_location t2
-              ON t1.from_location_id = t2.location_id AND t2.city = 'A'
+              ON t1.from_location_id = t2.location_id AND t2.city {predicate}
             LEFT OUTER JOIN v3_location t3 ON t1.to_location_id = t3.location_id
-            WHERE t2.city = 'A'
+            WHERE t2.city {predicate}
             GROUP BY t2.city, t3.city
             """,
         )
