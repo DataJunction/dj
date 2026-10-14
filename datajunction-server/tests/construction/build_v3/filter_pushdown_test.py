@@ -1078,7 +1078,8 @@ class TestFilterOnlyRoleSelection:
 
         # Qualification makes the provenance unambiguous despite the unknown source.
         parent.current.query = parent.current.query.replace(
-            "SELECT event_date", "SELECT d.event_date"
+            "SELECT event_date",
+            "SELECT d.event_date",
         )
         assert (
             _resolve_filter_only_dim(ctx, parent, parse_dimension_ref(ref), ref)
