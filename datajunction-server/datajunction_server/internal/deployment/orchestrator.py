@@ -4655,6 +4655,7 @@ class DeploymentOrchestrator:
             element_key = node_column.cube_element_name
             if element_key in column_spec_map:
                 col_spec = column_spec_map[element_key]
+                node_column.description = col_spec.description
                 if col_spec.partition:  # pragma: no branch
                     node_column.partition = Partition(
                         type_=col_spec.partition.type,
