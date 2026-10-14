@@ -5591,13 +5591,13 @@ class TestFilterOnlyDimensions:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "date_filter",
-        ["v3.date.week = 1", "v3.date.week IN (1, 2)"],
+        "week_predicate",
+        ["= 1", "IN (1, 2)"],
     )
     async def test_filter_on_required_dimension_stays_grouped(
         self,
         client_with_build_v3,
-        date_filter,
+        week_predicate,
     ):
         """
         A required dimension named in a filter is still part of the grain, so the
@@ -5622,13 +5622,46 @@ class TestFilterOnlyDimensions:
             "/sql/metrics/v3/",
             params={
                 "metrics": ["v3.wow_revenue_change_filtered"],
-                "filters": [date_filter],
+                "filters": [f"v3.date.week {week_predicate}"],
             },
         )
         assert response.status_code == 200, response.json()
         result = response.json()
 
-        assert "GROUP BY t2.week" in result["sql"].replace("  ", " ")
+        assert_sql_equal(
+            result["sql"],
+            f"""
+            WITH v3_date AS (
+              SELECT date_id, week
+              FROM default.v3.dates
+              WHERE week {week_predicate}
+            ),
+            v3_order_details AS (
+              SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+              SELECT t2.week, SUM(t1.line_total) line_total_sum_e1f61696
+              FROM v3_order_details t1
+              LEFT OUTER JOIN v3_date t2 ON t1.order_date = t2.date_id
+              WHERE t2.week {week_predicate}
+              GROUP BY t2.week
+            ),
+            base_metrics AS (
+              SELECT
+                order_details_0.week AS week,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+              FROM order_details_0
+              GROUP BY order_details_0.week
+            )
+            SELECT
+              base_metrics.week AS week,
+              base_metrics.total_revenue - LAG(base_metrics.total_revenue, 1) OVER (ORDER BY base_metrics.week) AS wow_revenue_change_filtered
+            FROM base_metrics
+            WHERE base_metrics.week {week_predicate}
+            """,
+        )
         assert [col["semantic_entity"] for col in result["columns"]] == [
             "v3.date.week",
             "v3.wow_revenue_change_filtered",
