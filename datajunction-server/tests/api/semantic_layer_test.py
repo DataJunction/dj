@@ -926,6 +926,7 @@ async def test_semantic_git_discovery_and_view_filtering(
 
     # A cube and an approved branch namespace can have the same name. The
     # namespace grant must not authorize the cube when its READ is denied.
+    # The regular cube endpoint rejects writes while the namespace is Git-managed.
     root.github_repo_path = None
     await session.commit()
     await create_cube("demo.metrics.main")

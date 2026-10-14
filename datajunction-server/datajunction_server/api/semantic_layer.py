@@ -517,6 +517,19 @@ def _path_filter(path: list[str | None]) -> tuple[str | None, str | None]:
     return (path[0] if path else None, path[1] if len(path) == 2 else None)
 
 
+async def _approved_resources(
+    access_checker: AccessChecker,
+) -> set[tuple[ResourceType, str]]:
+    """Keep resource types when comparing authorization decisions by name."""
+    return {
+        (
+            decision.request.access_object.resource_type,
+            decision.request.access_object.name,
+        )
+        for decision in await access_checker.check()
+    }
+
+
 async def _cube_summaries(
     session: AsyncSession,
     scopes: set[str] | None,
@@ -573,20 +586,10 @@ async def _plain_cube_summaries(
     cubes = await _cube_summaries(session, None, exact_namespace=namespace)
     for name, _, _ in cubes:
         access_checker.add_request_by_node_name(name, ResourceAction.READ)
-    decisions = await access_checker.check()
-    approved_namespaces = {
-        decision.request.access_object.name
-        for decision in decisions
-        if decision.request.access_object.resource_type == ResourceType.NAMESPACE
-    }
-    approved_cubes = {
-        decision.request.access_object.name
-        for decision in decisions
-        if decision.request.access_object.resource_type == ResourceType.NODE
-    }
-    if namespace not in approved_namespaces:
+    approved = await _approved_resources(access_checker)
+    if (ResourceType.NAMESPACE, namespace) not in approved:
         return []
-    return [cube for cube in cubes if cube[0] in approved_cubes]
+    return [cube for cube in cubes if (ResourceType.NODE, cube[0]) in approved]
 
 
 async def _namespace_map_for_cubes(
@@ -663,8 +666,45 @@ async def _list_semantic_namespaces(
     )
     roots = sorted(rows.scalars())
     access_checker.add_namespaces(roots, ResourceAction.READ)
-    approved = set(await access_checker.approved_resource_names())
-    return [root for root in roots if root in approved]
+    approved = await _approved_resources(access_checker)
+    return [root for root in roots if (ResourceType.NAMESPACE, root) in approved]
+
+
+async def _list_plain_namespaces(
+    session: AsyncSession,
+    access_checker: AccessChecker,
+) -> set[str]:
+    """List non-Git namespaces containing at least one readable cube."""
+    rows = await session.execute(
+        select(Node.name, Node.namespace).where(
+            Node.deactivated_at.is_(None),
+            Node.type == NodeType.CUBE,
+        ),
+    )
+    cubes = list(rows.all())
+    namespaces = await _namespace_map_for_cubes(
+        session,
+        {namespace for _, namespace in cubes},
+    )
+    plain_cubes = [
+        (name, namespace)
+        for name, namespace in cubes
+        if namespace in namespaces
+        and resolve_git_info_from_map(namespace, namespaces) is None
+    ]
+    access_checker.add_namespaces(
+        sorted({namespace for _, namespace in plain_cubes}),
+        ResourceAction.READ,
+    )
+    for name, _ in plain_cubes:
+        access_checker.add_request_by_node_name(name, ResourceAction.READ)
+    approved = await _approved_resources(access_checker)
+    return {
+        namespace
+        for name, namespace in plain_cubes
+        if (ResourceType.NAMESPACE, namespace) in approved
+        and (ResourceType.NODE, name) in approved
+    }
 
 
 @router.post(
@@ -697,45 +737,7 @@ async def discover_views(
         return _problem(exc.http_status_code or 400, exc.message)
     if not request.path:
         values = set(await _list_semantic_namespaces(session, access_checker))
-        rows = await session.execute(
-            select(Node.name, Node.namespace).where(
-                Node.deactivated_at.is_(None),
-                Node.type == NodeType.CUBE,
-            ),
-        )
-        cubes = list(rows.all())
-        namespaces = await _namespace_map_for_cubes(
-            session,
-            {namespace for _, namespace in cubes},
-        )
-        unversioned_cubes = [
-            (name, namespace)
-            for name, namespace in cubes
-            if namespace in namespaces
-            and resolve_git_info_from_map(namespace, namespaces) is None
-        ]
-        access_checker.add_namespaces(
-            sorted({namespace for _, namespace in unversioned_cubes}),
-            ResourceAction.READ,
-        )
-        for name, _ in unversioned_cubes:
-            access_checker.add_request_by_node_name(name, ResourceAction.READ)
-        decisions = await access_checker.check()
-        approved_namespaces = {
-            decision.request.access_object.name
-            for decision in decisions
-            if decision.request.access_object.resource_type == ResourceType.NAMESPACE
-        }
-        approved_cubes = {
-            decision.request.access_object.name
-            for decision in decisions
-            if decision.request.access_object.resource_type == ResourceType.NODE
-        }
-        values.update(
-            namespace
-            for name, namespace in unversioned_cubes
-            if namespace in approved_namespaces and name in approved_cubes
-        )
+        values.update(await _list_plain_namespaces(session, access_checker))
         return DiscoverResponse(
             level=DiscoverLevel(id="namespace", display_name="Namespace"),
             values=sorted(values),
@@ -785,16 +787,16 @@ async def _list_semantic_branches(
         [name for name, _ in branch_namespaces],
         ResourceAction.READ,
     )
-    approved = {
-        decision.request.access_object.name
-        for decision in await access_checker.check()
-        if decision.request.access_object.resource_type == ResourceType.NAMESPACE
-    }
-    if namespace not in approved:
+    approved = await _approved_resources(access_checker)
+    if (ResourceType.NAMESPACE, namespace) not in approved:
         return _problem(404, f"Git namespace `{namespace}` does not exist.")
 
     branches = {root_location[1]} if root_location else set()
-    branches.update(branch for name, branch in branch_namespaces if name in approved)
+    branches.update(
+        branch
+        for name, branch in branch_namespaces
+        if (ResourceType.NAMESPACE, name) in approved
+    )
     return sorted(branches)
 
 
@@ -875,14 +877,10 @@ async def list_views(
         return _problem(exc.http_status_code or 400, exc.message)
     for cube_name, _, _ in cubes:
         access_checker.add_request_by_node_name(cube_name, ResourceAction.READ)
-    approved = {
-        decision.request.access_object.name
-        for decision in await access_checker.check()
-        if decision.request.access_object.resource_type == ResourceType.NODE
-    }
+    approved = await _approved_resources(access_checker)
     summaries = []
     for cube_name, display_name, node_namespace in cubes:
-        if cube_name not in approved:
+        if (ResourceType.NODE, cube_name) not in approved:
             continue
         location = _git_location(node_namespace, namespaces)
         if namespace is not None and (location is None or location[0] != namespace):
