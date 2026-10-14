@@ -3599,7 +3599,45 @@ class TestNodeCRUD:
         assert data["version"] == "v3.0"
         response = await client_with_roads.get("/metrics/default.total_repair_cost")
         data = response.json()
-        assert data["required_dimensions"] == ["repair_order_id"]
+        assert data["required_dimensions"] == [
+            "default.repair_order_details.repair_order_id",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_metric_required_dimensions_are_full_names_in_stable_order(
+        self,
+        client_with_roads: AsyncClient,
+    ):
+        """
+        Required dimensions have no order, so the metrics endpoint returns
+        their full names sorted.
+        """
+        response = await client_with_roads.patch(
+            "/nodes/default.total_repair_cost/",
+            json={
+                "query": "SELECT count(price) FROM default.repair_order_details",
+                "required_dimensions": ["repair_order_id", "price"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        response = await client_with_roads.get("/metrics/default.total_repair_cost")
+        assert response.json()["required_dimensions"] == [
+            "default.repair_order_details.price",
+            "default.repair_order_details.repair_order_id",
+        ]
+
+        # The returned names are accepted back as input.
+        response = await client_with_roads.patch(
+            "/nodes/default.total_repair_cost/",
+            json={
+                "required_dimensions": [
+                    "default.repair_order_details.price",
+                    "default.repair_order_details.repair_order_id",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
 
     @pytest.mark.asyncio
     async def test_metric_unknown_unit_does_not_set_column_unit(

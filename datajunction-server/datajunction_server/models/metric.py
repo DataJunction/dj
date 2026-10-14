@@ -106,7 +106,9 @@ class Metric(BaseModel):
             unit=unit_to_dict(
                 node.current.columns[0].unit if node.current.columns else None,
             ),
-            required_dimensions=[dim.name for dim in node.current.required_dimensions],
+            required_dimensions=sorted(
+                dim.full_name() for dim in node.current.required_dimensions
+            ),
             reaggregate=node.current.reaggregate,
             fixed_grain=node.current.fixed_grain,
             is_measure=node.current.is_measure,
