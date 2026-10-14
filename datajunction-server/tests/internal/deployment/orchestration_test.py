@@ -1288,7 +1288,7 @@ class TestCubeDeployment:
         session,
         current_user,
     ):
-        """Test that partitions from cube spec columns are applied during deployment"""
+        """Test that partitions and descriptions from cube spec columns are applied"""
         # Create a cube spec with column partition
         cube_spec = CubeSpec(
             name="test.sales_cube",
@@ -1297,9 +1297,11 @@ class TestCubeDeployment:
             dimensions=["test.date.dateint"],
             namespace="test",
             columns=[
+                ColumnSpec(name="test.revenue", description="Total revenue."),
                 ColumnSpec(
                     name="test.date.dateint",
                     display_name="Date",
+                    description="Date as yyyyMMdd.",
                     attributes=["primary_key"],
                     partition=PartitionSpec(
                         type=PartitionType.TEMPORAL,
@@ -1439,6 +1441,11 @@ class TestCubeDeployment:
         assert date_cube_column.partition.type_ == PartitionType.TEMPORAL
         assert date_cube_column.partition.granularity == Granularity.DAY
         assert date_cube_column.partition.format == "yyyyMMdd"
+
+        assert {col.name: col.description for col in node_revision.columns} == {
+            "test.revenue": "Total revenue.",
+            "test.date.dateint": "Date as yyyyMMdd.",
+        }
 
     @pytest.mark.asyncio
     async def test_multiple_cubes_with_partition_no_autoflush_error(
