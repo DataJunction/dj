@@ -2,6 +2,8 @@
 Tests for the dimensions API.
 """
 
+import re
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -160,7 +162,7 @@ async def test_list_dimension_query_count(
     node_queries = [
         query
         for query in capture_queries
-        if "FROM node" in query or "FROM dimensionlink" in query
+        if re.search(r"\bFROM (?:node|dimensionlink)\b", query)
     ]
     assert len(node_queries) == 3, "\n\n".join(node_queries)
 
