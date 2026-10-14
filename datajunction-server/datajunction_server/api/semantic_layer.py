@@ -862,6 +862,22 @@ async def list_views(
                     )
         else:
             namespace, branch = _discovery_filter(configuration)
+            if namespace is not None and branch is None:
+                plain_cubes = await _plain_cube_summaries(
+                    session,
+                    namespace,
+                    access_checker,
+                )
+                if plain_cubes is not None:
+                    return [
+                        ViewSummary(
+                            name=name,
+                            display_name=display_name or None,
+                            uid=name,
+                            features=[],
+                        )
+                        for name, display_name, _ in plain_cubes
+                    ]
         namespaces = await _active_git_namespaces(session, namespace)
         cubes = await _cube_summaries(
             session,
@@ -871,7 +887,11 @@ async def list_views(
         return _problem(exc.http_status_code or 400, exc.message)
     for cube_name, _, _ in cubes:
         access_checker.add_request_by_node_name(cube_name, ResourceAction.READ)
-    approved = set(await access_checker.approved_resource_names())
+    approved = {
+        decision.request.access_object.name
+        for decision in await access_checker.check()
+        if decision.request.access_object.resource_type == ResourceType.NODE
+    }
     summaries = []
     for cube_name, display_name, node_namespace in cubes:
         if cube_name not in approved:

@@ -828,6 +828,22 @@ async def test_semantic_git_discovery_and_view_filtering(
     assert [view["name"] for view in plain_filtered.json()] == [plain_view]
     assert "namespace" not in plain_filtered.json()[0]
     assert "branch" not in plain_filtered.json()[0]
+    plain_runtime = await client.post(
+        "/semantic/views/",
+        json={"runtime_configuration": {"namespace": "plain.metrics"}},
+    )
+    assert plain_runtime.status_code == 200, plain_runtime.text
+    assert plain_runtime.json() == plain_filtered.json()
+    plain_with_branch = await client.post(
+        "/semantic/views/",
+        json={
+            "runtime_configuration": {
+                "namespace": "plain.metrics",
+                "branch": "unversioned",
+            },
+        },
+    )
+    assert plain_with_branch.json() == []
     plain_partial = await client.post(
         "/semantic/views/",
         json={"path": ["plain.metrics"]},
@@ -908,6 +924,14 @@ async def test_semantic_git_discovery_and_view_filtering(
     )
     assert missing.status_code == 404, missing.text
 
+    # A cube and an approved branch namespace can have the same name. The
+    # namespace grant must not authorize the cube when its READ is denied.
+    root.github_repo_path = None
+    await session.commit()
+    await create_cube("demo.metrics.main")
+    root.github_repo_path = "team/metrics"
+    await session.commit()
+
     class SelectiveAuthorizationService:
         def authorize(self, _context, requests):
             allowed_namespaces = {"demo.metrics", "demo.metrics.main"}
@@ -946,6 +970,11 @@ async def test_semantic_git_discovery_and_view_filtering(
     assert denied_branches.status_code == 404
     views = await client.post("/semantic/views/list")
     assert [view["name"] for view in views.json()] == [main_view]
+    branch_views = await client.post(
+        "/semantic/views/",
+        json={"path": ["demo.metrics", "main"]},
+    )
+    assert [view["name"] for view in branch_views.json()] == [main_view]
     feature_views = await client.post("/semantic/views/", json=feature_payload)
     assert feature_views.json() == []
     denied_plain = await client.post(
