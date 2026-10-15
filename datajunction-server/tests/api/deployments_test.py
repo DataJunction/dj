@@ -11224,6 +11224,35 @@ class TestDerivedMetricDimensionColumnTypes:
         }
         assert invalid == {}
 
+    @pytest.mark.asyncio
+    async def test_dry_run_with_dimension_unchanged(self, client):
+        namespace = "derived_dim_types_unchanged"
+        nodes = self._nodes()
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert data["status"] == "success", data
+
+        for node in nodes:
+            if node.name == "fd_fact":
+                node.query = (
+                    "SELECT account_id, dateint, CAST(visited AS bigint) AS visited "
+                    "FROM ${prefix}fd_fact_raw"
+                )
+        data = await impact_and_poll(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert {
+            d["name"]: d["predicted_status"] for d in data["downstream_impacts"]
+        } == {
+            f"{namespace}.fd_num": "valid",
+            f"{namespace}.fd_ratio_cross": "valid",
+            f"{namespace}.fd_ratio_plain": "valid",
+            f"{namespace}.fd_ratio_coalesce": "valid",
+        }
+
 
 def _clone_column_list(model, **overrides: str) -> tuple[str, str]:
     """Quoted column names and the SELECT list that clones a row of `model`."""
