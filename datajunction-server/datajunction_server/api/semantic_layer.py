@@ -10,7 +10,7 @@ DJ generates SQL; the client executes it. This router does NOT run queries —
 """
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from fastapi import Body, Depends
 from fastapi.responses import JSONResponse
@@ -686,9 +686,7 @@ async def discover_views(
             values=await _discoverable_namespaces(session, access_checker),
             next_level=DiscoverLevel(id="branch", display_name="Branch"),
         )
-    namespace = request.path[0]
-    if not isinstance(namespace, str):
-        return _problem(400, "Invalid view discovery path")
+    namespace = cast(str, request.path[0])  # _path_filter validated the path.
     selected = await _selected_namespace(session, namespace)
     if selected is None:
         return _problem(404, f"Namespace `{namespace}` does not exist.")
@@ -820,8 +818,6 @@ async def list_views(
                 continue
             if branch is not None and location[1] != branch:
                 continue
-        elif selected and location is not None:
-            continue
         needed = {location[0]} if location else {node_namespace}
         if location and location[2]:
             needed.add(location[2])

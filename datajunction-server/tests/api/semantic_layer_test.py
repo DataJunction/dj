@@ -660,6 +660,8 @@ async def test_semantic_git_discovery_and_view_filtering(
         "plain.metrics",
         "plain.metrics.deep",
         "empty.metrics",
+        "branch_only",
+        "branch_only.feature",
     ):
         await _expect(await client.post(f"/namespaces/{namespace}"), 200, 201, 409)
 
@@ -705,7 +707,10 @@ async def test_semantic_git_discovery_and_view_filtering(
     flat = await NodeNamespace.get(session, "flat.release")
     other = await NodeNamespace.get(session, "demo.metrics.other")
     other_release = await NodeNamespace.get(session, "demo.metrics.other.release")
+    branch_only = await NodeNamespace.get(session, "branch_only")
+    branch_only_feature = await NodeNamespace.get(session, "branch_only.feature")
     assert root and main and literal and feature and flat and other and other_release
+    assert branch_only and branch_only_feature
     root.github_repo_path = "team/metrics"
     root.default_branch = "main"
     main.parent_namespace = root.namespace
@@ -720,6 +725,9 @@ async def test_semantic_git_discovery_and_view_filtering(
     other.default_branch = "main"
     other_release.parent_namespace = other.namespace
     other_release.git_branch = "release"
+    branch_only.github_repo_path = "team/branch_only"
+    branch_only_feature.parent_namespace = branch_only.namespace
+    branch_only_feature.git_branch = "feature"
     await session.commit()
 
     # A branch linked outside the root's name prefix can have descendants of
@@ -801,6 +809,17 @@ async def test_semantic_git_discovery_and_view_filtering(
         json={"path": ["empty.metrics"]},
     )
     assert empty_level.json()["values"] == [None]
+    branch_only_level = await client.post(
+        "/semantic/discover",
+        json={"path": ["branch_only"]},
+    )
+    assert branch_only_level.json()["values"] == ["feature"]
+    branch_only_views = await client.post(
+        "/semantic/views/",
+        json={"path": ["branch_only", "feature"]},
+    )
+    assert branch_only_views.status_code == 200, branch_only_views.text
+    assert branch_only_views.json() == []
     for selector in (
         {"path": ["empty.metrics", None]},
         {"runtime_configuration": {"namespace": "empty.metrics"}},
@@ -1033,6 +1052,11 @@ async def test_semantic_git_discovery_and_view_filtering(
         json={"path": ["flat.release"]},
     )
     assert denied_branches.status_code == 404
+    denied_plain_discovery = await client.post(
+        "/semantic/discover",
+        json={"path": ["plain.metrics"]},
+    )
+    assert denied_plain_discovery.status_code == 404
     views = await client.post("/semantic/views/list")
     assert [view["name"] for view in views.json()] == [main_view]
     SelectiveAuthorizationService.calls.clear()
