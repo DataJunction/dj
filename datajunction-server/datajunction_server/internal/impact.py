@@ -32,6 +32,9 @@ from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.internal.deployment.dimension_reachability import (
     DimensionReachability,
 )
+from datajunction_server.internal.deployment.utils import (
+    extract_upstream_candidates,
+)
 from datajunction_server.internal.deployment.type_inference import (
     columns_signature_changed,
     parse_query,
@@ -517,6 +520,13 @@ async def _revalidate_and_apply(
         _parse_all_queries(),
     )
 
+    dimension_nodes = await _load_referenced_dimensions(
+        session,
+        loaded_nodes,
+        nodes_by_name,
+        pre_parsed,
+    )
+
     # Seed with deleted and invalid root nodes — their children should
     # not see their columns during revalidation.
     failed_names: set[str] = {n.name for n in ctx.deleted_by_id.values()} | {
@@ -538,6 +548,7 @@ async def _revalidate_and_apply(
                 session,
                 failed_names,
                 pre_parsed_query=parsed_ast,
+                dimension_nodes=dimension_nodes,
             )
             if revalidated.impact_type == ImpactType.WILL_INVALIDATE:
                 failed_names.add(impact.name)
@@ -732,6 +743,32 @@ async def _batch_load_nodes_for_revalidation(
     return {n.name: n for n in nodes}
 
 
+async def _load_referenced_dimensions(
+    session: AsyncSession,
+    loaded_nodes: dict[str, Node],
+    nodes_by_name: dict[str, Node],
+    pre_parsed: dict[str, ast.Query | Exception],
+) -> dict[str, Node]:
+    """Load nodes that derived metrics reference by dotted column name."""
+    names: set[str] = set()
+    for name, parsed in pre_parsed.items():
+        node = loaded_nodes.get(name)
+        if isinstance(parsed, Exception) or not node or node.type != NodeType.METRIC:
+            continue
+        names |= extract_upstream_candidates(parsed, is_metric=True)
+    names -= loaded_nodes.keys() | nodes_by_name.keys()
+    if not names:
+        return {}
+    nodes = await Node.get_by_names(
+        session,
+        sorted(names),
+        options=[
+            joinedload(Node.current).options(selectinload(NodeRevision.columns)),
+        ],
+    )
+    return {n.name: n for n in nodes}
+
+
 def _revalidate_single_node(
     impact: DownstreamImpact,
     loaded_nodes: dict[str, Node],
@@ -739,6 +776,7 @@ def _revalidate_single_node(
     session: AsyncSession,
     failed_names: set[str],
     pre_parsed_query: ast.Query | None = None,
+    dimension_nodes: dict[str, Node] | None = None,
 ) -> DownstreamImpact:
     """Revalidate a single downstream node using validate_node_query.
 
@@ -763,6 +801,24 @@ def _revalidate_single_node(
         nodes_by_name,
         failed_names,
     )
+    if node.type == NodeType.METRIC:
+        pre_parsed_query = pre_parsed_query or parse_query(query)
+        for name in extract_upstream_candidates(pre_parsed_query, is_metric=True):
+            referenced = (
+                loaded_nodes.get(name)
+                or nodes_by_name.get(name)
+                or (dimension_nodes or {}).get(name)
+            )
+            if (
+                name not in parent_columns_map
+                and name not in failed_names
+                and referenced
+                and referenced.current
+                and referenced.current.columns
+            ):
+                parent_columns_map[name] = {
+                    col.name: col.type for col in referenced.current.columns
+                }
 
     # Validate the query and resolve output columns
     validation = validate_node_query(
