@@ -1346,6 +1346,8 @@ class CubeSpec(NodeSpec):
         # Only user-authored partition config is compared here (see __eq__);
         # everything else about cube columns is auto-derived.
         "columns": ChangeTier.MAJOR,
+        # Column descriptions are metadata, like the cube's own description.
+        "column_descriptions": ChangeTier.MINOR,
         # Materialization is not part of a cube's definition. Configuring one
         # through `POST /nodes/{name}/materialization/` has never created a node
         # revision, and a YAML-declared schedule has to behave the same way, or
@@ -1516,12 +1518,17 @@ class CubeSpec(NodeSpec):
         # Compare only partition config for user-specified columns.
         # Cube element columns (types, order, attributes) are auto-derived and ignored.
         from datajunction_server.semantic_fingerprints.normalization import (
+            normalize_cube_column_descriptions,
             normalize_cube_columns,
         )
 
         return normalize_cube_columns(
             self.matched_rendered_columns,
-        ) == normalize_cube_columns(other.matched_rendered_columns)
+        ) == normalize_cube_columns(
+            other.matched_rendered_columns,
+        ) and normalize_cube_column_descriptions(
+            self.matched_rendered_columns,
+        ) == normalize_cube_column_descriptions(other.matched_rendered_columns)
 
 
 NodeUnion = Annotated[

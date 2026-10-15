@@ -932,6 +932,42 @@ class TestDeploymentPlanning:
         to_deploy, _, _ = orchestrator.filter_nodes_to_deploy(existing)
         assert to_deploy == [incoming[1]]
 
+    def test_filter_nodes_redeploys_cube_when_only_a_column_description_changes(
+        self,
+    ):
+        incoming = CubeSpec(
+            name="cube",
+            metrics=["test.revenue"],
+            dimensions=["test.date.dateint"],
+            columns=[
+                ColumnSpec(name="test.revenue", description="Total revenue."),
+            ],
+        )
+        existing = CubeSpec(
+            name="cube",
+            namespace="test",
+            metrics=["test.revenue"],
+            dimensions=["test.date.dateint"],
+            columns=[ColumnSpec(name="test.revenue")],
+        )
+        orchestrator = DeploymentOrchestrator(
+            deployment_spec=DeploymentSpec(namespace="test", nodes=[incoming]),
+            deployment_id="cube-description-filter",
+            session=MagicMock(),
+            context=MagicMock(),
+        )
+
+        to_deploy, to_skip, _ = orchestrator.filter_nodes_to_deploy(
+            {"test.cube": existing},
+        )
+        assert to_deploy == [incoming]
+        assert to_skip == []
+
+        changed_fields, reordered_fields = existing.semantic_diff(incoming)
+        assert changed_fields == ["column_descriptions"]
+        assert reordered_fields == []
+        assert CubeSpec.change_tier(changed_fields) == ChangeTier.MINOR
+
     def test_filter_nodes_to_deploy_with_force(
         self,
         session,
