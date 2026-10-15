@@ -2262,6 +2262,13 @@ def build_grain_group_sql(
             if c.name:  # pragma: no branch
                 component_col_names.add(c.name.name)
 
+    # A column that is already a grain column is projected there; selecting it
+    # again for a non-decomposable argument (``MAX_BY(x, <grain column>)``) would
+    # emit a duplicate name that downstream consumers reject.
+    grain_col_names = set(grain_group.grain_columns) | set(
+        grain_group.grain_col_aliases.values(),
+    )
+
     for decomposed in grain_group.non_decomposable_metrics:
         metrics_covered.add(decomposed.metric_node.name)
 
@@ -2273,6 +2280,7 @@ def build_grain_group_sql(
                 col_name
                 and col_name not in seen_components
                 and col_name not in component_col_names
+                and col_name not in grain_col_names
             ):  # pragma: no branch
                 seen_components.add(col_name)
                 col_ast = make_column_ref(col_name)

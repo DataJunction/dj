@@ -3846,6 +3846,59 @@ class TestNonDecomposableMetrics:
         )
 
     @pytest.mark.asyncio
+    async def test_non_decomposable_metric_argument_in_native_grain(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        A non-decomposable metric whose argument is also a native grain column
+        (here ``line_number``) must not project that column twice.
+        """
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.last_line_total",
+                "description": "Line total of the last line",
+                "query": "SELECT MAX_BY(line_total, line_number) FROM v3.order_details",
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.last_line_total"],
+                "dimensions": ["v3.order_details.status"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        gg = response.json()["grain_groups"][0]
+
+        names = [col["name"] for col in gg["columns"]]
+        assert names == ["status", "order_id", "line_number", "line_total"]
+        assert_sql_equal(
+            gg["sql"],
+            """
+            WITH v3_order_details AS (
+              SELECT
+                o.order_id,
+                oi.line_number,
+                o.status,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT
+              t1.status,
+              t1.order_id,
+              t1.line_number,
+              t1.line_total
+            FROM v3_order_details t1
+            """,
+        )
+
+    @pytest.mark.asyncio
     async def test_mixed_decomposable_metric_is_non_decomposable(
         self,
         session,
