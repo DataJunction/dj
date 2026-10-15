@@ -11152,6 +11152,79 @@ class TestCrossParentRatioDeployment:
         assert response.json()["status"] == "valid"
 
 
+@pytest.mark.xdist_group(name="deployments")
+class TestDerivedMetricDimensionColumnTypes:
+    """Derived metrics that reference a dimension node's column directly."""
+
+    def _nodes(self):
+        return [
+            *TestCrossParentRatioDeployment()._nodes(),
+            MetricSpec(
+                name="fd_ratio_plain",
+                description="Dimension column outside COALESCE",
+                query="SELECT ${prefix}fd_num / MAX(${prefix}dt_date_d_v2.dateint)",
+                dimension_links=[],
+                owners=["dj"],
+            ),
+            MetricSpec(
+                name="fd_ratio_coalesce",
+                description="Dimension column inside COALESCE",
+                query=(
+                    "SELECT COALESCE(${prefix}fd_num / "
+                    "MAX(${prefix}dt_date_d_v2.dateint), 0)"
+                ),
+                dimension_links=[],
+                owners=["dj"],
+            ),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_dimension_column_typed_inside_function(self, client):
+        namespace = "derived_dim_types"
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=self._nodes()),
+        )
+        results = {r["name"]: r for r in data["results"]}
+        plain = results[f"{namespace}.fd_ratio_plain"]
+        coalesced = results[f"{namespace}.fd_ratio_coalesce"]
+        assert plain["status"] == "success", plain
+        assert coalesced["status"] == "success", coalesced
+        assert "invalid" not in coalesced["message"], coalesced
+
+        for name in ("fd_ratio_plain", "fd_ratio_coalesce"):
+            response = await client.get(f"/nodes/{namespace}.{name}/")
+            assert response.status_code == 200, response.json()
+            assert response.json()["status"] == "valid", (name, response.json())
+
+    @pytest.mark.asyncio
+    async def test_dry_run_with_dimension_already_deployed(self, client):
+        namespace = "derived_dim_types_dry_run"
+        nodes = self._nodes()
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert data["status"] == "success", data
+
+        for node in nodes:
+            if node.name == "dt_date_d_v2":
+                node.query = (
+                    "SELECT CAST(dateint AS bigint) AS dateint "
+                    "FROM ${prefix}dt_date_raw"
+                )
+        data = await impact_and_poll(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        invalid = {
+            d["name"]: d["impact_reason"]
+            for d in data["downstream_impacts"]
+            if d["predicted_status"] != "valid"
+        }
+        assert invalid == {}
+
+
 def _clone_column_list(model, **overrides: str) -> tuple[str, str]:
     """Quoted column names and the SELECT list that clones a row of `model`."""
     names = [c.name for c in model.__table__.columns if c.name != "id"]
