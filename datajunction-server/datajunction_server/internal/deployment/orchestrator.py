@@ -69,6 +69,7 @@ from datajunction_server.internal.deployment.checks import (
     build_bindings,
     checks_match_last_deployment,
     build_fixtures,
+    record_ruleset_verdicts,
     resolve_declared_schemas,
     resolve_tag_types,
     roll_up,
@@ -629,6 +630,9 @@ class DeploymentOrchestrator:
                 )
 
         downstream = await self._execute_deployment_plan(deployment_plan)
+        # After the plan, so created nodes exist to attach a verdict to. A dry
+        # run rolls this back with the rest of the SAVEPOINT.
+        await record_ruleset_verdicts(self.session, self.check_results)
         return DeploymentExecuteResult(
             results=self.deployed_results,
             downstream_impacts=downstream,

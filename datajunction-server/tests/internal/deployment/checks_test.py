@@ -3,7 +3,12 @@
 from unittest.mock import MagicMock
 
 import pytest
+from sqlalchemy import select
 
+from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.node_ruleset_verdict import (
+    NodeRulesetVerdict as DBNodeRulesetVerdict,
+)
 from datajunction_server.errors import DJInvalidDeploymentConfig
 from datajunction_server.internal.checks.context import custom_metadata
 from datajunction_server.internal.checks.manifest import resolve_rulesets
@@ -14,6 +19,7 @@ from datajunction_server.internal.deployment.checks import (
     project_column,
     project_link,
     project_node,
+    record_ruleset_verdicts,
     resolve_declared_schemas,
     resolve_tag_types,
     unsupported_ruleset_guards,
@@ -34,6 +40,8 @@ from datajunction_server.models.deployment import (
     DimensionReferenceLinkSpec,
     DimensionSpec,
     MetricSpec,
+    NodeCheckResults,
+    NodeRulesetVerdict,
     NodeSpec,
     RulesetVerdict,
     TagSpec,
@@ -1224,3 +1232,213 @@ async def test_a_first_deploy_checks_every_node(session, current_user):
         ),
     )
     assert len(orchestrator.check_results) == 2
+
+
+async def _persist_node(session, user, name: str, version: str = "v1") -> Node:
+    """A saved node for the verdict projection to attach to."""
+    node = Node(
+        name=f"{NAMESPACE}.{name}",
+        type=NodeType.TRANSFORM,
+        namespace=NAMESPACE,
+        current_version=version,
+        created_by_id=user.id,
+    )
+    # `current` is view-only; the revision has to go through `revisions` to be
+    # written, or the node list's join to its current revision drops the row.
+    node.revisions = [
+        NodeRevision(
+            name=f"{NAMESPACE}.{name}",
+            type=NodeType.TRANSFORM,
+            version=version,
+            created_by_id=user.id,
+        ),
+    ]
+    session.add(node)
+    await session.commit()
+    return node
+
+
+def _results(name: str, **rulesets: RulesetVerdict) -> NodeCheckResults:
+    return NodeCheckResults(
+        node=f"{NAMESPACE}.{name}",
+        rulesets=[
+            NodeRulesetVerdict(ruleset=ruleset, verdict=verdict)
+            for ruleset, verdict in rulesets.items()
+        ],
+    )
+
+
+async def _stored(session) -> dict[tuple[str, str], tuple[str, str]]:
+    """`(node name, ruleset) -> (verdict, version)` for every recorded verdict."""
+    rows = (
+        await session.execute(
+            select(
+                Node.name,
+                DBNodeRulesetVerdict.ruleset,
+                DBNodeRulesetVerdict.verdict,
+                DBNodeRulesetVerdict.node_version,
+            ).join(Node, Node.id == DBNodeRulesetVerdict.node_id),
+        )
+    ).all()
+    return {
+        (name, ruleset): (verdict, version) for name, ruleset, verdict, version in rows
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_deploys_verdicts_land_on_the_nodes_they_describe(
+    session,
+    current_user,
+):
+    await _persist_node(session, current_user, "one")
+    await _persist_node(session, current_user, "two")
+    await record_ruleset_verdicts(
+        session,
+        [
+            _results("one", baseline=RulesetVerdict.PASSED),
+            _results(
+                "two",
+                baseline=RulesetVerdict.PASSED,
+                certified=RulesetVerdict.FAILED,
+            ),
+        ],
+    )
+    await session.commit()
+    assert await _stored(session) == {
+        (f"{NAMESPACE}.one", "baseline"): ("passed", "v1"),
+        (f"{NAMESPACE}.two", "baseline"): ("passed", "v1"),
+        (f"{NAMESPACE}.two", "certified"): ("failed", "v1"),
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_node_the_deploy_did_not_leave_behind_is_skipped(session, current_user):
+    """
+    Checks run before the plan, so a node that was removed -- or that failed to
+    be created -- has nothing to attach a verdict to.
+    """
+    await _persist_node(session, current_user, "kept")
+    await record_ruleset_verdicts(
+        session,
+        [
+            _results("kept", baseline=RulesetVerdict.PASSED),
+            _results("never_created", baseline=RulesetVerdict.FAILED),
+        ],
+    )
+    await session.commit()
+    assert await _stored(session) == {
+        (f"{NAMESPACE}.kept", "baseline"): ("passed", "v1"),
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_ruleset_dropped_from_the_manifest_leaves_no_row(session, current_user):
+    """
+    A node's verdicts are replaced wholesale, so removing `certified` from the
+    manifest removes the node's certified row rather than stranding it.
+    """
+    node = await _persist_node(session, current_user, "one")
+    await record_ruleset_verdicts(
+        session,
+        [
+            _results(
+                "one",
+                baseline=RulesetVerdict.PASSED,
+                certified=RulesetVerdict.FAILED,
+            ),
+        ],
+    )
+    await session.commit()
+
+    node.current_version = "v2"
+    await session.commit()
+    await record_ruleset_verdicts(
+        session,
+        [_results("one", baseline=RulesetVerdict.FAILED)],
+    )
+    await session.commit()
+    assert await _stored(session) == {
+        (f"{NAMESPACE}.one", "baseline"): ("failed", "v2"),
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_deploy_with_no_check_results_records_nothing(session, current_user):
+    await _persist_node(session, current_user, "one")
+    await record_ruleset_verdicts(session, [])
+    await session.commit()
+    assert await _stored(session) == {}
+
+
+@pytest.mark.asyncio
+async def test_the_node_list_filters_on_the_rulesets_a_node_reached(
+    session,
+    current_user,
+):
+    """
+    `reached_rulesets` asks for nodes that passed every named ruleset, which is
+    what a "show me everything certified" view needs.
+    """
+    await _persist_node(session, current_user, "both")
+    await _persist_node(session, current_user, "baseline_only")
+    await _persist_node(session, current_user, "neither")
+    await record_ruleset_verdicts(
+        session,
+        [
+            _results(
+                "both",
+                baseline=RulesetVerdict.PASSED,
+                certified=RulesetVerdict.PASSED,
+            ),
+            _results(
+                "baseline_only",
+                baseline=RulesetVerdict.PASSED,
+                certified=RulesetVerdict.FAILED,
+            ),
+            _results(
+                "neither",
+                baseline=RulesetVerdict.FAILED,
+                certified=RulesetVerdict.FAILED,
+            ),
+        ],
+    )
+    await session.commit()
+
+    async def names(reached):
+        found = await Node.find_by(
+            session,
+            namespace=NAMESPACE,
+            reached_rulesets=reached,
+        )
+        return sorted(node.name for node in found)
+
+    assert await names(["baseline"]) == [
+        f"{NAMESPACE}.baseline_only",
+        f"{NAMESPACE}.both",
+    ]
+    assert await names(["certified"]) == [f"{NAMESPACE}.both"]
+    # Named together they intersect rather than union.
+    assert await names(["baseline", "certified"]) == [f"{NAMESPACE}.both"]
+    assert await names(None) == [
+        f"{NAMESPACE}.baseline_only",
+        f"{NAMESPACE}.both",
+        f"{NAMESPACE}.neither",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_deploy_whose_nodes_all_went_away_records_nothing(
+    session,
+    current_user,
+):
+    """
+    Every node checked was removed by this deploy, so there is nothing left to
+    attach a verdict to and no rows are touched.
+    """
+    await _persist_node(session, current_user, "survivor")
+    await record_ruleset_verdicts(
+        session,
+        [_results("gone", baseline=RulesetVerdict.PASSED)],
+    )
+    await session.commit()
+    assert await _stored(session) == {}

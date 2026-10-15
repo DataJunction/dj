@@ -352,6 +352,7 @@ type Node {
   createdBy: User!
   owners: [User!]!
   editedBy: [String!]!
+  rulesetVerdicts: [NodeRulesetVerdict!]!
   gitInfo: GitRepositoryInfo
 }
 
@@ -424,6 +425,12 @@ type NodeRevision {
   cubeMetrics: [NodeRevision!]!
   cubeFilters: [String!]!
   cubeDimensions: [DimensionAttribute!]!
+}
+
+type NodeRulesetVerdict {
+  ruleset: String!
+  verdict: RulesetVerdict!
+  nodeVersion: String!
 }
 
 enum NodeSortField {
@@ -565,6 +572,11 @@ type Query {
     """Filter to dimension nodes that are not linked to by any other node"""
     orphanedDimension: Boolean! = false
 
+    """
+    Filter to nodes that passed ALL of these rulesets, as of the deploy that last evaluated them
+    """
+    reachedRulesets: [String!] = null
+
     """Filter to nodes matching ALL of these custom metadata conditions"""
     customMetadataFilters: [CustomMetadataFilterInput!] = null
 
@@ -634,6 +646,11 @@ type Query {
 
     """Filter to dimension nodes that are not linked to by any other node"""
     orphanedDimension: Boolean! = false
+
+    """
+    Filter to nodes that passed ALL of these rulesets, as of the deploy that last evaluated them
+    """
+    reachedRulesets: [String!] = null
 
     """Filter to nodes matching ALL of these custom metadata conditions"""
     customMetadataFilters: [CustomMetadataFilterInput!] = null
@@ -784,6 +801,12 @@ enum ReaggregationFunction {
   MIN
   MAX
   TDIGEST
+}
+
+enum RulesetVerdict {
+  PASSED
+  FAILED
+  NOT_APPLICABLE
 }
 
 type SemanticEntity {

@@ -1663,6 +1663,22 @@ class NodeRulesetVerdict(BaseModel):
     checks: list[str] = Field(default_factory=list)
 
 
+class RecordedRulesetVerdict(BaseModel):
+    """
+    One ruleset's verdict for one node, as recorded by the deploy that
+    evaluated it.
+
+    Unlike `NodeRulesetVerdict`, which is produced in flight and names the
+    checks that ran, this is what was stored, stamped with the node version it
+    was computed from -- a value other than the node's current version means
+    the node has changed since.
+    """
+
+    ruleset: str
+    verdict: RulesetVerdict
+    node_version: str
+
+
 class NodeCheckResults(BaseModel):
     """
     Every verdict for one node.

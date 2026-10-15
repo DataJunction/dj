@@ -4,6 +4,7 @@ DataLoaders for batching and caching GraphQL queries.
 
 import json
 import logging
+from collections import defaultdict
 from typing import Any
 
 from sqlalchemy import select
@@ -16,6 +17,9 @@ from datajunction_server.api.graphql.resolvers.nodes import load_node_options
 from datajunction_server.construction.build_v3.loaders import find_upstream_node_names
 from datajunction_server.database.collection import Collection as DBCollection
 from datajunction_server.database.namespace import NodeNamespace
+from datajunction_server.database.node_ruleset_verdict import (
+    NodeRulesetVerdict,
+)
 from datajunction_server.database.node import (
     Node as DBNode,
 )
@@ -288,6 +292,47 @@ async def batch_load_git_info(
 
     # Resolve git info for each requested namespace using the shared map
     return [resolve_git_info_from_map(ns, ns_map) for ns in namespaces]
+
+
+async def batch_load_ruleset_verdicts(
+    node_ids: list[int],
+    request: Request,
+) -> list[list["NodeRulesetVerdict"]]:
+    """
+    Batch load the recorded ruleset verdicts for multiple nodes.
+
+    Loaded on demand rather than with the node, so a query that does not ask
+    for verdicts does not pay for them.
+    """
+    async with session_context(request) as session:
+        rows = (
+            (
+                await session.execute(
+                    select(NodeRulesetVerdict).where(
+                        NodeRulesetVerdict.node_id.in_(node_ids),
+                    ),
+                )
+            )
+            .scalars()
+            .all()
+        )
+    by_node: dict[int, list[NodeRulesetVerdict]] = defaultdict(list)
+    for row in rows:
+        by_node[row.node_id].append(row)
+    return [
+        sorted(by_node.get(node_id, []), key=lambda row: row.ruleset)
+        for node_id in node_ids
+    ]
+
+
+def create_ruleset_verdicts_loader(
+    request: Request,
+) -> DataLoader[int, list["NodeRulesetVerdict"]]:
+    """Create a DataLoader that batches ruleset verdict lookups by node id."""
+    return InstrumentedDataLoader(
+        "ruleset_verdicts",
+        load_fn=lambda keys: batch_load_ruleset_verdicts(keys, request),
+    )
 
 
 def create_git_info_loader(
