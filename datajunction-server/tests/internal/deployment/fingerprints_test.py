@@ -599,6 +599,33 @@ async def test_build_deployment_fingerprints_only_proposed_names_reuses_unchange
 
 
 @pytest.mark.asyncio
+async def test_unchanged_node_fingerprint_includes_external_ancestors():
+    source = source_spec("source", namespace="external")
+    downstream = transform_spec("downstream", "SELECT * FROM external.source")
+    node = MagicMock()
+    node.to_spec = AsyncMock(return_value=source)
+
+    with patch(
+        "datajunction_server.internal.deployment.fingerprints.Node.get_by_names",
+        AsyncMock(return_value=[node]),
+    ):
+        current, proposed = await build_deployment_fingerprints(
+            MagicMock(),
+            spec_map(downstream),
+            [downstream.model_copy(update={"description": "Updated documentation"})],
+            [],
+            only_proposed_names=set(),
+        )
+
+    expected = SemanticFingerprintGraph(spec_map(source, downstream)).fingerprint(
+        downstream.rendered_name,
+    )
+    assert isinstance(expected, SemanticFingerprint)
+    assert current == {downstream.rendered_name: expected}
+    assert proposed == {}
+
+
+@pytest.mark.asyncio
 async def test_external_target_is_rehashed_when_its_ancestor_changes():
     """An external target needs separate current and proposed graph hashes."""
     current_source = source_spec("source", table="before")
