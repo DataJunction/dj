@@ -729,7 +729,7 @@ async def build_deployment_fingerprints(
     )
     # Seed each side's closure separately, before loading externals.
     _current_closure_names, current_unresolved = _ancestor_closure(
-        deleted_names | additional_target_names,
+        deleted_names | additional_target_names | unchanged_names,
         current_seed_specs,
         parent_cache,
     )
