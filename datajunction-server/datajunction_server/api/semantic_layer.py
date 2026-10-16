@@ -472,9 +472,7 @@ async def _active_git_namespaces(
     # branch namespace. Load these as metadata after traversal so they cannot
     # expand the selected subtree or pull in unrelated cubes.
     ancestor_names = {
-        ancestor
-        for name in namespaces
-        for ancestor in get_parent_namespaces(name)
+        ancestor for name in namespaces for ancestor in get_parent_namespaces(name)
     } - namespaces.keys()
     if ancestor_names:
         rows = await session.execute(
