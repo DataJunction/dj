@@ -5,7 +5,6 @@ Dimension + join path resolution and building functions
 from __future__ import annotations
 
 import difflib
-import logging
 from collections.abc import Callable
 from http import HTTPStatus
 from typing import cast
@@ -28,6 +27,7 @@ from datajunction_server.construction.build_v3.types import (
     ResolvedDimension,
 )
 from datajunction_server.construction.build_v3.utils import (
+    extract_filter_dimension_refs,
     get_short_name,
     iter_namespaced_columns,
     make_name,
@@ -49,8 +49,6 @@ from datajunction_server.sql.decompose import (
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.utils import SEPARATOR
-
-logger = logging.getLogger(__name__)
 
 
 def parse_dimension_ref(dim_ref: str) -> DimensionRef:
@@ -83,11 +81,37 @@ def parse_dimension_ref(dim_ref: str) -> DimensionRef:
     return DimensionRef(node_name=node_name, column_name=column_name, role=role)
 
 
+def _select_nearest_role(
+    dimension_name: str,
+    column_name: str | None,
+    candidates: list[tuple[str | None, int]],
+) -> tuple[str | None, int]:
+    """Select a bare ref's role from nonempty ``(role, distance)`` candidates.
+
+    A role-free candidate wins at the nearest distance. Distinct named roles
+    at that same distance require an explicit role.
+    """
+    nearest_distance = min(distance for _, distance in candidates)
+    nearest_roles = {
+        role for role, distance in candidates if distance == nearest_distance
+    }
+    if None in nearest_roles:
+        return None, nearest_distance
+    if len(nearest_roles) > 1:
+        raise _ambiguous_role_error(
+            dimension_name,
+            column_name,
+            [role for role in nearest_roles if role is not None],
+        )
+    return next(iter(nearest_roles)), nearest_distance
+
+
 def find_join_path(
     ctx: BuildContext,
     from_node: Node,
     target_dim_name: str,
     role: str | None = None,
+    column_name: str | None = None,
 ) -> JoinPath | None:
     """
     Find the join path from a node to a target dimension.
@@ -101,9 +125,9 @@ def find_join_path(
     For multi-hop joins (role like "customer->home"):
         fact -> customer -> location
 
-    If no role is specified, will find ANY path to the dimension (first match).
-    This handles cases where the dimension link has a role but the user
-    doesn't specify one.
+    An unqualified reference uses the shortest path. Among equally short
+    paths, a role-free link is the default; otherwise the role is ambiguous.
+    An explicit role must match a path exactly.
 
     Returns None if no path found.
     """
@@ -113,43 +137,47 @@ def find_join_path(
     source_revision_id = from_node.current.id
     role_path = role or ""
 
-    # Look up preloaded path with exact role match
-    key = (source_revision_id, target_dim_name, role_path)
-    links = ctx.join_paths.get(key)
-
-    if links:
-        # Path found in preloaded cache
+    if role:
+        links = ctx.join_paths.get((source_revision_id, target_dim_name, role_path))
+        if not links:
+            return None
         return JoinPath(
             links=links,
             target_dimension=links[-1].dimension,
             role=role,
         )
 
-    # Fallback: if exact role not found, try to find any path to this dimension
-    # This handles cases where:
-    # 1. User didn't specify a role, but link has one
-    # 2. User specified a role that doesn't match, so we use the actual link's role
-    # We prefer empty role (null) over named roles when falling back
-    fallback_paths = []
+    return find_unqualified_join_path(
+        ctx,
+        source_revision_id,
+        target_dim_name,
+        column_name,
+    )
+
+
+def find_unqualified_join_path(
+    ctx: BuildContext,
+    source_revision_id: int,
+    target_dim_name: str,
+    column_name: str | None = None,
+) -> JoinPath | None:
+    """Choose the default path for a bare dimension reference by hop count."""
+    available_paths = []
     for (src_id, dim_name, stored_role), path_links in ctx.join_paths.items():
         if src_id == source_revision_id and dim_name == target_dim_name:
-            fallback_paths.append((stored_role, path_links))
+            available_paths.append((stored_role, path_links))
 
-    if fallback_paths:
-        # Prefer paths with no role (empty string) as they're the "default" link
-        # Also prefer shorter paths (fewer hops) over longer ones
-        fallback_paths.sort(
-            key=lambda x: (len(x[1]), x[0] != "", x[0]),
-        )  # Shortest path, then empty role, then alphabetical
-        stored_role, path_links = fallback_paths[0]
-
-        if role and stored_role != role_path:
-            logger.info(  # pragma: no cover
-                "[BuildV3] Role mismatch: requested '%s' but using '%s' for dimension %s",
-                role,
-                stored_role or "null",
-                target_dim_name,
-            )
+    if available_paths:
+        selected_role, min_hops = _select_nearest_role(
+            target_dim_name,
+            column_name,
+            [(role or None, len(links)) for role, links in available_paths],
+        )
+        stored_role, path_links = next(
+            (role, links)
+            for role, links in available_paths
+            if len(links) == min_hops and (role or None) == selected_role
+        )
 
         return JoinPath(
             links=path_links,
@@ -160,20 +188,18 @@ def find_join_path(
     return None  # pragma: no cover
 
 
-def roles_reaching_dimension(
-    ctx: BuildContext,
-    node_rev_id: int,
-    dim_node_name: str,
-) -> set[str]:
-    """
-    Role paths from a node revision to a dimension node, ``""`` for a role-free
-    link. Read from the join paths preloaded for this build.
-    """
-    return {
-        stored_role
-        for (src_id, dim_name, stored_role) in ctx.join_paths
-        if src_id == node_rev_id and dim_name == dim_node_name
-    }
+def _ambiguous_role_error(
+    dimension_name: str,
+    column_name: str | None,
+    roles: list[str],
+) -> DJException:
+    """Give a bare reference actionable role-qualified alternatives."""
+    ref = f"{dimension_name}{SEPARATOR}{column_name}" if column_name else dimension_name
+    options = ", ".join(f"`{ref}[{role}]`" for role in sorted(set(roles)))
+    return DJException(
+        http_status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
+        message=f"Dimension `{ref}` is ambiguous across roles. Use one of: {options}",
+    )
 
 
 def can_skip_join_for_dimension(
@@ -272,6 +298,67 @@ def _format_column_validation_error(
     )
 
 
+def _projected_fk_outputs(
+    ctx: BuildContext,
+    parent_node: Node,
+    source_name: str,
+    fk_col: str,
+) -> set[str]:
+    """Find output names that directly project one linked source's FK.
+
+    A qualified column identifies its source. An unqualified column or ``*``
+    proves passthrough only when the linked source is the sole FROM relation.
+    """
+    if not parent_node.current or not parent_node.current.query:
+        return set()
+    query = ctx.get_parsed_query(parent_node)
+    select = query.select
+    if not isinstance(select, ast.Select) or select.set_op or not select.from_:
+        return set()
+
+    sources = [
+        expr
+        for relation in select.from_.relations
+        for expr in (relation.primary, *(join.right for join in relation.extensions))
+    ]
+    source_refs = [
+        expr
+        for expr in sources
+        if isinstance(expr, ast.Table)
+        and expr.name.identifier(quotes=False) == source_name
+    ]
+    if len(source_refs) != 1:
+        return set()
+    source = source_refs[0]
+    qualifiers = (
+        {source.alias.name} if source.alias else {source_name, source.name.name}
+    )
+    sole_source = len(sources) == 1 and not select.lateral_views
+    output_columns = {col.name for col in parent_node.current.columns}
+    result: set[str] = set()
+    for projection in select.projection:
+        expr = projection.child if isinstance(projection, ast.Alias) else projection
+        if isinstance(expr, ast.Wildcard) and sole_source:
+            if fk_col in output_columns:
+                result.add(fk_col)
+            continue
+        if not isinstance(expr, ast.Column) or expr.name.name != fk_col:
+            continue
+        full_name = expr.name.identifier(quotes=False)
+        if not (
+            (full_name == fk_col and sole_source)
+            or (full_name != fk_col and full_name.rsplit(SEPARATOR, 1)[0] in qualifiers)
+        ):
+            continue
+        output_name = (
+            projection.alias.name
+            if isinstance(projection, ast.Aliasable) and projection.alias
+            else fk_col
+        )
+        result.add(output_name)
+    return result
+
+
 def _resolve_filter_only_dim(
     ctx: BuildContext,
     parent_node: Node,
@@ -282,11 +369,9 @@ def _resolve_filter_only_dim(
     Resolve a filter-only dim ref via the parent's upstream lineage in a
     single BFS walk over ``ctx.parent_map``. Returns one of:
 
-    - A column name on ``parent_node`` if the dim is resolvable there:
-      either via a column-level ``dimension``/``dimension_column`` annotation
-      on the parent, or via an upstream's FK link whose FK column survives
-      unchanged on the parent's projection. Caller treats this as a
-      full-skip (no join, filter lands on the parent CTE).
+    - A column name on ``parent_node`` if a direct upstream's linked FK is
+      projected there as a simple column. Caller treats this as a full-skip
+      (no join, filter lands on the parent CTE).
 
     - ``None`` if no local match. In that case, when at least one upstream's
       dim link aligns the requested column to an FK column, this function
@@ -299,57 +384,93 @@ def _resolve_filter_only_dim(
 
     Performance notes:
     - One BFS over the parent_map. No AST traversal of unrelated nodes.
-    - Parsed queries are only inspected for nodes we actually need to
-      inject into (linked transform, or a direct child of a linked source).
-      ``ctx.get_parsed_query`` is cached.
+    - The parent's parsed query proves direct projection passthrough. Upstream
+      queries are inspected only for nodes we inject into (linked transform,
+      or a direct child of a linked source). ``ctx.get_parsed_query`` is cached.
     """
     if not parent_node.current or not parent_node.current.columns:
         return None  # pragma: no cover
-    parent_cols = {col.name for col in parent_node.current.columns}
     target_fqn = f"{dim_ref.node_name}{SEPARATOR}{dim_ref.column_name}"
 
     # (Reference/denormalized dimensions are resolved earlier in resolve_dimensions
     # via _local_reference_dimension_column, so they never reach this function.)
 
     # BFS up parent_map in sorted order so resolution is deterministic across
-    # processes (never set/hash order). Passthrough is only valid for DIRECT
-    # parents — a transitive upstream may share a column name without sharing
-    # lineage, so it goes to pushdown_candidates instead.
+    # processes (never set/hash order). The nearest matching depth determines
+    # the default role for a bare ref, as it does for ordinary join paths.
+    # Passthrough requires proof from the parent's projection; a shared column
+    # name alone does not establish which upstream supplied the value.
     direct_parents_set: set[str] = set(ctx.parent_map.get(parent_node.name, []))
     visited: set[str] = {parent_node.name}
-    queue: list[str] = sorted(direct_parents_set)
-    passthrough: list[tuple[Node, str]] = []
-    pushdown_candidates: list[tuple[Node, str]] = []
+    queue: list[tuple[str, int]] = [(name, 1) for name in sorted(direct_parents_set)]
+    upstream_links: list[tuple[Node, str, str | None, int]] = []
     while queue:
-        up_name = queue.pop(0)
+        up_name, depth = queue.pop(0)
         if up_name in visited:
             continue  # pragma: no cover
         visited.add(up_name)
         up_node = ctx.nodes.get(up_name)
         if up_node and up_node.current:  # pragma: no branch
             for link in up_node.current.dimension_links:
-                if link.dimension.name != dim_ref.node_name:
+                if link.dimension.name != dim_ref.node_name or (
+                    dim_ref.role and (link.role or None) != dim_ref.role
+                ):
                     continue
                 fk_fqn = link.foreign_keys_reversed.get(target_fqn)
                 if fk_fqn is None:  # pragma: no cover
                     continue
                 fk_col = get_short_name(fk_fqn)
-                if fk_col in parent_cols and up_name in direct_parents_set:
-                    passthrough.append((up_node, fk_col))
-                else:
-                    pushdown_candidates.append((up_node, fk_col))
-        queue.extend(sorted(ctx.parent_map.get(up_name, [])))
+                upstream_links.append(
+                    (
+                        up_node,
+                        fk_col,
+                        link.role or None,
+                        depth,
+                    ),
+                )
+        queue.extend(
+            (name, depth + 1) for name in sorted(ctx.parent_map.get(up_name, []))
+        )
+
+    if dim_ref.role is None and upstream_links:
+        selected_role, _ = _select_nearest_role(
+            dim_ref.node_name,
+            dim_ref.column_name,
+            [(role, depth) for _, _, role, depth in upstream_links],
+        )
+
+        # Keep all occurrences of the selected role: a filter-only ref may
+        # need pushdown into several contributing branches at different depths.
+        upstream_links = [item for item in upstream_links if item[2] == selected_role]
+
+    passthrough: list[tuple[Node, str, str]] = []
+    pushdown_candidates: list[tuple[Node, str]] = []
+    for node, fk_col, _, depth in upstream_links:
+        projected_cols = (
+            _projected_fk_outputs(ctx, parent_node, node.name, fk_col)
+            if depth == 1
+            else set()
+        )
+        if projected_cols:
+            passthrough.extend((node, fk_col, col) for col in sorted(projected_cols))
+        else:
+            pushdown_candidates.append((node, fk_col))
 
     # One passthrough col → resolve locally. Multiple → a filter-only dim has
     # no output-column ambiguity, so apply to all: push each into its owning CTE.
-    passthrough_cols = sorted({fk_col for _, fk_col in passthrough})
+    passthrough_cols = sorted({local_col for _, _, local_col in passthrough})
     if len(passthrough_cols) == 1:
         return passthrough_cols[0]
     if len(passthrough_cols) > 1:
         if _register_pushdown_into_upstream(  # pragma: no branch
             ctx,
             original_ref,
-            passthrough,
+            list(
+                {
+                    (node.name, fk_col): (node, fk_col)
+                    for node, fk_col, _ in passthrough
+                }.values(),
+            ),
         ):
             ctx.pushdown_resolved_dims.add(original_ref)
         return None
@@ -380,26 +501,20 @@ def _register_pushdown_into_upstream(
     FK column.
     """
     from datajunction_server.construction.build_v3.cte import (
-        get_column_full_name,
         inject_filter_into_select,
     )
-    from datajunction_server.construction.build_v3.filters import parse_filter
 
-    # Find filter strings that reference this dim ref. Parse each once.
-    base_ref = original_ref.split("[")[0]
+    # Match the complete semantic ref, including its role.
     matching: list[str] = []
     for filter_str in ctx.dimension_filters:
         if filter_str in ctx.pushdown_consumed_filters:  # pragma: no cover
             continue
         try:
-            f_ast = parse_filter(filter_str)
+            refs = extract_filter_dimension_refs([filter_str], include_bare=True)
         except Exception:  # pragma: no cover
             continue
-        for col in f_ast.find_all(ast.Column):
-            full = get_column_full_name(col)
-            if full and full.split("[")[0] == base_ref:
-                matching.append(filter_str)
-                break
+        if original_ref in refs:
+            matching.append(filter_str)
     if not matching:
         return False  # pragma: no cover
 
@@ -416,6 +531,7 @@ def _register_pushdown_into_upstream(
         children_cache[node_name] = result
         return result
 
+    any_consumed = False
     for filter_str in matching:
         consumed = False
         for linked_node, fk_col in candidates:  # pragma: no branch
@@ -430,7 +546,7 @@ def _register_pushdown_into_upstream(
             for target_name, qualifier, arm_select in targets:
                 rewritten = _rewrite_filter_col_refs(
                     filter_str,
-                    base_ref,
+                    original_ref,
                     fk_col,
                     qualifier,
                 )
@@ -447,10 +563,11 @@ def _register_pushdown_into_upstream(
                         target_name,
                         [],
                     ).append(rewritten)
-            consumed = True
+                consumed = True
         if consumed:  # pragma: no branch
             ctx.pushdown_consumed_filters.add(filter_str)
-    return bool(ctx.pushdown_consumed_filters)
+            any_consumed = True
+    return any_consumed
 
 
 def _resolve_pushdown_targets(
@@ -461,7 +578,7 @@ def _resolve_pushdown_targets(
 ) -> list[tuple[str, str | None, ast.Select | None]]:
     """
     Return one ``(target_cte_name, qualifier, arm_select)`` triple per
-    Table reference to the linked source in the child transform's query.
+    linked-source scan, preferring row-producing scans over scalar/EXISTS ones.
 
     The caller rewrites the filter once per triple (using ``qualifier``)
     and injects it at the right scope — so a self-join with two
@@ -472,9 +589,12 @@ def _resolve_pushdown_targets(
     top-level Select of a non-set-op body — that's the one case where
     the normal CTE-WHERE injection path can handle it.
     """
+    from datajunction_server.construction.build_v3.cte import _is_relational_scope
+
     if linked_node.type != NodeType.SOURCE:
         return [(linked_node.name, None, None)]
     all_targets: list[tuple[str, str | None, ast.Select | None]] = []
+    expression_targets: list[tuple[str, str | None, ast.Select | None]] = []
     for child_name in children_of(linked_node.name):
         child = ctx.nodes.get(child_name)
         if (
@@ -491,10 +611,9 @@ def _resolve_pushdown_targets(
         top_select = child_query.select
         if not isinstance(top_select, ast.Select):
             continue  # pragma: no cover
-        # Walk every Table anywhere in the parsed query — set-op arms,
-        # CTE bodies, subqueries inside WHERE/HAVING.  Collect every
-        # match so a self-join (two refs to the same source) produces
-        # two filter injections, one per alias.
+        # Prefer row-producing scans. A scalar or EXISTS scan can accept the
+        # filter only when no relational scan of this linked source exists;
+        # otherwise it may compute an all-time value for the selected rows.
         matches: list[tuple[str, ast.Select]] = []
         for tbl in child_query.find_all(ast.Table):
             try:
@@ -509,7 +628,10 @@ def _resolve_pushdown_targets(
             containing_select = _enclosing_select(tbl)
             if containing_select is None:
                 continue  # pragma: no cover
-            matches.append((alias, containing_select))
+            if _is_relational_scope(containing_select, child_query):
+                matches.append((alias, containing_select))
+            else:
+                expression_targets.append((child.name, alias, containing_select))
         if not matches:
             continue  # pragma: no cover
         # Optimization: a single match in the top-level Select of a
@@ -521,7 +643,7 @@ def _resolve_pushdown_targets(
                 all_targets.append((child.name, alias, None))
                 continue
         all_targets.extend((child.name, alias, sel) for alias, sel in matches)
-    return all_targets
+    return all_targets or expression_targets
 
 
 def _enclosing_select(node: ast.Node) -> ast.Select | None:
@@ -541,34 +663,32 @@ def _enclosing_select(node: ast.Node) -> ast.Select | None:
 
 def _rewrite_filter_col_refs(
     filter_str: str,
-    base_ref: str,
+    original_ref: str,
     fk_col: str,
     qualifier: str | None,
 ) -> ast.Expression | None:
     """
-    Parse ``filter_str`` and replace every column ref matching ``base_ref``
-    (a dim FQN sans role) with ``[qualifier.]fk_col``. Returns the
-    rewritten AST or ``None`` on parse failure.
+    Replace the complete semantic ref with its upstream FK column. The whole
+    predicate must bind here, including every branch of an OR or NOT.
     """
-    from datajunction_server.construction.build_v3.cte import get_column_full_name
-    from datajunction_server.construction.build_v3.filters import parse_filter
+    from datajunction_server.construction.build_v3.filters import (
+        rewrite_filter_atomically,
+    )
 
-    try:
-        rewritten = parse_filter(filter_str)
-    except Exception:  # pragma: no cover
-        return None
-    for col in list(rewritten.find_all(ast.Column)):  # pragma: no branch
-        full = get_column_full_name(col)
-        if full is None or full.split("[")[0] != base_ref:  # pragma: no cover
-            continue
+    def resolve(ref: str) -> ast.Column | None:
+        if ref != original_ref:
+            return None
         new_name = (
             ast.Name(fk_col, namespace=ast.Name(qualifier))
             if qualifier
             else ast.Name(fk_col)
         )
-        if col.parent is not None:  # pragma: no branch
-            col.parent.replace(col, ast.Column(name=new_name), copy=False)
-    return rewritten
+        return ast.Column(name=new_name)
+
+    try:
+        return rewrite_filter_atomically(filter_str, resolve)
+    except Exception:  # pragma: no cover
+        return None
 
 
 def _local_reference_dimension_column(
@@ -591,6 +711,7 @@ def _local_reference_dimension_column(
 
     if not parent_node.current or not parent_node.current.columns:  # pragma: no cover
         return None
+    matches: list[tuple[str, str | None]] = []
     for col in parent_node.current.columns:
         if col.dimension_id is None:
             continue
@@ -598,10 +719,26 @@ def _local_reference_dimension_column(
             continue
         # dimension_column may carry a "[role]" suffix; fall back to the column's
         # own name when unset.
-        target = strip_role_suffix(col.dimension_column or col.name)
-        if target == dim_ref.column_name:
-            return col.name
-    return None
+        annotated = col.dimension_column or col.name
+        target = strip_role_suffix(annotated)
+        annotated_role = (
+            annotated.rsplit("[", 1)[1].rstrip("]") if "[" in annotated else None
+        )
+        if target == dim_ref.column_name and (
+            dim_ref.role is None or annotated_role == dim_ref.role
+        ):
+            matches.append((col.name, annotated_role))
+
+    if not matches:
+        return None
+    if dim_ref.role is not None:
+        return matches[0][0]
+    selected_role, _ = _select_nearest_role(
+        dim_ref.node_name,
+        dim_ref.column_name,
+        [(role, 0) for _, role in matches],
+    )
+    return next(column for column, role in matches if role == selected_role)
 
 
 def resolve_dimensions(
@@ -659,6 +796,7 @@ def resolve_dimensions(
                 parent_node,
                 dim_ref.node_name,
                 dim_ref.role,
+                dim_ref.column_name,
             )
 
             if not join_path and dim_ref.role:  # pragma: no cover
@@ -673,6 +811,7 @@ def resolve_dimensions(
                         parent_node,
                         dim_ref.node_name,
                         dim_ref.role,
+                        dim_ref.column_name,
                     )
 
             # Validate that we found a join path
@@ -852,7 +991,7 @@ def resolve_metric_expression_dimensions(
 
             # The referenced column itself is validated against the dimension
             # node at metric-creation time, so we only need the join path here.
-            join_path = find_join_path(ctx, parent_node, nc.node, None)
+            join_path = find_join_path(ctx, parent_node, nc.node, None, nc.name)
             if not join_path:
                 raise DJException(
                     http_status_code=HTTPStatus.UNPROCESSABLE_ENTITY,

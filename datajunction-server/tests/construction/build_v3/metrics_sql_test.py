@@ -98,12 +98,14 @@ class TestMetricsSQLBasic:
               v3_product AS (
                 SELECT product_id, category, subcategory
                 FROM default.v3.products
-                WHERE category = 'Electronics' AND subcategory = 'Smartphones'
               ),
               order_details_0 AS (
                 SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
-                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                LEFT OUTER JOIN v3_product t2
+                  ON t1.product_id = t2.product_id
+                  AND t2.category = 'Electronics'
+                  AND t2.subcategory = 'Smartphones'
                 WHERE t2.category = 'Electronics'
                   AND t2.subcategory = 'Smartphones'
                 GROUP BY t2.category
@@ -1842,12 +1844,12 @@ class TestMetricsSQLDerived:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
-                WHERE category = 'Electronics'
             ),
             order_details_0 AS (
                 SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
-                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                LEFT OUTER JOIN v3_product t2
+                  ON t1.product_id = t2.product_id AND t2.category = 'Electronics'
                 WHERE t2.category = 'Electronics'
                 GROUP BY t2.category
             )
@@ -1902,7 +1904,6 @@ class TestMetricsSQLDerived:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
-                WHERE category = 'Electronics'
             ),
             v3_page_views_enriched AS (
                 SELECT view_id, product_id
@@ -1911,14 +1912,16 @@ class TestMetricsSQLDerived:
             order_details_0 AS (
                 SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
-                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                LEFT OUTER JOIN v3_product t2
+                  ON t1.product_id = t2.product_id AND t2.category = 'Electronics'
                 WHERE t2.category = 'Electronics'
                 GROUP BY t2.category
             ),
             page_views_enriched_0 AS (
                 SELECT t2.category, COUNT(t1.view_id) view_id_count_f41e2db4
                 FROM v3_page_views_enriched t1
-                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                LEFT OUTER JOIN v3_product t2
+                  ON t1.product_id = t2.product_id AND t2.category = 'Electronics'
                 WHERE t2.category = 'Electronics'
                 GROUP BY t2.category
             )
@@ -2120,12 +2123,12 @@ class TestMetricsSQLDerived:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
-                WHERE category = 'Electronics'
             ),
             order_details_0 AS (
                 SELECT t1.status, t2.category, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
-                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                LEFT OUTER JOIN v3_product t2
+                  ON t1.product_id = t2.product_id AND t2.category = 'Electronics'
                 WHERE t2.category = 'Electronics'
                 GROUP BY t1.status, t2.category
             )
@@ -2672,14 +2675,12 @@ class TestFilterOnlyDimensionLoop:
     """Tests for filter-only dimension loop iteration in metrics.py."""
 
     @pytest.mark.asyncio
-    async def test_filter_subscript_matches_second_filter_dimension(
+    async def test_second_filter_dimension_is_applied(
         self,
         client_with_build_v3,
     ):
         """
-        Filter with a role-qualified subscript whose base ref is checked against
-        multiple filter-only dimensions exercises the ctx.filter_dimensions loop
-        in metrics.py.
+        Both filter-only product columns are resolved and applied.
         """
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
@@ -2688,13 +2689,11 @@ class TestFilterOnlyDimensionLoop:
                 "dimensions": ["v3.order_details.status"],
                 "filters": [
                     "v3.product.subcategory = 'tools'",
-                    "v3.product.category[buyer->home] = 'electronics'",
+                    "v3.product.category = 'electronics'",
                 ],
             },
         )
 
-        # The query may succeed or raise a dimension resolution error; either way
-        # the filter_dimensions loop is exercised with multiple entries.
         assert response.status_code == 200
         assert_sql_equal(
             response.json()["sql"],
@@ -2713,13 +2712,15 @@ class TestFilterOnlyDimensionLoop:
                 category,
                 subcategory
               FROM default.v3.products
-              WHERE subcategory = 'tools' AND category = 'electronics'
             ),
             order_details_0 AS (
               SELECT
                 t1.status,
                 SUM(t1.line_total) line_total_sum_e1f61696
-              FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+              FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2
+                ON t1.product_id = t2.product_id
+                AND t2.subcategory = 'tools'
+                AND t2.category = 'electronics'
               WHERE  t2.subcategory = 'tools' AND t2.category = 'electronics'
               GROUP BY  t1.status
             )
@@ -3484,8 +3485,8 @@ class TestNonDecomposableMetrics:
     ):
         """A non-literal bound on the order column bails on scan expansion.
 
-        The query returns 200 with the user's filter passed through intact
-        (normal filter pushdown), which may starve the frame but is the safe fallback.
+        The query returns 200 and applies the filter at the fact scan. This
+        may starve the frame, but the non-literal bound cannot be expanded.
         """
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
@@ -3521,7 +3522,6 @@ class TestNonDecomposableMetrics:
             SELECT  base_metrics.date_id_order AS date_id_order,
               SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
              FROM base_metrics
-             WHERE  base_metrics.date_id_order = 20240130 + 1
             """,
         )
 
@@ -3670,8 +3670,8 @@ SELECT  base_metrics.date_id_order AS date_id_order,
     async def test_cumulative_revenue_live(self, client_with_build_v3):
         """Cumulative (UNBOUNDED PRECEDING) window metric. Unlike bounded trailing
         windows, UNBOUNDED has no finite N so DJ does NOT expand the scan; the
-        filter is pushed straight to the fact table and the window runs over
-        whatever rows match."""
+        filter is pushed straight to the fact table and consumed there. The
+        window runs over whatever rows match."""
         r = await client_with_build_v3.post(
             "/nodes/metric/",
             json={
@@ -3725,7 +3725,6 @@ SELECT  order_details_0.date_id_order AS date_id_order,
 SELECT  base_metrics.date_id_order AS date_id_order,
 	SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)  AS cumulative_revenue
  FROM base_metrics
- WHERE  base_metrics.date_id_order = 20240131
 """,
         )
 
@@ -5556,12 +5555,12 @@ class TestFilterOnlyDimensions:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
-                WHERE category = 'Electronics'
             ),
             order_details_0 AS (
                 SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
-                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                LEFT OUTER JOIN v3_product t2
+                  ON t1.product_id = t2.product_id AND t2.category = 'Electronics'
                 WHERE t2.category = 'Electronics'
                 GROUP BY t1.status
             )
@@ -5601,7 +5600,8 @@ class TestFilterOnlyDimensions:
     ):
         """
         A required dimension named in a filter is still part of the grain, so the
-        window function sees one row per remaining value.
+        window function sees one row per remaining value. The dimension CTE
+        remains shared and unfiltered; the predicate binds to this join role.
         """
         response = await client_with_build_v3.post(
             "/nodes/metric/",
@@ -5634,7 +5634,6 @@ class TestFilterOnlyDimensions:
             WITH v3_date AS (
               SELECT date_id, week
               FROM default.v3.dates
-              WHERE week {week_predicate}
             ),
             v3_order_details AS (
               SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
@@ -5644,7 +5643,8 @@ class TestFilterOnlyDimensions:
             order_details_0 AS (
               SELECT t2.week, SUM(t1.line_total) line_total_sum_e1f61696
               FROM v3_order_details t1
-              LEFT OUTER JOIN v3_date t2 ON t1.order_date = t2.date_id
+              LEFT OUTER JOIN v3_date t2
+                ON t1.order_date = t2.date_id AND t2.week {week_predicate}
               WHERE t2.week {week_predicate}
               GROUP BY t2.week
             ),
@@ -5862,7 +5862,6 @@ class TestMultiHopIntermediateDimensionColumns:
                 location_id,
                 country
               FROM default.v3.locations
-              WHERE country = 'US'
             ),
             v3_order_details AS (
               SELECT
@@ -5883,7 +5882,8 @@ class TestMultiHopIntermediateDimensionColumns:
                 SUM(t1.line_total) line_total_sum_e1f61696
               FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
               LEFT OUTER JOIN v3_customer t3 ON t1.customer_id = t3.customer_id
-              LEFT OUTER JOIN v3_location t4 ON t3.location_id = t4.location_id
+              LEFT OUTER JOIN v3_location t4
+                ON t3.location_id = t4.location_id AND t4.country = 'US'
               WHERE  t4.country = 'US'
               GROUP BY  t2.category
             )
@@ -6136,7 +6136,6 @@ class TestFilterOnRoleDimension:
             v3_date AS (
                 SELECT date_id, year
                 FROM default.v3.dates
-                WHERE year >= 2024
             ),
             v3_order_details AS (
                 SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
@@ -6201,7 +6200,6 @@ class TestFilterOnRoleDimension:
             v3_date AS (
                 SELECT date_id, year
                 FROM default.v3.dates
-                WHERE year IN (2023, 2024)
             ),
             v3_order_details AS (
                 SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
@@ -6211,7 +6209,8 @@ class TestFilterOnRoleDimension:
             order_details_0 AS (
                 SELECT t2.year year_order, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
-                LEFT OUTER JOIN v3_date t2 ON t1.order_date = t2.date_id
+                LEFT OUTER JOIN v3_date t2
+                  ON t1.order_date = t2.date_id AND t2.year IN (2023, 2024)
                 WHERE t2.year IN (2023, 2024)
                 GROUP BY t2.year
             )
@@ -6267,7 +6266,6 @@ class TestFilterOnRoleDimension:
             v3_date AS (
                 SELECT date_id, year
                 FROM default.v3.dates
-                WHERE year >= 2024
             ),
             v3_order_details AS (
                 SELECT o.order_date, oi.product_id, oi.quantity * oi.unit_price AS line_total
@@ -6321,7 +6319,6 @@ class TestFilterOnRoleDimension:
             v3_location AS (
                 SELECT location_id, country
                 FROM default.v3.locations
-                WHERE country = 'US'
             ),
             v3_order_details AS (
                 SELECT o.from_location_id, oi.quantity * oi.unit_price AS line_total
@@ -6331,7 +6328,8 @@ class TestFilterOnRoleDimension:
             order_details_0 AS (
                 SELECT t2.country country_from, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
-                LEFT OUTER JOIN v3_location t2 ON t1.from_location_id = t2.location_id
+                LEFT OUTER JOIN v3_location t2
+                  ON t1.from_location_id = t2.location_id AND t2.country = 'US'
                 WHERE t2.country = 'US'
                 GROUP BY t2.country
             )
@@ -6498,7 +6496,6 @@ class TestFilterOnRoleDimension:
             v3_location AS (
                 SELECT location_id, country
                 FROM default.v3.locations
-                WHERE country = 'US'
             ),
             v3_order_details AS (
                 SELECT o.customer_id, oi.quantity * oi.unit_price AS line_total
@@ -6509,7 +6506,8 @@ class TestFilterOnRoleDimension:
                 SELECT t3.country country_home, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
                 LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
-                LEFT OUTER JOIN v3_location t3 ON t2.location_id = t3.location_id
+                LEFT OUTER JOIN v3_location t3
+                  ON t2.location_id = t3.location_id AND t3.country = 'US'
                 WHERE t3.country = 'US'
                 GROUP BY t3.country
             )
@@ -6851,7 +6849,6 @@ class TestMetricsSQLEdgeCases:
             WITH v3_customer AS (
                 SELECT customer_id, email
                 FROM default.v3.customers
-                WHERE email LIKE '%@example.com'
             ),
             v3_order_details AS (
                 SELECT o.customer_id, oi.product_id,
@@ -7375,16 +7372,15 @@ class TestMetricOnDimensionNode:
         assert response.status_code == 200, response.json()
         sql = response.json()["sql"]
 
-        # Both the group-by (category) and the filter (subcategory) are served
-        # from the dimension node's own columns, locally -- no self-join.
+        # The dimension node is the metric's input, so its filter column is
+        # projected and filtered on the consuming grain-group alias.
         assert_sql_equal(
             sql,
             """
             WITH
             v3_product AS (
-              SELECT category, price
+              SELECT category, subcategory, price
               FROM default.v3.products
-              WHERE subcategory = 'phones'
             ),
             product_0 AS (
               SELECT
@@ -7392,6 +7388,7 @@ class TestMetricOnDimensionNode:
                 COUNT(t1.price) price_count_78363aa6,
                 SUM(t1.price) price_sum_78363aa6
               FROM v3_product t1
+              WHERE t1.subcategory = 'phones'
               GROUP BY t1.category
             )
             SELECT

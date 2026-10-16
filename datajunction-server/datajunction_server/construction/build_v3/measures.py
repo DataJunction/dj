@@ -41,6 +41,7 @@ from datajunction_server.construction.build_v3.dimensions import (
     resolve_metric_expression_dimensions,
 )
 from datajunction_server.construction.build_v3.filters import (
+    add_unique_role_fallbacks,
     parse_and_resolve_filters,
     parse_filter,
     resolve_filter_references,
@@ -312,7 +313,7 @@ def _get_filter_column_name_for_dimension(
         return None  # pragma: no cover
 
     for link in parent_node.current.dimension_links:
-        if link.dimension.name == dim_node_name:
+        if link.dimension.name == dim_node_name and link.role == parsed_ref.role:
             fk_columns = link.foreign_key_column_names
             if fk_columns:  # pragma: no branch
                 return next(iter(fk_columns))
@@ -505,8 +506,8 @@ def build_filter_column_aliases(
     - Identity: ``v3.product.category`` → ``category``
     - Skip-join override: ``dimensions.time.date.dateint`` → ``utc_date``
 
-    Also adds bare-key fallbacks (role suffix stripped) so filters resolve
-    even when the role is missing or mismatched.
+    Also adds bare-key entries for unqualified dimension references. Explicit
+    role-qualified references still require their exact key.
     """
     aliases: dict[str, str] = {}
 
@@ -526,14 +527,7 @@ def build_filter_column_aliases(
     for dim_ref, local_col in ctx.skip_join_column_mapping.items():
         aliases[dim_ref] = local_col
 
-    # Bare-key fallbacks (strip role suffix)
-    for original_ref in list(aliases.keys()):
-        if "[" in original_ref:
-            base_ref = original_ref.split("[")[0]
-            if base_ref not in aliases:  # pragma: no branch
-                aliases[base_ref] = aliases[original_ref]
-
-    return aliases
+    return add_unique_role_fallbacks(aliases)
 
 
 def outer_only_filter_refs(
@@ -585,9 +579,27 @@ def build_outer_where(
     Returns the combined WHERE expression with table-qualified column names,
     or None if no filters parse successfully.
     """
+    # Qualify each semantic reference before resolving it to a bare column.
+    # Two roles of one dimension can have the same column name, and a later
+    # bare-column pass would assign both predicates to the last join alias.
+    qualified_aliases: dict[str, str | ast.Name] = dict(filter_column_aliases)
+    for resolved_dim in resolved_dimensions:
+        column_name = filter_column_aliases.get(
+            resolved_dim.original_ref,
+            resolved_dim.column_name,
+        )
+        table_alias = get_dimension_table_alias(
+            resolved_dim,
+            main_alias,
+            dim_aliases,
+        )
+        qualified_aliases[resolved_dim.original_ref] = ast.Name(
+            column_name,
+            namespace=ast.Name(table_alias),
+        )
     where_clause = parse_and_resolve_filters(
         filters,
-        filter_column_aliases,
+        qualified_aliases,
         cte_alias=None,
         nodes=nodes,
     )
@@ -651,6 +663,67 @@ def _apply_outer_where_atoms(
             select.where = ast.BinaryOp.And(select.where, atom)
         else:
             select.where = atom
+
+
+def _push_simple_dim_filters_to_join(
+    select: ast.Select,
+    dim_aliases: dict[tuple[str, str | None], str],
+) -> None:
+    """Copy simple, null-rejecting dimension filters onto their own joins.
+
+    Keep the WHERE predicate: it still determines which rows survive a LEFT
+    JOIN. The ON copy lets the engine filter that particular dimension scan
+    without narrowing a CTE shared by other roles or grain groups.
+    """
+    if select.where is None or select.from_ is None:
+        return
+    from datajunction_server.construction.build_v3.cte import (
+        _filter_namespaces,
+        _get_relation_side_id,
+        _split_and_atoms,
+    )
+
+    literals = (ast.Number, ast.String, ast.Boolean)
+    dimension_aliases = set(dim_aliases.values())
+    for atom in _split_and_atoms(select.where):
+        simple_equality = (
+            isinstance(atom, ast.BinaryOp)
+            and atom.op == ast.BinaryOpKind.Eq
+            and (
+                (isinstance(atom.left, ast.Column) and isinstance(atom.right, literals))
+                or (
+                    isinstance(atom.right, ast.Column)
+                    and isinstance(atom.left, literals)
+                )
+            )
+        )
+        simple_membership = (
+            isinstance(atom, ast.In)
+            and isinstance(atom.expr, ast.Column)
+            and isinstance(atom.source, list)
+            and all(isinstance(value, literals) for value in atom.source)
+        )
+        if not (simple_equality or simple_membership):
+            continue
+        namespaces = _filter_namespaces(atom)
+        if len(namespaces) != 1:
+            continue
+        alias = next(iter(namespaces))
+        if alias not in dimension_aliases:
+            continue
+        for relation in select.from_.relations:
+            for join in relation.extensions:
+                if (
+                    _get_relation_side_id(join.right) == alias
+                    and (join.join_type or "").upper().strip()
+                    in {"LEFT", "LEFT OUTER", "INNER"}
+                    and join.criteria is not None
+                    and join.criteria.on is not None
+                ):
+                    join.criteria.on = ast.BinaryOp.And(
+                        join.criteria.on,
+                        deepcopy(atom),
+                    )
 
 
 def _set_col_table_alias(col: ast.Column, new_alias: str) -> None:
@@ -1468,6 +1541,7 @@ def build_select_ast(
         main_alias,
         parent_pushdown_active=parent_pushdown_active,
     )
+    _push_simple_dim_filters_to_join(select, dim_aliases)
     if temporal_filter_ast is not None:  # pragma: no cover
         # ``_build_temporal_pushdown`` always pushes the filter into a
         # CTE and returns ``None``, so this branch is currently dead.

@@ -512,12 +512,8 @@ class TestRewriteFilterForCte:
         )
         assert str(rewritten) == "state = 'AZ'"
 
-    def test_does_not_corrupt_substring_collisions(self):
-        """A shorter dim_ref must not rewrite inside a longer similarly-prefixed
-        reference.  ``fact.orders.order_date`` is in scope; an unrelated
-        ``fact.orders.order_date_extended`` elsewhere in the filter must be
-        left untouched.
-        """
+    def test_does_not_partially_rewrite_substring_collision(self):
+        """An OR predicate stays out of the CTE if either ref cannot bind there."""
         cte_query = parse(
             "SELECT o.placed_on AS order_date FROM src o",
         )
@@ -529,9 +525,24 @@ class TestRewriteFilterForCte:
             cte_output_cols={"order_date"},
             cte_query=cte_query,
         )
-        assert str(rewritten) == (
-            "fact.orders.order_date_extended > 0 OR o.placed_on < 1"
+        assert rewritten is None
+
+    def test_rewrites_both_substring_collision_refs_when_available(self):
+        """Similar names bind independently when both columns are in scope."""
+        cte_query = parse(
+            "SELECT o.placed_on AS order_date, "
+            "o.placed_on_extended AS order_date_extended FROM src o",
         )
+        rewritten = _rewrite_filter_for_cte(
+            "fact.orders.order_date_extended > 0 OR fact.orders.order_date < 1",
+            filter_column_aliases={
+                "fact.orders.order_date": "order_date",
+                "fact.orders.order_date_extended": "order_date_extended",
+            },
+            cte_output_cols={"order_date", "order_date_extended"},
+            cte_query=cte_query,
+        )
+        assert str(rewritten) == ("o.placed_on_extended > 0 OR o.placed_on < 1")
 
 
 # ---------------------------------------------------------------------------

@@ -666,7 +666,6 @@ async def test_transform_sql_filter_joinable_dimension(
         	manager,
         	contractor_id
          FROM default.roads.hard_hats
-         WHERE  state = 'NY'
         ),
         default_repair_orders_fact AS (
         SELECT  repair_orders.repair_order_id,
@@ -1261,7 +1260,6 @@ async def test_source_node_query_with_filter_joinable_dimension(
         	manager,
         	contractor_id
          FROM default.roads.hard_hats
-         WHERE  state = 'NY'
         ),
         default_repair_order AS (
         SELECT  repair_order_id,
@@ -1579,7 +1577,6 @@ async def test_metric_with_node_level_and_nth_order_filters(
         SELECT  hard_hat_id,
         	state
          FROM default.roads.hard_hats
-         WHERE  state = 'AZ'
         ),
         default_repair_orders_fact AS (
         SELECT  repair_orders.repair_order_id,
@@ -1590,7 +1587,7 @@ async def test_metric_with_node_level_and_nth_order_filters(
         repair_orders_fact_0 AS (
         SELECT  t2.state,
         	COUNT(t1.repair_order_id) repair_order_id_count_bd241964
-         FROM default_repair_orders_fact t1 INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id
+         FROM default_repair_orders_fact t1 INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id AND t2.state = 'AZ'
          WHERE  t2.state = 'AZ'
          GROUP BY  t2.state
         )
@@ -1655,7 +1652,6 @@ async def test_metric_with_nth_order_dimensions_filters(
         	company_name,
         	phone
          FROM default.roads.dispatchers
-         WHERE  dispatcher_id = 1 AND phone = '4082021022'
         ),
         default_hard_hat AS (
         SELECT  hard_hat_id,
@@ -1663,7 +1659,6 @@ async def test_metric_with_nth_order_dimensions_filters(
         	city,
         	state
          FROM default.roads.hard_hats
-         WHERE  state != 'AZ'
         ),
         default_municipality_dim AS (
         SELECT  m.municipality_id AS municipality_id,
@@ -1686,7 +1681,7 @@ async def test_metric_with_nth_order_dimensions_filters(
         	t4.local_region,
         	COUNT(t1.repair_order_id) repair_order_id_count_bd241964
          FROM default_repair_orders_fact t1 INNER JOIN default_hard_hat t2 ON t1.hard_hat_id = t2.hard_hat_id
-        INNER JOIN default_dispatcher t3 ON t1.dispatcher_id = t3.dispatcher_id
+        INNER JOIN default_dispatcher t3 ON t1.dispatcher_id = t3.dispatcher_id AND t3.phone = '4082021022'
         INNER JOIN default_municipality_dim t4 ON t1.municipality_id = t4.municipality_id
          WHERE  t2.state != 'AZ' AND t3.phone = '4082021022'
          GROUP BY  t2.city, t2.last_name, t3.company_name, t4.local_region
@@ -1984,7 +1979,6 @@ async def test_source_sql_joinable_dimension_and_filter(
         	manager,
         	contractor_id
          FROM default.roads.hard_hats
-         WHERE  state = 'NY'
         ),
         default_repair_order AS (
         SELECT  repair_order_id,
@@ -4224,7 +4218,6 @@ async def test_role_path_dimensions_in_filters_single_hop(
         SELECT  country_code,
         	name
          FROM default.examples.countries
-         WHERE  name = 'United States'
         ),
         default_user_dim AS (
         SELECT  birth_country,
@@ -4235,7 +4228,7 @@ async def test_role_path_dimensions_in_filters_single_hop(
         SELECT  t2.name name_user_birth_country,
         	COUNT(t1.age) age_count_4ebaaaaa,
         	SUM(t1.age) age_sum_4ebaaaaa
-         FROM default_user_dim t1 LEFT OUTER JOIN default_special_country_dim t2 ON t1.birth_country = t2.country_code
+         FROM default_user_dim t1 LEFT OUTER JOIN default_special_country_dim t2 ON t1.birth_country = t2.country_code AND t2.name = 'United States'
          WHERE  t2.name = 'United States'
          GROUP BY  t2.name
         )
@@ -4282,7 +4275,6 @@ async def test_role_path_dimensions_in_filters_multi_hop_geographic(
         SELECT  continent_id,
         	continent_name
          FROM default.public.continents
-         WHERE  continent_name = 'North America'
         ),
         default_regions AS (
         SELECT  region_id,
@@ -4304,7 +4296,7 @@ async def test_role_path_dimensions_in_filters_multi_hop_geographic(
         	SUM(t1.age) age_sum_4ebaaaaa
          FROM default_user_dim t1 LEFT OUTER JOIN default_special_country_dim t2 ON t1.residence_country = t2.country_code
         LEFT OUTER JOIN default_regions t3 ON t2.country_code = t3.region_id
-        LEFT OUTER JOIN default_continents t4 ON t3.continent_id = t4.continent_id
+        LEFT OUTER JOIN default_continents t4 ON t3.continent_id = t4.continent_id AND t4.continent_name = 'North America'
          WHERE  t4.continent_name = 'North America'
          GROUP BY  t4.continent_name
         )
@@ -4371,7 +4363,6 @@ async def test_role_path_dimensions_in_filters_multi_hop_temporal(
         SELECT  year_id,
         	year_number
          FROM default.public.years
-         WHERE  year_number = 2024
         ),
         user_dim_0 AS (
         SELECT  t5.year_number year_number_month_year,
@@ -4380,7 +4371,7 @@ async def test_role_path_dimensions_in_filters_multi_hop_temporal(
          FROM default_user_dim t1 LEFT OUTER JOIN default_date_dim t2 ON t1.birth_date = t2.dateint
         LEFT OUTER JOIN default_weeks t3 ON t2.dateint BETWEEN t3.week_start_date AND t3.week_end_date
         LEFT OUTER JOIN default_months t4 ON t3.month_id = t4.month_id
-        LEFT OUTER JOIN default_years t5 ON t4.year_id = t5.year_id
+        LEFT OUTER JOIN default_years t5 ON t4.year_id = t5.year_id AND t5.year_number = 2024
          WHERE  t5.year_number = 2024
          GROUP BY  t5.year_number
         )
@@ -4427,7 +4418,6 @@ async def test_role_path_dimensions_mixed_paths(
         SELECT  country_code,
         	name
          FROM default.examples.countries
-         WHERE  name = 'Canada' AND name = 'United States'
         ),
         default_user_dim AS (
         SELECT  birth_country,
@@ -4440,9 +4430,9 @@ async def test_role_path_dimensions_mixed_paths(
         	t3.name name_user_residence_country,
         	COUNT(t1.age) age_count_4ebaaaaa,
         	SUM(t1.age) age_sum_4ebaaaaa
-         FROM default_user_dim t1 LEFT OUTER JOIN default_special_country_dim t2 ON t1.birth_country = t2.country_code
-        LEFT OUTER JOIN default_special_country_dim t3 ON t1.residence_country = t3.country_code
-         WHERE  t3.name = 'Canada' AND t3.name = 'United States'
+         FROM default_user_dim t1 LEFT OUTER JOIN default_special_country_dim t2 ON t1.birth_country = t2.country_code AND t2.name = 'Canada'
+        LEFT OUTER JOIN default_special_country_dim t3 ON t1.residence_country = t3.country_code AND t3.name = 'United States'
+         WHERE  t2.name = 'Canada' AND t3.name = 'United States'
          GROUP BY  t2.name, t3.name
         )
 
@@ -4504,7 +4494,6 @@ async def test_role_path_dimensions_mixed_hierarchies(
         	region_name,
         	continent_id
          FROM default.public.regions
-         WHERE  region_name = 'APAC'
         ),
         default_special_country_dim AS (
         SELECT  country_code
@@ -4526,7 +4515,6 @@ async def test_role_path_dimensions_mixed_hierarchies(
         SELECT  year_id,
         	year_number
          FROM default.public.years
-         WHERE  year_number = 1940
         ),
         user_dim_0 AS (
         SELECT  t4.continent_name continent_name_region_continent,
@@ -4534,12 +4522,12 @@ async def test_role_path_dimensions_mixed_hierarchies(
         	COUNT(t1.age) age_count_4ebaaaaa,
         	SUM(t1.age) age_sum_4ebaaaaa
          FROM default_user_dim t1 LEFT OUTER JOIN default_special_country_dim t2 ON t1.birth_country = t2.country_code
-        LEFT OUTER JOIN default_regions t3 ON t2.country_code = t3.region_id
+        LEFT OUTER JOIN default_regions t3 ON t2.country_code = t3.region_id AND t3.region_name = 'APAC'
         LEFT OUTER JOIN default_continents t4 ON t3.continent_id = t4.continent_id
         LEFT OUTER JOIN default_date_dim t5 ON t1.birth_date = t5.dateint
         LEFT OUTER JOIN default_weeks t6 ON t5.dateint BETWEEN t6.week_start_date AND t6.week_end_date
         LEFT OUTER JOIN default_months t7 ON t6.month_id = t7.month_id
-        LEFT OUTER JOIN default_years t8 ON t7.year_id = t8.year_id
+        LEFT OUTER JOIN default_years t8 ON t7.year_id = t8.year_id AND t8.year_number = 1940
          WHERE  t3.region_name = 'APAC' AND t8.year_number = 1940
          GROUP BY  t4.continent_name, t7.month_name
         )
@@ -4668,15 +4656,8 @@ async def test_role_path_dimensions_error_handling(
             "filters": ["default.special_country_dim.name[invalid_role] = 'Canada'"],
         },
     )
-    # v3 does not currently reject unknown role names — it treats the role
-    # token as an opaque alias and emits SQL that joins through whatever path
-    # the role *would* anchor to (here, the only dim_link to
-    # ``special_country_dim`` from the user dim). The upshot is a successful
-    # 200 with a query whose result set may be semantically odd but is
-    # well-formed. (v2 had stricter validation; that error path is not yet
-    # ported to v3 — see TODO in node_query.py.)
-    assert response.status_code == 200
-    assert "name_invalid_role" in response.json()["sql"]
+    assert response.status_code == 422
+    assert "Cannot find join path" in response.json()["message"]
 
     # Test with malformed role path syntax
     response = await module__client_with_examples.get(
@@ -4725,7 +4706,6 @@ async def test_multiple_filters_same_role_path(
             name,
             formation_date
           FROM default.examples.countries
-          WHERE  name IS NOT NULL AND formation_date > 20000101
         ),
         default_user_dim AS (
           SELECT  birth_country,
@@ -4790,19 +4770,16 @@ async def test_role_path_dimensions_performance_complex_query(
         	month_name,
         	year_id
          FROM default.public.months
-         WHERE  month_name IN ('January', 'February', 'March')
         ),
         default_regions AS (
         SELECT  region_id,
         	region_name
          FROM default.public.regions
-         WHERE  region_name = 'North America'
         ),
         default_special_country_dim AS (
         SELECT  country_code,
         	name
          FROM default.examples.countries
-         WHERE  name IN ('Canada', 'United States', 'Mexico')
         ),
         default_user_dim AS (
         SELECT  birth_country,
@@ -4821,7 +4798,6 @@ async def test_role_path_dimensions_performance_complex_query(
         SELECT  year_id,
         	year_number
          FROM default.public.years
-         WHERE  year_number >= 2020
         ),
         user_dim_0 AS (
         SELECT  t2.name name_user_birth_country,
@@ -4831,14 +4807,14 @@ async def test_role_path_dimensions_performance_complex_query(
         	t8.year_number year_number_month_year,
         	COUNT(t1.age) age_count_4ebaaaaa,
         	SUM(t1.age) age_sum_4ebaaaaa
-         FROM default_user_dim t1 LEFT OUTER JOIN default_special_country_dim t2 ON t1.birth_country = t2.country_code
+         FROM default_user_dim t1 LEFT OUTER JOIN default_special_country_dim t2 ON t1.birth_country = t2.country_code AND t2.name IN ('Canada', 'United States', 'Mexico')
         LEFT OUTER JOIN default_special_country_dim t3 ON t1.residence_country = t3.country_code
-        LEFT OUTER JOIN default_regions t4 ON t2.country_code = t4.region_id
+        LEFT OUTER JOIN default_regions t4 ON t2.country_code = t4.region_id AND t4.region_name = 'North America'
         LEFT OUTER JOIN default_date_dim t5 ON t1.birth_date = t5.dateint
         LEFT OUTER JOIN default_weeks t6 ON t5.dateint BETWEEN t6.week_start_date AND t6.week_end_date
-        LEFT OUTER JOIN default_months t7 ON t6.month_id = t7.month_id
+        LEFT OUTER JOIN default_months t7 ON t6.month_id = t7.month_id AND t7.month_name IN ('January', 'February', 'March')
         LEFT OUTER JOIN default_years t8 ON t7.year_id = t8.year_id
-         WHERE  t3.name IN ('Canada', 'United States', 'Mexico') AND t4.region_name = 'North America' AND t7.month_name IN ('January', 'February', 'March') AND t8.year_number >= 2020
+         WHERE  t2.name IN ('Canada', 'United States', 'Mexico') AND t4.region_name = 'North America' AND t7.month_name IN ('January', 'February', 'March') AND t8.year_number >= 2020
          GROUP BY  t2.name, t3.name, t4.region_name, t7.month_name, t8.year_number
         )
 

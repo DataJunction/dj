@@ -345,10 +345,9 @@ def extract_filter_dimension_refs(
     for filter_str in filters or []:
         filter_ast = parse_filter(filter_str)
 
-        # Track base column refs handled via role-qualified subscript notation
-        # (e.g., "v3.location.country" from "v3.location.country[customer->home]")
-        # so we don't also add the role-less version in the Column pass below.
-        subscript_handled_refs: set[str] = set()
+        # A role-qualified subscript consumes only its own Column node. A
+        # separate bare occurrence of the same ref still needs resolution.
+        subscript_handled_column_ids: set[int] = set()
 
         # Role markers inside subscripts are parsed as Column nodes (e.g. the
         # `to` in `v3.location.country[to]`) but are not real filter column
@@ -367,11 +366,9 @@ def extract_filter_dimension_refs(
             if not base_col_ref or SEPARATOR not in base_col_ref:
                 continue  # pragma: no cover
 
-            # The base ref is still needed below to mark this subscript handled.
             full_name = dimension_ref_of_expression(subscript) or base_col_ref
 
-            # Mark this base ref as handled so the Column pass skips it
-            subscript_handled_refs.add(base_col_ref)
+            subscript_handled_column_ids.add(id(subscript.expr))
 
             # Mark any Column nodes used as the role marker so we don't treat
             # them as bare refs.
@@ -394,11 +391,9 @@ def extract_filter_dimension_refs(
             # parsed as Columns but don't refer to real data columns.
             if id(col) in role_marker_ids:
                 continue
-            full_name = get_column_full_name(col)
-            # Skip if already handled as a role-qualified subscript ref
-            if full_name in subscript_handled_refs:
+            if id(col) in subscript_handled_column_ids:
                 continue
-            _add(full_name)
+            _add(get_column_full_name(col))
 
     return refs
 
@@ -436,8 +431,9 @@ def add_dimensions_from_filters(ctx: BuildContext) -> None:
         if full_name in ctx.metrics:
             continue
 
-        # Check if any existing dimension already covers this (node, column[, role]).
-        # Role-qualified refs match role-sensitively; role-less refs ignore role.
+        # Check if this exact semantic reference is already resolved. A bare
+        # ref cannot borrow a selected role's binding: it must resolve its own
+        # default path or report ambiguity.
         # parse_dimension_ref raises DJInvalidInputException for a bare (unqualified)
         # ref, enforcing the node.column contract.
         dim_ref = parse_dimension_ref(full_name)
@@ -447,7 +443,7 @@ def add_dimensions_from_filters(ctx: BuildContext) -> None:
             if (
                 existing_ref.node_name == dim_ref.node_name
                 and existing_ref.column_name == dim_ref.column_name
-                and (dim_ref.role is None or existing_ref.role == dim_ref.role)
+                and existing_ref.role == dim_ref.role
             ):
                 is_covered = True  # pragma: no cover
                 break  # pragma: no cover

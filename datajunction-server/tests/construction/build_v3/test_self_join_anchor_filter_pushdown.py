@@ -6,8 +6,8 @@ supplies the anchor date, the ``b`` side enumerates every date from the start of
 that month through the anchor. Both output columns therefore trace back to the
 same physical column on the same physical table, distinguished only by alias.
 
-Filtering on the anchor column should constrain the ``a`` side alone. The period
-side has to stay free, because it is what gives each anchor its window.
+Filtering on the anchor column should constrain the consuming orders transform.
+The bridge's period side has to stay free, because it gives each anchor its window.
 """
 
 import pytest
@@ -108,10 +108,9 @@ async def test_anchor_filter_does_not_leak_onto_period_side(
 ) -> None:
     """A filter on the anchor column must not also constrain the period column.
 
-    Both columns resolve to `date_int` on `default.date_table`, so a pushdown that
-    matches on bare column name and then replicates itself across every alias of
-    that table lands the predicate on the period side too. That collapses each
-    month-to-date window to just the filtered dates.
+    Both bridge columns resolve to `date_int` on `default.date_table`.
+    The request filter belongs on the consuming orders transform, not inside
+    the shared bridge CTE, where alias confusion could truncate the period.
     """
     await _setup_mtd_bridge(client_with_service_setup)
 
@@ -134,7 +133,6 @@ async def test_anchor_filter_does_not_leak_onto_period_side(
           FROM default.public.dates a
           INNER JOIN default.public.dates b
             ON b.date_int BETWEEN a.first_date_of_month AND a.date_int
-          WHERE a.date_int IN (20180208, 20180210)
         ),
         default_orders_mtd AS (
           SELECT b.anchor_date, o.discount
@@ -169,9 +167,8 @@ async def test_two_table_bridge_is_unaffected(
     """Control: the same query shape over two DIFFERENT tables filters correctly.
 
     Identical bridge, identical filter, identical column names -- the only change
-    is that the two sides read different physical tables. The anchor predicate then
-    lands on the anchor side alone, which isolates "both aliases resolve to the same
-    physical table" as the trigger rather than the self-join shape itself.
+    is that the two sides read different physical tables. The filter still applies
+    to the consuming orders transform, leaving both bridge input tables intact.
     """
     for table, name in (
         ("dates", "default.date_table"),
@@ -278,7 +275,6 @@ async def test_two_table_bridge_is_unaffected(
           FROM default.public.dates a
           INNER JOIN default.public.dates_b b
             ON b.date_int BETWEEN a.first_date_of_month AND a.date_int
-          WHERE a.date_int IN (20180208, 20180210)
         ),
         default_orders_mtd_two_table AS (
           SELECT b.anchor_date, o.discount

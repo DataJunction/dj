@@ -142,11 +142,12 @@ async def test_direct_self_join_employee_manager(
 
 
 @pytest.mark.asyncio
-async def test_indirect_self_join_employee_manager(
+async def test_indirect_self_join_role_is_not_silently_bound_to_employee(
     client_with_service_setup: AsyncClient,
 ) -> None:
     """
-    Test that a metric using a self-join dimension generates correct SQL.
+    The loader cannot currently traverse the employee self-link from this
+    transform. A manager request must not silently use the direct employee link.
     """
     # Create source
     response = await client_with_service_setup.post(
@@ -247,7 +248,7 @@ async def test_indirect_self_join_employee_manager(
     )
     assert response.status_code in (200, 201), response.text
 
-    # Test /sql/measures/v3 - validates self-join through indirect dimension link
+    # The transform has a direct employee link, but no manager path from it.
     response = await client_with_service_setup.get(
         "/sql/measures/v3",
         params={
@@ -257,35 +258,10 @@ async def test_indirect_self_join_employee_manager(
             ],
         },
     )
-    assert response.status_code == 200, response.text
-    data = response.json()
-    assert_sql_equal(
-        data["grain_groups"][0]["sql"],
-        """
-        WITH default_emp AS (
-          SELECT
-            employee_id,
-            name
-          FROM default.public.employees
-        ),
-        default_sales_with_emp AS (
-          SELECT
-            s.amount,
-            s.employee_id
-          FROM default.public.sales s
-          LEFT JOIN default.public.employees e ON s.employee_id = e.employee_id
-        )
-        SELECT
-          t2.name name_manager,
-          SUM(t1.amount) amount_sum_b1a226f0
-        FROM default_sales_with_emp t1
-        LEFT OUTER JOIN default_emp t2 ON t1.employee_id = t2.employee_id
-        GROUP BY
-          t2.name
-        """,
-    )
+    assert response.status_code == 422, response.text
+    assert "Cannot find join path" in response.json()["message"]
 
-    # Test /sql/metrics/v3 - validates full aggregation with self-join
+    # The full metrics endpoint must reject the same invalid role.
     response = await client_with_service_setup.get(
         "/sql/metrics/v3",
         params={
@@ -295,39 +271,8 @@ async def test_indirect_self_join_employee_manager(
             ],
         },
     )
-    assert response.status_code == 200, response.text
-    data = response.json()
-    assert_sql_equal(
-        data["sql"],
-        """
-        WITH default_emp AS (
-          SELECT
-            employee_id,
-            name
-          FROM default.public.employees
-        ),
-        default_sales_with_emp AS (
-          SELECT
-            s.amount,
-            s.employee_id
-          FROM default.public.sales s
-          LEFT JOIN default.public.employees e ON s.employee_id = e.employee_id
-        ),
-        sales_with_emp_0 AS (
-          SELECT
-            t2.name name_manager,
-            SUM(t1.amount) amount_sum_b1a226f0
-          FROM default_sales_with_emp t1 LEFT OUTER JOIN default_emp t2 ON t1.employee_id = t2.employee_id
-          GROUP BY  t2.name
-        )
-        SELECT
-          sales_with_emp_0.name_manager AS name_manager,
-          SUM(sales_with_emp_0.amount_sum_b1a226f0) AS total_sales
-        FROM sales_with_emp_0
-        GROUP BY
-          sales_with_emp_0.name_manager
-        """,
-    )
+    assert response.status_code == 422, response.text
+    assert "Cannot find join path" in response.json()["message"]
 
 
 @pytest.mark.asyncio
