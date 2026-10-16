@@ -734,6 +734,13 @@ async def test_semantic_git_discovery_and_view_filtering(
     # its own. Loading a single cube namespace must also follow its Git parent.
     scoped_namespaces = await _active_git_namespaces(session, "demo.metrics")
     assert "legacy.feature.child" in scoped_namespaces
+    assert "flat.release" not in scoped_namespaces
+    linked_namespaces = await _active_git_namespaces(session, "legacy.feature.child")
+    assert _git_location("legacy.feature.child", linked_namespaces) == (
+        "demo.metrics",
+        "feature/foo",
+    )
+    assert "flat.release" not in linked_namespaces
     checker = AsyncMock(spec=AccessChecker)
     checker.check.return_value = [
         AccessDecision(
@@ -1084,6 +1091,58 @@ async def test_semantic_git_discovery_and_view_filtering(
         json={"path": ["plain.metrics", None]},
     )
     assert denied_plain.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_scoped_discovery_uses_ancestor_branch(
+    client: AsyncClient,
+    session: AsyncSession,
+):
+    await _setup_cube(client)
+    for namespace in ("demo", "demo.metrics"):
+        await _expect(await client.post(f"/namespaces/{namespace}"), 200, 201, 409)
+    cube_name = "demo.metrics.report"
+    await _expect(
+        await client.post(
+            "/nodes/cube/",
+            json={
+                "name": cube_name,
+                "display_name": "Report",
+                "description": "",
+                "mode": "published",
+                "metrics": ["sem.total_amount"],
+                "dimensions": ["sem.region.region_name"],
+            },
+        ),
+        200,
+        201,
+    )
+    ancestor = await NodeNamespace.get(session, "demo")
+    root = await NodeNamespace.get(session, "demo.metrics")
+    assert ancestor and root
+    ancestor.git_branch = "release"
+    root.github_repo_path = "team/metrics"
+    root.default_branch = "main"
+    await session.commit()
+
+    unfiltered = await client.post("/semantic/views/", json={})
+    assert unfiltered.status_code == 200, unfiltered.text
+    view = next(view for view in unfiltered.json() if view["name"] == cube_name)
+    assert (view["namespace"], view["branch"]) == ("demo.metrics", "release")
+
+    discovered = await client.post(
+        "/semantic/discover",
+        json={"path": ["demo.metrics"]},
+    )
+    assert discovered.status_code == 200, discovered.text
+    assert discovered.json()["values"] == ["release"]
+
+    filtered = await client.post(
+        "/semantic/views/",
+        json={"path": ["demo.metrics", "release"]},
+    )
+    assert filtered.status_code == 200, filtered.text
+    assert filtered.json() == [view]
 
 
 @pytest.mark.asyncio

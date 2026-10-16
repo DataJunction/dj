@@ -29,6 +29,7 @@ from datajunction_server.internal.access.authorization import (
 )
 from datajunction_server.internal.namespaces import (
     get_git_info_for_namespace,
+    get_parent_namespaces,
     resolve_git_info_from_map,
 )
 from datajunction_server.internal.sql import (
@@ -466,6 +467,37 @@ async def _active_git_namespaces(
             and not row.namespace.startswith(f"{root}.")
             and row.namespace not in checked_prefixes
         }
+
+    # Git resolution also reads string ancestors and the direct FK parent of a
+    # branch namespace. Load these as metadata after traversal so they cannot
+    # expand the selected subtree or pull in unrelated cubes.
+    ancestor_names = {
+        ancestor
+        for name in namespaces
+        for ancestor in get_parent_namespaces(name)
+    } - namespaces.keys()
+    if ancestor_names:
+        rows = await session.execute(
+            select(NodeNamespace).where(
+                active,
+                NodeNamespace.namespace.in_(ancestor_names),
+            ),
+        )
+        namespaces.update({row.namespace: row for row in rows.scalars()})
+
+    parent_names = {
+        row.parent_namespace
+        for row in namespaces.values()
+        if row.git_branch and row.parent_namespace
+    } - namespaces.keys()
+    if parent_names:
+        rows = await session.execute(
+            select(NodeNamespace).where(
+                active,
+                NodeNamespace.namespace.in_(parent_names),
+            ),
+        )
+        namespaces.update({row.namespace: row for row in rows.scalars()})
     return namespaces
 
 
