@@ -1526,6 +1526,46 @@ class TestImpactAnalysis:
         _, kwargs = mock_push.call_args
         assert kwargs.get("allow_empty") is False
 
+    def test_push_force_node_flag_passed_to_service(self, tmp_path):
+        """--force-node on `dj push` is repeatable and reaches the service as a list."""
+        from datajunction.cli import DJCLI
+
+        cli = DJCLI(builder_client=mock.MagicMock())
+        with patch.object(cli.deployment_service, "push") as mock_push:
+            mock_push.return_value = None
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "dj",
+                    "push",
+                    str(tmp_path),
+                    "--force-node",
+                    "ns.first",
+                    "--force-node",
+                    "ns.second",
+                ],
+            ):
+                cli.run()
+
+        mock_push.assert_called_once()
+        _, kwargs = mock_push.call_args
+        assert kwargs.get("force_nodes") == ["ns.first", "ns.second"]
+        assert kwargs.get("force") is False
+
+    def test_push_without_force_node_flag_defaults_none(self, tmp_path):
+        """Omitting --force-node on `dj push` must pass force_nodes=None."""
+        from datajunction.cli import DJCLI
+
+        cli = DJCLI(builder_client=mock.MagicMock())
+        with patch.object(cli.deployment_service, "push") as mock_push:
+            mock_push.return_value = None
+            with patch.object(sys, "argv", ["dj", "push", str(tmp_path)]):
+                cli.run()
+
+        _, kwargs = mock_push.call_args
+        assert kwargs.get("force_nodes") is None
+
 
 class TestDJCLIClientCreation:
     """Tests for DJCLI client creation from environment variables."""
