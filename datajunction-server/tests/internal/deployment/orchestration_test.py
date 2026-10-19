@@ -23,7 +23,12 @@ from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.partition import Partition
 from datajunction_server.database.tag import Tag
 from datajunction_server.database.user import OAuthProvider, User
-from datajunction_server.errors import DJError, DJInvalidDeploymentConfig, ErrorCode
+from datajunction_server.errors import (
+    DJError,
+    DJInvalidDeploymentConfig,
+    DJInvalidInputException,
+    ErrorCode,
+)
 from datajunction_server.internal.deployment.fingerprints import (
     SemanticFingerprintGraph,
 )
@@ -1000,6 +1005,59 @@ class TestDeploymentPlanning:
         assert len(to_deploy) == len(sample_deployment_spec.nodes)
         assert to_skip == []
         assert to_delete == []
+
+    def test_filter_nodes_to_deploy_with_force_nodes(
+        self,
+        sample_deployment_spec,
+    ):
+        """`force_nodes` re-deploys only the named nodes; the rest stay skipped."""
+        forced = sample_deployment_spec.nodes[1]
+        orchestrator = DeploymentOrchestrator(
+            deployment_spec=DeploymentSpec(
+                namespace=sample_deployment_spec.namespace,
+                nodes=sample_deployment_spec.nodes,
+                tags=sample_deployment_spec.tags,
+                force_nodes=[forced.rendered_name],
+            ),
+            deployment_id="scoped-force-deployment",
+            session=MagicMock(),
+            context=MagicMock(),
+        )
+        existing_specs = {
+            node.rendered_name: node for node in sample_deployment_spec.nodes
+        }
+        to_deploy, to_skip, to_delete = orchestrator.filter_nodes_to_deploy(
+            existing_specs,
+        )
+        assert to_deploy == [forced]
+        assert [spec.rendered_name for spec in to_skip] == [
+            spec.rendered_name
+            for spec in sample_deployment_spec.nodes
+            if spec is not forced
+        ]
+        assert to_delete == []
+
+    def test_filter_nodes_to_deploy_rejects_unknown_force_nodes(
+        self,
+        sample_deployment_spec,
+    ):
+        """A `force_nodes` name that matches nothing is an error, not a silent no-op."""
+        orchestrator = DeploymentOrchestrator(
+            deployment_spec=DeploymentSpec(
+                namespace=sample_deployment_spec.namespace,
+                nodes=sample_deployment_spec.nodes,
+                tags=sample_deployment_spec.tags,
+                force_nodes=["test.no_such_node"],
+            ),
+            deployment_id="unknown-force-node",
+            session=MagicMock(),
+            context=MagicMock(),
+        )
+        existing_specs = {
+            node.rendered_name: node for node in sample_deployment_spec.nodes
+        }
+        with pytest.raises(DJInvalidInputException, match="test.no_such_node"):
+            orchestrator.filter_nodes_to_deploy(existing_specs)
 
 
 class TestOrchestrationFlow:

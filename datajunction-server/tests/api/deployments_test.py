@@ -9881,6 +9881,75 @@ class TestDeploymentRevalidation:
             "_create_node_revision should have written correct parent relationships"
         )
 
+    @pytest.mark.asyncio
+    async def test_force_nodes_redeploys_only_the_named_node(self, client, session):
+        """
+        `force_nodes` gives only the named node a new revision; an unchanged node
+        beside it keeps its version.
+        """
+        from sqlalchemy import select
+
+        namespace = "scoped_force_test"
+        source = SourceSpec(
+            name="default.parts",
+            catalog="default",
+            schema="shop",
+            table="parts",
+            columns=[
+                ColumnSpec(name="part_id", type="int"),
+                ColumnSpec(name="name", type="string"),
+            ],
+        )
+        transform = TransformSpec(
+            name="default.parts_enriched",
+            query="SELECT part_id, name FROM ${prefix}default.parts",
+            columns=[
+                ColumnSpec(name="part_id", type="int"),
+                ColumnSpec(name="name", type="string"),
+            ],
+        )
+        nodes = [source, transform]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert data["status"] == DeploymentStatus.SUCCESS.value
+
+        async def versions() -> dict[str, str]:
+            rows = await session.execute(
+                select(Node.name, Node.current_version).where(
+                    Node.name.in_(
+                        [
+                            f"{namespace}.default.parts",
+                            f"{namespace}.default.parts_enriched",
+                        ],
+                    ),
+                ),
+            )
+            return {name: version for name, version in rows.all()}
+
+        before = await versions()
+        session.expire_all()
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=nodes,
+                force_nodes=[f"{namespace}.default.parts_enriched"],
+            ),
+        )
+        assert data["status"] == DeploymentStatus.SUCCESS.value
+
+        after = await versions()
+        assert (
+            after[f"{namespace}.default.parts"] == before[f"{namespace}.default.parts"]
+        )
+        assert (
+            after[f"{namespace}.default.parts_enriched"]
+            != before[f"{namespace}.default.parts_enriched"]
+        )
+
 
 @pytest.mark.asyncio
 async def test_validate_reference_dimension_link_bad_attribute():

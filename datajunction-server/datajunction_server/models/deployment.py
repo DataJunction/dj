@@ -1835,6 +1835,14 @@ class DeploymentSpec(BaseModel):
             "re-deployment (e.g., after infrastructure changes)."
         ),
     )
+    force_nodes: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Full names of the nodes to treat as changed, as `force` does for all of "
+            "them. Use it to re-deploy a single node, for example to reschedule a "
+            "cube's materialization, without re-processing the rest of the namespace."
+        ),
+    )
     allow_empty: bool = Field(
         default=False,
         description=(

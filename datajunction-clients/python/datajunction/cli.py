@@ -46,6 +46,7 @@ class DJCLI:
         namespace: str | None = None,
         verbose: bool = False,
         force: bool = False,
+        force_nodes: list[str] | None = None,
         allow_empty: bool = False,
         format: str = "text",
     ):
@@ -57,6 +58,7 @@ class DJCLI:
             namespace=namespace,
             verbose=verbose,
             force=force,
+            force_nodes=force_nodes,
             allow_empty=allow_empty,
             format=format,
         )
@@ -905,6 +907,16 @@ class DJCLI:
             help="Force update all nodes even if they are unchanged",
         )
         push_parser.add_argument(
+            "--force-node",
+            action="append",
+            dest="force_nodes",
+            metavar="NODE",
+            help=(
+                "Force update only this node (full name) even if it is unchanged. "
+                "Repeat for several nodes"
+            ),
+        )
+        push_parser.add_argument(
             "--allow-empty",
             action="store_true",
             help=(
@@ -1524,6 +1536,7 @@ class DJCLI:
                     namespace=args.namespace,
                     verbose=args.verbose,
                     force=args.force,
+                    force_nodes=args.force_nodes,
                     allow_empty=args.allow_empty,
                     format=args.format,
                 )
