@@ -5000,12 +5000,21 @@ class DeploymentOrchestrator:
         to_skip: list[NodeSpec] = []
         revalidation_only: set[str] = set()
         force = self.deployment_spec.force
+        force_nodes = set(self.deployment_spec.force_nodes)
+        unknown_force_nodes = force_nodes - {
+            node_spec.rendered_name for node_spec in self.deployment_spec.nodes
+        }
+        if unknown_force_nodes:
+            raise DJInvalidInputException(
+                "`force_nodes` names nodes that are not in this deployment: "
+                f"{', '.join(sorted(unknown_force_nodes))}",
+            )
         for node_spec in self.deployment_spec.nodes:
             existing_spec = existing_nodes_map.get(node_spec.rendered_name)
             if not existing_spec:
                 to_create.append(node_spec)
             else:
-                if force:
+                if force or node_spec.rendered_name in force_nodes:
                     to_update.append(node_spec)
                     continue
                 existing_spec.namespace = node_spec.namespace
