@@ -291,6 +291,7 @@ def test_deployment_spec():
         "source": None,
         "auto_register_sources": True,
         "force": False,
+        "force_nodes": [],
         "allow_empty": False,
         "default_catalog": None,
     }
