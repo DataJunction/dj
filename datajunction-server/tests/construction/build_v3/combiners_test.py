@@ -986,15 +986,28 @@ class TestPreAggTableFunctions:
         )
 
         gg = _create_grain_group(
-            sql="SELECT date_id, SUM(amount) AS revenue_sum FROM orders GROUP BY date_id",
+            sql=(
+                "SELECT date_id, region, SUM(amount) AS revenue_sum FROM orders "
+                "GROUP BY date_id, region"
+            ),
             columns=[
-                {"name": "date_id", "semantic_type": "dimension"},
+                {
+                    "name": "date_id",
+                    "semantic_name": "sem.date_id",
+                    "semantic_type": "dimension",
+                },
+                {
+                    "name": "region",
+                    "semantic_name": "sem.region",
+                    "semantic_type": "dimension",
+                },
                 {"name": "revenue_sum", "semantic_type": "metric_component"},
             ],
-            grain=["date_id"],
+            grain=["region", "date_id"],
             parent_name="orders",
             components=[component],
         )
+        gg.dimension_group_by_positions = {"sem.date_id": 0, "sem.region": 1}
 
         result = _build_grain_group_from_preagg_table(
             gg,
@@ -1014,7 +1027,11 @@ class TestPreAggTableFunctions:
         assert "SUM(" in sql.upper()
 
         # Grain should be preserved
-        assert result.grain == ["date_id"]
+        assert result.grain == ["region", "date_id"]
+        assert result.dimension_group_by_positions == {
+            "sem.region": 0,
+            "sem.date_id": 1,
+        }
 
     def test_preagg_table_merge_converts_for_druid(self):
         """The cube combiner converts sketches and reports the stored type."""

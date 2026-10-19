@@ -995,7 +995,7 @@ def _build_group_by(
     projected_dim_col_names: set[str],
     filter_dimensions: set[str],
     parent_node_name: str | None = None,
-) -> list[ast.Expression]:
+) -> tuple[list[ast.Expression], dict[str, int]]:
     """Build the GROUP BY clause from dimensions and grain columns.
 
     Dimensions marked as filter-only are excluded.  Grain columns that are
@@ -1008,10 +1008,12 @@ def _build_group_by(
     the NULL-side alone.
     """
     group_by: list[ast.Expression] = []
+    dimension_positions: dict[str, int] = {}
 
     for resolved_dim in resolved_dimensions:
         if resolved_dim.original_ref in filter_dimensions:
             continue
+        dimension_positions[resolved_dim.original_ref] = len(group_by)
         table_alias = get_dimension_table_alias(resolved_dim, main_alias, dim_aliases)
         col_ref = make_column_ref(resolved_dim.column_name, table_alias)
         group_by.append(
@@ -1037,7 +1039,7 @@ def _build_group_by(
             # "Column ... cannot be resolved".  Spark accepts both forms.
             group_by.append(deepcopy(gc_expr))
 
-    return group_by
+    return group_by, dimension_positions
 
 
 def _parse_grain_col_specs(
@@ -1166,7 +1168,7 @@ def build_select_ast(
     internal_dimension_aliases: dict[str, str] | None = None,
     filters: list[str] | None = None,
     skip_aggregation: bool = False,
-) -> tuple[ast.Query, list[str]]:
+) -> tuple[ast.Query, list[str], dict[str, int]]:
     """
     Build a SELECT AST for measures SQL with JOIN support.
 
@@ -1192,7 +1194,7 @@ def build_select_ast(
                           metrics where raw rows need to be passed through.
 
     Returns:
-        Tuple of (query, scanned_sources):
+        Tuple of (query, scanned_sources, dimension_group_by_positions):
         - query: AST Query node
         - scanned_sources: List of source node names accessed during SQL generation
     """
@@ -1296,7 +1298,7 @@ def build_select_ast(
         clean_alias = ctx.alias_registry.register(alias_name)
         projection.append(_build_metric_col_expr(expr, clean_alias, main_alias))
 
-    group_by = _build_group_by(
+    group_by, dimension_group_by_positions = _build_group_by(
         resolved_dimensions,
         dim_aliases,
         main_alias,
@@ -1499,7 +1501,11 @@ def build_select_ast(
     # Now that every reader exists, each CTE can be trimmed to what they read.
     prune_cte_projections(query)
 
-    return query, scanned_sources
+    return (
+        query,
+        scanned_sources,
+        {} if skip_aggregation else dimension_group_by_positions,
+    )
 
 
 def build_lookback_filter(
@@ -2356,7 +2362,7 @@ def build_grain_group_sql(
         pass_through_columns = effective_grain_columns + [
             col_name for col_name, _ in non_decomposable_columns
         ]
-        query_ast, scanned_sources = build_select_ast(
+        query_ast, scanned_sources, dimension_group_by_positions = build_select_ast(
             ctx,
             metric_expressions=[],  # No aggregated expressions
             resolved_dimensions=effective_resolved_dimensions,
@@ -2379,7 +2385,7 @@ def build_grain_group_sql(
             grain_group.non_decomposable_metrics
             and grain_group.aggregability == Aggregability.NONE,
         )
-        query_ast, scanned_sources = build_select_ast(
+        query_ast, scanned_sources, dimension_group_by_positions = build_select_ast(
             ctx,
             metric_expressions=all_metric_expressions,
             resolved_dimensions=effective_resolved_dimensions,
@@ -2394,20 +2400,6 @@ def build_grain_group_sql(
         )
 
     # Build column metadata
-    select_ast = query_ast.select
-    dimension_group_by_positions = (
-        {
-            dim.original_ref: position
-            for position, dim in enumerate(
-                dim
-                for dim in effective_resolved_dimensions
-                if dim.original_ref
-                not in (ctx.filter_dimensions - set(internal_dimension_aliases))
-            )
-        }
-        if isinstance(select_ast, ast.Select) and select_ast.group_by
-        else {}
-    )
     columns_metadata = []
 
     # Add dimension columns (skip filter-only dimensions as they're not in projection)
