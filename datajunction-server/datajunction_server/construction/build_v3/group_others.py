@@ -9,6 +9,10 @@ from typing import cast
 from datajunction_server.construction.build_v3.filters import (
     get_filter_column_references,
 )
+from datajunction_server.construction.build_v3.ranked_groups import (
+    ranked_column,
+    ranked_tuple_join,
+)
 from datajunction_server.construction.build_v3.types import (
     GeneratedMeasuresSQL,
     GeneratedSQL,
@@ -30,10 +34,6 @@ class GroupOthers:
 
     dimensions: tuple[str, ...]
     ranked: GeneratedSQL
-
-
-def _column(name: str, alias: str) -> ast.Column:
-    return ast.Column(name=ast.Name(name), _table=ast.Table(ast.Name(alias)))
 
 
 def _projection_name(expr: ast.Aliasable | ast.Expression) -> str | None:
@@ -88,7 +88,7 @@ def _ranked_query(
     source.as_ = True
     projection: list[ast.Aliasable | ast.Expression] = [
         ast.Alias(
-            child=_column(ranked_columns[dimension], source_alias),
+            child=ranked_column(ranked_columns[dimension], source_alias),
             alias=ast.Name(key_names[dimension]),
         ).set_as(True)
         for dimension in dimensions
@@ -108,24 +108,10 @@ def _ranked_query(
     return query, key_names, member_name
 
 
-def _null_safe_match(left: ast.Expression, right: ast.Expression) -> ast.Expression:
-    match = ast.BinaryOp(
-        left=ast.BinaryOp(left=left, right=right, op=ast.BinaryOpKind.Eq),
-        right=ast.BinaryOp(
-            left=ast.IsNull(expr=deepcopy(left)),
-            right=ast.IsNull(expr=deepcopy(right)),
-            op=ast.BinaryOpKind.And,
-        ),
-        op=ast.BinaryOpKind.Or,
-    )
-    match.parenthesized = True
-    return match
-
-
 def _bucket_expression(original: ast.Expression, member_name: str) -> ast.Case:
     return ast.Case(
         conditions=[
-            ast.IsNull(expr=_column(member_name, _RANKED_ALIAS), negated=True),
+            ast.IsNull(expr=ranked_column(member_name, _RANKED_ALIAS), negated=True),
         ],
         results=[ast.Cast(data_type=StringType(), expression=deepcopy(original))],
         else_result=ast.String(f"'{_OTHERS_LABEL}'"),
@@ -182,20 +168,16 @@ def _bucket_grain_group(
         dimensions,
         occupied_names,
     )
-    matches = [
-        _null_safe_match(
+    pairs = [
+        (
             deepcopy(original),
-            _column(ranked_keys[dimension], _RANKED_ALIAS),
+            ranked_column(ranked_keys[dimension], _RANKED_ALIAS),
         )
         for _, original, dimension in selected
     ]
 
     select.from_.relations[0].extensions.append(
-        ast.Join(
-            join_type="LEFT OUTER",
-            right=ranked_query,
-            criteria=ast.JoinCriteria(on=ast.BinaryOp.And(*matches)),
-        ),
+        ranked_tuple_join(ranked_query, pairs, "LEFT OUTER"),
     )
 
     for index, original, dimension in selected:
@@ -209,16 +191,12 @@ def _bucket_grain_group(
         dimension_columns[dimension].type = "string"
 
         if select.group_by:
-            matching_positions = [
-                position
-                for position, expression in enumerate(select.group_by)
-                if str(expression) == str(original)
-            ]
-            if len(matching_positions) != 1:
+            position = group.dimension_group_by_positions.get(dimension)
+            if position is None or position >= len(select.group_by):
                 raise DJInvalidInputException(
                     f"GROUP_OTHERS cannot group dimension `{dimension}` at its source grain.",
                 )
-            select.group_by[matching_positions[0]] = _bucket_expression(
+            select.group_by[position] = _bucket_expression(
                 original,
                 member_name,
             )
@@ -227,8 +205,8 @@ def _bucket_grain_group(
 def apply_group_others(
     measures: GeneratedMeasuresSQL,
     group_others: GroupOthers,
-) -> None:
-    """Bucket grain dimensions and remove their already-applied context filters."""
+) -> list[str]:
+    """Bucket grain dimensions and return filters for the final output stage."""
     for group in measures.grain_groups:
         _bucket_grain_group(group, group_others.ranked, group_others.dimensions)
 
@@ -236,7 +214,7 @@ def apply_group_others(
     # Reapplying a predicate on a bucketed dimension after aggregation would
     # discard the Others row (for example, country != 'US').
     bucketed_dimensions = set(group_others.dimensions)
-    measures.ctx.dimension_filters = [
+    return [
         flt
         for flt in measures.ctx.dimension_filters
         if not bucketed_dimensions.intersection(get_filter_column_references(flt))
@@ -255,21 +233,21 @@ def bucket_dimension_rows(
     main_query.alias = ast.Name(main_alias)
     main_query.as_ = True
     ranked_query, ranked_keys, member_name = _ranked_query(ranked, dimensions, set())
-    matches = [
-        _null_safe_match(
-            _column(col.name, main_alias),
-            _column(ranked_keys[col.semantic_name], _RANKED_ALIAS),
+    pairs = [
+        (
+            ranked_column(col.name, main_alias),
+            ranked_column(ranked_keys[col.semantic_name], _RANKED_ALIAS),
         )
         for col in main.columns
         if col.semantic_name in dimensions
     ]
-    if len(matches) != len(dimensions):
+    if len(pairs) != len(dimensions):
         raise DJInvalidInputException("GROUP_OTHERS cannot resolve ranking dimensions.")
 
     projection: list[ast.Aliasable | ast.Expression] = []
     columns = deepcopy(main.columns)
     for col in columns:
-        original = _column(col.name, main_alias)
+        original = ranked_column(col.name, main_alias)
         expression = (
             _bucket_expression(original, member_name)
             if col.semantic_name in dimensions
@@ -290,13 +268,7 @@ def bucket_dimension_rows(
                     ast.Relation(
                         primary=main_query,
                         extensions=[
-                            ast.Join(
-                                join_type="LEFT OUTER",
-                                right=ranked_query,
-                                criteria=ast.JoinCriteria(
-                                    on=ast.BinaryOp.And(*matches),
-                                ),
-                            ),
+                            ranked_tuple_join(ranked_query, pairs, "LEFT OUTER"),
                         ],
                     ),
                 ],

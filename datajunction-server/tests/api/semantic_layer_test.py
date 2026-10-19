@@ -39,7 +39,9 @@ from datajunction_server.api.semantic_layer import (
     _view_payload,
 )
 from datajunction_server.construction.build_v3.group_others import (
+    GroupOthers,
     _bucket_grain_group,
+    apply_group_others,
     bucket_dimension_rows,
 )
 from datajunction_server.construction.build_v3.types import (
@@ -555,6 +557,7 @@ def test_group_others_reaggregates_daily_metric_components():
         aggregability=Aggregability.FULL,
         metrics=["sem.views", "sem.sessions"],
         parent_name="sem.sales",
+        dimension_group_by_positions={"sem.country": 0, "sem.day": 1},
         dialect=Dialect.DUCKDB,
     )
     ranked = V3GeneratedSQL(
@@ -569,7 +572,15 @@ def test_group_others_reaggregates_daily_metric_components():
         ],
         dialect=Dialect.DUCKDB,
     )
-    _bucket_grain_group(group, ranked, ("sem.country",))
+    filters = ["sem.country != 'US'", "sem.day = 'Mon'"]
+    context = SimpleNamespace(dimension_filters=filters)
+    measures = SimpleNamespace(grain_groups=[group], ctx=context)
+    output_filters = apply_group_others(
+        measures,
+        GroupOthers(dimensions=("sem.country",), ranked=ranked),
+    )
+    assert output_filters == ["sem.day = 'Mon'"]
+    assert context.dimension_filters == filters
 
     connection = duckdb.connect()
     connection.execute(
@@ -629,6 +640,7 @@ def test_group_others_matches_null_tuple_and_casts_numeric_dimension():
         aggregability=Aggregability.FULL,
         metrics=["sem.views"],
         parent_name="sem.sales",
+        dimension_group_by_positions={"sem.country": 0, "sem.channel": 1},
         dialect=Dialect.DUCKDB,
     )
     ranked = V3GeneratedSQL(
@@ -665,6 +677,58 @@ def test_group_others_matches_null_tuple_and_casts_numeric_dimension():
     assert _generated_column_arrow_type_name(group.columns[1]) == "utf8"
 
 
+def test_group_others_uses_dimension_position_for_duplicate_group_expressions():
+    """Identical SQL expressions retain their distinct semantic grain positions."""
+    import duckdb
+
+    group = GrainGroupSQL(
+        query=parse(
+            "SELECT sales.country AS country, sales.country AS country_copy, "
+            "SUM(sales.views) AS views_sum FROM sales "
+            "GROUP BY sales.country, sales.country",
+        ),
+        columns=[
+            V3ColumnMetadata("country", "sem.country", "string", "dimension"),
+            V3ColumnMetadata("country_copy", "sem.country_copy", "string", "dimension"),
+            V3ColumnMetadata(
+                "views_sum",
+                "sem.views:sum",
+                "bigint",
+                "metric_component",
+            ),
+        ],
+        grain=["country", "country_copy"],
+        aggregability=Aggregability.FULL,
+        metrics=["sem.views"],
+        parent_name="sem.sales",
+        dimension_group_by_positions={"sem.country": 0, "sem.country_copy": 1},
+        dialect=Dialect.DUCKDB,
+    )
+    ranked = V3GeneratedSQL(
+        query=parse("SELECT country FROM ranking LIMIT 1"),
+        columns=[V3ColumnMetadata("country", "sem.country", "string", "dimension")],
+        dialect=Dialect.DUCKDB,
+    )
+    _bucket_grain_group(group, ranked, ("sem.country",))
+
+    connection = duckdb.connect()
+    connection.execute("CREATE TABLE sales(country VARCHAR, views INT)")
+    connection.execute("CREATE TABLE ranking(country VARCHAR)")
+    connection.executemany(
+        "INSERT INTO sales VALUES (?, ?)",
+        [("US", 10), ("Canada", 4), ("Mexico", 2)],
+    )
+    connection.execute("INSERT INTO ranking VALUES ('US')")
+    assert connection.execute(
+        f"SELECT country, country_copy, views_sum FROM ({group.sql}) AS grouped "
+        "ORDER BY country_copy",
+    ).fetchall() == [
+        ("Others", "Canada", 4),
+        ("Others", "Mexico", 2),
+        ("US", "US", 10),
+    ]
+
+
 def test_group_others_does_not_shadow_unqualified_source_columns():
     """Ranked dimensions and metrics must not make source references ambiguous."""
     import duckdb
@@ -687,6 +751,7 @@ def test_group_others_does_not_shadow_unqualified_source_columns():
         aggregability=Aggregability.FULL,
         metrics=["sem.views"],
         parent_name="sem.sales",
+        dimension_group_by_positions={"sem.country": 0},
         dialect=Dialect.DUCKDB,
     )
     ranked = V3GeneratedSQL(
