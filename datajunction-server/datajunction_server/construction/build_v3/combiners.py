@@ -916,6 +916,12 @@ def _build_grain_group_from_preagg_table(
     group_by: list[ast.Expression] = [
         ast.Column(name=ast.Name(col)) for col in group_by_cols
     ]
+    dimension_group_by_positions = {
+        col.semantic_name: position
+        for position, grain_col in enumerate(group_by_cols)
+        for col in original_gg.columns
+        if col.semantic_type == "dimension" and col.name == grain_col
+    }
 
     # Build FROM clause
     from_clause = ast.From.Table(preagg_table_ref)
@@ -948,6 +954,7 @@ def _build_grain_group_from_preagg_table(
         aggregability=original_gg.aggregability,
         metrics=original_gg.metrics,
         parent_name=original_gg.parent_name,
+        dimension_group_by_positions=dimension_group_by_positions,
         component_aliases=original_gg.component_aliases,
         is_merged=original_gg.is_merged,
         component_aggregabilities=original_gg.component_aggregabilities,
