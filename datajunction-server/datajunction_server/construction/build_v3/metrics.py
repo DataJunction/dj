@@ -2017,6 +2017,7 @@ def generate_metrics_sql(
     ctx: BuildContext,
     measures_result: GeneratedMeasuresSQL,
     decomposed_metrics: dict[str, DecomposedMetricInfo],
+    output_dimension_filters: list[str] | None = None,
 ) -> GeneratedSQL:
     """
     Generate the final metrics SQL query.
@@ -2408,7 +2409,11 @@ def generate_metrics_sql(
     # Use pre-classified filters from BuildContext
     # Filters were classified early in setup_build_context() to ensure grain groups
     # only use dimension filters (not metric filters)
-    dimension_filters_raw = ctx.dimension_filters
+    dimension_filters_raw = (
+        ctx.dimension_filters
+        if output_dimension_filters is None
+        else output_dimension_filters
+    )
     metric_filters_raw = ctx.metric_filters
 
     # Build WHERE clause from dimension filters

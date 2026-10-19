@@ -32,6 +32,10 @@ from datajunction_server.construction.build_v3.group_others import (
     GroupOthers,
     bucket_dimension_rows,
 )
+from datajunction_server.construction.build_v3.ranked_groups import (
+    ranked_column,
+    ranked_tuple_join,
+)
 from datajunction_server.construction.build_v3.types import (
     GeneratedSQL as V3GeneratedSQL,
 )
@@ -472,24 +476,13 @@ def _limit_to_ranked_groups(
     main_alias = "semantic_query"
     ranked_alias = "ranked_groups"
 
-    def column(name: str, alias: str) -> ast.Column:
-        return ast.Column(name=ast.Name(name), _table=ast.Table(ast.Name(alias)))
-
-    conditions: list[ast.Expression] = []
-    for dimension in dimensions:
-        left = column(main_columns[dimension], main_alias)
-        right = column(ranked_columns[dimension], ranked_alias)
-        condition = ast.BinaryOp(
-            left=ast.BinaryOp(left=left, right=right, op=ast.BinaryOpKind.Eq),
-            right=ast.BinaryOp(
-                left=ast.IsNull(expr=column(main_columns[dimension], main_alias)),
-                right=ast.IsNull(expr=column(ranked_columns[dimension], ranked_alias)),
-                op=ast.BinaryOpKind.And,
-            ),
-            op=ast.BinaryOpKind.Or,
+    pairs = [
+        (
+            ranked_column(main_columns[dimension], main_alias),
+            ranked_column(ranked_columns[dimension], ranked_alias),
         )
-        condition.parenthesized = True
-        conditions.append(condition)
+        for dimension in dimensions
+    ]
 
     main_query = deepcopy(main.query)
     main_query.parenthesized = True
@@ -503,7 +496,9 @@ def _limit_to_ranked_groups(
     query = ast.Query(
         select=ast.Select(
             projection=[
-                column(col.name, main_alias).set_alias(ast.Name(col.name)).set_as(True)
+                ranked_column(col.name, main_alias)
+                .set_alias(ast.Name(col.name))
+                .set_as(True)
                 for col in main.columns
             ],
             from_=ast.From(
@@ -511,13 +506,7 @@ def _limit_to_ranked_groups(
                     ast.Relation(
                         primary=main_query,
                         extensions=[
-                            ast.Join(
-                                join_type="INNER",
-                                right=ranked_query,
-                                criteria=ast.JoinCriteria(
-                                    on=ast.BinaryOp.And(*conditions),
-                                ),
-                            ),
+                            ranked_tuple_join(ranked_query, pairs, "INNER"),
                         ],
                     ),
                 ],

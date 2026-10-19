@@ -657,15 +657,21 @@ async def build_metrics_sql(
         if not measures_result.grain_groups:  # pragma: no cover
             raise DJInvalidInputException("No grain groups produced from measures SQL")
 
+        output_dimension_filters = None
         if group_others is not None:
             from datajunction_server.construction.build_v3.group_others import (
                 apply_group_others,
             )
 
-            apply_group_others(measures_result, group_others)
+            output_dimension_filters = apply_group_others(measures_result, group_others)
 
         result = apply_orderby_limit(
-            generate_metrics_sql(ctx, measures_result, ctx.decomposed_metrics),
+            generate_metrics_sql(
+                ctx,
+                measures_result,
+                ctx.decomposed_metrics,
+                output_dimension_filters=output_dimension_filters,
+            ),
             orderby,
             limit,
         )

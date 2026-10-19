@@ -1820,6 +1820,7 @@ def build_grain_group_from_preagg(
     # Dimension (grain) columns.
     grain_col_names: list[str] = []
     group_by: list[ast.Expression] = []
+    dimension_group_by_positions: dict[str, int] = {}
     # Dimension ref -> (column, table alias) backing it, for the filter pushdown.
     ref_columns: dict[str, tuple[str, str | None]] = {}
     for dim in resolved_dimensions:
@@ -1872,6 +1873,8 @@ def build_grain_group_from_preagg(
             select_items.append(_preagg_column(scan_name, scan_alias, output_alias))
             group_by.append(_preagg_column(scan_name, scan_alias))
             ref_columns[dim.original_ref] = (scan_name, scan_alias)
+
+        dimension_group_by_positions[dim.original_ref] = len(group_by) - 1
 
         columns.append(
             ColumnMetadata(
@@ -2060,6 +2063,7 @@ def build_grain_group_from_preagg(
         aggregability=grain_group.aggregability,
         metrics=list(metrics_covered),
         parent_name=parent_node.name,
+        dimension_group_by_positions=dimension_group_by_positions,
         component_aliases=component_aliases,
         reaggregate_dimension_aliases=reaggregate_dimension_aliases,
         is_merged=grain_group.is_merged,
@@ -2373,6 +2377,20 @@ def build_grain_group_sql(
         )
 
     # Build column metadata
+    select_ast = query_ast.select
+    dimension_group_by_positions = (
+        {
+            dim.original_ref: position
+            for position, dim in enumerate(
+                dim
+                for dim in effective_resolved_dimensions
+                if dim.original_ref
+                not in (ctx.filter_dimensions - set(internal_dimension_aliases))
+            )
+        }
+        if isinstance(select_ast, ast.Select) and select_ast.group_by
+        else {}
+    )
     columns_metadata = []
 
     # Add dimension columns (skip filter-only dimensions as they're not in projection)
@@ -2542,6 +2560,7 @@ def build_grain_group_sql(
         aggregability=grain_group.aggregability,
         metrics=list(metrics_covered),
         parent_name=grain_group.parent_node.name,
+        dimension_group_by_positions=dimension_group_by_positions,
         component_aliases=component_aliases,
         fixed_grain_partition_aliases=fixed_grain_partition_aliases,
         reaggregate_dimension_aliases=reaggregate_dimension_aliases,
