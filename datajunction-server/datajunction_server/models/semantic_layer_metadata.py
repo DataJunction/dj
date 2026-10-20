@@ -48,14 +48,8 @@ _FILTER_OPERATORS = [
     ">=",
     "<",
     "<=",
-    "IN",
-    "NOT IN",
     "IS NULL",
     "IS NOT NULL",
-    "between",
-    "contains",
-    "starts_with",
-    "ends_with",
 ]
 
 _COLUMN_METADATA_PROPERTIES = {
@@ -138,7 +132,7 @@ SEMANTIC_LAYER_METADATA_SCHEMA = {
                     "type": "string",
                     "enum": _FILTER_OPERATORS,
                 },
-                "multi": {"type": "boolean"},
+                "multi": {"const": False},
             },
         },
         "Extensions": {

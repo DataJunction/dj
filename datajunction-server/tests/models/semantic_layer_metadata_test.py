@@ -41,9 +41,8 @@ def test_semantic_layer_metadata_schema_is_valid_json_schema():
                     "semantic_type": "category",
                     "filter": {
                         "kind": "select",
-                        "operators": ["IN", "NOT IN"],
-                        "default_operator": "IN",
-                        "multi": True,
+                        "operators": ["=", "!="],
+                        "default_operator": "=",
                     },
                 },
             },
@@ -59,6 +58,10 @@ def test_semantic_layer_metadata_schema_accepts_supported_shapes(metadata):
     [
         {"sematic_type": "currency"},
         {"format": {"preset": "money"}},
+        {"filter": {"operators": ["IN"]}},
+        {"filter": {"operators": ["NOT IN"]}},
+        {"filter": {"operators": ["between"]}},
+        {"filter": {"kind": "select", "multi": True}},
         {"extensions": {"superset": "not-an-object"}},
         {"columns": {"country": {"filter": {"kind": "dropdown"}}}},
     ],

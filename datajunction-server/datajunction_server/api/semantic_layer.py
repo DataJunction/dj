@@ -398,6 +398,10 @@ def _client_format_extensions(
     """Fill missing client formats when portable semantics are unambiguous."""
     if format_metadata is None or format_metadata.preset is None:
         return extensions
+    # Native format strings describe presentation only and cannot apply the
+    # portable scale multiplier. Keep any explicitly authored extensions.
+    if format_metadata.scale is not None and format_metadata.scale != 1:
+        return extensions
 
     preset = format_metadata.preset
     precision = format_metadata.precision
@@ -681,6 +685,26 @@ def _view_payload(cube: NodeRevision) -> "ViewDetail":
     )
 
 
+def _view_json(view: "ViewSummary") -> JSONObject:
+    """Omit empty metadata while retaining nullable fields in the view contract."""
+    payload = view.model_dump(mode="json")
+    if isinstance(view, ViewDetail):
+        columns: list[MetricInfo | DimensionInfo] = [
+            *view.metrics,
+            *view.dimensions,
+        ]
+        serialized_columns = payload["metrics"] + payload["dimensions"]
+        for serialized, column in zip(serialized_columns, columns, strict=True):
+            if column.metadata is None:
+                serialized.pop("metadata", None)
+            else:
+                serialized["metadata"] = column.metadata.model_dump(
+                    mode="json",
+                    exclude_none=True,
+                )
+    return cast(JSONObject, payload)
+
+
 # ---------------------------------------------------------------------------
 # Filter / order translation (spec QueryPayload -> DJ build_metrics_sql args)
 # ---------------------------------------------------------------------------
@@ -916,14 +940,8 @@ class FilterMetadata(BaseModel):
             ">=",
             "<",
             "<=",
-            "IN",
-            "NOT IN",
             "IS NULL",
             "IS NOT NULL",
-            "between",
-            "contains",
-            "starts_with",
-            "ends_with",
         }
         operators = raw.get("operators")
         clean_operators = (
@@ -939,7 +957,8 @@ class FilterMetadata(BaseModel):
         if (
             not isinstance(default_operator, str)
             or default_operator not in allowed_operators
-            or (clean_operators is not None and default_operator not in clean_operators)
+            or clean_operators is None
+            or default_operator not in clean_operators
         ):
             default_operator = None
         metadata = cls(
@@ -951,7 +970,7 @@ class FilterMetadata(BaseModel):
             ),
             operators=clean_operators,
             default_operator=default_operator,
-            multi=raw.get("multi") if isinstance(raw.get("multi"), bool) else None,
+            multi=False if raw.get("multi") is False else None,
         )
         return metadata if metadata.model_dump(exclude_none=True) else None
 
@@ -1497,7 +1516,6 @@ async def list_views(
                 )
     except DJException as exc:
         return _problem(exc.http_status_code or 400, exc.message)
-
     required_namespaces: set[str] = set()
     if namespace:
         required_namespaces.add(namespace)
@@ -1585,7 +1603,7 @@ async def get_view(
         return _problem(exc.http_status_code or 404, exc.message)
     if cube_node is None or cube_node.current is None:
         return _view_not_found(view_name)
-    return _view_payload(cube_node.current)
+    return JSONResponse(content=_view_json(_view_payload(cube_node.current)))
 
 
 async def _can_read_view(view_name: str, access_checker: AccessChecker) -> bool:
