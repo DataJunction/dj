@@ -6,19 +6,21 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import cast
 
-from datajunction_server.construction.build_v3.filters import (
-    get_filter_column_references,
-)
 from datajunction_server.construction.build_v3.ranked_groups import (
     ranked_column,
     ranked_tuple_join,
 )
 from datajunction_server.construction.build_v3.types import (
+    ColumnMetadata,
     GeneratedMeasuresSQL,
     GeneratedSQL,
     GrainGroupSQL,
 )
+from datajunction_server.construction.build_v3.utils import (
+    extract_filter_dimension_refs,
+)
 from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.models.decompose import Aggregability
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.types import StringType
 
@@ -180,8 +182,49 @@ def _bucket_grain_group(
         ranked_tuple_join(ranked_query, pairs, "LEFT OUTER"),
     )
 
+    # A LIMITED component can use the selected dimension itself as its raw
+    # COUNT DISTINCT key. Keep that key under a private name before replacing
+    # the displayed dimension with its bucket label.
+    raw_aliases_in_use = {name.lower() for name in occupied_names}
+    raw_aliases_in_use.update(col.name.lower() for col in group.columns)
+    raw_aliases_in_use.update(name.lower() for name in ranked_keys.values())
+    raw_aliases_in_use.add(member_name.lower())
+
     for index, original, dimension in selected:
         alias = dimension_columns[dimension].name
+        raw_components = [
+            component
+            for component in group.components
+            if component.rule.type == Aggregability.LIMITED
+            and not component.aggregation
+            and group.component_aliases.get(component.name) == alias
+        ]
+        if raw_components:
+            raw_alias = f"__dj_raw_group_key_{index}"
+            suffix = 1
+            while raw_alias.lower() in raw_aliases_in_use:
+                raw_alias = f"__dj_raw_group_key_{index}_{suffix}"
+                suffix += 1
+            raw_aliases_in_use.add(raw_alias.lower())
+            select.projection.append(
+                ast.Alias(child=deepcopy(original), alias=ast.Name(raw_alias)).set_as(
+                    True,
+                ),
+            )
+            group.columns.append(
+                ColumnMetadata(
+                    name=raw_alias,
+                    semantic_name=f"{dimension}:raw",
+                    type=dimension_columns[dimension].type,
+                    semantic_type="metric_input",
+                ),
+            )
+            group.grain.append(raw_alias)
+            for component in raw_components:
+                group.component_aliases[component.name] = raw_alias
+            if select.group_by:
+                select.group_by.append(deepcopy(original))
+
         bucketed = ast.Alias(
             child=_bucket_expression(original, member_name),
             alias=ast.Name(alias),
@@ -208,6 +251,10 @@ def apply_group_others(
 ) -> list[str]:
     """Bucket grain dimensions and return filters for the final output stage."""
     for group in measures.grain_groups:
+        # Auxiliary window groups are rebuilt from the base groups by metrics.py.
+        # Their coarser grain may not contain the requested bucket dimension.
+        if group.is_window_grain_group:
+            continue
         _bucket_grain_group(group, group_others.ranked, group_others.dimensions)
 
     # The measures layer has already applied WHERE predicates to its source rows.
@@ -217,7 +264,7 @@ def apply_group_others(
     return [
         flt
         for flt in measures.ctx.dimension_filters
-        if not bucketed_dimensions.intersection(get_filter_column_references(flt))
+        if not bucketed_dimensions.intersection(extract_filter_dimension_refs([flt]))
     ]
 
 
