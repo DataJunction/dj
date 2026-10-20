@@ -772,7 +772,7 @@ async def _list_semantic_branches(
 
 
 @router.post(
-    "/views/",
+    "/views",
     response_model=list[ViewSummary],
     response_model_exclude_unset=True,
 )
