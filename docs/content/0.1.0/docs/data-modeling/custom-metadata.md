@@ -87,9 +87,8 @@ custom_metadata:
       country:
         filter:
           kind: select
-          operators: [IN, NOT IN]
-          default_operator: IN
-          multi: true
+          operators: ["=", "!="]
+          default_operator: "="
 ```
 
 The key is reserved so namespace-scoped schemas cannot redefine the shared
