@@ -803,6 +803,7 @@ class DeploymentOrchestrator:
                 declared=declared.properties,
                 tag_types=tag_types,
                 owner_kinds=owner_kinds,
+                outputs=self._deployed_columns(plan, name, operation),
             )
             previous_bindings = None
             if wants_previous and previous is not None:
@@ -873,6 +874,21 @@ class DeploymentOrchestrator:
             )
 
         return blocked
+
+    @staticmethod
+    def _deployed_columns(
+        plan: DeploymentPlan,
+        name: str,
+        operation: DeploymentResult.Operation,
+    ) -> list[ColumnSpec] | None:
+        """
+        A skipped node's deployed columns. A changed node's are not known
+        until it is validated, after the checks run.
+        """
+        existing = plan.existing_specs.get(name)
+        if operation is not DeploymentResult.Operation.NOOP or existing is None:
+            return None
+        return getattr(existing, "columns", None) or []
 
     @staticmethod
     def _checked_entities(
