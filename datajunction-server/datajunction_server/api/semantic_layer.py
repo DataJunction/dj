@@ -536,9 +536,18 @@ async def _build_ranked_groups_sql(
     ranking_filters = (
         payload.filters if group_limit.filters is None else group_limit.filters
     )
+    # HAVING predicates can refer to metrics other than the sort metric. Build
+    # those metrics too so the ranking query can evaluate its own filters.
+    filter_metrics = [
+        flt.column
+        for flt in ranking_filters
+        if flt.column is not None
+        and flt.column in cube_rev.cube_node_metrics
+        and flt.column != ranking_metric
+    ]
     return await generate_metrics_sql(
         session,
-        metrics=[ranking_metric],
+        metrics=list(dict.fromkeys([ranking_metric, *filter_metrics])),
         dimensions=group_limit.dimensions,
         filters=[_filter_to_sql(f) for f in ranking_filters],
         matched_cube=cube_rev,
