@@ -667,6 +667,53 @@ def test_group_others_uses_dimension_position_for_duplicate_group_expressions():
     ]
 
 
+def test_group_others_finds_aliased_expression_after_unnamed_projection():
+    """A dimension expression can follow an unnamed projection in a grain query."""
+    import duckdb
+
+    group = GrainGroupSQL(
+        query=parse(
+            "SELECT 1, CAST(sales.country AS STRING) AS country, "
+            "SUM(sales.views) AS views_sum FROM sales "
+            "GROUP BY CAST(sales.country AS STRING)",
+        ),
+        columns=[
+            V3ColumnMetadata("country", "sem.country", "string", "dimension"),
+            V3ColumnMetadata(
+                "views_sum",
+                "sem.views:sum",
+                "bigint",
+                "metric_component",
+            ),
+        ],
+        grain=["country"],
+        aggregability=Aggregability.FULL,
+        metrics=["sem.views"],
+        parent_name="sem.sales",
+        dimension_group_by_positions={"sem.country": 0},
+        dialect=Dialect.DUCKDB,
+    )
+    ranked = V3GeneratedSQL(
+        query=parse("SELECT country FROM ranking LIMIT 1"),
+        columns=[V3ColumnMetadata("country", "sem.country", "string", "dimension")],
+        dialect=Dialect.DUCKDB,
+    )
+    _bucket_grain_group(group, ranked, ("sem.country",))
+
+    connection = duckdb.connect()
+    connection.execute("CREATE TABLE sales(country VARCHAR, views INT)")
+    connection.execute("CREATE TABLE ranking(country VARCHAR)")
+    connection.executemany(
+        "INSERT INTO sales VALUES (?, ?)",
+        [("US", 10), ("Canada", 4), ("Mexico", 2)],
+    )
+    connection.execute("INSERT INTO ranking VALUES ('US')")
+    assert connection.execute(
+        f"SELECT country, SUM(views_sum) FROM ({group.sql}) AS grouped "
+        "GROUP BY country ORDER BY country",
+    ).fetchall() == [("Others", 6), ("US", 10)]
+
+
 def test_group_others_preserves_count_distinct_dimension_key():
     """Bucketing an ID must not collapse distinct raw IDs into one key."""
     import duckdb
