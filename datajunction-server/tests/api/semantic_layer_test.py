@@ -440,6 +440,29 @@ class TestSemanticViewPayloadTypes:
         assert metadata is not None
         assert metadata.extensions == expected_extensions
 
+    @pytest.mark.parametrize("scale", [0, 0.001, 100])
+    def test_scaled_portable_formats_do_not_generate_unscaled_client_formats(
+        self,
+        scale,
+    ):
+        column = SimpleNamespace(
+            type="double",
+            display_name="Revenue",
+            unit={"kind": "currency", "code": "USD"},
+            attribute_names=lambda: [],
+        )
+
+        metadata = _column_metadata(
+            column,
+            is_metric=True,
+            raw_metadata={"format": {"preset": "currency", "scale": scale}},
+        )
+
+        assert metadata is not None
+        assert metadata.format is not None
+        assert metadata.format.scale == scale
+        assert metadata.extensions is None
+
     def test_explicit_client_formats_take_precedence_over_generated_values(self):
         column = SimpleNamespace(
             type="double",
@@ -452,7 +475,7 @@ class TestSemanticViewPayloadTypes:
             column,
             is_metric=True,
             raw_metadata={
-                "format": {"preset": "currency", "precision": 0},
+                "format": {"preset": "currency", "precision": 0, "scale": 0.001},
                 "extensions": {
                     "superset": {"d3format": "EXPLICIT", "other": True},
                     "google_sheets": {
@@ -640,15 +663,13 @@ class TestSemanticViewPayloadTypes:
             (
                 {
                     "kind": "select",
-                    "operators": ["IN", "NOT IN"],
-                    "default_operator": "IN",
-                    "multi": True,
+                    "operators": ["=", "!="],
+                    "default_operator": "=",
                 },
                 {
                     "kind": "select",
-                    "operators": ["IN", "NOT IN"],
-                    "default_operator": "IN",
-                    "multi": True,
+                    "operators": ["=", "!="],
+                    "default_operator": "=",
                 },
             ),
             (None, None),
@@ -1168,8 +1189,10 @@ async def test_view_endpoints_use_null_for_missing_display_name(
     detail = detail_resp.json()
     assert detail["display_name"] is None
     assert detail["metrics"][0]["description"] is None
+    assert "metadata" not in detail["metrics"][0]
     assert detail["dimensions"][0]["description"] is None
     assert detail["dimensions"][0]["grain"] is None
+    assert "metadata" not in detail["dimensions"][0]
 
 
 # ---------------------------------------------------------------------------
