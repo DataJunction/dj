@@ -14,7 +14,9 @@ from datajunction_server.internal.deployment.checks import (
     project_column,
     project_link,
     project_node,
+    project_owners,
     resolve_declared_schemas,
+    resolve_owner_kinds,
     resolve_tag_types,
     unsupported_ruleset_guards,
 )
@@ -40,6 +42,7 @@ from datajunction_server.models.deployment import (
     TransformSpec,
 )
 from datajunction_server.database.deployment import Deployment
+from datajunction_server.database.user import OAuthProvider, PrincipalKind, User
 from datajunction_server.models.deployment import DeploymentStatus
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.unit import AtomicUnit, UnitKind
@@ -916,6 +919,84 @@ async def test_a_check_can_require_a_tag_of_a_given_type(session, current_user):
     by_name = {row.name: row.status for row in check_rows(orchestrator)}
     assert by_name[f"{NAMESPACE}.tagged"] == DeploymentResult.Status.SUCCESS
     assert by_name[f"{NAMESPACE}.bare"] == DeploymentResult.Status.WARNING
+
+
+def test_owners_project_with_their_kind():
+    spec = transform("one", owners=["alice", "team", "bot", "ghost"])
+    kinds = {"alice": "user", "team": "group", "bot": "service_account"}
+    assert project_node(spec, {}, {}, kinds)["owners"] == [
+        {"name": "alice", "kind": "user"},
+        {"name": "team", "kind": "group"},
+        {"name": "bot", "kind": "service_account"},
+        # An owner with no user row yet reads as a user.
+        {"name": "ghost", "kind": "user"},
+    ]
+
+
+def test_owners_default_to_users_without_kinds():
+    assert project_owners(["alice"], {}) == [{"name": "alice", "kind": "user"}]
+    assert project_node(None, {}, {})["owners"] == []
+
+
+async def _add_principal(session, username, kind):
+    session.add(
+        User(
+            username=username,
+            password=None,
+            email=f"{username}@example.com",
+            name=username,
+            oauth_provider=OAuthProvider.BASIC,
+            is_admin=False,
+            kind=kind,
+        ),
+    )
+    await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_owner_kinds_resolve_in_one_batch(session):
+    await _add_principal(session, "owner_alice", PrincipalKind.USER)
+    await _add_principal(session, "owner_team", PrincipalKind.GROUP)
+    await _add_principal(session, "owner_bot", PrincipalKind.SERVICE_ACCOUNT)
+    resolved = await resolve_owner_kinds(
+        session,
+        ["owner_alice", "owner_team", "owner_bot", "owner_missing", "owner_team"],
+    )
+    assert resolved == {
+        "owner_alice": "user",
+        "owner_team": "group",
+        "owner_bot": "service_account",
+    }
+    assert await resolve_owner_kinds(session, []) == {}
+
+
+@pytest.mark.asyncio
+async def test_a_check_can_require_a_group_owner(session, current_user):
+    await _add_principal(session, "owner_team", PrincipalKind.GROUP)
+    orchestrator = make_orchestrator(
+        session,
+        current_user,
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.group_owned",
+                condition="node.owners.exists(o, o.kind == 'group')",
+                gate="warn",
+            ),
+        ],
+    )
+    await orchestrator._run_governance_checks(
+        make_plan(
+            to_deploy=[
+                transform("grouped", owners=["owner_team"]),
+                transform("personal", owners=["someone"]),
+            ],
+        ),
+    )
+    by_name = {row.name: row.status for row in check_rows(orchestrator)}
+    assert by_name == {
+        f"{NAMESPACE}.grouped": DeploymentResult.Status.SUCCESS,
+        f"{NAMESPACE}.personal": DeploymentResult.Status.WARNING,
+    }
 
 
 @pytest.mark.asyncio
