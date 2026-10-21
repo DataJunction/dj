@@ -942,6 +942,54 @@ class TestRequiredDimensions:
         assert dimension in err.debug["invalid_reaggregate_dimensions"]
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "spec_fields",
+        [
+            {"required_dimensions": ["test.dim.dateint[order]"]},
+            {"fixed_grain": ["test.dim.dateint[order]"]},
+            {
+                "reaggregate": {
+                    "rules": [
+                        {"dimension": "test.dim.dateint[order]", "fn": "last_value"},
+                    ],
+                },
+            },
+        ],
+        ids=["required-dimensions", "fixed-grain", "reaggregate"],
+    )
+    @pytest.mark.parametrize(
+        "pending_roles,expected_status",
+        [
+            ({"test.parent": {("test.dim", "order")}}, NodeStatus.VALID),
+            ({"test.parent": {("test.dim", "ship")}}, NodeStatus.INVALID),
+            ({}, NodeStatus.INVALID),
+        ],
+        ids=["declared-role", "other-role", "no-link"],
+    )
+    async def test_role_checked_against_links_declared_in_deployment(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+        spec_fields: dict,
+        pending_roles: dict,
+        expected_status: NodeStatus,
+    ):
+        """A role resolves through links this deployment declares but hasn't saved."""
+        dim_node = self._make_dim_node("test.dim", ["dateint"])
+        context = self._make_context(session, parent_node)
+        context.deployment_link_roles = pending_roles
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT SUM(value) FROM test.parent",
+            **spec_fields,
+        )
+        validator = NodeSpecBulkValidator(context)
+        validator._all_dim_nodes = {**context.dependency_nodes, "test.dim": dim_node}
+        result = validator.validate_query_node(spec)
+
+        assert result.status == expected_status
+
+    @pytest.mark.asyncio
     async def test_valid_fixed_grain_dimension(
         self,
         session: AsyncSession,

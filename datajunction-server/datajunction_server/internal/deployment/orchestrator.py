@@ -2,6 +2,7 @@ import asyncio
 import logging
 import re
 import time
+from functools import cached_property
 from collections import Counter, defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -5407,6 +5408,21 @@ class DeploymentOrchestrator:
 
         return to_deploy, []
 
+    @cached_property
+    def _deployment_link_roles(self) -> dict[str, set[tuple[str, str | None]]]:
+        """
+        Map each linkable node to the (dimension node, role) pairs its links
+        declare in this deployment.
+        """
+        roles: dict[str, set[tuple[str, str | None]]] = {}
+        for node_spec in self.deployment_spec.nodes:
+            if isinstance(node_spec, LinkableNodeSpec):
+                for link in node_spec.dimension_links:
+                    roles.setdefault(node_spec.rendered_name, set()).add(
+                        (link.rendered_dimension_node, link.role),
+                    )
+        return roles
+
     def _deployment_link_targets(self) -> dict[str, set[str]]:
         """Map each linkable node to the dimension nodes it links to, across the
         whole deployment (rendered names, to match node_graph).
@@ -5469,6 +5485,7 @@ class DeploymentOrchestrator:
                     dependency_nodes=dependency_nodes,
                     deployment_namespace=self.deployment_spec.namespace,
                     deployment_link_targets=self._deployment_link_targets(),
+                    deployment_link_roles=self._deployment_link_roles,
                 )
             p.append(f"{len(validation_results)} results")
 
@@ -6144,6 +6161,11 @@ class DeploymentOrchestrator:
                     parent_columns,
                     dependency_nodes,
                     parent_dimension_links,
+                    {
+                        pair
+                        for parent in new_revision.parents
+                        for pair in self._deployment_link_roles.get(parent.name, set())
+                    },
                 )
                 new_revision.required_dimensions = resolved_required_dims
             new_revision.reaggregate = dump_reaggregate_spec(

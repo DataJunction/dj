@@ -421,9 +421,9 @@ export default function NodeInfoTab({ node }) {
                 className="rounded-pill badge bg-secondary-soft PrimaryKey"
               >
                 {metricInfo?.upstream_node ? (
-                  <a href={`/nodes/${metricInfo?.upstream_node}`}>{dim.name}</a>
+                  <a href={`/nodes/${metricInfo?.upstream_node}`}>{dim}</a>
                 ) : (
-                  dim.name
+                  dim
                 )}
               </span>
             ))}

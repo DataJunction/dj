@@ -1040,6 +1040,7 @@ async def validate_node_data_v2(
                 session,
                 reaggregate_dimensions,
                 parent_columns,
+                parent_dimension_links,
             )
             invalid_reaggregate_dimensions.update(
                 invalid_reaggregate_dimension_references(reaggregate_dimensions),
@@ -1053,6 +1054,7 @@ async def validate_node_data_v2(
                 session,
                 list(validated_node.fixed_grain),
                 parent_columns,
+                parent_dimension_links,
             )
         # `is not None` here: unlike the dimension check above, `[]` still
         # needs its shape checked -- e.g. COUNT(DISTINCT ...) with `[]` has

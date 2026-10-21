@@ -86,6 +86,9 @@ class ValidationContext:
     # cross-fact check uses this to see dimensions the committed graph can't yet.
     # Empty for single-node validation.
     deployment_link_targets: dict[str, set] = field(default_factory=dict)
+    # Linkable node name -> (dimension node, role) pairs its links declare in
+    # this deployment, so role checks see links that aren't saved yet.
+    deployment_link_roles: dict[str, set] = field(default_factory=dict)
 
 
 @dataclass
@@ -822,11 +825,15 @@ class NodeSpecBulkValidator:
     ) -> None:
         """
         Batch-fetch DimensionLink rows for every dependency node referenced by
-        a metric spec with required_dimensions, keyed by dependency node name.
+        a metric spec with required_dimensions, reaggregate or fixed_grain, keyed by dependency node name.
         """
         dep_names: set[str] = set()
         for spec in specs:
-            if not isinstance(spec, MetricSpec) or not spec.required_dimensions:
+            if not isinstance(spec, MetricSpec) or not (
+                spec.required_dimensions
+                or spec.rendered_reaggregate
+                or spec.rendered_fixed_grain
+            ):
                 continue
             dep_names.update(self.context.node_graph.get(spec.rendered_name, []))
 
@@ -854,6 +861,25 @@ class NodeSpecBulkValidator:
                     link,
                 )
 
+    def _parent_link_inputs(
+        self,
+        dep_names: list[str],
+    ) -> tuple[list[DimensionLink], set[tuple[str, str | None]]]:
+        """
+        Saved links and links declared in this deployment, for these parents.
+        """
+        links = [
+            link
+            for dep_name in dep_names
+            for link in self._parent_dimension_links.get(dep_name, [])
+        ]
+        pending = {
+            pair
+            for dep_name in dep_names
+            for pair in self.context.deployment_link_roles.get(dep_name, set())
+        }
+        return links, pending
+
     def _check_required_dimensions(self, spec: NodeSpec) -> DJError | None:
         """
         Validate that every entry in required_dimensions resolves to a real column.
@@ -877,17 +903,16 @@ class NodeSpecBulkValidator:
             if dep_node and dep_node.current
             for col in dep_node.current.columns
         ]
-        parent_dimension_links = [
-            link
-            for dep_name in dep_names
-            for link in self._parent_dimension_links.get(dep_name, [])
-        ]
+        parent_dimension_links, pending_link_roles = self._parent_link_inputs(
+            dep_names,
+        )
 
         invalid, _ = _resolve_required_dimensions(
             required_dimensions,
             parent_columns,
             self._all_dim_nodes,
             parent_dimension_links,
+            pending_link_roles,
         )
 
         if not invalid:
@@ -943,10 +968,15 @@ class NodeSpecBulkValidator:
         ]
 
         reaggregate_dimensions = [rule.dimension for rule in reaggregate.rules]
+        parent_dimension_links, pending_link_roles = self._parent_link_inputs(
+            dep_names,
+        )
         invalid, _ = _resolve_required_dimensions(
             reaggregate_dimensions,
             parent_columns,
             self._all_dim_nodes,
+            parent_dimension_links,
+            pending_link_roles,
         )
         invalid.update(
             invalid_reaggregate_dimension_references(reaggregate_dimensions),
@@ -984,10 +1014,15 @@ class NodeSpecBulkValidator:
             for col in dep_node.current.columns
         ]
 
+        parent_dimension_links, pending_link_roles = self._parent_link_inputs(
+            dep_names,
+        )
         invalid, _ = _resolve_required_dimensions(
             list(fixed_grain),
             parent_columns,
             self._all_dim_nodes,
+            parent_dimension_links,
+            pending_link_roles,
         )
 
         if not invalid:
@@ -1254,6 +1289,7 @@ async def bulk_validate_node_data(
     dependency_nodes: dict[str, Node],
     deployment_namespace: str | None = None,
     deployment_link_targets: dict[str, set] | None = None,
+    deployment_link_roles: dict[str, set] | None = None,
 ) -> list[NodeValidationResult]:
     """
     Bulk validate node specifications.
@@ -1277,6 +1313,7 @@ async def bulk_validate_node_data(
         dependency_nodes=dependency_nodes,
         deployment_namespace=deployment_namespace,
         deployment_link_targets=deployment_link_targets or {},
+        deployment_link_roles=deployment_link_roles or {},
     )
     validator = NodeSpecBulkValidator(context)
 

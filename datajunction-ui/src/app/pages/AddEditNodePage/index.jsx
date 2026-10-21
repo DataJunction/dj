@@ -358,9 +358,7 @@ export function AddEditNodePage({ extensions = {} }) {
             node.current.metricMetadata?.direction?.toLowerCase(),
           metric_unit: node.current.metricMetadata?.unit?.name?.toLowerCase(),
           significant_digits: node.current.metricMetadata?.significantDigits,
-          required_dimensions: node.current.requiredDimensions.map(
-            dim => dim.name,
-          ),
+          required_dimensions: node.current.requiredDimensions ?? [],
           reaggregate_dimension:
             firstReaggregateRule(node.current.reaggregate)?.dimension || '',
           reaggregate_function: normalizeReaggregateFunction(
@@ -379,9 +377,7 @@ export function AddEditNodePage({ extensions = {} }) {
             node.current.metricMetadata?.direction?.toLowerCase(),
           metric_unit: node.current.metricMetadata?.unit?.name?.toLowerCase(),
           significant_digits: node.current.metricMetadata?.significantDigits,
-          required_dimensions: node.current.requiredDimensions.map(
-            dim => dim.name,
-          ),
+          required_dimensions: node.current.requiredDimensions ?? [],
           reaggregate_dimension:
             firstReaggregateRule(node.current.reaggregate)?.dimension || '',
           reaggregate_function: normalizeReaggregateFunction(

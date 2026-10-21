@@ -1448,3 +1448,78 @@ async def test_validate_node_data_v2_role_required_dim_on_derived_metric(
     assert [rd.ref for rd in validator.required_dimensions] == [
         "test.v2_role_date_d.week[order_date]",
     ]
+
+
+@pytest.mark.asyncio
+async def test_validate_node_data_v2_role_fixed_grain_and_reaggregate(
+    session: AsyncSession,
+    user: User,
+):
+    """A roled fixed_grain / reaggregate dimension resolves through the
+    parent's dimension links, like a roled required dimension does."""
+    from datajunction_server.database.dimensionlink import DimensionLink, JoinType
+    from datajunction_server.internal.validation import validate_node_data_v2
+
+    source = Node(
+        name="test.v2_grain_source",
+        type=NodeType.SOURCE,
+        created_by_id=user.id,
+        current_version="v1.0",
+    )
+    source_rev = NodeRevision(
+        name="test.v2_grain_source",
+        display_name="grain source",
+        type=NodeType.SOURCE,
+        query=None,
+        status=NodeStatus.VALID,
+        version="v1.0",
+        node=source,
+        columns=[Column(name="order_dateint", type=ct.BigIntType(), order=0)],
+        created_by_id=user.id,
+    )
+    date_dim = Node(
+        name="test.v2_grain_date_d",
+        type=NodeType.DIMENSION,
+        created_by_id=user.id,
+        current_version="v1.0",
+    )
+    date_dim_rev = NodeRevision(
+        name="test.v2_grain_date_d",
+        display_name="grain date dim",
+        type=NodeType.DIMENSION,
+        query="SELECT dateint FROM test.v2_grain_source",
+        status=NodeStatus.VALID,
+        version="v1.0",
+        node=date_dim,
+        columns=[Column(name="dateint", type=ct.BigIntType(), order=0)],
+        created_by_id=user.id,
+    )
+    session.add_all([source, source_rev, date_dim, date_dim_rev])
+    await session.flush()
+    session.add(
+        DimensionLink(
+            node_revision_id=source_rev.id,
+            dimension_id=date_dim.id,
+            role="order_date",
+            join_sql=(
+                "test.v2_grain_source.order_dateint = test.v2_grain_date_d.dateint"
+            ),
+            join_type=JoinType.LEFT,
+        ),
+    )
+    await session.commit()
+
+    dimension = "test.v2_grain_date_d.dateint[order_date]"
+    metric = NodeRevisionBase(
+        name="test.v2_grain_metric",
+        display_name="grain metric",
+        type=NodeType.METRIC,
+        query="SELECT SUM(order_dateint) FROM test.v2_grain_source",
+        mode="published",
+        fixed_grain=[dimension],
+        reaggregate={"rules": [{"dimension": dimension, "fn": "last_value"}]},
+    )
+    validator = await validate_node_data_v2(metric, session)
+    assert validator.status == NodeStatus.VALID, [
+        (e.code, e.message) for e in validator.errors
+    ]

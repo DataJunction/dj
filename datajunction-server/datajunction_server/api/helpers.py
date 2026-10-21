@@ -307,6 +307,7 @@ def _resolve_required_dimensions(
     parent_columns: list[Column],
     dim_nodes: dict[str, "Node"],
     parent_dimension_links: list[DimensionLink] | None = None,
+    pending_link_roles: set[tuple[str, str | None]] | None = None,
 ) -> tuple[set[str], list[RequiredDimension]]:
     """
     Pure resolution of required_dimensions strings against pre-fetched nodes.
@@ -320,6 +321,9 @@ def _resolve_required_dimensions(
 
     Called by find_required_dimensions (after its DB fetch) and by the bulk
     deployment validator (with its batch-prefetched _all_dim_nodes cache).
+
+    `pending_link_roles` holds (dimension node name, role) pairs for links a
+    deployment declares but has not saved yet; they count as reachable too.
 
     Role validation only checks reachability from a direct (one-hop) parent;
     a role reachable only via a multi-hop dimension chain isn't validated here.
@@ -379,6 +383,10 @@ def _resolve_required_dimensions(
             link.role
             for link in parent_dimension_links
             if link.dimension and link.dimension.name == dim_node_name
+        } | {
+            role
+            for linked_name, role in (pending_link_roles or set())
+            if linked_name == dim_node_name
         }
         for full_path, col_name, role in entries:
             if col_name not in dim_col_map:

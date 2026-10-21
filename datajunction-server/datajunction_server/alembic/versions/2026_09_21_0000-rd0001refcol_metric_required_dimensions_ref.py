@@ -17,6 +17,19 @@ branch_labels = None
 depends_on = None
 
 
+# A bare name is only usable when the bound column's node is a direct parent
+# and exactly one direct parent has a column of that name.
+_BARE_OK = """dp.parent_id IS NOT NULL AND (
+                    SELECT COUNT(*)
+                    FROM noderelationship AS rel
+                    JOIN node AS pn ON pn.id = rel.parent_id
+                    JOIN noderevision AS pr
+                        ON pr.node_id = pn.id AND pr.version = pn.current_version
+                    JOIN "column" AS pc ON pc.node_revision_id = pr.id
+                    WHERE rel.child_id = old.metric_id AND pc.name = c.name
+                )"""
+
+
 def upgrade():
     op.create_table(
         "metric_required_dimensions_new",
@@ -50,18 +63,20 @@ def upgrade():
     )
 
     # Backfill: bare column name if the bound column's node is a direct
-    # parent, else `node.column` (role already lost, can't be recovered).
+    # parent and no other direct parent has a column of that name, else
+    # `node.column` (role already lost, can't be recovered). Keeping the
+    # qualified form when the bare name is ambiguous also keeps refs unique.
     op.execute(
-        """
+        f"""
         INSERT INTO metric_required_dimensions_new (metric_id, ref, dimension_id)
         SELECT
             old.metric_id,
             CASE
-                WHEN dp.parent_id IS NOT NULL THEN c.name
+                WHEN {_BARE_OK} = 1 THEN c.name
                 ELSE owner_node.name || '.' || c.name
             END AS ref,
             CASE
-                WHEN dp.parent_id IS NOT NULL THEN NULL
+                WHEN {_BARE_OK} = 1 THEN NULL
                 ELSE owner_node.id
             END AS dimension_id
         FROM metric_required_dimensions AS old
