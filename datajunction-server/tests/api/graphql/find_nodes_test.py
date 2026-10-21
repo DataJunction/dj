@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
+from datajunction_server.models.node import NodeCursor
 from datajunction_server.models.node_type import NodeType
 
 
@@ -4076,3 +4077,100 @@ async def test_node_counts_scoped_to_namespace(
             },
         )
         assert resp.json()["data"]["findNodesPaginated"]["totalCount"] == count
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "order_by, ascending",
+    [
+        ("NAME", True),
+        ("NAME", False),
+        ("DISPLAY_NAME", True),
+        ("DISPLAY_NAME", False),
+        ("TYPE", True),
+        ("STATUS", False),
+        ("UPDATED_AT", True),
+        ("CREATED_AT", True),
+        ("CREATED_AT", False),
+    ],
+)
+async def test_find_nodes_paginated_follows_order_by(
+    client_with_roads: AsyncClient,
+    order_by: str,
+    ascending: bool,
+) -> None:
+    """
+    Paging with ``after`` must keep the requested ordering: the pages together
+    return exactly what one big page does, with no repeated or skipped nodes.
+    """
+    query = """
+    query ListNodes($after: String, $limit: Int, $orderBy: NodeSortField, $asc: Boolean) {
+      findNodesPaginated(limit: $limit, after: $after, orderBy: $orderBy, ascending: $asc) {
+        pageInfo { hasNextPage endCursor }
+        edges { node { name } }
+      }
+    }
+    """
+
+    async def fetch(limit: int, after: str | None = None) -> dict:
+        response = await client_with_roads.post(
+            "/graphql",
+            json={
+                "query": query,
+                "variables": {
+                    "limit": limit,
+                    "after": after,
+                    "orderBy": order_by,
+                    "asc": ascending,
+                },
+            },
+        )
+        assert response.status_code == 200, response.text
+        return response.json()["data"]["findNodesPaginated"]
+
+    expected = [e["node"]["name"] for e in (await fetch(1000))["edges"]]
+    assert len(expected) > 5
+
+    paged: list[str] = []
+    after = None
+    while True:
+        page = await fetch(5, after)
+        paged += [e["node"]["name"] for e in page["edges"]]
+        if not page["pageInfo"]["hasNextPage"]:
+            break
+        after = page["pageInfo"]["endCursor"]
+
+    assert len(paged) == len(set(paged))
+    assert paged == expected
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_paginated_accepts_legacy_cursor(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    A cursor with only created_at and id (minted before cursors carried a sort
+    value) still resumes the default order.
+    """
+    query = """
+    query ($after: String) {
+      findNodesPaginated(limit: 3, after: $after) {
+        pageInfo { endCursor }
+        edges { node { name } }
+      }
+    }
+    """
+
+    async def fetch(after: str | None) -> dict:
+        response = await client_with_roads.post(
+            "/graphql",
+            json={"query": query, "variables": {"after": after}},
+        )
+        assert response.status_code == 200, response.text
+        return response.json()["data"]["findNodesPaginated"]
+
+    first = await fetch(None)
+    cursor = NodeCursor.decode(first["pageInfo"]["endCursor"])
+    legacy = NodeCursor(created_at=cursor.created_at, id=cursor.id).encode()
+
+    assert await fetch(legacy) == await fetch(first["pageInfo"]["endCursor"])

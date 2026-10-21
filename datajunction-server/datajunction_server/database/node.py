@@ -82,6 +82,7 @@ from datajunction_server.models.node import (
     NodeCursor,
     NodeMode,
     NodeStatus,
+    decode_sort_value,
 )
 from datajunction_server.internal.custom_metadata import custom_metadata_clause
 from datajunction_server.models.custom_metadata import CustomMetadataFilter
@@ -1359,6 +1360,36 @@ class Node(Base):
 
         return statement, NodeRevisionAlias, search_score_expr, order_by
 
+    @staticmethod
+    def _after_cursor_filter(cursor: NodeCursor, order_by: Any, ascending: bool):
+        """
+        Keyset filter for rows at or after ``cursor`` (inclusive: the cursor is the
+        first row of the next page) when sorted by ``order_by``, then ``created_at``
+        DESC, ``id`` DESC. NULLs sort last ascending and first descending (Postgres
+        default), matching the ORDER BY in ``find_by``.
+        """
+        # A SQL row comparison: a plain Python tuple comparison would only compare
+        # ``created_at`` and silently drop the ``id`` tie-break.
+        at_or_after_tie = sa.tuple_(Node.created_at, Node.id) <= sa.tuple_(
+            cursor.created_at,
+            cursor.id,
+        )
+        if cursor.sort_by is None:
+            # Cursor from before sort-aware paging: default created_at DESC order.
+            return at_or_after_tie
+
+        value = decode_sort_value(cursor.sort_value, order_by)
+        if value is None:
+            # On a NULL: ascending, only NULLs remain; descending, every non-NULL
+            # row is still ahead of us.
+            same = and_(order_by.is_(None), at_or_after_tie)
+            return same if ascending else sa.or_(order_by.is_not(None), same)
+
+        same = and_(order_by == value, at_or_after_tie)
+        if ascending:
+            return sa.or_(order_by > value, order_by.is_(None), same)
+        return sa.or_(order_by < value, same)
+
     @classmethod
     async def find_by(
         cls,
@@ -1424,13 +1455,20 @@ class Node(Base):
 
         if after:
             cursor = NodeCursor.decode(after)
+            # Same ordering as the first page, so the cursor's position in the
+            # sort is the position the page boundary was cut at.
             statement = statement.where(
-                (Node.created_at, Node.id) <= (cursor.created_at, cursor.id),
-            ).order_by(Node.created_at.desc(), Node.id.desc())
+                cls._after_cursor_filter(cursor, order_by, ascending),
+            ).order_by(
+                order_by.asc() if ascending else order_by.desc(),
+                Node.created_at.desc(),
+                Node.id.desc(),
+            )
         elif before:
             cursor = NodeCursor.decode(before)
             statement = statement.where(
-                (Node.created_at, Node.id) >= (cursor.created_at, cursor.id),
+                sa.tuple_(Node.created_at, Node.id)
+                >= sa.tuple_(cursor.created_at, cursor.id),
             )
             statement = statement.order_by(
                 order_by.asc() if ascending else order_by.desc(),
