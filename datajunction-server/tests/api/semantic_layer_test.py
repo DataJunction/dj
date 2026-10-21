@@ -593,6 +593,24 @@ class TestSemanticViewPayloadTypes:
         assert metadata is not None
         assert metadata.semantic_type == "date"
 
+    def test_explicit_semantic_type_overrides_dateint_inference(self):
+        column = SimpleNamespace(
+            name="sem.dimension.dateint",
+            type="int",
+            display_name="Integer code",
+            unit=None,
+            attribute_names=lambda: [],
+        )
+
+        metadata = _column_metadata(
+            column,
+            is_metric=False,
+            raw_metadata={"semantic_type": "number"},
+        )
+
+        assert metadata is not None
+        assert metadata.semantic_type == "number"
+
     @pytest.mark.parametrize(
         ("column_type", "expected_kind", "expected_operators"),
         [
