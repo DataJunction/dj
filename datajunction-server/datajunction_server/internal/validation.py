@@ -767,6 +767,21 @@ async def validate_node_data_v2(
             parent_columns_map[parent.name] = {
                 col.name: col.type for col in parent.current.columns
             }
+    if is_derived_metric:
+        # Dimension nodes aren't parents, but their columns need types.
+        dimension_revisions: dict[NodeRevision, list] = {
+            node.current: []
+            for name, node in dep_nodes.items()
+            if name not in parent_columns_map
+            and node.type != NodeType.METRIC
+            and node.current
+            and node.current.columns
+        }
+        _reparse_parent_column_types(dimension_revisions)
+        for revision in dimension_revisions:
+            parent_columns_map[revision.name] = {
+                col.name: col.type for col in revision.columns
+            }
     # Include missing parents with empty columns so validate_node_query doesn't
     # choke on unknown-table errors for refs we've already tracked.
     for name in missing:

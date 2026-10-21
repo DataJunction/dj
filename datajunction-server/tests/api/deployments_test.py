@@ -11322,6 +11322,22 @@ class TestDerivedMetricDimensionColumnTypes:
             f"{namespace}.fd_ratio_coalesce": "valid",
         }
 
+    @pytest.mark.asyncio
+    async def test_revalidate_types_dimension_column(self, client):
+        namespace = "derived_dim_types_revalidate"
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=self._nodes()),
+        )
+        assert data["status"] == "success", data
+
+        for name in ("fd_ratio_plain", "fd_ratio_coalesce"):
+            response = await client.post(f"/nodes/{namespace}.{name}/validate/")
+            assert response.status_code == 200, response.json()
+            assert response.json()["status"] == "valid", (name, response.json())
+            node = await client.get(f"/nodes/{namespace}.{name}/")
+            assert node.json()["columns"][0]["type"] != "unknown", node.json()
+
 
 def _clone_column_list(model, **overrides: str) -> tuple[str, str]:
     """Quoted column names and the SELECT list that clones a row of `model`."""
