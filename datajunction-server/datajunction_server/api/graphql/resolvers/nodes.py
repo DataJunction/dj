@@ -236,6 +236,7 @@ async def find_nodes_by(
     orphaned_dimension: bool = False,
     search: str | None = None,
     custom_metadata_filters: list[CustomMetadataFilter] | None = None,
+    rank_search: bool = True,
 ) -> list[DBNode]:
     """
     Finds nodes based on the search parameters. This function also tries to optimize
@@ -250,6 +251,10 @@ async def find_nodes_by(
             if "edges" in fields
             else fields
         )
+        if order_by.column.class_ is DBNodeRevision and "current" not in node_fields:
+            # The pagination cursor records each node's sort value, which lives
+            # on the current revision.
+            node_fields = {**node_fields, "current": {}}
         options = load_node_options(node_fields)
 
         # Decide whether to attach raw cube scalars to current below. The cube
@@ -299,6 +304,7 @@ async def find_nodes_by(
             tables=tables,
             search=search,
             custom_metadata_filters=custom_metadata_filters,
+            rank_search=rank_search,
         )
 
         # For the scalar-only cube path, fetch column data as raw tuples instead

@@ -82,6 +82,7 @@ from datajunction_server.models.node import (
     NodeCursor,
     NodeMode,
     NodeStatus,
+    decode_sort_value,
 )
 from datajunction_server.internal.custom_metadata import custom_metadata_clause
 from datajunction_server.models.custom_metadata import CustomMetadataFilter
@@ -1359,6 +1360,50 @@ class Node(Base):
 
         return statement, NodeRevisionAlias, search_score_expr, order_by
 
+    @staticmethod
+    def _cursor_filter(
+        cursor: NodeCursor,
+        order_by: Any,
+        ascending: bool,
+        backward: bool = False,
+    ):
+        """
+        Keyset filter for rows at or after ``cursor`` (at or before it when
+        ``backward``), inclusive of the cursor row, in the order ``order_by`` then
+        ``created_at`` DESC, ``id`` DESC. NULLs sort as the largest value: last
+        ascending, first descending (Postgres default), matching ``find_by``.
+        """
+        # A SQL row comparison: a plain Python tuple comparison would only compare
+        # ``created_at`` and silently drop the ``id`` tie-break.
+        cursor_tie = sa.tuple_(cursor.created_at, cursor.id)
+        in_tie_order = (
+            sa.tuple_(Node.created_at, Node.id) >= cursor_tie
+            if backward
+            else sa.tuple_(Node.created_at, Node.id) <= cursor_tie
+        )
+        if cursor.sort_by is None:
+            # Cursor from before sort-aware paging: default created_at DESC order.
+            return in_tie_order
+
+        if cursor.sort_by != order_by.key:
+            raise DJInvalidInputException(
+                f"Cursor was issued for sorting by '{cursor.sort_by}' but the "
+                f"request sorts by '{order_by.key}'. Restart from the first page "
+                "when changing the sort.",
+            )
+        value = decode_sort_value(cursor.sort_value, order_by)
+        # Moving ascending forward, or descending backward, heads toward larger values.
+        toward_larger = ascending != backward
+        if value is None:
+            # On a NULL (the largest value): nothing is larger; everything else is smaller.
+            same = and_(order_by.is_(None), in_tie_order)
+            return same if toward_larger else sa.or_(order_by.is_not(None), same)
+
+        same = and_(order_by == value, in_tie_order)
+        if toward_larger:
+            return sa.or_(order_by > value, order_by.is_(None), same)
+        return sa.or_(order_by < value, same)
+
     @classmethod
     async def find_by(
         cls,
@@ -1386,9 +1431,12 @@ class Node(Base):
         orphaned_dimension: bool = False,
         search: str | None = None,
         custom_metadata_filters: list[CustomMetadataFilter] | None = None,
+        rank_search: bool = True,
     ) -> list[Node]:
         """
-        Finds a list of nodes by prefix
+        Finds a list of nodes by prefix. A ``search`` ranks the first page by
+        similarity unless ``rank_search`` is False; paginated callers turn it off
+        so every page follows ``order_by``.
         """
         if not order_by:
             order_by = Node.created_at
@@ -1424,20 +1472,27 @@ class Node(Base):
 
         if after:
             cursor = NodeCursor.decode(after)
+            # Same ordering as the first page, so the cursor's position in the
+            # sort is the position the page boundary was cut at.
             statement = statement.where(
-                (Node.created_at, Node.id) <= (cursor.created_at, cursor.id),
-            ).order_by(Node.created_at.desc(), Node.id.desc())
+                cls._cursor_filter(cursor, order_by, ascending),
+            ).order_by(
+                order_by.asc() if ascending else order_by.desc(),
+                Node.created_at.desc(),
+                Node.id.desc(),
+            )
         elif before:
             cursor = NodeCursor.decode(before)
+            # The first page's order reversed, so the rows nearest the cursor
+            # come first; they are flipped back below.
             statement = statement.where(
-                (Node.created_at, Node.id) >= (cursor.created_at, cursor.id),
-            )
-            statement = statement.order_by(
-                order_by.asc() if ascending else order_by.desc(),
+                cls._cursor_filter(cursor, order_by, ascending, backward=True),
+            ).order_by(
+                order_by.desc() if ascending else order_by.asc(),
                 Node.created_at.asc(),
                 Node.id.asc(),
             )
-        elif search_score_expr is not None:
+        elif search_score_expr is not None and rank_search:
             statement = statement.order_by(
                 search_score_expr.desc(),
                 Node.created_at.desc(),

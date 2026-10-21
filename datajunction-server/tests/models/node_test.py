@@ -432,11 +432,15 @@ def test_node_cursors() -> None:
 
     cursor = NodeCursor(created_at=created_at, id=1010)
 
-    encoded_cursor = (
-        "eyJjcmVhdGVkX2F0IjogIjIwMjQtMDEtMDFUMTI6MzA6MzMiLCAiaWQiOiAxMDEwfQ=="
-    )
+    encoded_cursor = "eyJjcmVhdGVkX2F0IjogIjIwMjQtMDEtMDFUMTI6MzA6MzMiLCAiaWQiOiAxMDEwLCAic29ydF9ieSI6IG51bGwsICJzb3J0X3ZhbHVlIjogbnVsbH0="
     assert cursor.encode() == encoded_cursor
 
     decoded_cursor = NodeCursor.decode(encoded_cursor)
     assert decoded_cursor.created_at == cursor.created_at
     assert decoded_cursor.id == cursor.id
+
+    # Cursors minted before they carried a sort field still decode.
+    legacy_cursor = NodeCursor.decode(
+        "eyJjcmVhdGVkX2F0IjogIjIwMjQtMDEtMDFUMTI6MzA6MzMiLCAiaWQiOiAxMDEwfQ==",
+    )
+    assert legacy_cursor == cursor

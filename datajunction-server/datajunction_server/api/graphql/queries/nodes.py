@@ -24,11 +24,18 @@ from datajunction_server.api.graphql.scalars.node import (
 )
 from datajunction_server.api.graphql.utils import extract_fields
 from datajunction_server.database.node import Node as DBNode
+from datajunction_server.database.node import NodeRevision as DBNodeRevision
 from datajunction_server.models.custom_metadata import (
     CustomMetadataFilter,
     CustomMetadataOp,
 )
-from datajunction_server.models.node import NodeCursor, NodeMode, NodeStatus, NodeType
+from datajunction_server.models.node import (
+    NodeCursor,
+    NodeMode,
+    NodeStatus,
+    NodeType,
+    encode_sort_value,
+)
 
 CustomMetadataOpGQL = strawberry.enum(CustomMetadataOp)
 
@@ -264,6 +271,21 @@ async def find_nodes(
     )
 
 
+def _node_cursor(dj_node: DBNode, order_by: NodeSortField) -> NodeCursor:
+    """
+    Cursor for a node that also records its value for the sort field, so the next
+    page resumes from the same place in that order.
+    """
+    column = order_by.column
+    owner = dj_node.current if column.class_ is DBNodeRevision else dj_node
+    return NodeCursor(
+        created_at=dj_node.created_at,
+        id=dj_node.id,
+        sort_by=order_by.value,
+        sort_value=encode_sort_value(getattr(owner, column.key, None)),
+    )
+
+
 async def find_nodes_paginated(
     search: Annotated[
         str | None,
@@ -436,6 +458,9 @@ async def find_nodes_paginated(
         orphaned_dimension=orphaned_dimension,
         search=search,
         custom_metadata_filters=pyd_filters,
+        # Ranking is for the unpaginated query; a rank-ordered first page can't
+        # be resumed from a cursor.
+        rank_search=False,
     )
 
     # Run a separate count query only when the client asked for totalCount
@@ -468,9 +493,6 @@ async def find_nodes_paginated(
         before=before,
         after=after,
         limit=limit,
-        encode_cursor=lambda dj_node: NodeCursor(
-            created_at=dj_node.created_at,
-            id=dj_node.id,
-        ),
+        encode_cursor=lambda dj_node: _node_cursor(dj_node, order_by),
         total_count=total_count,
     )
