@@ -37,9 +37,11 @@ from datajunction_server.construction.build_v3.group_others import (
 )
 from datajunction_server.construction.build_v3.metrics import (
     _build_pre_agg_wrapper_cte,
+    process_base_metrics,
 )
 from datajunction_server.construction.build_v3.types import (
     ColumnMetadata as V3ColumnMetadata,
+    DecomposedMetricInfo,
     GeneratedSQL as V3GeneratedSQL,
     GrainGroupSQL,
 )
@@ -50,6 +52,10 @@ from datajunction_server.models.decompose import (
     Aggregability,
     AggregationRule,
     MetricComponent,
+)
+from datajunction_server.models.reaggregate import (
+    DimensionReaggregateRule,
+    ReaggregationFunction,
 )
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.transpilation import SQLTranspilationPlugin
@@ -344,6 +350,13 @@ async def test_group_limit_builds_metrics_used_by_ranking_filters(override):
         "datajunction_server.api.semantic_layer.generate_metrics_sql",
         new_callable=AsyncMock,
     ) as generate:
+        generate.return_value = V3GeneratedSQL(
+            query=parse("SELECT region FROM ranking"),
+            columns=[
+                V3ColumnMetadata("region", "sem.region", "string", "dimension"),
+            ],
+            dialect=Dialect.DUCKDB,
+        )
         await _build_ranked_groups_sql(
             SimpleNamespace(),
             cube,
@@ -358,6 +371,55 @@ async def test_group_limit_builds_metrics_used_by_ranking_filters(override):
     ]
     assert generate.await_args.kwargs["filters"] == ["sem.average_amount > 10"]
     assert generate.await_args.kwargs["orderby"][0] == "sem.total_amount DESC"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("group_others", [False, True])
+@pytest.mark.parametrize("ranked_dimensions", [[], ["sem.country", "sem.day"]])
+async def test_group_limit_rejects_ranking_at_a_different_grain(
+    ranked_dimensions,
+    group_others,
+):
+    """The ranked side must contain exactly one row per requested tuple."""
+    group_limit = GroupLimitPayload(
+        dimensions=["sem.country"],
+        top=2,
+        metric="sem.cumulative_views",
+        group_others=group_others,
+    )
+    payload = QueryPayload(
+        metrics=["sem.views"],
+        dimensions=["sem.country"],
+        group_limit=group_limit,
+    )
+    dimensions = [
+        V3ColumnMetadata(
+            name=dimension.rsplit(".", 1)[-1],
+            semantic_name=dimension,
+            type="string",
+            semantic_type="dimension",
+        )
+        for dimension in ranked_dimensions
+    ]
+    ranked = V3GeneratedSQL(
+        query=parse("SELECT country FROM ranking"),
+        columns=dimensions,
+        dialect=Dialect.DUCKDB,
+    )
+    with patch(
+        "datajunction_server.api.semantic_layer.generate_metrics_sql",
+        new_callable=AsyncMock,
+        return_value=ranked,
+    ):
+        with pytest.raises(DJException, match="one row per requested dimension") as exc:
+            await _build_ranked_groups_sql(
+                SimpleNamespace(cube_node_metrics=["sem.cumulative_views"]),
+                SimpleNamespace(cube_node_metrics=["sem.cumulative_views"]),
+                payload,
+                group_limit,
+                Dialect.DUCKDB,
+            )
+    assert exc.value.http_status_code == 400
 
 
 def test_group_limit_keeps_ranked_tuples_including_nulls():
@@ -487,7 +549,11 @@ def test_group_others_reaggregates_daily_metric_components():
     context = SimpleNamespace(dimension_filters=filters)
     # An auxiliary weekly/window group can omit the daily country dimension.
     window_group = SimpleNamespace(is_window_grain_group=True)
-    measures = SimpleNamespace(grain_groups=[group, window_group], ctx=context)
+    measures = SimpleNamespace(
+        grain_groups=[group, window_group],
+        ctx=context,
+        decomposed_metrics={},
+    )
     output_filters = apply_group_others(
         measures,
         GroupOthers(dimensions=("sem.country",), ranked=ranked),
@@ -539,6 +605,7 @@ def test_group_others_output_filters_preserve_dimension_roles():
     measures = SimpleNamespace(
         grain_groups=[],
         ctx=SimpleNamespace(dimension_filters=filters),
+        decomposed_metrics={},
     )
     ranked = V3GeneratedSQL(
         query=parse("SELECT 1"),
@@ -553,6 +620,49 @@ def test_group_others_output_filters_preserve_dimension_roles():
 
     assert output_filters == ["sem.region.region_name[work] = 'East'"]
     assert measures.ctx.dimension_filters == filters
+
+
+def test_group_others_rejects_bucketed_reaggregation_dimension():
+    """A protected date must not become a string bucket before LAST_VALUE."""
+    component = MetricComponent(
+        name="balance_sum",
+        expression="balance",
+        aggregation="SUM",
+        merge="SUM",
+        rule=AggregationRule(
+            type=Aggregability.FULL,
+            reaggregate=DimensionReaggregateRule(
+                dimension="sem.date.date_id[order]",
+                fn=ReaggregationFunction.LAST_VALUE,
+            ),
+        ),
+    )
+    metric = SimpleNamespace(components=[component])
+    measures = SimpleNamespace(
+        decomposed_metrics={"sem.balance": metric},
+        grain_groups=[],
+        ctx=SimpleNamespace(dimension_filters=[]),
+    )
+    ranked = V3GeneratedSQL(
+        query=parse("SELECT 1"),
+        columns=[],
+        dialect=Dialect.DUCKDB,
+    )
+    with pytest.raises(DJException, match="protected dimension") as exc:
+        apply_group_others(
+            measures,
+            GroupOthers(("sem.date.date_id[order]",), ranked),
+        )
+    assert exc.value.http_status_code == 400
+    assert "sem.balance" in exc.value.message
+
+    assert (
+        apply_group_others(
+            measures,
+            GroupOthers(("sem.country",), ranked),
+        )
+        == []
+    )
 
 
 def test_group_others_matches_null_tuple_and_casts_numeric_dimension():
@@ -593,7 +703,7 @@ def test_group_others_matches_null_tuple_and_casts_numeric_dimension():
         ],
         dialect=Dialect.DUCKDB,
     )
-    _bucket_grain_group(group, ranked, ("sem.country", "sem.channel"))
+    _bucket_grain_group(group, ranked, ("sem.country", "sem.channel"), set())
 
     connection = duckdb.connect()
     connection.execute("CREATE TABLE sales(country VARCHAR, channel INT, views INT)")
@@ -647,7 +757,7 @@ def test_group_others_uses_dimension_position_for_duplicate_group_expressions():
         columns=[V3ColumnMetadata("country", "sem.country", "string", "dimension")],
         dialect=Dialect.DUCKDB,
     )
-    _bucket_grain_group(group, ranked, ("sem.country",))
+    _bucket_grain_group(group, ranked, ("sem.country",), set())
 
     connection = duckdb.connect()
     connection.execute("CREATE TABLE sales(country VARCHAR, views INT)")
@@ -698,7 +808,7 @@ def test_group_others_finds_aliased_expression_after_unnamed_projection():
         columns=[V3ColumnMetadata("country", "sem.country", "string", "dimension")],
         dialect=Dialect.DUCKDB,
     )
-    _bucket_grain_group(group, ranked, ("sem.country",))
+    _bucket_grain_group(group, ranked, ("sem.country",), set())
 
     connection = duckdb.connect()
     connection.execute("CREATE TABLE sales(country VARCHAR, views INT)")
@@ -712,6 +822,70 @@ def test_group_others_finds_aliased_expression_after_unnamed_projection():
         f"SELECT country, SUM(views_sum) FROM ({group.sql}) AS grouped "
         "GROUP BY country ORDER BY country",
     ).fetchall() == [("Others", 6), ("US", 10)]
+
+
+def test_group_others_preserves_non_decomposable_metric_input():
+    """MAX_BY reads the original numeric ID after its display is bucketed."""
+    import duckdb
+
+    decomposed = DecomposedMetricInfo(
+        metric_node=SimpleNamespace(name="sem.top_product"),
+        components=[],
+        aggregability=Aggregability.NONE,
+        combiner="MAX_BY(product_id, line_total)",
+        derived_ast=parse("SELECT MAX_BY(product_id, line_total) FROM sales"),
+    )
+    group = GrainGroupSQL(
+        query=parse("SELECT sales.product_id, sales.line_total FROM sales"),
+        columns=[
+            V3ColumnMetadata("product_id", "sem.product_id", "bigint", "dimension"),
+            V3ColumnMetadata("line_total", "sem.line_total", "bigint", "metric_input"),
+        ],
+        grain=["product_id"],
+        aggregability=Aggregability.NONE,
+        metrics=["sem.top_product"],
+        parent_name="sem.sales",
+        dialect=Dialect.DUCKDB,
+    )
+    ranked = V3GeneratedSQL(
+        query=parse("SELECT product_id FROM ranking LIMIT 1"),
+        columns=[
+            V3ColumnMetadata("product_id", "sem.product_id", "bigint", "dimension"),
+        ],
+        dialect=Dialect.DUCKDB,
+    )
+    _bucket_grain_group(
+        group,
+        ranked,
+        ("sem.product_id",),
+        {"product_id"},
+    )
+    raw_alias = group.raw_metric_input_aliases["product_id"]
+    assert next(col for col in group.columns if col.name == raw_alias).type == "bigint"
+
+    metric = (
+        process_base_metrics(
+            [group],
+            ["sales_0"],
+            {"sem.top_product": decomposed},
+            {},
+        )
+        .metric_exprs["sem.top_product"]
+        .expr_ast
+    )
+    connection = duckdb.connect()
+    connection.execute("CREATE TABLE sales(product_id INT, line_total INT)")
+    connection.execute("CREATE TABLE ranking(product_id INT)")
+    connection.executemany(
+        "INSERT INTO sales VALUES (?, ?)",
+        [(1, 10), (2, 30), (3, 20)],
+    )
+    connection.execute("INSERT INTO ranking VALUES (1)")
+    assert connection.execute(
+        f"SELECT product_id, {metric} AS top_product "
+        f"FROM ({group.sql}) AS sales_0 "
+        "GROUP BY product_id ORDER BY product_id",
+    ).fetchall() == [("1", 1), ("Others", 2)]
 
 
 def test_group_others_preserves_count_distinct_dimension_key():
@@ -747,7 +921,7 @@ def test_group_others_preserves_count_distinct_dimension_key():
         columns=[V3ColumnMetadata("order_id", "sem.order_id", "bigint", "dimension")],
         dialect=Dialect.DUCKDB,
     )
-    _bucket_grain_group(group, ranked, ("sem.order_id",))
+    _bucket_grain_group(group, ranked, ("sem.order_id",), set())
     raw_key = group.component_aliases[component.name]
 
     connection = duckdb.connect()
@@ -805,7 +979,7 @@ def test_group_others_preserves_raw_distinct_key_without_source_group_by():
         columns=[V3ColumnMetadata("order_id", "sem.order_id", "bigint", "dimension")],
         dialect=Dialect.DUCKDB,
     )
-    _bucket_grain_group(group, ranked, ("sem.order_id",))
+    _bucket_grain_group(group, ranked, ("sem.order_id",), set())
     raw_key = group.component_aliases[component.name]
     assert raw_key == "__dj_raw_group_key_0_1"
 
@@ -859,7 +1033,7 @@ def test_group_others_does_not_shadow_unqualified_source_columns():
         ],
         dialect=Dialect.DUCKDB,
     )
-    _bucket_grain_group(group, ranked, ("sem.country",))
+    _bucket_grain_group(group, ranked, ("sem.country",), set())
     connection = duckdb.connect()
     connection.execute(
         "CREATE TABLE sales(country VARCHAR, __dj_ranked_key_0 INT)",
@@ -905,27 +1079,28 @@ def test_group_others_reports_incomplete_grain_or_ranking_metadata():
         )
 
     with pytest.raises(DJException, match="requires a grouped metrics query"):
-        _bucket_grain_group(group("SELECT 1"), ranked(), ("sem.country",))
+        _bucket_grain_group(group("SELECT 1"), ranked(), ("sem.country",), set())
 
     missing_dimension = group()
     missing_dimension.columns = []
     with pytest.raises(DJException, match="cannot resolve dimension"):
-        _bucket_grain_group(missing_dimension, ranked(), ("sem.country",))
+        _bucket_grain_group(missing_dimension, ranked(), ("sem.country",), set())
 
     with pytest.raises(DJException, match="cannot find the output"):
         _bucket_grain_group(
             group("SELECT sales.region FROM sales GROUP BY sales.region"),
             ranked(),
             ("sem.country",),
+            set(),
         )
 
     with pytest.raises(DJException, match="cannot resolve ranking dimensions"):
-        _bucket_grain_group(group(), ranked([]), ("sem.country",))
+        _bucket_grain_group(group(), ranked([]), ("sem.country",), set())
 
     missing_position = group()
     missing_position.dimension_group_by_positions = {}
     with pytest.raises(DJException, match="cannot group dimension"):
-        _bucket_grain_group(missing_position, ranked(), ("sem.country",))
+        _bucket_grain_group(missing_position, ranked(), ("sem.country",), set())
 
     main = V3GeneratedSQL(
         query=parse("SELECT country FROM sales"),

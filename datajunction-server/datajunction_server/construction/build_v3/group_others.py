@@ -6,6 +6,9 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import cast
 
+from datajunction_server.construction.build_v3.decomposition import (
+    _reaggregate_dimension_requested,
+)
 from datajunction_server.construction.build_v3.ranked_groups import (
     ranked_column,
     ranked_tuple_join,
@@ -19,7 +22,10 @@ from datajunction_server.construction.build_v3.types import (
 from datajunction_server.construction.build_v3.utils import (
     extract_filter_dimension_refs,
 )
-from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.errors import (
+    DJInvalidInputException,
+    DJInvalidMetricQueryException,
+)
 from datajunction_server.models.decompose import Aggregability
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.types import StringType
@@ -120,10 +126,61 @@ def _bucket_expression(original: ast.Expression, member_name: str) -> ast.Case:
     )
 
 
+def _preserve_raw_group_input(
+    group: GrainGroupSQL,
+    select: ast.Select,
+    original: ast.Expression,
+    dimension: ColumnMetadata,
+    index: int,
+    occupied_names: set[str],
+) -> str:
+    """Keep an unbucketed metric input alongside the displayed dimension."""
+    raw_alias = f"__dj_raw_group_key_{index}"
+    suffix = 1
+    while raw_alias.lower() in occupied_names:
+        raw_alias = f"__dj_raw_group_key_{index}_{suffix}"
+        suffix += 1
+    occupied_names.add(raw_alias.lower())
+    select.projection.append(
+        ast.Alias(child=deepcopy(original), alias=ast.Name(raw_alias)).set_as(True),
+    )
+    group.columns.append(
+        ColumnMetadata(
+            name=raw_alias,
+            semantic_name=f"{dimension.semantic_name}:raw",
+            type=dimension.type,
+            semantic_type="metric_input",
+        ),
+    )
+    group.grain.append(raw_alias)
+    if select.group_by:
+        select.group_by.append(deepcopy(original))
+    return raw_alias
+
+
+def _non_decomposable_input_names(
+    group: GrainGroupSQL,
+    measures: GeneratedMeasuresSQL,
+) -> set[str]:
+    """Find raw columns read by non-decomposable metrics in this grain group."""
+    names: set[str] = set()
+    for metric_name in group.metrics:
+        decomposed = measures.decomposed_metrics.get(metric_name)
+        if decomposed is None or decomposed.components:
+            continue
+        names.update(
+            col.name.name
+            for col in decomposed.combiner_ast.find_all(ast.Column)
+            if col.name and not col._table
+        )
+    return names
+
+
 def _bucket_grain_group(
     group: GrainGroupSQL,
     ranked: GeneratedSQL,
     dimensions: tuple[str, ...],
+    raw_metric_input_names: set[str],
 ) -> None:
     select = group.query.select
     if (
@@ -182,9 +239,8 @@ def _bucket_grain_group(
         ranked_tuple_join(ranked_query, pairs, "LEFT OUTER"),
     )
 
-    # A LIMITED component can use the selected dimension itself as its raw
-    # COUNT DISTINCT key. Keep that key under a private name before replacing
-    # the displayed dimension with its bucket label.
+    # A selected dimension can also be a raw input to COUNT DISTINCT or a
+    # non-decomposable metric. Preserve that input before displaying its bucket.
     raw_aliases_in_use = {name.lower() for name in occupied_names}
     raw_aliases_in_use.update(col.name.lower() for col in group.columns)
     raw_aliases_in_use.update(name.lower() for name in ranked_keys.values())
@@ -199,31 +255,19 @@ def _bucket_grain_group(
             and not component.aggregation
             and group.component_aliases.get(component.name) == alias
         ]
-        if raw_components:
-            raw_alias = f"__dj_raw_group_key_{index}"
-            suffix = 1
-            while raw_alias.lower() in raw_aliases_in_use:
-                raw_alias = f"__dj_raw_group_key_{index}_{suffix}"
-                suffix += 1
-            raw_aliases_in_use.add(raw_alias.lower())
-            select.projection.append(
-                ast.Alias(child=deepcopy(original), alias=ast.Name(raw_alias)).set_as(
-                    True,
-                ),
+        if raw_components or alias in raw_metric_input_names:
+            raw_alias = _preserve_raw_group_input(
+                group,
+                select,
+                original,
+                dimension_columns[dimension],
+                index,
+                raw_aliases_in_use,
             )
-            group.columns.append(
-                ColumnMetadata(
-                    name=raw_alias,
-                    semantic_name=f"{dimension}:raw",
-                    type=dimension_columns[dimension].type,
-                    semantic_type="metric_input",
-                ),
-            )
-            group.grain.append(raw_alias)
             for component in raw_components:
                 group.component_aliases[component.name] = raw_alias
-            if select.group_by:
-                select.group_by.append(deepcopy(original))
+            if alias in raw_metric_input_names:
+                group.raw_metric_input_aliases[alias] = raw_alias
 
         bucketed = ast.Alias(
             child=_bucket_expression(original, member_name),
@@ -231,7 +275,11 @@ def _bucket_grain_group(
         )
         bucketed.set_as(True)
         select.projection[index] = bucketed
-        dimension_columns[dimension].type = "string"
+        # A non-decomposable raw input can share the displayed dimension's
+        # metadata name. Keep every record for that output alias in sync.
+        for column in group.columns:
+            if column.semantic_type == "dimension" and column.name == alias:
+                column.type = "string"
 
         if select.group_by:
             position = group.dimension_group_by_positions.get(dimension)
@@ -250,12 +298,29 @@ def apply_group_others(
     group_others: GroupOthers,
 ) -> list[str]:
     """Bucket grain dimensions and return filters for the final output stage."""
+    for metric_name, decomposed in measures.decomposed_metrics.items():
+        for component in decomposed.components:
+            reaggregate = component.rule.reaggregate
+            if reaggregate and _reaggregate_dimension_requested(
+                reaggregate.dimension,
+                list(group_others.dimensions),
+            ):
+                raise DJInvalidMetricQueryException(
+                    "GROUP_OTHERS cannot bucket protected dimension "
+                    f"`{reaggregate.dimension}` for semi-additive metric "
+                    f"`{metric_name}`.",
+                )
     for group in measures.grain_groups:
         # Auxiliary window groups are rebuilt from the base groups by metrics.py.
         # Their coarser grain may not contain the requested bucket dimension.
         if group.is_window_grain_group:
             continue
-        _bucket_grain_group(group, group_others.ranked, group_others.dimensions)
+        _bucket_grain_group(
+            group,
+            group_others.ranked,
+            group_others.dimensions,
+            _non_decomposable_input_names(group, measures),
+        )
 
     # The measures layer has already applied WHERE predicates to its source rows.
     # Reapplying a predicate on a bucketed dimension after aggregation would

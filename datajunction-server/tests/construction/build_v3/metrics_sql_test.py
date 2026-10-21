@@ -2,6 +2,12 @@ import time
 
 import pytest
 
+from datajunction_server.construction.build_v3.builder import build_metrics_sql
+from datajunction_server.construction.build_v3.group_others import GroupOthers
+from datajunction_server.construction.build_v3.types import ColumnMetadata, GeneratedSQL
+from datajunction_server.models.dialect import Dialect
+from datajunction_server.sql.parsing.backends.antlr4 import parse
+
 from . import assert_sql_equal
 
 
@@ -2734,6 +2740,80 @@ class TestFilterOnlyDimensionLoop:
 
 class TestNonDecomposableMetrics:
     """Tests for metrics that cannot be decomposed (Aggregability.NONE)."""
+
+    @pytest.mark.asyncio
+    async def test_group_others_preserves_max_by_input_in_metrics_builder(
+        self,
+        session,
+    ):
+        """The real builder keeps the source product ID used by MAX_BY."""
+        ranked = GeneratedSQL(
+            query=parse("SELECT product_id FROM ranking LIMIT 1"),
+            columns=[
+                ColumnMetadata(
+                    "product_id",
+                    "v3.order_details.product_id",
+                    "bigint",
+                    "dimension",
+                ),
+            ],
+            dialect=Dialect.TRINO,
+        )
+        result = await build_metrics_sql(
+            session,
+            metrics=["v3.top_product_by_revenue"],
+            dimensions=["v3.order_details.product_id"],
+            dialect=Dialect.TRINO,
+            use_materialized=False,
+            group_others=GroupOthers(
+                ("v3.order_details.product_id",),
+                ranked,
+            ),
+        )
+
+        assert "__dj_raw_group_key_0" in result.sql
+        assert "MAX_BY(order_details_0.__dj_raw_group_key_0," in result.sql
+        assert "MAX_BY(order_details_0.product_id," not in result.sql
+        assert [(col.semantic_name, col.type) for col in result.columns] == [
+            ("v3.order_details.product_id", "string"),
+            ("v3.top_product_by_revenue", "int"),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_window_ranking_exposes_its_required_grain(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """The ranking guard can observe a window metric's added date grain."""
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.cumulative_revenue_for_ranking",
+                "description": "Cumulative revenue used to rank categories.",
+                "query": (
+                    "SELECT SUM(v3.total_revenue) OVER "
+                    "(ORDER BY v3.date.date_id[order] "
+                    "ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)"
+                ),
+                "mode": "published",
+                "required_dimensions": ["v3.date.date_id[order]"],
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+        ranked = await build_metrics_sql(
+            session,
+            metrics=["v3.cumulative_revenue_for_ranking"],
+            dimensions=["v3.product.category"],
+            dialect=Dialect.TRINO,
+            use_materialized=False,
+        )
+        assert {
+            col.semantic_name
+            for col in ranked.columns
+            if col.semantic_type == "dimension"
+        } == {"v3.product.category", "v3.date.date_id"}
 
     @pytest.mark.asyncio
     async def test_non_decomposable_metric_max_by(self, client_with_build_v3):

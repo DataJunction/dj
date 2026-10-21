@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
-from datajunction_server.errors import DJException
+from datajunction_server.errors import DJException, DJInvalidMetricQueryException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.sql import (
     build_row_count_sql,
@@ -545,7 +545,7 @@ async def _build_ranked_groups_sql(
         and flt.column in cube_rev.cube_node_metrics
         and flt.column != ranking_metric
     ]
-    return await generate_metrics_sql(
+    ranked = await generate_metrics_sql(
         session,
         metrics=list(dict.fromkeys([ranking_metric, *filter_metrics])),
         dimensions=group_limit.dimensions,
@@ -558,6 +558,17 @@ async def _build_ranked_groups_sql(
         limit=group_limit.top,
         endpoint="/semantic-layer/views/sql/group-limit",
     )
+    ranked_dimensions = [
+        col.semantic_name for col in ranked.columns if col.semantic_type == "dimension"
+    ]
+    if len(ranked_dimensions) != len(group_limit.dimensions) or set(
+        ranked_dimensions,
+    ) != set(group_limit.dimensions):
+        raise DJInvalidMetricQueryException(
+            "GROUP_LIMIT ranking must produce one row per requested dimension "
+            "tuple; its output dimensions differ from group_limit.dimensions.",
+        )
+    return ranked
 
 
 async def _generate_sql(
