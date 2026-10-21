@@ -40,7 +40,7 @@ def required_dimension_names(
     for ref in refs:
         base, _ = split_dimension_ref(ref)
         names.append(
-            f"{upstream_node}.{ref}" if upstream_node and "." not in base else ref
+            f"{upstream_node}.{ref}" if upstream_node and "." not in base else ref,
         )
     return sorted(names)
 
