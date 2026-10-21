@@ -2259,6 +2259,12 @@ class TestMetricsSQLCrossFact:
         column_names = {col["name"] for col in result["columns"]}
         assert "category" in column_names
 
+        # The metrics endpoint names the parent that has the column.
+        response = await client_with_build_v3.get(
+            "/metrics/v3.revenue_by_category_inline_join",
+        )
+        assert response.json()["required_dimensions"] == ["v3.product.category"]
+
     @pytest.mark.asyncio
     async def test_all_additional_metrics_metrics_sql(self, client_with_build_v3):
         """
