@@ -438,6 +438,44 @@ class TestSemanticViewPayloadTypes:
 
         assert _raw_column_metadata(cube, "sem.total_amount") == {}
 
+    def test_metric_metadata_ignores_legacy_non_object_custom_metadata(self):
+        metric_revision = SimpleNamespace(
+            name="sem.total_amount",
+            type=NodeType.METRIC,
+            custom_metadata=["legacy"],
+        )
+        cube = SimpleNamespace(
+            cube_elements=[SimpleNamespace(node_revision=metric_revision)],
+        )
+
+        assert _raw_column_metadata(cube, "sem.total_amount") == {}
+
+    def test_legacy_producer_metadata_moves_under_datajunction_extension(self):
+        column = SimpleNamespace(
+            type="utf8",
+            display_name="Category",
+            unit=None,
+            attribute_names=lambda: [],
+        )
+
+        metadata = _column_metadata(
+            column,
+            is_metric=False,
+            raw_metadata={
+                "owner": "legacy-owner",
+                "source": "legacy-source",
+                "extensions": {"datajunction": {"owner": "explicit-owner"}},
+            },
+        )
+
+        assert metadata is not None
+        assert metadata.extensions == {
+            "datajunction": {
+                "owner": "explicit-owner",
+                "source": "legacy-source",
+            },
+        }
+
     @pytest.mark.parametrize(
         ("format_metadata", "expected_extensions"),
         [
