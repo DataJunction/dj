@@ -53,7 +53,7 @@ from datajunction_server.internal.access.authorization import (
 from datajunction_server.internal.access.authorization.context import AuthContext
 from datajunction_server.internal.checks.engine import CheckResult
 from datajunction_server.internal.checks.engine import evaluate as evaluate_checks
-from datajunction_server.internal.checks.context import TagTypes
+from datajunction_server.internal.checks.context import OwnerKinds, TagTypes
 from datajunction_server.internal.checks.manifest import (
     ManifestChecks,
     to_manifest_checks,
@@ -70,6 +70,7 @@ from datajunction_server.internal.deployment.checks import (
     checks_match_last_deployment,
     build_fixtures,
     resolve_declared_schemas,
+    resolve_owner_kinds,
     resolve_tag_types,
     roll_up,
     unsupported_ruleset_guards,
@@ -703,6 +704,17 @@ class DeploymentOrchestrator:
             self.deployment_spec.tags,
             {tag for spec, _ in entities for tag in spec.tags},
         )
+        owner_kinds = await resolve_owner_kinds(
+            self.session,
+            {
+                owner
+                for spec in [
+                    *plan.to_deploy,
+                    *plan.existing_specs.values(),
+                ]
+                for owner in spec.owners
+            },
+        )
         loaded = load_checks(manifest.checks, build_fixtures(declared, node_types))
         malformed = loaded.malformed + unsupported_ruleset_guards(manifest.rulesets)
         if malformed:
@@ -731,6 +743,7 @@ class DeploymentOrchestrator:
             loaded,
             declared,
             tag_types,
+            owner_kinds,
             entities,
         )
 
@@ -748,6 +761,7 @@ class DeploymentOrchestrator:
         loaded: LoadedChecks,
         declared: DeclaredSchemas,
         tag_types: TagTypes,
+        owner_kinds: OwnerKinds,
         entities: list[tuple[NodeSpec, DeploymentResult.Operation]],
     ) -> list[str]:
         """
@@ -788,6 +802,7 @@ class DeploymentOrchestrator:
                 operation=operation,
                 declared=declared.properties,
                 tag_types=tag_types,
+                owner_kinds=owner_kinds,
             )
             previous_bindings = None
             if wants_previous and previous is not None:
@@ -802,6 +817,7 @@ class DeploymentOrchestrator:
                     operation=DeploymentResult.Operation.NOOP,
                     declared=declared.properties,
                     tag_types=tag_types,
+                    owner_kinds=owner_kinds,
                 )
             results = evaluate_checks(loaded.checks, bindings, previous_bindings)
             for result in results:
