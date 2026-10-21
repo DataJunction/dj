@@ -1234,7 +1234,7 @@ def test_undeclared_output_columns_get_empty_defaults():
         ColumnSpec(name="a", type="int", order=0),
         ColumnSpec(name="extra", type="bigint", order=1),
     ]
-    columns = project_node(spec, {}, {}, outputs)["columns"]
+    columns = project_node(spec, {}, {}, outputs=outputs)["columns"]
     assert columns == [
         project_column(described("a", "A", "int", 0)),
         project_column(ColumnSpec(name="extra", type="bigint", order=1)),
@@ -1258,7 +1258,7 @@ def test_a_node_without_declared_columns_lists_its_outputs():
         ColumnSpec(name="x", type="int", order=0),
         ColumnSpec(name="y", type="int", order=1),
     ]
-    columns = project_node(spec, {}, {}, outputs)["columns"]
+    columns = project_node(spec, {}, {}, outputs=outputs)["columns"]
     assert columns == [
         project_column(ColumnSpec(name="x", type="int", order=0)),
         project_column(ColumnSpec(name="y", type="int", order=1)),
@@ -1284,7 +1284,7 @@ def test_a_cubes_columns_merge_with_its_outputs():
         ColumnSpec(name=f"{NAMESPACE}.m", type="bigint", order=0),
         ColumnSpec(name=f"{NAMESPACE}.d.x", type="string", order=1),
     ]
-    assert project_node(spec, {}, {}, outputs)["columns"] == [
+    assert project_node(spec, {}, {}, outputs=outputs)["columns"] == [
         project_column(described(f"{NAMESPACE}.m", "Metric", "bigint", 0)),
         project_column(ColumnSpec(name=f"{NAMESPACE}.d.x", type="string", order=1)),
     ]
@@ -1302,7 +1302,7 @@ def test_a_cubes_prefixed_column_names_match_its_outputs():
         ColumnSpec(name=f"{NAMESPACE}.m", type="bigint", order=0),
         ColumnSpec(name=f"{NAMESPACE}.d.x", type="string", order=1),
     ]
-    assert project_node(spec, {}, {}, outputs)["columns"] == [
+    assert project_node(spec, {}, {}, outputs=outputs)["columns"] == [
         project_column(described(f"{NAMESPACE}.m", "Metric", "bigint", 0)),
         project_column(ColumnSpec(name=f"{NAMESPACE}.d.x", type="string", order=1)),
     ]
