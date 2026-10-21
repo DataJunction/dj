@@ -7,6 +7,9 @@ from __future__ import annotations
 from pydantic.main import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.construction.build_v3.dimension_refs import (
+    split_dimension_ref,
+)
 from datajunction_server.database.node import Node
 from datajunction_server.errors import DJWarning
 from datajunction_server.models.cube_materialization import MetricComponent
@@ -23,6 +26,23 @@ from datajunction_server.sql.decompose import MetricComponentExtractor
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 from datajunction_server.transpilation import transpile_sql
 from datajunction_server.typing import UTCDatetime
+
+
+def required_dimension_names(
+    refs: list[str],
+    upstream_node: str | None,
+) -> list[str]:
+    """
+    Required dimensions as sorted full names. A bare column name gets the
+    upstream node it resolves against; full paths stay as authored.
+    """
+    names = []
+    for ref in refs:
+        base, _ = split_dimension_ref(ref)
+        names.append(
+            f"{upstream_node}.{ref}" if upstream_node and "." not in base else ref
+        )
+    return sorted(names)
 
 
 class Metric(BaseModel):
@@ -84,6 +104,11 @@ class Metric(BaseModel):
             for func in functions
             if Dialect.DRUID not in func.dialects
         ]
+        upstream_node = (
+            node.current.non_metric_parents[0].name
+            if node.current.non_metric_parents
+            else None
+        )
         extractor = MetricComponentExtractor(node.current.id)
         measures, derived_sql = await extractor.extract(session)
         return cls(
@@ -95,18 +120,17 @@ class Metric(BaseModel):
             created_at=node.created_at,
             updated_at=node.current.updated_at,
             query=node.current.query,  # type: ignore
-            upstream_node=(
-                node.current.non_metric_parents[0].name
-                if node.current.non_metric_parents
-                else None
-            ),
+            upstream_node=upstream_node,
             expression=str(query_ast.select.projection[0]),
             dimensions=dims,
             metric_metadata=node.current.metric_metadata,
             unit=unit_to_dict(
                 node.current.columns[0].unit if node.current.columns else None,
             ),
-            required_dimensions=node.current.required_dimensions_refs,
+            required_dimensions=required_dimension_names(
+                node.current.required_dimensions_refs,
+                upstream_node,
+            ),
             reaggregate=node.current.reaggregate,
             fixed_grain=node.current.fixed_grain,
             is_measure=node.current.is_measure,
