@@ -1290,6 +1290,27 @@ def test_a_cubes_columns_merge_with_its_outputs():
     ]
 
 
+def test_a_cubes_prefixed_column_names_match_its_outputs():
+    spec = CubeSpec(
+        name="c",
+        namespace=NAMESPACE,
+        metrics=["${prefix}m"],
+        dimensions=["${prefix}d.x"],
+        columns=[described("${prefix}m", "Metric")],
+    )
+    outputs = [
+        ColumnSpec(name=f"{NAMESPACE}.m", type="bigint", order=0),
+        ColumnSpec(name=f"{NAMESPACE}.d.x", type="string", order=1),
+    ]
+    assert project_node(spec, {}, {}, outputs)["columns"] == [
+        project_column(described(f"{NAMESPACE}.m", "Metric", "bigint", 0)),
+        project_column(ColumnSpec(name=f"{NAMESPACE}.d.x", type="string", order=1)),
+    ]
+    assert project_node(spec, {}, {})["columns"] == [
+        project_column(described(f"{NAMESPACE}.m", "Metric")),
+    ]
+
+
 @pytest.mark.asyncio
 async def test_unchanged_nodes_use_their_deployed_columns(session, current_user):
     """A skipped node's undeclared columns count toward column rules."""

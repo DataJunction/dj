@@ -329,7 +329,11 @@ def project_node(
         project_link(link) for link in getattr(spec, "dimension_links", None) or []
     ]
     # Metrics exclude `columns` from the dump, so read it off the spec too.
-    columns = getattr(spec, "columns", None) or []
+    columns = (
+        spec.rendered_columns
+        if isinstance(spec, CubeSpec)
+        else getattr(spec, "columns", None) or []
+    )
     if outputs is not None:
         columns = merge_columns(columns, outputs)
     projected["columns"] = [project_column(column) for column in columns]
