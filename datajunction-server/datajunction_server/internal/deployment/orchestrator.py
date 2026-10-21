@@ -95,6 +95,7 @@ from datajunction_server.internal.deployment.validation import (
     CubeValidationData,
     NodeValidationResult,
     bulk_validate_node_data,
+    parent_link_inputs,
 )
 from datajunction_server.internal.history import EntityType
 from datajunction_server.internal.impact import ReusableQuery, propagate_impact
@@ -6150,22 +6151,17 @@ class DeploymentOrchestrator:
                     if parent.current
                     for col in parent.current.columns
                 ]
-                parent_dimension_links = [
-                    link
-                    for parent in new_revision.parents
-                    if parent.current
-                    for link in parent.current.dimension_links
-                ]
+                parent_dimension_links, pending_link_roles = await parent_link_inputs(
+                    self.session,
+                    new_revision.parents,
+                    self._deployment_link_roles,
+                )
                 _, resolved_required_dims = _resolve_required_dimensions(
                     metric_spec.rendered_required_dimensions,
                     parent_columns,
                     dependency_nodes,
                     parent_dimension_links,
-                    {
-                        pair
-                        for parent in new_revision.parents
-                        for pair in self._deployment_link_roles.get(parent.name, set())
-                    },
+                    pending_link_roles,
                 )
                 new_revision.required_dimensions = resolved_required_dims
             new_revision.reaggregate = dump_reaggregate_spec(

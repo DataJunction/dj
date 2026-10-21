@@ -7,7 +7,7 @@ import re
 import time
 from dataclasses import dataclass, field
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -43,7 +43,7 @@ from datajunction_server.models.node import NodeStatus, NodeType
 from datajunction_server.models.reaggregate import (
     unsupported_dimension_reaggregate_functions,
 )
-from datajunction_server.sql.dag import get_dimensions
+from datajunction_server.sql.dag import get_dimensions, get_metric_parents_map
 from datajunction_server.sql.decompose import validate_fixed_grain_shape
 from datajunction_server.sql.parsing.ast import fast_parse_mode
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse_rule
@@ -51,6 +51,68 @@ from datajunction_server.sql.parsing.types import ListType, MapType, StructType
 from datajunction_server.utils import SEPARATOR
 
 logger = logging.getLogger(__name__)
+
+
+async def _revision_names(
+    session: AsyncSession,
+    versions: set[tuple[str, str]],
+) -> dict[int, str]:
+    """Node name by revision id, for these (name, version) pairs."""
+    if not versions:
+        return {}
+    rows = await session.execute(
+        select(NodeRevision.id, NodeRevision.name).where(
+            or_(
+                *[
+                    and_(NodeRevision.name == name, NodeRevision.version == version)
+                    for name, version in versions
+                ],
+            ),
+        ),
+    )
+    return {revision_id: name for revision_id, name in rows}
+
+
+async def parent_link_inputs(
+    session: AsyncSession,
+    parents: list[Node],
+    deployment_link_roles: dict[str, set],
+) -> tuple[list[DimensionLink], set[tuple[str, str | None]]]:
+    """
+    Saved links and links a deployment declares, for these parents and for the
+    nodes beneath any metric among them. A derived metric's parents are metrics,
+    which have no links of their own.
+    """
+    metric_parents = [parent for parent in parents if parent.type == NodeType.METRIC]
+    base_parents = await get_metric_parents_map(session, metric_parents)
+    revision_names = {
+        parent.current.id: parent.name
+        for parent in parents
+        if parent.type != NodeType.METRIC and parent.current
+    }
+    revision_names.update(
+        await _revision_names(
+            session,
+            {
+                (base.name, base.current_version)
+                for bases in base_parents.values()
+                for base in bases
+            },
+        ),
+    )
+    names = set(revision_names.values())
+    links: list[DimensionLink] = []
+    if revision_names:
+        result = await session.execute(
+            select(DimensionLink).where(
+                DimensionLink.node_revision_id.in_(revision_names),
+            ),
+        )
+        links = list(result.scalars().all())
+    pending = {
+        pair for name in names for pair in deployment_link_roles.get(name, set())
+    }
+    return links, pending
 
 
 def _reparse_column_types(dependency_nodes: dict[str, Node]) -> None:
@@ -160,6 +222,9 @@ class NodeSpecBulkValidator:
         # directly risks a MissingGreenlet from this class's sync validation
         # methods.
         self._parent_dimension_links: dict[str, list[DimensionLink]] = {}
+        # Derived metric parent -> the non-metric nodes it reads from, filled by
+        # the same prefetch. Metrics have no links of their own.
+        self._base_parents: dict[str, list[str]] = {}
 
     async def validate(self, node_specs: list[NodeSpec]) -> list[NodeValidationResult]:
         """
@@ -837,11 +902,43 @@ class NodeSpecBulkValidator:
                 continue
             dep_names.update(self.context.node_graph.get(spec.rendered_name, []))
 
+        metric_parents = [
+            node
+            for dep_name in sorted(dep_names)
+            for node in [self.context.dependency_nodes.get(dep_name)]
+            if node and node.type == NodeType.METRIC
+        ]
+        base_parents = await get_metric_parents_map(
+            self.context.session,
+            metric_parents,
+        )
+        self._base_parents = {
+            metric: [parent.name for parent in parents]
+            for metric, parents in base_parents.items()
+        }
+
         revision_id_to_name: dict[int, str] = {}
         for dep_name in dep_names:
             dep_node = self.context.dependency_nodes.get(dep_name)
             if dep_node and dep_node.current:  # pragma: no branch
                 revision_id_to_name[dep_node.current.id] = dep_name
+
+        revision_id_to_name.update(
+            {
+                revision_id: name
+                for revision_id, name in (
+                    await _revision_names(
+                        self.context.session,
+                        {
+                            (parent.name, parent.current_version)
+                            for parents in base_parents.values()
+                            for parent in parents
+                        },
+                    )
+                ).items()
+                if revision_id not in revision_id_to_name
+            },
+        )
 
         if not revision_id_to_name:
             return
@@ -868,15 +965,23 @@ class NodeSpecBulkValidator:
         """
         Saved links and links declared in this deployment, for these parents.
         """
+        # A derived metric's parents are metrics, so read the nodes beneath them.
+        names = list(
+            dict.fromkeys(
+                name
+                for dep_name in dep_names
+                for name in self._base_parents.get(dep_name, [dep_name])
+            ),
+        )
         links = [
             link
-            for dep_name in dep_names
-            for link in self._parent_dimension_links.get(dep_name, [])
+            for name in names
+            for link in self._parent_dimension_links.get(name, [])
         ]
         pending = {
             pair
-            for dep_name in dep_names
-            for pair in self.context.deployment_link_roles.get(dep_name, set())
+            for name in names
+            for pair in self.context.deployment_link_roles.get(name, set())
         }
         return links, pending
 

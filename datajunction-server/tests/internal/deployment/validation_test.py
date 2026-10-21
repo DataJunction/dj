@@ -989,6 +989,54 @@ class TestRequiredDimensions:
 
         assert result.status == expected_status
 
+    @pytest.mark.parametrize(
+        "base_parents,expected_error",
+        [
+            ({"test.base_metric": ["test.parent"]}, None),
+            ({}, "invalid_required_dimensions"),
+        ],
+        ids=["through-metric-parent", "metric-parent-not-unwound"],
+    )
+    def test_role_on_derived_metric_checked_through_its_metric_parent(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+        base_parents: dict,
+        expected_error: str | None,
+    ):
+        """A derived metric's role resolves through links on the nodes beneath its metric parents."""
+        base_metric = _make_metric_node("test.base_metric")
+        context = ValidationContext(
+            session=session,
+            node_graph={"test.derived": [base_metric.name]},
+            dependency_nodes={
+                parent_node.name: parent_node,
+                base_metric.name: base_metric,
+            },
+            deployment_link_roles={"test.parent": {("test.dim", "order")}},
+        )
+        spec = MetricSpec(
+            name="test.derived",
+            query="SELECT test.base_metric * 2",
+            required_dimensions=["test.dim.dateint[order]"],
+        )
+        validator = NodeSpecBulkValidator(context)
+        validator._all_dim_nodes = {
+            **context.dependency_nodes,
+            "test.dim": self._make_dim_node("test.dim", ["dateint"]),
+        }
+        validator._base_parents = base_parents
+
+        error = validator._check_required_dimensions(spec)
+
+        if expected_error is None:
+            assert error is None
+        else:
+            assert error is not None
+            assert error.debug == {
+                "invalid_required_dimensions": ["test.dim.dateint[order]"],
+            }
+
     @pytest.mark.asyncio
     async def test_valid_fixed_grain_dimension(
         self,

@@ -2279,6 +2279,76 @@ class TestDeployments:
         ]
 
     @pytest.mark.asyncio
+    async def test_derived_metric_keeps_roled_required_dimension(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        A derived metric reaches the link carrying a role through the metric it
+        is built on, so its role-qualified required dimension deploys too.
+        """
+        hard_hat_facts = TransformSpec(
+            name="default.hard_hat_facts",
+            node_type=NodeType.TRANSFORM,
+            query="SELECT hard_hat_id, state FROM ${prefix}default.hard_hats",
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node="${prefix}default.us_state",
+                    join_type="inner",
+                    join_on=(
+                        "${prefix}default.hard_hat_facts.state = "
+                        "${prefix}default.us_state.state_short"
+                    ),
+                    role="home_state",
+                ),
+            ],
+            owners=["dj"],
+        )
+        num_hard_hats = MetricSpec(
+            name="default.num_hard_hats",
+            node_type=NodeType.METRIC,
+            query="SELECT COUNT(*) FROM ${prefix}default.hard_hat_facts",
+            owners=["dj"],
+        )
+        double_hard_hats = MetricSpec(
+            name="default.double_hard_hats",
+            node_type=NodeType.METRIC,
+            query="SELECT ${prefix}default.num_hard_hats * 2",
+            required_dimensions=["${prefix}default.us_state.state_name[home_state]"],
+            owners=["dj"],
+        )
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace="derived_roled_rd",
+                nodes=[
+                    default_hard_hats,
+                    default_us_states,
+                    default_us_state,
+                    hard_hat_facts,
+                    num_hard_hats,
+                    double_hard_hats,
+                ],
+            ),
+        )
+        assert data["status"] == "success", data["results"]
+
+        exported = (
+            await client.get("/namespaces/derived_roled_rd/export/spec")
+        ).json()["nodes"]
+        metric = next(
+            spec
+            for spec in exported
+            if spec["name"] == "${prefix}default.double_hard_hats"
+        )
+        assert metric["required_dimensions"] == [
+            "${prefix}default.us_state.state_name[home_state]",
+        ]
+
+    @pytest.mark.asyncio
     async def test_full_redeploy_is_noop(
         self,
         client,
