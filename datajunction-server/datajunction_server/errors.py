@@ -65,6 +65,7 @@ class ErrorCode(IntEnum):
     TAG_NOT_FOUND = 700
     CATALOG_NOT_FOUND = 701
     INVALID_NAMESPACE = 702
+    INVALID_SPEC_FIELD = 703
 
 
 class DebugType(TypedDict, total=False):
