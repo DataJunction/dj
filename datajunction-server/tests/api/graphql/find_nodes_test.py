@@ -6,6 +6,7 @@ from unittest import mock
 
 import pytest
 import pytest_asyncio
+import sqlalchemy as sa
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -4142,6 +4143,120 @@ async def test_find_nodes_paginated_follows_order_by(
 
     assert len(paged) == len(set(paged))
     assert paged == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "order_by, ascending",
+    [
+        ("NAME", True),
+        ("NAME", False),
+        ("TYPE", True),
+        ("STATUS", False),
+        ("CREATED_AT", False),
+    ],
+)
+async def test_find_nodes_paginated_before_follows_order_by(
+    client_with_roads: AsyncClient,
+    order_by: str,
+    ascending: bool,
+) -> None:
+    """
+    Paging backward with ``before`` must keep the requested ordering: walking
+    from the last page to the first returns every node once, in reverse page order.
+    """
+    query = """
+    query ListNodes($before: String, $after: String, $limit: Int, $orderBy: NodeSortField, $asc: Boolean) {
+      findNodesPaginated(limit: $limit, before: $before, after: $after, orderBy: $orderBy, ascending: $asc) {
+        pageInfo { hasNextPage startCursor endCursor }
+        edges { node { name } }
+      }
+    }
+    """
+
+    async def fetch(limit: int, **cursor: str | None) -> dict:
+        response = await client_with_roads.post(
+            "/graphql",
+            json={
+                "query": query,
+                "variables": {
+                    "limit": limit,
+                    "orderBy": order_by,
+                    "asc": ascending,
+                    **cursor,
+                },
+            },
+        )
+        assert response.status_code == 200, response.text
+        return response.json()["data"]["findNodesPaginated"]
+
+    def names(page: dict) -> list[str]:
+        return [e["node"]["name"] for e in page["edges"]]
+
+    expected = names(await fetch(1000))
+    assert len(expected) > 10
+
+    pages = [await fetch(5)]
+    while pages[-1]["pageInfo"]["hasNextPage"]:
+        pages.append(await fetch(5, after=pages[-1]["pageInfo"]["endCursor"]))
+
+    # Walk back from the last page; each page is the one just before the cursor.
+    cursor = pages[-1]["pageInfo"]["startCursor"]
+    for page in reversed(pages[:-1]):
+        previous = await fetch(5, before=cursor)
+        assert names(previous) == names(page)
+        cursor = previous["pageInfo"]["startCursor"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ascending", [True, False])
+async def test_find_nodes_paginated_pages_through_null_sort_values(
+    client_with_roads: AsyncClient,
+    session: AsyncSession,
+    ascending: bool,
+) -> None:
+    """
+    Nodes whose sort field is NULL are paged through in both directions without
+    repeats or gaps, including when a cursor lands on one of them.
+    """
+    await session.execute(
+        sa.update(NodeRevision)
+        .where(NodeRevision.name.like("default.%"))
+        .values(display_name=None),
+    )
+    await session.commit()
+
+    query = """
+    query ListNodes($before: String, $after: String, $asc: Boolean) {
+      findNodesPaginated(limit: 4, before: $before, after: $after, orderBy: DISPLAY_NAME, ascending: $asc) {
+        pageInfo { hasNextPage startCursor endCursor }
+        edges { node { name } }
+      }
+    }
+    """
+
+    async def fetch(**cursor: str | None) -> dict:
+        response = await client_with_roads.post(
+            "/graphql",
+            json={"query": query, "variables": {"asc": ascending, **cursor}},
+        )
+        assert response.status_code == 200, response.text
+        return response.json()["data"]["findNodesPaginated"]
+
+    def names(page: dict) -> list[str]:
+        return [e["node"]["name"] for e in page["edges"]]
+
+    pages = [await fetch()]
+    while pages[-1]["pageInfo"]["hasNextPage"]:
+        pages.append(await fetch(after=pages[-1]["pageInfo"]["endCursor"]))
+    paged = [name for page in pages for name in names(page)]
+    assert len(paged) == len(set(paged))
+
+    cursor = pages[-1]["pageInfo"]["startCursor"]
+    for page in reversed(pages[:-1]):
+        previous = await fetch(before=cursor)
+        assert names(previous) == names(page)
+        cursor = previous["pageInfo"]["startCursor"]
 
 
 @pytest.mark.asyncio

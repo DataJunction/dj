@@ -1361,22 +1361,29 @@ class Node(Base):
         return statement, NodeRevisionAlias, search_score_expr, order_by
 
     @staticmethod
-    def _after_cursor_filter(cursor: NodeCursor, order_by: Any, ascending: bool):
+    def _cursor_filter(
+        cursor: NodeCursor,
+        order_by: Any,
+        ascending: bool,
+        backward: bool = False,
+    ):
         """
-        Keyset filter for rows at or after ``cursor`` (inclusive: the cursor is the
-        first row of the next page) when sorted by ``order_by``, then ``created_at``
-        DESC, ``id`` DESC. NULLs sort last ascending and first descending (Postgres
-        default), matching the ORDER BY in ``find_by``.
+        Keyset filter for rows at or after ``cursor`` (at or before it when
+        ``backward``), inclusive of the cursor row, in the order ``order_by`` then
+        ``created_at`` DESC, ``id`` DESC. NULLs sort as the largest value: last
+        ascending, first descending (Postgres default), matching ``find_by``.
         """
         # A SQL row comparison: a plain Python tuple comparison would only compare
         # ``created_at`` and silently drop the ``id`` tie-break.
-        at_or_after_tie = sa.tuple_(Node.created_at, Node.id) <= sa.tuple_(
-            cursor.created_at,
-            cursor.id,
+        cursor_tie = sa.tuple_(cursor.created_at, cursor.id)
+        in_tie_order = (
+            sa.tuple_(Node.created_at, Node.id) >= cursor_tie
+            if backward
+            else sa.tuple_(Node.created_at, Node.id) <= cursor_tie
         )
         if cursor.sort_by is None:
             # Cursor from before sort-aware paging: default created_at DESC order.
-            return at_or_after_tie
+            return in_tie_order
 
         if cursor.sort_by != order_by.key:
             raise DJInvalidInputException(
@@ -1385,14 +1392,15 @@ class Node(Base):
                 "when changing the sort.",
             )
         value = decode_sort_value(cursor.sort_value, order_by)
+        # Moving ascending forward, or descending backward, heads toward larger values.
+        toward_larger = ascending != backward
         if value is None:
-            # On a NULL: ascending, only NULLs remain; descending, every non-NULL
-            # row is still ahead of us.
-            same = and_(order_by.is_(None), at_or_after_tie)
-            return same if ascending else sa.or_(order_by.is_not(None), same)
+            # On a NULL (the largest value): nothing is larger; everything else is smaller.
+            same = and_(order_by.is_(None), in_tie_order)
+            return same if toward_larger else sa.or_(order_by.is_not(None), same)
 
-        same = and_(order_by == value, at_or_after_tie)
-        if ascending:
+        same = and_(order_by == value, in_tie_order)
+        if toward_larger:
             return sa.or_(order_by > value, order_by.is_(None), same)
         return sa.or_(order_by < value, same)
 
@@ -1467,7 +1475,7 @@ class Node(Base):
             # Same ordering as the first page, so the cursor's position in the
             # sort is the position the page boundary was cut at.
             statement = statement.where(
-                cls._after_cursor_filter(cursor, order_by, ascending),
+                cls._cursor_filter(cursor, order_by, ascending),
             ).order_by(
                 order_by.asc() if ascending else order_by.desc(),
                 Node.created_at.desc(),
@@ -1475,12 +1483,12 @@ class Node(Base):
             )
         elif before:
             cursor = NodeCursor.decode(before)
+            # The first page's order reversed, so the rows nearest the cursor
+            # come first; they are flipped back below.
             statement = statement.where(
-                sa.tuple_(Node.created_at, Node.id)
-                >= sa.tuple_(cursor.created_at, cursor.id),
-            )
-            statement = statement.order_by(
-                order_by.asc() if ascending else order_by.desc(),
+                cls._cursor_filter(cursor, order_by, ascending, backward=True),
+            ).order_by(
+                order_by.desc() if ascending else order_by.asc(),
                 Node.created_at.asc(),
                 Node.id.asc(),
             )
