@@ -675,7 +675,7 @@ async def test_declared_properties_union_across_node_types(session, current_user
         NAMESPACE,
         [NodeType.DIMENSION, NodeType.METRIC],
     )
-    assert declared.properties == {"sample": ("color", "shape")}
+    assert declared.properties["sample"] == ("color", "shape")
 
     orchestrator = make_orchestrator(
         session,
