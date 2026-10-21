@@ -15,6 +15,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import JSONResponse
 
+from datajunction_server.api import semantic_layer as semantic_layer_api
 from datajunction_server.api.semantic_layer import (
     MAX_ROW_LIMIT,
     FilterPayload,
@@ -347,6 +348,7 @@ def test_path_filter_rejects_invalid_selection(path) -> None:
 async def test_empty_discovery_scopes_do_not_query() -> None:
     session = AsyncMock(spec=AsyncSession)
     assert await _cube_summaries(session, set()) == []
+    assert await _cube_summaries(session, None, exact_namespaces=set()) == []
     session.execute.assert_not_awaited()
 
 
@@ -719,6 +721,7 @@ async def test_semantic_git_discovery_and_view_filtering(
     literal.git_branch = "unversioned"
     feature.parent_namespace = root.namespace  # legacy Git link outside root prefix
     feature.git_branch = "feature/foo"
+    feature.github_repo_path = "team/stale-feature"
     flat.github_repo_path = "team/flat"
     flat.git_branch = "release"
     other.github_repo_path = "team/other"
@@ -780,6 +783,14 @@ async def test_semantic_git_discovery_and_view_filtering(
         "display_name": "Namespace",
     }
     assert "demo.metrics" in first_level.json()["values"]
+    assert "demo.metrics.main" not in first_level.json()["values"]
+    assert "legacy.feature" not in first_level.json()["values"]
+    for endpoint in ("/semantic/discover", "/semantic/views"):
+        linked_branch = await client.post(
+            endpoint,
+            json={"path": ["legacy.feature"]},
+        )
+        assert linked_branch.status_code == 404, linked_branch.text
     assert "flat.release" in first_level.json()["values"]
     assert "demo.metrics.other" in first_level.json()["values"]
     assert "plain.metrics" in first_level.json()["values"]
@@ -870,12 +881,23 @@ async def test_semantic_git_discovery_and_view_filtering(
             },
         ]
 
-    filtered = await client.post(
-        "/semantic/views",
-        json={"path": ["demo.metrics", "main"]},
-    )
+    fetched_cubes = []
+    load_cubes = semantic_layer_api._cube_summaries
+
+    async def record_loaded_cubes(*args, **kwargs):
+        cubes = await load_cubes(*args, **kwargs)
+        fetched_cubes.extend(name for name, _, _ in cubes)
+        return cubes
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(semantic_layer_api, "_cube_summaries", record_loaded_cubes)
+        filtered = await client.post(
+            "/semantic/views",
+            json={"path": ["demo.metrics", "main"]},
+        )
     assert filtered.status_code == 200, filtered.text
     assert [view["name"] for view in filtered.json()] == [main_view]
+    assert fetched_cubes == [main_view]
     assert (
         await client.post(
             "/semantic/views",
@@ -1143,6 +1165,82 @@ async def test_scoped_discovery_uses_ancestor_branch(
     )
     assert filtered.status_code == 200, filtered.text
     assert filtered.json() == [view]
+
+
+@pytest.mark.asyncio
+async def test_incomplete_git_root_is_not_discoverable(
+    client: AsyncClient,
+    session: AsyncSession,
+):
+    await _setup_cube(client)
+    await _expect(await client.post("/namespaces/incomplete"), 200, 201, 409)
+    cube_name = "incomplete.report"
+    await _expect(
+        await client.post(
+            "/nodes/cube/",
+            json={
+                "name": cube_name,
+                "display_name": "Report",
+                "description": "",
+                "mode": "published",
+                "metrics": ["sem.total_amount"],
+                "dimensions": ["sem.region.region_name"],
+            },
+        ),
+        200,
+        201,
+    )
+    root = await NodeNamespace.get(session, "incomplete")
+    assert root
+    root.github_repo_path = "team/incomplete"
+    await session.commit()
+
+    unfiltered = await client.post("/semantic/views", json={})
+    assert unfiltered.status_code == 200, unfiltered.text
+    assert cube_name in {view["name"] for view in unfiltered.json()}
+
+    discovered = await client.post("/semantic/discover", json={})
+    assert discovered.status_code == 200, discovered.text
+    assert "incomplete" not in discovered.json()["values"]
+    for endpoint in ("/semantic/discover", "/semantic/views"):
+        selected = await client.post(endpoint, json={"path": ["incomplete"]})
+        assert selected.status_code == 404, selected.text
+
+
+@pytest.mark.asyncio
+async def test_deactivated_git_ancestor_does_not_hide_active_child(
+    client: AsyncClient,
+    session: AsyncSession,
+):
+    for namespace in ("repo", "legacy", "legacy.feature", "legacy.feature.child"):
+        await _expect(await client.post(f"/namespaces/{namespace}"), 200, 201, 409)
+    root = await NodeNamespace.get(session, "repo")
+    branch = await NodeNamespace.get(session, "legacy.feature")
+    assert root and branch
+    root.github_repo_path = "team/repo"
+    root.default_branch = "main"
+    branch.parent_namespace = root.namespace
+    branch.git_branch = "feature"
+    await session.commit()
+    await _expect(await client.delete("/namespaces/legacy.feature/"), 200)
+
+    discovered = await client.post("/semantic/discover", json={})
+    assert discovered.status_code == 200, discovered.text
+    assert "legacy.feature.child" in discovered.json()["values"]
+
+    branches = await client.post(
+        "/semantic/discover",
+        json={"path": ["legacy.feature.child"]},
+    )
+    assert branches.status_code == 200, branches.text
+    assert branches.json()["values"] == [None]
+
+    views = await client.post(
+        "/semantic/views",
+        json={"path": ["legacy.feature.child", None]},
+    )
+    assert views.status_code == 200, views.text
+    assert views.json() == []
 
 
 @pytest.mark.asyncio

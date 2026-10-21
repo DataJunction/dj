@@ -28,7 +28,6 @@ from datajunction_server.internal.access.authorization import (
     get_access_checker,
 )
 from datajunction_server.internal.namespaces import (
-    get_git_info_for_namespace,
     get_parent_namespaces,
     resolve_git_info_from_map,
 )
@@ -499,6 +498,47 @@ async def _active_git_namespaces(
     return namespaces
 
 
+async def _active_git_info_for_namespace(
+    session: AsyncSession,
+    namespace: str,
+) -> dict | None:
+    """Resolve one namespace using active ancestors and its active Git parent."""
+    ancestors = get_parent_namespaces(namespace) + [namespace]
+    active = NodeNamespace.deactivated_at.is_(None)
+    rows = await session.execute(
+        select(NodeNamespace).where(active, NodeNamespace.namespace.in_(ancestors)),
+    )
+    namespaces = {row.namespace: row for row in rows.scalars()}
+    branch_namespace = next(
+        (
+            namespaces[name]
+            for name in reversed(ancestors)
+            if name in namespaces and namespaces[name].git_branch
+        ),
+        None,
+    )
+    if (
+        branch_namespace
+        and branch_namespace.parent_namespace
+        and branch_namespace.parent_namespace not in namespaces
+    ):
+        rows = await session.execute(
+            select(NodeNamespace).where(
+                active,
+                NodeNamespace.namespace == branch_namespace.parent_namespace,
+            ),
+        )
+        if parent := rows.scalar_one_or_none():
+            namespaces[parent.namespace] = parent
+    return resolve_git_info_from_map(namespace, namespaces)
+
+
+def _is_git_root(namespace: str, namespaces: dict[str, NodeNamespace]) -> bool:
+    """A repository field on a linked branch does not make it a Git root."""
+    info = resolve_git_info_from_map(namespace, namespaces)
+    return bool(info and info["git_root_namespace"] == namespace)
+
+
 def _git_location(
     node_namespace: str,
     namespaces: dict[str, NodeNamespace],
@@ -572,9 +612,12 @@ async def _cube_summaries(
     session: AsyncSession,
     scopes: set[str] | None,
     exact_namespace: str | None = None,
+    exact_namespaces: set[str] | None = None,
 ) -> list[tuple[str, str | None, str]]:
     """Select only the columns needed for discovery, scoped in SQL when possible."""
-    if scopes is not None and not scopes:
+    if (scopes is not None and not scopes) or (
+        exact_namespaces is not None and not exact_namespaces
+    ):
         return []
     statement = (
         select(Node.name, NodeRevision.display_name, Node.namespace)
@@ -589,6 +632,8 @@ async def _cube_summaries(
     )
     if exact_namespace is not None:
         statement = statement.where(Node.namespace == exact_namespace)
+    elif exact_namespaces is not None:
+        statement = statement.where(Node.namespace.in_(exact_namespaces))
     elif scopes is not None:
         statement = statement.where(
             or_(
@@ -617,9 +662,10 @@ async def _selected_namespace(
     )
     if not row or row.deactivated_at is not None:
         return None
-    if row.github_repo_path:
+    info = await _active_git_info_for_namespace(session, namespace)
+    if info and info["git_root_namespace"] == namespace:
         return row, True
-    if await get_git_info_for_namespace(session, namespace) is not None:
+    if info is not None:
         return None
     return row, False
 
@@ -657,10 +703,26 @@ async def _discoverable_namespaces(
 ) -> list[str]:
     """List readable Git roots and plain namespaces, including empty ones."""
     namespaces = await _active_git_namespaces(session)
+    git_info = {
+        name: resolve_git_info_from_map(name, namespaces) for name in namespaces
+    }
+    roots_with_branches = {
+        info["git_root_namespace"]
+        for name, row in namespaces.items()
+        if row.git_branch
+        if (info := git_info[name]) is not None
+        if info["branch"] or info["default_branch"]
+    }
     values = sorted(
         name
-        for name, row in namespaces.items()
-        if row.github_repo_path or resolve_git_info_from_map(name, namespaces) is None
+        for name, info in git_info.items()
+        if info is None
+        or (
+            info["git_root_namespace"] == name
+            and (
+                info["branch"] or info["default_branch"] or name in roots_with_branches
+            )
+        )
     )
     access_checker.add_namespaces(values, ResourceAction.READ)
     approved = await _approved_resources(access_checker)
@@ -747,7 +809,7 @@ async def _list_semantic_branches(
     """List actual Git branch names for one repository root."""
     namespaces = await _active_git_namespaces(session, namespace)
     root = namespaces.get(namespace)
-    if not root or not root.github_repo_path:
+    if not root or not _is_git_root(namespace, namespaces):
         return _problem(404, f"Git namespace `{namespace}` does not exist.")
 
     root_location = _git_location(namespace, namespaces)
@@ -768,6 +830,8 @@ async def _list_semantic_branches(
         for name, branch in branch_namespaces
         if (ResourceType.NAMESPACE, name) in approved
     )
+    if not branches:
+        return _problem(404, f"Git namespace `{namespace}` does not exist.")
     return sorted(branches)
 
 
@@ -788,7 +852,7 @@ async def list_views(
 ) -> list[ViewSummary] | JSONResponse:
     """List the semantic views (DJ cubes) available to the caller.
 
-    The spec's ``/views/`` returns summaries only;
+    The spec's ``/views`` returns summaries only;
     full metrics/dimensions are fetched per-view via ``/views/{view}``.
     """
     try:
@@ -822,14 +886,28 @@ async def list_views(
                 valid_branches = {value for _, value in branch_namespaces}
                 if root_location:
                     valid_branches.add(root_location[1])
+                if not valid_branches:
+                    return _problem(404, "Invalid view discovery path")
                 if path is not None and len(path) == 2 and branch is None:
                     return _problem(404, "Invalid view discovery path")
                 if branch is not None and branch not in valid_branches:
                     return _problem(404, "Invalid view discovery path")
-            cubes = await _cube_summaries(
-                session,
-                _view_scopes(namespace, branch, namespaces),
-            )
+            if namespace and branch is not None:
+                matching_namespaces = {
+                    name
+                    for name in namespaces
+                    if _git_location(name, namespaces) == (namespace, branch)
+                }
+                cubes = await _cube_summaries(
+                    session,
+                    None,
+                    exact_namespaces=matching_namespaces,
+                )
+            else:
+                cubes = await _cube_summaries(
+                    session,
+                    _view_scopes(namespace, branch, namespaces),
+                )
     except DJException as exc:
         return _problem(exc.http_status_code or 400, exc.message)
 
