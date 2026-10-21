@@ -33,6 +33,7 @@ from datajunction_server.api.semantic_layer import (
     _dimensions_payload,
     _discovery_filter,
     _execute_sql,
+    _executable_sql,
     _filter_to_sql,
     _git_location,
     _generated_column_arrow_type_name,
@@ -80,6 +81,7 @@ from datajunction_server.models.reaggregate import (
     DimensionReaggregateRule,
     ReaggregationFunction,
 )
+from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.transpilation import SQLTranspilationPlugin
 from datajunction_server.typing import QueryState
@@ -469,6 +471,35 @@ def test_row_count_uses_native_ast_and_quotes_alias(
         ("COUNT", "bigint"),
     ]
     assert result.cube_name == "sem.sales_cube"
+
+
+@pytest.mark.parametrize("flat_physical_names", [False, True])
+def test_postgres_semantic_sql_omits_catalog_from_physical_tables(
+    flat_physical_names,
+):
+    sql = (
+        "WITH rev_counts AS (SELECT node_id FROM dj_metadata.public.noderevision) "
+        "SELECT 'dj_metadata.public.node' AS label FROM rev_counts AS nr "
+        "JOIN dj_metadata.public.node AS n ON nr.node_id = n.id"
+    )
+    generated = V3GeneratedSQL(
+        query=parse(sql),
+        columns=[],
+        dialect=Dialect.POSTGRES,
+    )
+    if flat_physical_names:
+        for table in generated.query.find_all(ast.Table):
+            if table.identifier(quotes=False).startswith("dj_metadata."):
+                table.name = ast.Name(table.identifier(quotes=False))
+
+    executable = _executable_sql(generated)
+
+    assert "FROM public.noderevision" in executable
+    assert "FROM rev_counts AS nr" in executable
+    assert "JOIN public.node" in executable
+    assert "FROM dj_metadata.public" not in executable
+    assert "JOIN dj_metadata.public" not in executable
+    assert "'dj_metadata.public.node'" in executable
 
 
 @pytest.mark.asyncio
@@ -2243,6 +2274,7 @@ async def test_deactivated_git_ancestor_does_not_hide_active_child(
 @pytest.mark.asyncio
 async def test_group_limit_endpoint_builds_independent_ranked_query(
     client: AsyncClient,
+    monkeypatch,
 ):
     view = await _setup_cube(client)
     query: dict[str, Any] = {
@@ -2271,12 +2303,27 @@ async def test_group_limit_endpoint_builds_independent_ranked_query(
     assert "'North'" in body["sql"]
     assert "LIMIT 1" in body["sql"]
 
+    query_service = SimpleNamespace(
+        submit_query=AsyncMock(
+            return_value=SimpleNamespace(
+                state=QueryState.FINISHED,
+                errors=[],
+                results=SimpleNamespace(root=[SimpleNamespace(rows=[[1]])]),
+            ),
+        ),
+    )
+    monkeypatch.setitem(
+        client.app.dependency_overrides,
+        get_query_service_client,
+        lambda: query_service,
+    )
     count_resp = await _expect(
         await client.post(f"/semantic/views/{view}/row-count", json={"query": query}),
         200,
     )
-    assert "COUNT(*)" in count_resp.json()["sql"]
-    assert "ranked_groups" in count_resp.json()["sql"]
+    assert count_resp.json()["results"]["rows"] == [{"COUNT": 1}]
+    assert "COUNT(*)" in count_resp.json()["requests"][0]["definition"]
+    assert "ranked_groups" in count_resp.json()["requests"][0]["definition"]
 
     inherited = {**query, "group_limit": {**query["group_limit"], "filters": None}}
     inherited_resp = await _expect(
@@ -2351,8 +2398,9 @@ async def test_group_limit_endpoint_builds_independent_ranked_query(
         ),
         200,
     )
-    assert "COUNT(*)" in others_count.json()["sql"]
-    assert "'Others'" in others_count.json()["sql"]
+    assert others_count.json()["results"]["rows"] == [{"COUNT": 1}]
+    assert "COUNT(*)" in others_count.json()["requests"][0]["definition"]
+    assert "'Others'" in others_count.json()["requests"][0]["definition"]
 
     dimension_only = {
         **with_others,
@@ -2628,13 +2676,13 @@ async def test_generate_sql_rejects_empty_query(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_query_rejects_unsupported_group_limit(client: AsyncClient):
+async def test_query_rejects_incomplete_group_limit(client: AsyncClient):
     resp = await client.post(
         "/semantic/views/any_view/query",
         json={"query": {"metrics": ["m"], "group_limit": {"top": 5}}},
     )
-    assert resp.status_code == 400
-    assert "group_limit" in resp.json()["detail"]
+    assert resp.status_code == 422
+    assert "group_limit" in str(resp.json()["invalid_params"])
 
 
 @pytest.mark.asyncio

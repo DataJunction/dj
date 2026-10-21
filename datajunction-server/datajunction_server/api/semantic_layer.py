@@ -10,7 +10,7 @@ the spec's data endpoints execute that SQL through DJQS. Mounted at ``/semantic`
 
 import logging
 from http import HTTPStatus
-from typing import Any, cast
+from typing import Any
 
 from fastapi import Body, Depends, Request
 from fastapi.exceptions import RequestValidationError
@@ -60,9 +60,9 @@ from datajunction_server.construction.build_v3.utils import (
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.access import ResourceAction, ResourceType
-from datajunction_server.sql.parsing import ast
 from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
+from datajunction_server.sql.parsing import ast
 from datajunction_server.typing import QueryState
 from datajunction_server.utils import (
     get_current_user,
@@ -1038,7 +1038,7 @@ def _limit_to_ranked_groups(
     ranked: V3GeneratedSQL,
     dimensions: list[str],
     orderby: list[str] | None,
-    limit: int,
+    limit: int | None,
 ) -> V3GeneratedSQL:
     """Keep main-query rows whose dimension tuple occurs in the top-N query."""
     main_columns = {column.semantic_name: column.name for column in main.columns}
@@ -1239,13 +1239,11 @@ async def _generate_sql(
             )
     if row_count:
         generated_sql = build_row_count_sql(generated_sql)
-    # ``generated_sql.sql`` renders via ``to_sql(query, dialect)``, which already
-    # applies DJ's dialect rules and transpiles to the resolved dialect, so it is
-    # execution-ready for the caller (which runs it directly). We return the
-    # dialect so the caller knows which engine to run it on.
+    # Render with DJ's dialect rules and remove catalog qualifiers when the
+    # target is PostgreSQL. Return the dialect so callers know which engine to run.
     columns = generated_sql.columns or []
     return GeneratedSQLResponse(
-        sql=generated_sql.sql,
+        sql=_executable_sql(generated_sql),
         dialect=generated_sql.dialect.value,
         columns=[
             ColumnInfo(name=col.name, type=_generated_column_arrow_type_name(col))
@@ -1253,6 +1251,21 @@ async def _generate_sql(
         ],
         cube_name=generated_sql.cube_name,
     )
+
+
+def _executable_sql(generated_sql: V3GeneratedSQL) -> str:
+    """Render physical SQL with PostgreSQL's two-part table names."""
+    if generated_sql.dialect == Dialect.POSTGRES:
+        for table in generated_sql.query.find_all(ast.Table):
+            parts = table.name.names
+            if len(parts) == 3:
+                # PostgreSQL connects to one database at a time. DJ catalogs
+                # describe that connection, but cannot prefix its table names.
+                parts[1].namespace = None
+            elif len(parts) == 1 and parts[0].name.count(".") == 2:
+                # The v3 builder also stores physical names as one dotted Name.
+                parts[0].name = parts[0].name.split(".", 1)[1]
+    return generated_sql.sql
 
 
 async def _prepare_view_sql(
@@ -1331,7 +1344,9 @@ async def _prepare_view_sql(
             if group_limit.direction.upper() not in {"ASC", "DESC"}:
                 return _problem(400, "`group_limit.direction` must be ASC or DESC.")
             bad_group_filters = [
-                f.column for f in group_limit.filters or [] if f.column not in allowed
+                f.column
+                for f in group_limit.filters or []
+                if f.column not in allowed_metrics | allowed_dims
             ]
             if bad_group_filters:
                 return _problem(
