@@ -95,6 +95,24 @@ The key is reserved so namespace-scoped schemas cannot redefine the shared
 contract. Producer-specific fields must be placed inside an object under
 `extensions`.
 
+DJ currently accepts `=`, `!=`, `>`, `>=`, `<`, `<=`, `IS NULL`, and `IS NOT NULL`
+in `semantic_layer.filter.operators`. The built-in metadata schema rejects
+`IN`, `NOT IN`, and `between` hints, even though DJ's semantic SQL requests can
+use those operators. Select hints are single-value controls; `multi: true` is
+not accepted. Omit `multi` or set it to `false`.
+
+When a column's final name component is exactly `dateint`, DJ infers
+`semantic_type: date` even if the stored column type is integer. Set
+`semantic_type` explicitly if the column has a different meaning:
+
+```yaml
+custom_metadata:
+  semantic_layer:
+    columns:
+      dateint:
+        semantic_type: number
+```
+
 ## What validation does and does not do
 
 Validation is **lax about keys it does not know**. A key with no registered schema passes untouched. That means registering your first schema breaks nothing that already exists, and the feature is inert until you opt into it.
