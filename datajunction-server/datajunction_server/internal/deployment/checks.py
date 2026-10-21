@@ -254,6 +254,27 @@ def project_column(column: ColumnSpec) -> ColumnProjection:
     return projected
 
 
+def merge_columns(
+    declared: Sequence[ColumnSpec],
+    outputs: Sequence[ColumnSpec],
+) -> list[ColumnSpec]:
+    """
+    Every output column, in output order, with the metadata the spec declares
+    for it. Declared columns missing from the output follow.
+    """
+    declared_by_name = {column.name: column for column in declared}
+    merged = [
+        declared_by_name[output.name].model_copy(
+            update={"type": output.type, "order": output.order},
+        )
+        if output.name in declared_by_name
+        else ColumnSpec(name=output.name, type=output.type, order=output.order)
+        for output in outputs
+    ]
+    output_names = {output.name for output in outputs}
+    return merged + [column for column in declared if column.name not in output_names]
+
+
 def project_tags(names: Sequence[str], tag_types: TagTypes) -> list[TagProjection]:
     """A node's tags, each with the type the deploy resolved for it."""
     return [
@@ -280,9 +301,11 @@ def project_node(
     declared: DeclaredProperties,
     tag_types: TagTypes,
     owner_kinds: OwnerKinds | None = None,
+    outputs: Sequence[ColumnSpec] | None = None,
 ) -> NodeProjection:
     """
-    Project one node spec into the `node` binding.
+    Project one node spec into the `node` binding. `outputs` are the node's
+    output columns when known; otherwise `columns` are the declared ones.
     """
     dumped = spec.model_dump() if spec is not None else {}
     projected = {
@@ -306,9 +329,14 @@ def project_node(
         project_link(link) for link in getattr(spec, "dimension_links", None) or []
     ]
     # Metrics exclude `columns` from the dump, so read it off the spec too.
-    projected["columns"] = [
-        project_column(column) for column in getattr(spec, "columns", None) or []
-    ]
+    columns = (
+        spec.rendered_columns
+        if isinstance(spec, CubeSpec)
+        else getattr(spec, "columns", None) or []
+    )
+    if outputs is not None:
+        columns = merge_columns(columns, outputs)
+    projected["columns"] = [project_column(column) for column in columns]
     return projected
 
 
@@ -335,8 +363,9 @@ def build_bindings(
     declared: DeclaredProperties,
     tag_types: TagTypes,
     owner_kinds: OwnerKinds | None = None,
+    outputs: Sequence[ColumnSpec] | None = None,
 ) -> Bindings:
-    node = project_node(spec, declared, tag_types, owner_kinds)
+    node = project_node(spec, declared, tag_types, owner_kinds, outputs)
     # An unchanged or removed node is its own previous state, so project once.
     projected_previous = (
         node

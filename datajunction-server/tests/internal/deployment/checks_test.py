@@ -11,6 +11,7 @@ from datajunction_server.internal.custom_metadata import upsert_schema_specs
 from datajunction_server.internal.deployment.checks import (
     DeclaredSchemas,
     build_fixtures,
+    merge_columns,
     project_column,
     project_link,
     project_node,
@@ -34,6 +35,7 @@ from datajunction_server.models.deployment import (
     DeploymentSpec,
     DimensionJoinLinkSpec,
     DimensionReferenceLinkSpec,
+    CubeSpec,
     DimensionSpec,
     MetricSpec,
     NodeSpec,
@@ -1190,6 +1192,154 @@ def test_a_metrics_columns_are_projected():
     assert [column["name"] for column in project_node(spec, {}, {})["columns"]] == [
         "first",
     ]
+
+
+def described(name, description, type_="string", order=None):
+    return ColumnSpec(
+        name=name,
+        type=type_,
+        description=description,
+        order=order,
+    )
+
+
+def merged_view(declared, outputs):
+    """Name, type, order and description of each merged column."""
+    return [
+        (c.name, c.type, c.order, c.description)
+        for c in merge_columns(declared, outputs)
+    ]
+
+
+def test_columns_match_when_declared_equals_output():
+    declared = [described("a", "A", order=0), described("b", "B", order=1)]
+    outputs = [
+        ColumnSpec(name="a", type="int", order=0),
+        ColumnSpec(name="b", type="string", order=1),
+    ]
+    assert merged_view(declared, outputs) == [
+        ("a", "int", 0, "A"),
+        ("b", "string", 1, "B"),
+    ]
+
+
+def test_undeclared_output_columns_get_empty_defaults():
+    spec = TransformSpec(
+        name="t",
+        namespace=NAMESPACE,
+        query="SELECT 1",
+        columns=[described("a", "A")],
+    )
+    outputs = [
+        ColumnSpec(name="a", type="int", order=0),
+        ColumnSpec(name="extra", type="bigint", order=1),
+    ]
+    columns = project_node(spec, {}, {}, outputs=outputs)["columns"]
+    assert columns == [
+        project_column(described("a", "A", "int", 0)),
+        project_column(ColumnSpec(name="extra", type="bigint", order=1)),
+    ]
+    assert columns[1]["description"] == ""
+    assert columns[1]["attributes"] == []
+
+
+def test_declared_column_missing_from_output_is_kept_last():
+    declared = [described("gone", "Gone"), described("a", "A")]
+    outputs = [ColumnSpec(name="a", type="int", order=0)]
+    assert merged_view(declared, outputs) == [
+        ("a", "int", 0, "A"),
+        ("gone", "string", None, "Gone"),
+    ]
+
+
+def test_a_node_without_declared_columns_lists_its_outputs():
+    spec = transform("t")
+    outputs = [
+        ColumnSpec(name="x", type="int", order=0),
+        ColumnSpec(name="y", type="int", order=1),
+    ]
+    columns = project_node(spec, {}, {}, outputs=outputs)["columns"]
+    assert columns == [
+        project_column(ColumnSpec(name="x", type="int", order=0)),
+        project_column(ColumnSpec(name="y", type="int", order=1)),
+    ]
+
+
+def test_columns_stay_declared_when_outputs_are_unknown():
+    spec = transform("t", columns=[described("a", "A")])
+    assert project_node(spec, {}, {})["columns"] == [
+        project_column(described("a", "A")),
+    ]
+
+
+def test_a_cubes_columns_merge_with_its_outputs():
+    spec = CubeSpec(
+        name="c",
+        namespace=NAMESPACE,
+        metrics=[f"{NAMESPACE}.m"],
+        dimensions=[f"{NAMESPACE}.d.x"],
+        columns=[described(f"{NAMESPACE}.m", "Metric")],
+    )
+    outputs = [
+        ColumnSpec(name=f"{NAMESPACE}.m", type="bigint", order=0),
+        ColumnSpec(name=f"{NAMESPACE}.d.x", type="string", order=1),
+    ]
+    assert project_node(spec, {}, {}, outputs=outputs)["columns"] == [
+        project_column(described(f"{NAMESPACE}.m", "Metric", "bigint", 0)),
+        project_column(ColumnSpec(name=f"{NAMESPACE}.d.x", type="string", order=1)),
+    ]
+
+
+def test_a_cubes_prefixed_column_names_match_its_outputs():
+    spec = CubeSpec(
+        name="c",
+        namespace=NAMESPACE,
+        metrics=["${prefix}m"],
+        dimensions=["${prefix}d.x"],
+        columns=[described("${prefix}m", "Metric")],
+    )
+    outputs = [
+        ColumnSpec(name=f"{NAMESPACE}.m", type="bigint", order=0),
+        ColumnSpec(name=f"{NAMESPACE}.d.x", type="string", order=1),
+    ]
+    assert project_node(spec, {}, {}, outputs=outputs)["columns"] == [
+        project_column(described(f"{NAMESPACE}.m", "Metric", "bigint", 0)),
+        project_column(ColumnSpec(name=f"{NAMESPACE}.d.x", type="string", order=1)),
+    ]
+    assert project_node(spec, {}, {})["columns"] == [
+        project_column(described(f"{NAMESPACE}.m", "Metric")),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_unchanged_nodes_use_their_deployed_columns(session, current_user):
+    """A skipped node's undeclared columns count toward column rules."""
+    unchanged = transform("one", columns=[described("a", "A")])
+    deployed = transform(
+        "one",
+        columns=[
+            ColumnSpec(name="a", type="int", order=0),
+            ColumnSpec(name="b", type="int", order=1),
+        ],
+    )
+    orchestrator = make_orchestrator(
+        session,
+        current_user,
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.all_described",
+                condition="node.columns.all(c, c.description != '')",
+                gate="warn",
+            ),
+        ],
+    )
+    await orchestrator._run_governance_checks(
+        make_plan(
+            to_skip=[unchanged],
+            existing_specs={f"{NAMESPACE}.one": deployed},
+        ),
+    )
+    assert check_rows(orchestrator)[0].status == DeploymentResult.Status.WARNING
 
 
 DESCRIBED = DeploymentCheckSpec(
