@@ -101,14 +101,12 @@ async def parent_link_inputs(
         ),
     )
     names = set(revision_names.values())
-    links: list[DimensionLink] = []
-    if revision_names:
-        result = await session.execute(
-            select(DimensionLink).where(
-                DimensionLink.node_revision_id.in_(revision_names),
-            ),
-        )
-        links = list(result.scalars().all())
+    result = await session.execute(
+        select(DimensionLink).where(
+            DimensionLink.node_revision_id.in_(revision_names),
+        ),
+    )
+    links = list(result.scalars().all())
     pending = {
         pair for name in names for pair in deployment_link_roles.get(name, set())
     }
