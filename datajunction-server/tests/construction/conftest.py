@@ -8,7 +8,7 @@ from datajunction_server.database.attributetype import AttributeType, ColumnAttr
 from datajunction_server.database.column import Column
 from datajunction_server.database.database import Database
 from datajunction_server.database.dimensionlink import DimensionLink, JoinType
-from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.node import Node, NodeRevision, RequiredDimension
 from datajunction_server.database.user import User
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing.types import (
@@ -415,8 +415,8 @@ async def construction_session(
             Column(name="cnt", type=IntegerType(), order=0),
         ],
         required_dimensions=[
-            comments_src.columns[0],
-            comments_src.columns[-1],
+            RequiredDimension(ref=comments_src.columns[0].name),
+            RequiredDimension(ref=comments_src.columns[-1].name),
         ],
         created_by_id=current_user.id,
     )

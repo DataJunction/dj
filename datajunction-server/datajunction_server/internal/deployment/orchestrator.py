@@ -2,6 +2,7 @@ import asyncio
 import logging
 import re
 import time
+from functools import cached_property
 from collections import Counter, defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -94,6 +95,7 @@ from datajunction_server.internal.deployment.validation import (
     CubeValidationData,
     NodeValidationResult,
     bulk_validate_node_data,
+    parent_link_inputs,
 )
 from datajunction_server.internal.history import EntityType
 from datajunction_server.internal.impact import ReusableQuery, propagate_impact
@@ -5407,6 +5409,21 @@ class DeploymentOrchestrator:
 
         return to_deploy, []
 
+    @cached_property
+    def _deployment_link_roles(self) -> dict[str, set[tuple[str, str | None]]]:
+        """
+        Map each linkable node to the (dimension node, role) pairs its links
+        declare in this deployment.
+        """
+        roles: dict[str, set[tuple[str, str | None]]] = {}
+        for node_spec in self.deployment_spec.nodes:
+            if isinstance(node_spec, LinkableNodeSpec):
+                for link in node_spec.dimension_links:
+                    roles.setdefault(node_spec.rendered_name, set()).add(
+                        (link.rendered_dimension_node, link.role),
+                    )
+        return roles
+
     def _deployment_link_targets(self) -> dict[str, set[str]]:
         """Map each linkable node to the dimension nodes it links to, across the
         whole deployment (rendered names, to match node_graph).
@@ -5469,6 +5486,7 @@ class DeploymentOrchestrator:
                     dependency_nodes=dependency_nodes,
                     deployment_namespace=self.deployment_spec.namespace,
                     deployment_link_targets=self._deployment_link_targets(),
+                    deployment_link_roles=self._deployment_link_roles,
                 )
             p.append(f"{len(validation_results)} results")
 
@@ -6133,12 +6151,19 @@ class DeploymentOrchestrator:
                     if parent.current
                     for col in parent.current.columns
                 ]
-                _, matched_columns = _resolve_required_dimensions(
+                parent_dimension_links, pending_link_roles = await parent_link_inputs(
+                    self.session,
+                    new_revision.parents,
+                    self._deployment_link_roles,
+                )
+                _, resolved_required_dims = _resolve_required_dimensions(
                     metric_spec.rendered_required_dimensions,
                     parent_columns,
                     dependency_nodes,
+                    parent_dimension_links,
+                    pending_link_roles,
                 )
-                new_revision.required_dimensions = matched_columns
+                new_revision.required_dimensions = resolved_required_dims
             new_revision.reaggregate = dump_reaggregate_spec(
                 metric_spec.rendered_reaggregate,
             )

@@ -5,9 +5,14 @@ Models for metrics.
 from __future__ import annotations
 
 from pydantic.main import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datajunction_server.database.node import Node
+from datajunction_server.construction.build_v3.dimension_refs import (
+    split_dimension_ref,
+)
+from datajunction_server.database.column import Column
+from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.errors import DJWarning
 from datajunction_server.models.cube_materialization import MetricComponent
 from datajunction_server.models.engine import Dialect
@@ -19,10 +24,57 @@ from datajunction_server.models.query import ColumnMetadata, V3ColumnMetadata
 from datajunction_server.models.reaggregate import ReaggregateSpec
 from datajunction_server.models.sql import ScanEstimate, TranspiledSQL
 from datajunction_server.models.unit import unit_to_dict
+from datajunction_server.naming import SEPARATOR
 from datajunction_server.sql.decompose import MetricComponentExtractor
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 from datajunction_server.transpilation import transpile_sql
 from datajunction_server.typing import UTCDatetime
+
+
+def required_dimension_names(
+    refs: list[str],
+    owners: dict[str, str],
+) -> list[str]:
+    """
+    Required dimensions as sorted full names. A bare column name gets the
+    parent node that has the column; full paths stay as authored.
+    """
+    names = []
+    for ref in refs:
+        base, _ = split_dimension_ref(ref)
+        owner = owners.get(base) if SEPARATOR not in base else None
+        names.append(f"{owner}.{ref}" if owner else ref)
+    return sorted(names)
+
+
+async def bare_column_owners(
+    session: AsyncSession,
+    parents: list[Node],
+    refs: list[str],
+) -> dict[str, str]:
+    """
+    The parent node holding each bare column name in `refs`.
+    """
+    bare = {base for base, _ in map(split_dimension_ref, refs) if SEPARATOR not in base}
+    if not bare or not parents:
+        return {}
+    if len(parents) == 1:
+        return {name: parents[0].name for name in bare}
+    rows = await session.execute(
+        select(Node.name, Column.name)
+        .join(
+            NodeRevision,
+            (NodeRevision.node_id == Node.id)
+            & (NodeRevision.version == Node.current_version),
+        )
+        .join(Column, Column.node_revision_id == NodeRevision.id)
+        .where(Node.id.in_([parent.id for parent in parents]), Column.name.in_(bare))
+        .order_by(Node.name),
+    )
+    owners: dict[str, str] = {}
+    for node_name, column_name in rows:
+        owners.setdefault(column_name, node_name)
+    return owners
 
 
 class Metric(BaseModel):
@@ -84,6 +136,12 @@ class Metric(BaseModel):
             for func in functions
             if Dialect.DRUID not in func.dialects
         ]
+        upstream_node = (
+            node.current.non_metric_parents[0].name
+            if node.current.non_metric_parents
+            else None
+        )
+        required_refs = node.current.required_dimensions_refs
         extractor = MetricComponentExtractor(node.current.id)
         measures, derived_sql = await extractor.extract(session)
         return cls(
@@ -95,19 +153,20 @@ class Metric(BaseModel):
             created_at=node.created_at,
             updated_at=node.current.updated_at,
             query=node.current.query,  # type: ignore
-            upstream_node=(
-                node.current.non_metric_parents[0].name
-                if node.current.non_metric_parents
-                else None
-            ),
+            upstream_node=upstream_node,
             expression=str(query_ast.select.projection[0]),
             dimensions=dims,
             metric_metadata=node.current.metric_metadata,
             unit=unit_to_dict(
                 node.current.columns[0].unit if node.current.columns else None,
             ),
-            required_dimensions=sorted(
-                dim.full_name() for dim in node.current.required_dimensions
+            required_dimensions=required_dimension_names(
+                required_refs,
+                await bare_column_owners(
+                    session,
+                    node.current.non_metric_parents,
+                    required_refs,
+                ),
             ),
             reaggregate=node.current.reaggregate,
             fixed_grain=node.current.fixed_grain,

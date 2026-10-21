@@ -637,9 +637,7 @@ async def test_find_metric(
                     expression
                     incompatibleDruidFunctions
                 }
-                requiredDimensions {
-                    name
-                }
+                requiredDimensions
                 extractedMeasures {
                     components {
                         name
@@ -4371,3 +4369,29 @@ async def test_find_nodes_paginated_search_pages_follow_order_by(
             break
         after = page["pageInfo"]["endCursor"]
     assert paged == expected
+
+
+@pytest.mark.asyncio
+async def test_required_dimensions_null_for_non_metric(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    ``requiredDimensions`` is a metric-only field, so a node of any other type
+    resolves it to null rather than an empty list.
+    """
+    query = """
+    {
+      findNodes(names: ["default.repair_orders"]) {
+        type
+        current { requiredDimensions }
+      }
+    }
+    """
+    resp = await client_with_roads.post("/graphql", json={"query": query})
+    assert resp.status_code == 200
+    assert resp.json()["data"]["findNodes"] == [
+        {
+            "type": "SOURCE",
+            "current": {"requiredDimensions": None},
+        },
+    ]
