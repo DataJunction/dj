@@ -832,6 +832,9 @@ def process_base_metrics(
                 cte_table = ast.Table(name=ast.Name(alias))
                 for col in expr_ast.find_all(ast.Column):  # type: ignore
                     if col.name and not col._table:  # type: ignore  # pragma: no branch
+                        raw_alias = gg.raw_metric_input_aliases.get(col.name.name)
+                        if raw_alias:
+                            col.name = ast.Name(raw_alias)
                         col._table = cte_table  # type: ignore
 
                 metric_exprs[metric_name] = MetricExprInfo(
