@@ -17,6 +17,7 @@ from antlr4.error.ErrorStrategy import BailErrorStrategy
 import datajunction_server.sql.parsing.types as ct
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import UnaryOpKind
+from datajunction_server.sql.parsing.backends import native
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.sql.parsing.backends.grammar.generated.SqlBaseLexer import (
     SqlBaseLexer,
@@ -193,7 +194,17 @@ def parse_sql_with_sll_fallback(string, rule, converter=None, debug=False):
 
     SLL (Simple LL) mode is 2-10x faster but may fail on some complex queries.
     LL mode always works but is slower.
+
+    With the optional native parser enabled, the C++ parser goes first. If it
+    fails for any reason, the Python parser runs, so errors are the Python ones.
     """
+    if native.ENABLED:
+        try:
+            tree = native.native_tree(string, rule)
+        except Exception:  # noqa: BLE001
+            tree = None
+        if tree is not None:
+            return converter(tree) if converter else tree
     try:
         # Try SLL mode first (much faster)
         parser = build_string_parser(string, prediction_mode=PredictionMode.SLL)
