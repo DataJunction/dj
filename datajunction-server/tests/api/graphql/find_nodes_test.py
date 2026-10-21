@@ -4371,6 +4371,7 @@ async def test_find_nodes_paginated_search_pages_follow_order_by(
     assert paged == expected
 
 
+@pytest.mark.asyncio
 async def test_required_dimensions_null_for_non_metric(
     client_with_roads: AsyncClient,
 ) -> None:

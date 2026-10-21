@@ -4,7 +4,7 @@ Replaces (metric_id, bound_dimension_id) with (metric_id, ref, dimension_id)
 so a roled ref is stored with its role, instead of getting stripped.
 
 Revision ID: rd0001refcol
-Revises: dv0001typed
+Revises: tbl0001idx
 Create Date: 2026-09-21 00:00:00.000000+00:00
 """
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "rd0001refcol"
-down_revision = "dv0001typed"
+down_revision = "tbl0001idx"
 branch_labels = None
 depends_on = None
 
