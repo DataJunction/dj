@@ -236,6 +236,7 @@ async def find_nodes_by(
     orphaned_dimension: bool = False,
     search: str | None = None,
     custom_metadata_filters: list[CustomMetadataFilter] | None = None,
+    rank_search: bool = True,
 ) -> list[DBNode]:
     """
     Finds nodes based on the search parameters. This function also tries to optimize
@@ -303,6 +304,7 @@ async def find_nodes_by(
             tables=tables,
             search=search,
             custom_metadata_filters=custom_metadata_filters,
+            rank_search=rank_search,
         )
 
         # For the scalar-only cube path, fetch column data as raw tuples instead

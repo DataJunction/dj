@@ -4174,3 +4174,85 @@ async def test_find_nodes_paginated_accepts_legacy_cursor(
     legacy = NodeCursor(created_at=cursor.created_at, id=cursor.id).encode()
 
     assert await fetch(legacy) == await fetch(first["pageInfo"]["endCursor"])
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_paginated_rejects_cursor_from_another_sort(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    A cursor holds a value of the field it was sorted by, so reusing it after the
+    sort changes is an error rather than a comparison against the wrong column.
+    """
+    query = """
+    query ($after: String, $orderBy: NodeSortField) {
+      findNodesPaginated(limit: 3, after: $after, orderBy: $orderBy, ascending: true) {
+        pageInfo { endCursor }
+      }
+    }
+    """
+
+    async def post(after: str | None, order_by: str):
+        response = await client_with_roads.post(
+            "/graphql",
+            json={
+                "query": query,
+                "variables": {"after": after, "orderBy": order_by},
+            },
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    cursor = (await post(None, "NAME"))["data"]["findNodesPaginated"]["pageInfo"][
+        "endCursor"
+    ]
+    assert "errors" not in await post(cursor, "NAME")
+
+    result = await post(cursor, "UPDATED_AT")
+    assert "Restart from the first page" in result["errors"][0]["message"]
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_paginated_search_pages_follow_order_by(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    With ``search`` set, paging still follows ``orderBy`` on every page instead of
+    ranking the first page by similarity.
+    """
+    query = """
+    query ($after: String, $limit: Int) {
+      findNodesPaginated(
+        search: "repair"
+        limit: $limit
+        after: $after
+        orderBy: NAME
+        ascending: true
+      ) {
+        pageInfo { hasNextPage endCursor }
+        edges { node { name } }
+      }
+    }
+    """
+
+    async def fetch(limit: int, after: str | None = None) -> dict:
+        response = await client_with_roads.post(
+            "/graphql",
+            json={"query": query, "variables": {"limit": limit, "after": after}},
+        )
+        assert response.status_code == 200, response.text
+        return response.json()["data"]["findNodesPaginated"]
+
+    expected = [e["node"]["name"] for e in (await fetch(1000))["edges"]]
+    assert expected == sorted(expected)
+    assert len(expected) > 2
+
+    paged: list[str] = []
+    after = None
+    while True:
+        page = await fetch(2, after)
+        paged += [e["node"]["name"] for e in page["edges"]]
+        if not page["pageInfo"]["hasNextPage"]:
+            break
+        after = page["pageInfo"]["endCursor"]
+    assert paged == expected

@@ -458,6 +458,9 @@ async def find_nodes_paginated(
         orphaned_dimension=orphaned_dimension,
         search=search,
         custom_metadata_filters=pyd_filters,
+        # Ranking is for the unpaginated query; a rank-ordered first page can't
+        # be resumed from a cursor.
+        rank_search=False,
     )
 
     # Run a separate count query only when the client asked for totalCount

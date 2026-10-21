@@ -1378,6 +1378,12 @@ class Node(Base):
             # Cursor from before sort-aware paging: default created_at DESC order.
             return at_or_after_tie
 
+        if cursor.sort_by != order_by.key:
+            raise DJInvalidInputException(
+                f"Cursor was issued for sorting by '{cursor.sort_by}' but the "
+                f"request sorts by '{order_by.key}'. Restart from the first page "
+                "when changing the sort.",
+            )
         value = decode_sort_value(cursor.sort_value, order_by)
         if value is None:
             # On a NULL: ascending, only NULLs remain; descending, every non-NULL
@@ -1417,9 +1423,12 @@ class Node(Base):
         orphaned_dimension: bool = False,
         search: str | None = None,
         custom_metadata_filters: list[CustomMetadataFilter] | None = None,
+        rank_search: bool = True,
     ) -> list[Node]:
         """
-        Finds a list of nodes by prefix
+        Finds a list of nodes by prefix. A ``search`` ranks the first page by
+        similarity unless ``rank_search`` is False; paginated callers turn it off
+        so every page follows ``order_by``.
         """
         if not order_by:
             order_by = Node.created_at
@@ -1475,7 +1484,7 @@ class Node(Base):
                 Node.created_at.asc(),
                 Node.id.asc(),
             )
-        elif search_score_expr is not None:
+        elif search_score_expr is not None and rank_search:
             statement = statement.order_by(
                 search_score_expr.desc(),
                 Node.created_at.desc(),
