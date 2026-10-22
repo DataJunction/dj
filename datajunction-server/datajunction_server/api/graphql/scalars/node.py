@@ -443,7 +443,9 @@ class NodeRevision:
         if root.type != NodeType_.METRIC:
             return None
         return [
-            RequiredDimension(name=_required_dimension_name(ref))
+            RequiredDimension(  # type: ignore
+                name=_required_dimension_name(ref),
+            )
             for ref in root.required_dimensions_refs
         ]
 
