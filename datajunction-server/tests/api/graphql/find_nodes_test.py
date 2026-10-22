@@ -4437,6 +4437,51 @@ async def test_required_dimensions_and_refs_for_a_metric(
     ]
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "selection,expected",
+    [
+        (
+            "requiredDimensionRefs",
+            {"requiredDimensionRefs": ["price", "repair_order_id"]},
+        ),
+        (
+            "requiredDimensions { name }",
+            {"requiredDimensions": [{"name": "price"}, {"name": "repair_order_id"}]},
+        ),
+    ],
+    ids=["refs-only", "names-only"],
+)
+async def test_required_dimension_fields_load_on_their_own(
+    client_with_roads: AsyncClient,
+    session: AsyncSession,
+    selection: str,
+    expected: dict,
+) -> None:
+    """
+    Each required dimension field loads the data it reads when it is the only
+    one requested, so a client selecting just one never sees an empty list.
+    """
+    response = await client_with_roads.patch(
+        "/nodes/default.total_repair_cost/",
+        json={
+            "query": "SELECT count(price) FROM default.repair_order_details",
+            "required_dimensions": ["repair_order_id", "price"],
+        },
+    )
+    assert response.status_code == 200, response.json()
+    # The shared test session still holds what the patch loaded.
+    session.expunge_all()
+
+    query = (
+        '{ findNodes(names: ["default.total_repair_cost"]) '
+        "{ current { " + selection + " } } }"
+    )
+    resp = await client_with_roads.post("/graphql", json={"query": query})
+    assert resp.status_code == 200
+    assert resp.json()["data"]["findNodes"] == [{"current": expected}]
+
+
 @pytest.mark.parametrize(
     "ref,expected",
     [
