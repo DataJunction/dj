@@ -73,7 +73,7 @@ export default function NodeInfoTab({ node }) {
           : null;
       setMetricInfo({
         metric_metadata: metric.current.metricMetadata,
-        required_dimensions: metric.current.requiredDimensions,
+        required_dimensions: metric.current.requiredDimensionRefs,
         upstream_node: upstreamNode,
         expression: metric.current.metricMetadata?.expression,
         incompatible_druid_functions:

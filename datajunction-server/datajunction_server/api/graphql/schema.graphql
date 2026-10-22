@@ -413,7 +413,8 @@ type NodeRevision {
   dimensionLinks: [DimensionLink!]!
   availability: AvailabilityState
   materializations: [MaterializationConfig!]
-  requiredDimensions: [String!]
+  requiredDimensions: [RequiredDimension!] @deprecated(reason: "Use requiredDimensionRefs, which keeps the node and role.")
+  requiredDimensionRefs: [String!]
   fixedGrain: [String!]
   reaggregate: ReaggregateSpec
   primaryKey: [String!]!
@@ -784,6 +785,10 @@ enum ReaggregationFunction {
   MIN
   MAX
   TDIGEST
+}
+
+type RequiredDimension {
+  name: String!
 }
 
 type SemanticEntity {
