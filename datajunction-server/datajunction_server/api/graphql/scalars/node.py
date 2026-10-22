@@ -37,6 +37,9 @@ from datajunction_server.api.graphql.scalars.metricmetadata import (
 )
 from datajunction_server.api.graphql.scalars.user import User
 from datajunction_server.api.graphql.utils import extract_fields
+from datajunction_server.construction.build_v3.dimension_refs import (
+    split_dimension_ref,
+)
 from datajunction_server.database.dimensionlink import (
     JoinCardinality as JoinCardinality_,
 )
@@ -48,6 +51,7 @@ from datajunction_server.models.node import NodeMode as NodeMode_
 from datajunction_server.models.node import NodeStatus as NodeStatus_
 from datajunction_server.models.node import NodeType as NodeType_
 from datajunction_server.models.reaggregate import parse_reaggregate_spec
+from datajunction_server.naming import SEPARATOR
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 
 NodeType = strawberry.enum(NodeType_)
@@ -249,6 +253,21 @@ class DimensionAttribute:
 
 
 @strawberry.type
+class RequiredDimension:
+    """
+    A metric's required dimension, by column name.
+    """
+
+    name: str
+
+
+def _required_dimension_name(ref: str) -> str:
+    """The column name in a required dimension reference."""
+    base, _ = split_dimension_ref(ref)
+    return base.rsplit(SEPARATOR, 1)[-1]
+
+
+@strawberry.type
 class NodeRevision:
     """
     The base fields of a node revision, which does not include joined in entities.
@@ -410,9 +429,28 @@ class NodeRevision:
     schema_: str | None
     table: str | None
 
-    # Only metrics will have this field.
+    # Only metrics will have these fields.
+    @strawberry.field(
+        deprecation_reason="Use requiredDimensionRefs, which keeps the node and role.",
+    )
+    def required_dimensions(
+        self,
+        root: DBNodeRevision,
+    ) -> list[RequiredDimension] | None:
+        """
+        The metric's required dimensions, by column name.
+        """
+        if root.type != NodeType_.METRIC:
+            return None
+        return [
+            RequiredDimension(  # type: ignore
+                name=_required_dimension_name(ref),
+            )
+            for ref in root.required_dimensions_refs
+        ]
+
     @strawberry.field
-    def required_dimensions(self, root: DBNodeRevision) -> list[str] | None:
+    def required_dimension_refs(self, root: DBNodeRevision) -> list[str] | None:
         """
         The metric's required dimension references, including a role if specified.
         """

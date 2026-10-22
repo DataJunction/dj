@@ -517,7 +517,7 @@ export const DataJunctionAPI = {
               significantDigits
               incompatibleDruidFunctions
             }
-            requiredDimensions
+            requiredDimensionRefs
             reaggregate {
               fn
               params
@@ -611,7 +611,7 @@ export const DataJunctionAPI = {
               significantDigits
               incompatibleDruidFunctions
             }
-            requiredDimensions
+            requiredDimensionRefs
             reaggregate {
               fn
               rules {

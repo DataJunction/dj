@@ -685,7 +685,10 @@ def load_node_revision_options(node_revision_fields, is_current: bool = True):
         options.append(noload(DBNodeRevision.dimension_links))
 
     # Handle required_dimensions
-    if "required_dimensions" in node_revision_fields:
+    if (
+        "required_dimensions" in node_revision_fields
+        or "required_dimension_refs" in node_revision_fields
+    ):
         options.append(
             selectinload(DBNodeRevision.required_dimensions),
         )

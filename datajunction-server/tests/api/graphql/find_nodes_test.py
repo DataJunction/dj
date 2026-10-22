@@ -637,7 +637,10 @@ async def test_find_metric(
                     expression
                     incompatibleDruidFunctions
                 }
-                requiredDimensions
+                requiredDimensions {
+                    name
+                }
+                requiredDimensionRefs
                 extractedMeasures {
                     components {
                         name
@@ -680,6 +683,7 @@ async def test_find_metric(
                     },
                 ],
                 "requiredDimensions": [],
+                "requiredDimensionRefs": [],
                 "extractedMeasures": {
                     "components": [
                         {
@@ -4383,7 +4387,7 @@ async def test_required_dimensions_null_for_non_metric(
     {
       findNodes(names: ["default.repair_orders"]) {
         type
-        current { requiredDimensions }
+        current { requiredDimensions { name } requiredDimensionRefs }
       }
     }
     """
@@ -4392,6 +4396,103 @@ async def test_required_dimensions_null_for_non_metric(
     assert resp.json()["data"]["findNodes"] == [
         {
             "type": "SOURCE",
-            "current": {"requiredDimensions": None},
+            "current": {"requiredDimensions": None, "requiredDimensionRefs": None},
         },
     ]
+
+
+@pytest.mark.asyncio
+async def test_required_dimensions_and_refs_for_a_metric(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    ``requiredDimensions`` keeps returning column names for existing clients,
+    while ``requiredDimensionRefs`` returns the references as written.
+    """
+    response = await client_with_roads.patch(
+        "/nodes/default.total_repair_cost/",
+        json={
+            "query": "SELECT count(price) FROM default.repair_order_details",
+            "required_dimensions": ["repair_order_id", "price"],
+        },
+    )
+    assert response.status_code == 200, response.json()
+
+    query = """
+    {
+      findNodes(names: ["default.total_repair_cost"]) {
+        current { requiredDimensions { name } requiredDimensionRefs }
+      }
+    }
+    """
+    resp = await client_with_roads.post("/graphql", json={"query": query})
+    assert resp.status_code == 200
+    assert resp.json()["data"]["findNodes"] == [
+        {
+            "current": {
+                "requiredDimensions": [{"name": "price"}, {"name": "repair_order_id"}],
+                "requiredDimensionRefs": ["price", "repair_order_id"],
+            },
+        },
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "selection,expected",
+    [
+        (
+            "requiredDimensionRefs",
+            {"requiredDimensionRefs": ["price", "repair_order_id"]},
+        ),
+        (
+            "requiredDimensions { name }",
+            {"requiredDimensions": [{"name": "price"}, {"name": "repair_order_id"}]},
+        ),
+    ],
+    ids=["refs-only", "names-only"],
+)
+async def test_required_dimension_fields_load_on_their_own(
+    client_with_roads: AsyncClient,
+    session: AsyncSession,
+    selection: str,
+    expected: dict,
+) -> None:
+    """
+    Each required dimension field loads the data it reads when it is the only
+    one requested, so a client selecting just one never sees an empty list.
+    """
+    response = await client_with_roads.patch(
+        "/nodes/default.total_repair_cost/",
+        json={
+            "query": "SELECT count(price) FROM default.repair_order_details",
+            "required_dimensions": ["repair_order_id", "price"],
+        },
+    )
+    assert response.status_code == 200, response.json()
+    # The shared test session still holds what the patch loaded.
+    session.expunge_all()
+
+    query = (
+        '{ findNodes(names: ["default.total_repair_cost"]) '
+        "{ current { " + selection + " } } }"
+    )
+    resp = await client_with_roads.post("/graphql", json={"query": query})
+    assert resp.status_code == 200
+    assert resp.json()["data"]["findNodes"] == [{"current": expected}]
+
+
+@pytest.mark.parametrize(
+    "ref,expected",
+    [
+        ("price", "price"),
+        ("default.repair_order_details.price", "price"),
+        ("default.date.dateint[created_date]", "dateint"),
+        ("price[role.with.dots]", "price"),
+    ],
+)
+def test_required_dimension_name(ref: str, expected: str) -> None:
+    """The column name is the last part of a reference, without its role."""
+    from datajunction_server.api.graphql.scalars.node import _required_dimension_name
+
+    assert _required_dimension_name(ref) == expected
