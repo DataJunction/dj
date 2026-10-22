@@ -924,8 +924,6 @@ async def list_views(
         if selected and selected[1]:
             if location is None or location[0] != namespace:
                 continue
-            if branch is not None and location[1] != branch:
-                continue
         needed = {location[0]} if location else {node_namespace}
         if location and location[2]:
             needed.add(location[2])

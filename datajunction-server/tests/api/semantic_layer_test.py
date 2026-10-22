@@ -7,6 +7,7 @@ Postgres harness.
 """
 
 import re
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -22,6 +23,7 @@ from datajunction_server.api.semantic_layer import (
     ViewSummary,
     _arrow_type_name,
     _active_git_namespaces,
+    _active_git_info_for_namespace,
     _cube_summaries,
     _dimensions_payload,
     _discovery_filter,
@@ -320,9 +322,47 @@ def test_view_scopes_exclude_a_nested_independent_git_root() -> None:
         github_repo_path="team/other",
         default_branch="main",
     )
-    namespaces = {root.namespace: root, other_root.namespace: other_root}
+    main_branch = NodeNamespace(
+        namespace="demo.metrics.main",
+        parent_namespace="demo.metrics",
+        git_branch="main",
+    )
+    release_branch = NodeNamespace(
+        namespace="demo.metrics.release",
+        parent_namespace="demo.metrics",
+        git_branch="release",
+    )
+    namespaces = {
+        row.namespace: row for row in (root, other_root, main_branch, release_branch)
+    }
 
-    assert _view_scopes("demo.metrics", "main", namespaces) == {"demo.metrics"}
+    assert _view_scopes("demo.metrics", "main", namespaces) == {
+        "demo.metrics",
+        "demo.metrics.main",
+    }
+    assert _view_scopes("demo.metrics", "release", namespaces) == {
+        "demo.metrics.release",
+    }
+
+
+@pytest.mark.asyncio
+async def test_git_info_ignores_deactivated_linked_parent(
+    client: AsyncClient,
+    session: AsyncSession,
+) -> None:
+    for namespace in ("orphan", "orphan.feature"):
+        await _expect(await client.post(f"/namespaces/{namespace}"), 200, 201, 409)
+    root = await NodeNamespace.get(session, "orphan")
+    branch = await NodeNamespace.get(session, "orphan.feature")
+    assert root and branch
+    root.github_repo_path = "team/orphan"
+    root.default_branch = "main"
+    root.deactivated_at = datetime.now(UTC)
+    branch.parent_namespace = root.namespace
+    branch.git_branch = "feature"
+    await session.commit()
+
+    assert await _active_git_info_for_namespace(session, branch.namespace) is None
 
 
 @pytest.mark.parametrize(
