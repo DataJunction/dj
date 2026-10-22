@@ -252,15 +252,6 @@ class DimensionAttribute:
         return await node_loader.load(dimension_node_name)  # type: ignore
 
 
-@strawberry.type
-class RequiredDimension:
-    """
-    A metric's required dimension, by column name.
-    """
-
-    name: str
-
-
 def _required_dimension_name(ref: str) -> str:
     """The column name in a required dimension reference."""
     base, _ = split_dimension_ref(ref)
@@ -433,18 +424,20 @@ class NodeRevision:
     @strawberry.field(
         deprecation_reason="Use requiredDimensionRefs, which keeps the node and role.",
     )
-    def required_dimensions(
-        self,
-        root: DBNodeRevision,
-    ) -> list[RequiredDimension] | None:
+    def required_dimensions(self, root: DBNodeRevision) -> list[Column] | None:
         """
-        The metric's required dimensions, by column name.
+        The metric's required dimensions. Only each column's name is filled in.
         """
         if root.type != NodeType_.METRIC:
             return None
         return [
-            RequiredDimension(  # type: ignore
+            Column(  # type: ignore
                 name=_required_dimension_name(ref),
+                display_name=None,
+                description=None,
+                type="unknown",
+                dimension=None,
+                partition=None,
             )
             for ref in root.required_dimensions_refs
         ]

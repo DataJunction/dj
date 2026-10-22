@@ -4406,8 +4406,9 @@ async def test_required_dimensions_and_refs_for_a_metric(
     client_with_roads: AsyncClient,
 ) -> None:
     """
-    ``requiredDimensions`` keeps returning column names for existing clients,
-    while ``requiredDimensionRefs`` returns the references as written.
+    ``requiredDimensions`` keeps returning ``Column`` objects (name only) for
+    existing clients, while ``requiredDimensionRefs`` returns the references as
+    written.
     """
     response = await client_with_roads.patch(
         "/nodes/default.total_repair_cost/",
@@ -4421,7 +4422,7 @@ async def test_required_dimensions_and_refs_for_a_metric(
     query = """
     {
       findNodes(names: ["default.total_repair_cost"]) {
-        current { requiredDimensions { name } requiredDimensionRefs }
+        current { requiredDimensions { name type attributes { attributeType { name } } } requiredDimensionRefs }
       }
     }
     """
@@ -4430,7 +4431,10 @@ async def test_required_dimensions_and_refs_for_a_metric(
     assert resp.json()["data"]["findNodes"] == [
         {
             "current": {
-                "requiredDimensions": [{"name": "price"}, {"name": "repair_order_id"}],
+                "requiredDimensions": [
+                    {"name": "price", "type": "unknown", "attributes": []},
+                    {"name": "repair_order_id", "type": "unknown", "attributes": []},
+                ],
                 "requiredDimensionRefs": ["price", "repair_order_id"],
             },
         },
