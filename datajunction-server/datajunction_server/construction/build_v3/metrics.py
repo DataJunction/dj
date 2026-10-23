@@ -53,7 +53,10 @@ from datajunction_server.models.decompose import Aggregability
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.reaggregate import ReaggregationFunction
-from datajunction_server.sql.decompose import wrap_divisions_in_nullif
+from datajunction_server.sql.decompose import (
+    parenthesize_if_needed,
+    wrap_divisions_in_nullif,
+)
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 
@@ -927,7 +930,10 @@ def build_intermediate_metric_expr(
             # Replace this column with the metric's expression
             replacement_expr = deepcopy(metric_exprs[full_name])
             if col.parent:  # pragma: no branch
-                col.parent.replace(from_=col, to=replacement_expr)
+                col.parent.replace(
+                    from_=col,
+                    to=parenthesize_if_needed(replacement_expr, col),
+                )
         else:
             # Check if this is a metric reference that we haven't built yet
             node = ctx.nodes.get(full_name)  # pragma: no cover
@@ -1539,7 +1545,7 @@ def build_window_agg_cte_from_grain_group(
                     )
                     if parent_expr:
                         # Swap the column node with the parent's expression
-                        col_node.swap(parent_expr)
+                        col_node.swap(parenthesize_if_needed(parent_expr, col_node))
         else:
             combiner_ast, _ = build_base_metric_expression(
                 decomposed,
@@ -1734,7 +1740,7 @@ def build_window_agg_cte_from_base_metrics(
                 visited.copy(),
             )
             if parent_expr is not None:
-                col_node.swap(parent_expr)
+                col_node.swap(parenthesize_if_needed(parent_expr, col_node))
 
         wrap_divisions_in_nullif(cast(ast.Expression, expr_ast))
         return expr_ast  # type: ignore
@@ -2458,7 +2464,11 @@ def generate_metrics_sql(
                 full_name = get_column_full_name(col)
                 if full_name and full_name in metric_expr_asts:  # pragma: no branch
                     metric_expr = metric_expr_asts[full_name].expr_ast
-                    filter_ast.replace(from_=col, to=metric_expr, copy=True)
+                    filter_ast.replace(
+                        from_=col,
+                        to=parenthesize_if_needed(metric_expr, col),
+                        copy=True,
+                    )
 
             parsed_metric_filters.append(filter_ast)
 

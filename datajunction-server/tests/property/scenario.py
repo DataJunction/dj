@@ -20,7 +20,6 @@ class MetricSpec:
 
     definition: str
     reference: str
-    compound_combiner: bool = False
 
 
 # The reference expressions are explicit. Deriving them by editing DJ SQL would
@@ -33,8 +32,8 @@ METRICS = (
     MetricSpec("COUNT(*)", "COUNT(*)"),
     MetricSpec("MIN(x)", "MIN(f.x)"),
     MetricSpec("MAX(x)", "MAX(f.x)"),
-    MetricSpec("AVG(x)", "AVG(f.x)", compound_combiner=True),
-    MetricSpec("VAR_POP(x)", "VAR_POP(f.x)", compound_combiner=True),
+    MetricSpec("AVG(x)", "AVG(f.x)"),
+    MetricSpec("VAR_POP(x)", "VAR_POP(f.x)"),
     MetricSpec("STDDEV_POP(x)", "STDDEV_POP(f.x)"),
     MetricSpec("COUNT(DISTINCT x)", "COUNT(DISTINCT f.x)"),
     MetricSpec("SUM(x + y)", "SUM(f.x + f.y)"),
@@ -42,21 +41,17 @@ METRICS = (
         "SUM(CASE WHEN x > 0 THEN x END)",
         "SUM(CASE WHEN f.x > 0 THEN f.x END)",
     ),
-    MetricSpec("AVG(x) * 2", "AVG(f.x) * 2", compound_combiner=True),
+    MetricSpec("AVG(x) * 2", "AVG(f.x) * 2"),
     MetricSpec(
         "SUM(x) / COUNT(*)",
         "SUM(f.x) / COUNT(*)",
-        compound_combiner=True,
     ),
     MetricSpec(
         "MAX(x) - MIN(y)",
         "MAX(f.x) - MIN(f.y)",
-        compound_combiner=True,
     ),
 )
 METRIC_BY_DEFINITION = {metric.definition: metric for metric in METRICS}
-# Derived metrics currently lose parentheses around compound combiners.
-SIMPLE_METRICS = tuple(metric for metric in METRICS if not metric.compound_combiner)
 
 
 @dataclass(frozen=True)
