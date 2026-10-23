@@ -201,41 +201,53 @@ async def reachable_dimensions_by_node(
         pending_links: Node name -> dimension nodes its links declare in a
             deployment that has not saved them yet.
     """
-    pending_links = pending_links or {}
+    if not pending_links:
+        # The batched search already follows multi-hop links, so with nothing
+        # unsaved there is no graph left to walk.
+        reachability = await DimensionReachability.build(
+            session,
+            set(sources.values()),
+            candidates,
+        )
+        return {
+            name: set(reachability.reachable_from(revision_id))
+            for name, revision_id in sources.items()
+        }
     pending_names = set(pending_links).union(*pending_links.values())
     revisions = dict(sources)
     unknown = pending_names - revisions.keys()
-    if unknown:
-        rows = await session.execute(
-            select(Node.name, NodeRevision.id)
-            .join(
-                NodeRevision,
-                and_(
-                    NodeRevision.node_id == Node.id,
-                    NodeRevision.version == Node.current_version,
-                ),
-            )
-            .where(Node.name.in_(unknown)),
+    rows = await session.execute(
+        select(Node.name, NodeRevision.id)
+        .join(
+            NodeRevision,
+            and_(
+                NodeRevision.node_id == Node.id,
+                NodeRevision.version == Node.current_version,
+            ),
         )
-        revisions.update({name: revision_id for name, revision_id in rows})
+        .where(Node.name.in_(unknown)),
+    )
+    revisions.update({name: revision_id for name, revision_id in rows})
     reachability = await DimensionReachability.build(
         session,
         set(revisions.values()),
         candidates | pending_names,
     )
-    edges = {
-        name: reachability.reachable_from(revision_id)
-        for name, revision_id in revisions.items()
-    }
-    reached: dict[str, set[str]] = {}
-    for source in sources:
-        seen: set[str] = set()
-        frontier = [source]
-        while frontier:
-            node = frontier.pop()
-            for target in edges.get(node, set()) | pending_links.get(node, set()):
-                if target not in seen:
-                    seen.add(target)
-                    frontier.append(target)
-        reached[source] = seen
-    return reached
+    edges = {name: set(targets) for name, targets in pending_links.items()}
+    for name, revision_id in revisions.items():
+        edges.setdefault(name, set()).update(reachability.reachable_from(revision_id))
+    return {source: walk_links(edges, [source]) for source in sources}
+
+
+def walk_links(links: dict[str, set[str]], start: list[str]) -> set[str]:
+    """Nodes reachable from `start` by following `links` (node -> targets)
+    transitively. `start` itself is included only if a link leads back to it."""
+    seen: set[str] = set()
+    frontier = list(start)
+    while frontier:
+        node = frontier.pop()
+        for target in links.get(node, set()):
+            if target not in seen:
+                seen.add(target)
+                frontier.append(target)
+    return seen

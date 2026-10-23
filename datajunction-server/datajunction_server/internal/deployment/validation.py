@@ -22,6 +22,7 @@ from datajunction_server.errors import (
 from datajunction_server.internal.deployment.type_inference import validate_node_query
 from datajunction_server.internal.deployment.dimension_reachability import (
     reachable_dimensions_by_node,
+    walk_links,
 )
 from datajunction_server.internal.deployment.utils import (
     extract_dimension_attribute_nodes,
@@ -1357,16 +1358,10 @@ class NodeSpecBulkValidator:
                 nodes.add(base.rsplit(".", 1)[0])
 
         # Walk this deployment's links from the base metric's parent node(s).
-        pending = self.context.deployment_link_targets
-        frontier = list(self.context.node_graph.get(base_metric_name, []))
-        seen = set(frontier)
-        while frontier:
-            current = frontier.pop()
-            for target in pending.get(current, set()):
-                nodes.add(target)
-                if target not in seen:
-                    seen.add(target)
-                    frontier.append(target)
+        nodes |= walk_links(
+            self.context.deployment_link_targets,
+            list(self.context.node_graph.get(base_metric_name, [])),
+        )
         return nodes
 
     def _create_error_result(
