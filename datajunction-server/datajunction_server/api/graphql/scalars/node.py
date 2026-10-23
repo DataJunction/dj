@@ -259,6 +259,16 @@ def _required_dimension_name(ref: str) -> str:
 
 
 @strawberry.type
+class FilterRequirement:
+    """
+    A dimension attribute a metric requires or recommends filtering.
+    """
+
+    dimension: list[str]
+    default: str | None = None
+
+
+@strawberry.type
 class NodeRevision:
     """
     The base fields of a node revision, which does not include joined in entities.
@@ -450,6 +460,39 @@ class NodeRevision:
         if root.type != NodeType_.METRIC:
             return None
         return root.required_dimensions_refs
+
+    @strawberry.field
+    def required_filters(self, root: DBNodeRevision) -> list[FilterRequirement] | None:
+        """
+        Attributes a query for this metric must filter.
+        """
+        if root.type != NodeType.METRIC or root.required_filters is None:
+            return None
+        return [
+            FilterRequirement(  # type: ignore
+                dimension=list(entry["dimension"]),
+                default=entry.get("default"),
+            )
+            for entry in root.required_filters
+        ]
+
+    @strawberry.field
+    def recommended_filters(
+        self,
+        root: DBNodeRevision,
+    ) -> list[FilterRequirement] | None:
+        """
+        Attributes a query for this metric should filter.
+        """
+        if root.type != NodeType.METRIC or root.recommended_filters is None:
+            return None
+        return [
+            FilterRequirement(  # type: ignore
+                dimension=list(entry["dimension"]),
+                default=entry.get("default"),
+            )
+            for entry in root.recommended_filters
+        ]
 
     @strawberry.field
     def fixed_grain(self, root: DBNodeRevision) -> list[str] | None:

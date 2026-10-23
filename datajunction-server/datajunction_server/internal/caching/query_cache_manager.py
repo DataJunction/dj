@@ -4,17 +4,22 @@ import logging
 import time
 from collections import OrderedDict
 from copy import deepcopy
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Any, Union, cast
 
 from fastapi import BackgroundTasks, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.construction.build_v3.filter_requirements import (
+    REQUIREMENT_WARNING_CODES,
+    apply_node_filter_requirements,
+)
 from datajunction_server.database.queryrequest import (
     QueryBuildType,
     QueryRequestKey,
     VersionedQueryKey,
 )
+from datajunction_server.errors import DJWarning
 from datajunction_server.instrumentation.provider import get_metrics_provider, timed
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
@@ -145,6 +150,14 @@ class QueryCacheManager(
         no_store = "no-store" in cache_control
         no_cache = "no-cache" in cache_control
 
+        requirement_warnings: list[DJWarning] = []
+        if self.query_type == QueryBuildType.NODE:
+            params, requirement_warnings = await self._apply_filter_requirements(
+                request,
+                params,
+                session,
+            )
+
         key: str = await self.build_cache_key(request, params, session)
         if not no_cache:
             try:
@@ -165,7 +178,7 @@ class QueryCacheManager(
                         "dj.cache.hit",
                         tags=self._metric_tags,
                     )
-                    return cached
+                    return self._add_warnings(cached, requirement_warnings)
                 get_metrics_provider().counter(
                     "dj.cache.miss",
                     tags=self._metric_tags,
@@ -198,7 +211,55 @@ class QueryCacheManager(
                 self.default_timeout,
             )
 
-        return result
+        return self._add_warnings(result, requirement_warnings)
+
+    async def _apply_filter_requirements(
+        self,
+        request: Request,
+        params: QueryRequestParams,
+        session: AsyncSession | None,
+    ) -> tuple[QueryRequestParams, list[DJWarning]]:
+        """
+        Add the node's default filters to the params.
+
+        Runs before the cache lookup, so the key holds the defaults and a
+        missing required filter fails even on a cache hit.
+        """
+
+        async def _apply(session: AsyncSession):
+            return await apply_node_filter_requirements(
+                session,
+                params.nodes[0],
+                params.filters,
+            )
+
+        if session:
+            filters, warnings = await _apply(session)
+        else:
+            async with session_context(
+                request,
+                session_label="filter requirements",
+            ) as new_session:
+                filters, warnings = await _apply(new_session)
+        return replace(params, filters=filters), warnings
+
+    def _add_warnings(
+        self,
+        result: list[GeneratedSQL] | TranslatedSQL,
+        warnings: list[DJWarning],
+    ) -> list[GeneratedSQL] | TranslatedSQL:
+        """
+        Put fresh requirement warnings first, dropping stored ones.
+        """
+        if self.query_type != QueryBuildType.NODE:
+            return result
+        node_sql = cast(TranslatedSQL, result)
+        others = [
+            warning
+            for warning in node_sql.warnings
+            if warning.code not in REQUIREMENT_WARNING_CODES
+        ]
+        return node_sql.model_copy(update={"warnings": [*warnings, *others]})
 
     @timed(
         "dj.sql.build_latency_ms",
@@ -417,9 +478,8 @@ class QueryCacheManager(
             sql=built_sql.sql,
             columns=built_sql.columns,
             dialect=built_sql.dialect,
-            # Re-wrapping drops anything not named here. Note a cache hit replays a
-            # stored payload, so warnings only appear on a miss until the cached
-            # shape carries them.
+            # Re-wrapping drops anything not named here. The stored warnings
+            # replay on a hit; get_or_load swaps in fresh requirement warnings.
             warnings=built_sql.warnings,
         )
 

@@ -251,6 +251,24 @@ def test_extra_validation() -> None:
         "reaggregate settings which are only for metrics."
     )
 
+    for field in ("required_filters", "recommended_filters"):
+        node = Node(name="A", type=NodeType.TRANSFORM, current_version="1")
+        node_revision = NodeRevision(
+            name=node.name,
+            type=node.type,
+            node=node,
+            version="1",
+            query="SELECT * FROM B",
+            **{field: [{"dimension": ["B.x"]}]},
+        )
+        with pytest.raises(Exception) as excinfo:
+            node_revision.extra_validation()
+
+        assert str(excinfo.value) == (
+            "Node A of type transform cannot have "
+            "filter requirements, which are only for metrics."
+        )
+
 
 def test_merging_availability_simple_no_partitions() -> None:
     """

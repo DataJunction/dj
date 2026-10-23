@@ -168,7 +168,8 @@ async def list_tools() -> list[types.Tool]:
             description=(
                 "Generate executable SQL for querying metrics with specified dimensions and filters using v3 SQL builder. "
                 "Returns the SQL query, output columns, dialect, and cube name. "
-                "Use this to get the actual SQL needed to query DataJunction metrics."
+                "Use this to get the actual SQL needed to query DataJunction metrics. "
+                "Metrics may require filters. A query missing a required filter is rejected, and a metric's default filter is applied when none is given; applied defaults are listed under Warnings."
             ),
             inputSchema={
                 "type": "object",
@@ -223,7 +224,8 @@ async def list_tools() -> list[types.Tool]:
                 "ad-hoc on the catalog's default engine (typically Trino), unless the query's "
                 "scan estimate exceeds "
                 f"{tools._format_bytes(tools._AD_HOC_SCAN_LIMIT_BYTES)}. Over that, it refuses and "
-                "reports the estimate, so narrow the filters or request fewer dimensions."
+                "reports the estimate, so narrow the filters or request fewer dimensions. "
+                "Metrics may require filters. A query missing a required filter is rejected, and a metric's default filter is applied when none is given; applied defaults are listed under Warnings."
             ),
             inputSchema={
                 "type": "object",

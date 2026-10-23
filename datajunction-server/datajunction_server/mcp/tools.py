@@ -17,6 +17,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.sql.base import ExecutableOption
 
+from datajunction_server.construction.build_v3.filter_requirements import (
+    apply_metric_filter_requirements,
+)
 from datajunction_server.construction.build_v3.builder import (
     build_measures_sql,
     build_metrics_sql,
@@ -207,6 +210,8 @@ async def get_node_details(name: str) -> str:
     # Augment with the richer fields format_node_details renders.
     if node.current:
         node_dict["current"]["query"] = node.current.query
+        node_dict["current"]["requiredFilters"] = node.current.required_filters
+        node_dict["current"]["recommendedFilters"] = node.current.recommended_filters
         node_dict["current"]["columns"] = [
             {
                 "name": (c.cube_element_name if node.type == NodeType.CUBE else c.name),
@@ -338,11 +343,16 @@ async def build_metric_sql(
     session = get_mcp_session()
     dialect_enum = Dialect(dialect) if dialect else None
 
+    effective_filters, requirement_warnings = await apply_metric_filter_requirements(
+        session,
+        metrics,
+        filters,
+    )
     result = await build_metrics_sql(
         session=session,
         metrics=metrics,
         dimensions=dimensions or [],
-        filters=filters or None,
+        filters=effective_filters or None,
         orderby=orderby or None,
         limit=limit,
         dialect=dialect_enum,
@@ -366,7 +376,21 @@ async def build_metric_sql(
     for col in result.columns:
         semantic = f" (semantic: {col.semantic_name})" if col.semantic_name else ""
         lines.append(f"  • {col.name}: {col.type}{semantic}")
+    warnings = [*requirement_warnings, *(result.warnings or [])]
+    lines.extend(_format_warnings(warnings))
     return "\n".join(lines)
+
+
+def _format_warnings(warnings: list[Any]) -> list[str]:
+    """Warning lines for tool output; empty when there are none."""
+    if not warnings:
+        return []
+    return [
+        "",
+        "Warnings:",
+        "-" * 60,
+        *(f"  • {warning.message}" for warning in warnings),
+    ]
 
 
 # Hard upper bound on ad-hoc scan size. Queries that would scan more than
@@ -414,24 +438,31 @@ async def _execute_metrics_query(
 
     session = get_mcp_session()
 
+    effective_filters, requirement_warnings = await apply_metric_filter_requirements(
+        session,
+        metrics,
+        filters,
+    )
     execution_ctx = await resolve_dialect_and_engine_for_metrics(
         session=session,
         metrics=metrics,
         dimensions=dimensions or [],
         use_materialized=True,
-        filters=filters or None,
+        filters=effective_filters or None,
     )
 
     generated_sql = await build_metrics_sql(
         session=session,
         metrics=metrics,
         dimensions=dimensions or [],
-        filters=filters or None,
+        filters=effective_filters or None,
         orderby=orderby or None,
         limit=limit,
         dialect=execution_ctx.dialect,
         use_materialized=True,
     )
+
+    generated_sql.warnings = [*requirement_warnings, *(generated_sql.warnings or [])]
 
     estimate = generated_sql.scan_estimate
     is_materialized = bool(estimate and estimate.has_materialization)
@@ -543,6 +574,7 @@ async def get_metric_data(
         for e in errors:
             lines.append(f"  • {e}")
 
+    lines.extend(_format_warnings(getattr(generated_sql, "warnings", None) or []))
     return "\n".join(lines)
 
 

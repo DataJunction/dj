@@ -7,6 +7,12 @@ from sqlalchemy.exc import MissingGreenlet
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import find_required_dimensions
+from datajunction_server.construction.build_v3.filter_requirements import (
+    ref_covers_attribute,
+)
+from datajunction_server.construction.build_v3.utils import (
+    extract_filter_dimension_refs,
+)
 from datajunction_server.database import Node, NodeRevision
 from datajunction_server.database.column import Column, ColumnAttribute
 from datajunction_server.database.dimensionlink import DimensionLink
@@ -29,6 +35,10 @@ from datajunction_server.internal.deployment.utils import (
     extract_upstream_candidates,
 )
 from datajunction_server.models.base import labelize
+from datajunction_server.naming import SEPARATOR
+from datajunction_server.models.filter_requirements import (
+    parse_filter_requirements,
+)
 from datajunction_server.models.node import NodeRevisionBase, NodeStatus
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.reaggregate import (
@@ -38,7 +48,11 @@ from datajunction_server.models.reaggregate import (
 )
 from datajunction_server.sql.decompose import validate_fixed_grain_shape
 from datajunction_server.sql.parsing import ast
-from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
+from datajunction_server.sql.parsing.backends.antlr4 import (
+    SqlParsingError,
+    SqlSyntaxError,
+    parse,
+)
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.sql.parsing.types import ListType, MapType, StructType
 
@@ -93,6 +107,113 @@ def derived_metric_fixed_grain_error(
     )
 
 
+def filter_requirement_errors(
+    required: list[dict] | None,
+    recommended: list[dict] | None,
+    node_name: str,
+) -> list[DJError]:
+    """
+    Problems in a metric's filter requirements that need no database lookup.
+    """
+    errors: list[DJError] = []
+    required_entries = parse_filter_requirements(required) or []
+    recommended_entries = parse_filter_requirements(recommended) or []
+    in_required = {attr for entry in required_entries for attr in entry.dimension}
+    in_recommended = {attr for entry in recommended_entries for attr in entry.dimension}
+    for attr in sorted(in_required & in_recommended):
+        errors.append(
+            DJError(
+                code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                message=(
+                    f"Metric `{node_name}` lists {attr} in both "
+                    "required_filters and recommended_filters."
+                ),
+            ),
+        )
+    for entry in required_entries + recommended_entries:
+        for attr in entry.dimension:
+            if _is_bare(attr):
+                errors.append(
+                    DJError(
+                        code=ErrorCode.INVALID_COLUMN,
+                        message=(
+                            f"Metric `{node_name}` has a filter requirement on "
+                            f"{attr}, which is not in node.column form."
+                        ),
+                    ),
+                )
+        if entry.default is None:
+            continue
+        try:
+            refs = extract_filter_dimension_refs([entry.default], include_bare=True)
+        except (SqlParsingError, DJInvalidInputException, DJParseException):
+            errors.append(
+                DJError(
+                    code=ErrorCode.INVALID_SQL_QUERY,
+                    message=(
+                        f"Metric `{node_name}` has a default filter that does "
+                        f"not parse: {entry.default}"
+                    ),
+                ),
+            )
+            continue
+        bare = [ref for ref in refs if _is_bare(ref)]
+        if bare:
+            errors.append(
+                DJError(
+                    code=ErrorCode.INVALID_COLUMN,
+                    message=(
+                        f"Metric `{node_name}` has a default filter with "
+                        f"columns not in node.column form ({', '.join(bare)}): "
+                        f"{entry.default}"
+                    ),
+                ),
+            )
+            continue
+        if not any(
+            ref_covers_attribute(attr, ref) for attr in entry.dimension for ref in refs
+        ):
+            errors.append(
+                DJError(
+                    code=ErrorCode.INVALID_COLUMN,
+                    message=(
+                        f"Metric `{node_name}` has a default filter that does "
+                        f"not filter on {', '.join(entry.dimension)}: "
+                        f"{entry.default}"
+                    ),
+                ),
+            )
+    return errors
+
+
+def _is_bare(attribute: str) -> bool:
+    """True when an attribute has no node prefix."""
+    return SEPARATOR not in attribute.split("[", 1)[0]
+
+
+def filter_requirement_attributes(
+    required: list[dict] | None,
+    recommended: list[dict] | None,
+) -> list[str]:
+    """
+    Every attribute named by an entry or by an entry's default filter.
+
+    Roles are kept.
+    """
+    attributes: list[str] = []
+    for entry in (parse_filter_requirements(required) or []) + (
+        parse_filter_requirements(recommended) or []
+    ):
+        attributes.extend(entry.dimension)
+        if entry.default:
+            try:
+                attributes.extend(extract_filter_dimension_refs([entry.default]))
+            except (SqlParsingError, DJInvalidInputException, DJParseException):
+                # Reported by filter_requirement_errors.
+                continue
+    return sorted(set(attributes))
+
+
 def _reparse_parent_column_types(dependencies_map: dict) -> None:
     """Re-parse string column types on parent nodes before type inference.
 
@@ -136,9 +257,10 @@ def update_ast_column_types(node: ast.Node) -> None:
 async def _dimension_links_for_required_dimensions(
     session: AsyncSession,
     parents: list[NodeRevision],
-) -> list[DimensionLink]:
+) -> tuple[list[DimensionLink], set[str]]:
     """
-    Dimension links visible for required_dimensions role validation.
+    Dimension links visible for required_dimensions role validation, and the
+    names of the nodes they hang off.
 
     Fetched with a dedicated query rather than read off `parent.dimension_links`
     -- that relationship's eager-load state is inconsistent across the
@@ -157,6 +279,7 @@ async def _dimension_links_for_required_dimensions(
     from datajunction_server.sql.dag import get_metric_parents_map
 
     revision_ids: set[int] = {p.id for p in parents if p.type != NodeType.METRIC}
+    names = {p.name for p in parents if p.type != NodeType.METRIC}
     metric_parent_names = [p.name for p in parents if p.type == NodeType.METRIC]
     if metric_parent_names:
         metric_nodes = await Node.get_by_names(session, metric_parent_names)
@@ -185,12 +308,13 @@ async def _dimension_links_for_required_dimensions(
                 ),
             )
             revision_ids.update(row[0] for row in revision_rows)
+            names.update(name for name, _ in base_parent_versions)
     if not revision_ids:
-        return []
+        return [], names
     result = await session.execute(
         select(DimensionLink).where(DimensionLink.node_revision_id.in_(revision_ids)),
     )
-    return list(result.scalars().all())
+    return list(result.scalars().all()), names
 
 
 def _required_dimension_strings(
@@ -501,7 +625,10 @@ async def validate_node_data(
         parent_columns = [
             col for parent in dependencies_map.keys() for col in parent.columns
         ]
-        parent_dimension_links = await _dimension_links_for_required_dimensions(
+        (
+            parent_dimension_links,
+            parent_names,
+        ) = await _dimension_links_for_required_dimensions(
             session,
             list(dependencies_map.keys()),
         )
@@ -561,7 +688,24 @@ async def validate_node_data(
                 )
             except DJInvalidInputException as exc:
                 unsupported_fixed_grain_shape = str(exc)
+        filter_requirement_problems = filter_requirement_errors(
+            validated_node.required_filters,
+            validated_node.recommended_filters,
+            validated_node.name,
+        )
+        invalid_filter_attributes, _ = await find_required_dimensions(
+            session,
+            filter_requirement_attributes(
+                validated_node.required_filters,
+                validated_node.recommended_filters,
+            ),
+            parent_columns,
+            parent_dimension_links,
+            parent_names=parent_names,
+        )
     except MissingGreenlet:
+        filter_requirement_problems = []
+        invalid_filter_attributes = set()
         invalid_required_dimensions = set()
         invalid_reaggregate_dimensions = set()
         invalid_reaggregate_functions = []
@@ -577,6 +721,8 @@ async def validate_node_data(
         or invalid_reaggregate_functions
         or invalid_fixed_grain_dimensions
         or unsupported_fixed_grain_shape
+        or filter_requirement_problems
+        or invalid_filter_attributes
     ):
         # update status
         node_validator.status = NodeStatus.INVALID
@@ -688,6 +834,25 @@ async def validate_node_data(
             if unsupported_fixed_grain_shape
             else []
         )
+        invalid_filter_attributes_error = (
+            [
+                DJError(
+                    code=ErrorCode.INVALID_COLUMN,
+                    message=(
+                        f"Metric `{validated_node.name}` has filter "
+                        "requirements that name attributes that could not "
+                        "be resolved."
+                    ),
+                    debug={
+                        "invalid_filter_requirement_attributes": sorted(
+                            invalid_filter_attributes,
+                        ),
+                    },
+                ),
+            ]
+            if invalid_filter_attributes
+            else []
+        )
         errors = (
             missing_parents_error
             + type_inference_error
@@ -696,6 +861,8 @@ async def validate_node_data(
             + invalid_reaggregate_functions_error
             + invalid_fixed_grain_dimensions_error
             + unsupported_fixed_grain_shape_error
+            + filter_requirement_problems
+            + invalid_filter_attributes_error
         )
         node_validator.errors.extend(errors)
 
@@ -1040,6 +1207,8 @@ async def validate_node_data_v2(
     invalid_reaggregate_functions: list[str] = []
     invalid_fixed_grain_dimensions: set[str] = set()
     unsupported_fixed_grain_shape: str | None = None
+    filter_requirement_problems: list[DJError] = []
+    invalid_filter_attributes: set[str] = set()
     if is_metric:
         # Parents come from Node.get_by_names's default_load_options which
         # eagerly loads NodeRevision.columns, so the `parent.columns` access
@@ -1051,7 +1220,10 @@ async def validate_node_data_v2(
             for parent in node_validator.dependencies_map.keys()
             for col in parent.columns
         ]
-        parent_dimension_links = await _dimension_links_for_required_dimensions(
+        (
+            parent_dimension_links,
+            parent_names,
+        ) = await _dimension_links_for_required_dimensions(
             session,
             list(node_validator.dependencies_map.keys()),
         )
@@ -1106,6 +1278,21 @@ async def validate_node_data_v2(
                 )
             except DJInvalidInputException as exc:
                 unsupported_fixed_grain_shape = str(exc)
+        filter_requirement_problems = filter_requirement_errors(
+            validated_node.required_filters,
+            validated_node.recommended_filters,
+            validated_node.name,
+        )
+        invalid_filter_attributes, _ = await find_required_dimensions(
+            session,
+            filter_requirement_attributes(
+                validated_node.required_filters,
+                validated_node.recommended_filters,
+            ),
+            parent_columns,
+            parent_dimension_links,
+            parent_names=parent_names,
+        )
 
     # --- Step 12: final error assembly for missing parents + invalid required
     #              dims (matches legacy code shapes).
@@ -1116,8 +1303,27 @@ async def validate_node_data_v2(
         or invalid_reaggregate_functions
         or invalid_fixed_grain_dimensions
         or unsupported_fixed_grain_shape
+        or filter_requirement_problems
+        or invalid_filter_attributes
     ):
         node_validator.status = NodeStatus.INVALID
+        node_validator.errors.extend(filter_requirement_problems)
+        if invalid_filter_attributes:
+            node_validator.errors.append(
+                DJError(
+                    code=ErrorCode.INVALID_COLUMN,
+                    message=(
+                        f"Metric `{validated_node.name}` has filter "
+                        "requirements that name attributes that could not "
+                        "be resolved."
+                    ),
+                    debug={
+                        "invalid_filter_requirement_attributes": sorted(
+                            invalid_filter_attributes,
+                        ),
+                    },
+                ),
+            )
         if node_validator.missing_parents_map:
             node_validator.errors.append(
                 DJError(
