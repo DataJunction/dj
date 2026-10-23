@@ -3357,6 +3357,19 @@ async def test_percentile_without_a_family_still_does_not_decompose(
         ("x * 2", "a BETWEEN 1 AND 2", "(a BETWEEN 1 AND 2) * 2"),
         ("NOT x", "a AND b", "NOT (a AND b)"),
         ("x", "a + b", "a + b"),
+        ("-x", "a + b", "-(a + b)"),
+        ("-x", "a * b", "-(a * b)"),
+        ("-x", "a BETWEEN 1 AND 2", "-(a BETWEEN 1 AND 2)"),
+        ("-x", "NOT a", "-(NOT a)"),
+        ("-x", "-a", "-(-a)"),
+        ("+x", "-a", "+(-a)"),
+        ("-x", "a", "-a"),
+        ("-x", "SUM(a)", "-SUM(a)"),
+        ("-x", "(a + b)", "-(a + b)"),
+        ("x * 2", "-a", "-a * 2"),
+        ("x - 2", "-a", "-a - 2"),
+        ("2 - x", "-a", "2 - -a"),
+        ("NOT x", "-a", "NOT -a"),
     ],
 )
 def test_parenthesize_if_needed(outer: str, inner: str, expected: str):
@@ -3366,6 +3379,10 @@ def test_parenthesize_if_needed(outer: str, inner: str, expected: str):
     replacement = cast(ast.Expression, parse(f"SELECT {inner}").select.projection[0])
     assert old.parent is not None
 
-    old.parent.replace(from_=old, to=parenthesize_if_needed(replacement, old))
+    old.parent.replace(
+        from_=old,
+        to=parenthesize_if_needed(replacement, old),
+        copy=False,
+    )
 
     assert str(query.select.projection[0]) == expected

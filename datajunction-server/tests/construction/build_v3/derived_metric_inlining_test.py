@@ -156,6 +156,20 @@ async def test_base_metric_operand_is_bracketed(client_with_build_v3):
 
 
 @pytest.mark.asyncio
+async def test_negated_sum_is_bracketed(client_with_sums):
+    """A sum read by a unary minus keeps its grouping."""
+    await _create_metrics(
+        client_with_sums,
+        {"v3.negated_sum": "SELECT -v3.sum_a"},
+    )
+    sql = await _metrics_sql(client_with_sums, ["v3.negated_sum"])
+    assert_sql_equal(
+        sql,
+        status_query(f"-({HOURS}) AS negated_sum"),
+    )
+
+
+@pytest.mark.asyncio
 async def test_atoms_are_not_bracketed(client_with_build_v3):
     """Aggregates inlined into an operator get no brackets."""
     await _create_metrics(

@@ -2101,7 +2101,10 @@ class ArithmeticUnaryOp(Operation):
     expr: Expression
 
     def __str__(self) -> str:
-        return f"{self.op}{self.expr}"
+        ret = f"{self.op}{self.expr}"
+        if self.parenthesized:
+            return f"({ret})"
+        return ret
 
     @property
     def type(self) -> ColumnType:

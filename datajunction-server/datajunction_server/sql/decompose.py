@@ -116,9 +116,13 @@ def parenthesize_if_needed(
     """
     parent = old.parent
     operators = (ast.BinaryOp, ast.UnaryOp, ast.Predicate)
-    if replacement.parenthesized or not isinstance(replacement, operators):
+    sign_operators = operators + (ast.ArithmeticUnaryOp,)
+    if replacement.parenthesized or not isinstance(replacement, sign_operators):
         return replacement
-    if not isinstance(parent, operators):
+    if isinstance(parent, ast.ArithmeticUnaryOp):
+        # A sign binds tighter than any operator, and `--x` starts a comment.
+        return _bracketed(replacement)
+    if not isinstance(replacement, operators) or not isinstance(parent, operators):
         return replacement
     if isinstance(replacement, ast.BinaryOp) and isinstance(parent, ast.BinaryOp):
         inner = _OPERATOR_PRECEDENCE.get(replacement.op)
@@ -126,7 +130,12 @@ def parenthesize_if_needed(
         if inner is not None and outer is not None:
             if inner > outer or (inner == outer and parent.left is old):
                 return replacement
-    bracketed = replacement.copy()
+    return _bracketed(replacement)
+
+
+def _bracketed(expr: ast.Expression) -> ast.Expression:
+    """Return a bracketed copy of expr."""
+    bracketed = expr.copy()
     bracketed.parenthesized = True
     return bracketed
 
