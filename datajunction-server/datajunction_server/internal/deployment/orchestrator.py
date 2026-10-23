@@ -87,6 +87,7 @@ from datajunction_server.internal.deployment.utils import (
     DeploymentContext,
     classify_parents,
     creates_cycle,
+    extract_dimension_attribute_nodes,
     extract_dimension_refs_from_filters,
     extract_node_graph,
     topological_levels,
@@ -2639,6 +2640,17 @@ class DeploymentOrchestrator:
                 deps = ordering_graph.setdefault(node_spec.rendered_name, [])
                 if dim_node not in deps:
                     deps.append(dim_node)
+
+        # A dimension attribute named in a metric's query types the metric, so
+        # that dimension deploys first too.
+        for node_spec in plan.to_deploy:
+            if isinstance(node_spec, MetricSpec) and node_spec.query_ast is not None:
+                deps = ordering_graph.setdefault(node_spec.rendered_name, [])
+                for dim_node in sorted(
+                    extract_dimension_attribute_nodes(node_spec.query_ast),
+                ):
+                    if dim_node != node_spec.rendered_name and dim_node not in deps:
+                        deps.append(dim_node)
 
         # Each linked dimension is an ordering edge too, so a link onto a column
         # this same push adds to an existing dimension validates against the new

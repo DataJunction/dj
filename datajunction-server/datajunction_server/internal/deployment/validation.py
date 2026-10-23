@@ -20,6 +20,9 @@ from datajunction_server.errors import (
     ErrorCode,
 )
 from datajunction_server.internal.deployment.type_inference import validate_node_query
+from datajunction_server.internal.deployment.utils import (
+    extract_dimension_attribute_nodes,
+)
 from datajunction_server.internal.validation import (
     derived_metric_fixed_grain_error,
     derived_metric_reaggregate_error,
@@ -653,6 +656,18 @@ class NodeSpecBulkValidator:
                 parent_map[parent_name] = {
                     col.name: col.type for col in parent_node.current.columns
                 }
+        if spec.node_type == NodeType.METRIC and spec.query_ast is not None:
+            for dim_name in extract_dimension_attribute_nodes(spec.query_ast):
+                dim_node = self.context.dependency_nodes.get(dim_name)
+                if (
+                    dim_name not in parent_map
+                    and dim_node
+                    and dim_node.current
+                    and dim_node.current.columns
+                ):
+                    parent_map[dim_name] = {
+                        col.name: col.type for col in dim_node.current.columns
+                    }
         return parent_map
 
     @staticmethod

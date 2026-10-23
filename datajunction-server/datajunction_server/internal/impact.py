@@ -32,6 +32,7 @@ from datajunction_server.internal.deployment.dimension_reachability import (
     DimensionReachability,
 )
 from datajunction_server.internal.deployment.utils import (
+    extract_dimension_attribute_nodes,
     extract_upstream_candidates,
 )
 from datajunction_server.internal.deployment.type_inference import (
@@ -748,6 +749,7 @@ async def _load_referenced_dimensions(
         if isinstance(parsed, Exception) or not node or node.type != NodeType.METRIC:
             continue
         names |= extract_upstream_candidates(parsed, is_metric=True)
+        names |= extract_dimension_attribute_nodes(parsed)
     names -= loaded_nodes.keys() | nodes_by_name.keys()
     if not names:
         return {}
@@ -795,7 +797,10 @@ def _revalidate_single_node(
     )
     if node.type == NodeType.METRIC:
         pre_parsed_query = pre_parsed_query or parse_query(query)
-        for name in extract_upstream_candidates(pre_parsed_query, is_metric=True):
+        for name in extract_upstream_candidates(
+            pre_parsed_query,
+            is_metric=True,
+        ) | extract_dimension_attribute_nodes(pre_parsed_query):
             referenced = (
                 loaded_nodes.get(name)
                 or nodes_by_name.get(name)
