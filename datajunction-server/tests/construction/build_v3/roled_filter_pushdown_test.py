@@ -74,6 +74,5 @@ def test_filter_with_an_unresolved_role_is_not_pushed_even_if_another_part_resol
 def test_filter_without_a_role_still_resolves_through_a_linked_source():
     scope = scope_for_source_linked_with_role(None)
     assert (
-        pushed("ns.date.dateint = 20261019", scope)
-        == "impressions.utc_date = 20261019"
+        pushed("ns.date.dateint = 20261019", scope) == "impressions.utc_date = 20261019"
     )
