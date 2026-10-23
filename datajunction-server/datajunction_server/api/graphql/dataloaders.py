@@ -424,6 +424,8 @@ async def batch_load_extracted_measures(
                             DBNodeRevision.name,
                             DBNodeRevision.query,
                             DBNodeRevision.reaggregate,
+                            DBNodeRevision.required_filters,
+                            DBNodeRevision.recommended_filters,
                         ),
                     ),
                 )

@@ -126,6 +126,8 @@ The **node name is derived** from the directory structure and file name. For exa
 | `tags` | No | A list of tags for this node |
 | `required_dimensions` | No | A list of required dimensions for this metric |
 | `fixed_grain` | No | Dimensions the aggregate is computed at, regardless of the query's grain. Omitted means the query grain; `[]` means the global grain. See [share of total metrics](../metrics/#share-of-total-metrics). |
+| `required_filters` | No | Attributes a query on this metric must filter, each with an optional `default` filter. A missing one without a default is a 422 naming the attribute. See [filter requirements](../metrics/#filter-requirements). |
+| `recommended_filters` | No | Attributes a query on this metric should filter. A missing one adds a warning; an optional `default` is applied instead. See [filter requirements](../metrics/#filter-requirements). |
 | `reaggregate` | No | Rules for dimensions this metric cannot be summed along, for semi-additive measures like snapshots. See [semi-additive metrics](../metrics/#semi-additive-metrics). |
 | `direction` | No | Direction of this metric (one of `higher_is_better`, `lower_is_better`, or `neutral`) |
 | `unit` | No | The unit of this metric |

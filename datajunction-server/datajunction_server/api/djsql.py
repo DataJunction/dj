@@ -13,10 +13,13 @@ from sse_starlette.sse import EventSourceResponse
 
 from datajunction_server.api.helpers import query_event_stream
 from datajunction_server.construction.build_v3.builder import build_metrics_sql
+from datajunction_server.construction.build_v3.filter_requirements import (
+    apply_metric_filter_requirements,
+)
 from datajunction_server.construction.build_v3.cube_matcher import (
     resolve_dialect_and_engine_for_metrics,
 )
-from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.errors import DJInvalidInputException, DJWarning
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.query import QueryCreate, QueryWithResults
@@ -49,6 +52,7 @@ class TranslatedDJSQL(BaseModel):
     sql: str
     columns: list[DJSQLColumn]
     dialect: str
+    warnings: list[DJWarning] = []
 
 
 @dataclass(frozen=True)
@@ -217,15 +221,21 @@ async def get_sql_for_djsql(
         dialect_enum = dialect_map.get(dialect.lower())
 
     # Build SQL using v3 builder
+    effective_filters, requirement_warnings = await apply_metric_filter_requirements(
+        session,
+        parsed.metrics,
+        parsed.filters,
+    )
     result = await build_metrics_sql(
         session=session,
         metrics=parsed.metrics,
         dimensions=parsed.dimensions,
-        filters=parsed.filters,
+        filters=effective_filters,
         orderby=parsed.orderby or None,
         limit=parsed.limit,
         dialect=dialect_enum,
     )
+    result.warnings = [*requirement_warnings, *(result.warnings or [])]
     _logger.info(
         "[/djsql/] generated SQL via build_metrics_sql (v3 path) — sql=%s",
         result.sql,
@@ -243,6 +253,7 @@ async def get_sql_for_djsql(
             for col in result.columns
         ],
         dialect=result.dialect.value,
+        warnings=result.warnings,
     )
 
 
@@ -260,6 +271,11 @@ async def _build_djsql_query(
     the same metrics + dimensions.
     """
     parsed = parse_dj_sql(query)
+    effective_filters, requirement_warnings = await apply_metric_filter_requirements(
+        session,
+        parsed.metrics,
+        parsed.filters,
+    )
     execution_ctx = await resolve_dialect_and_engine_for_metrics(
         session=session,
         metrics=parsed.metrics,
@@ -267,18 +283,19 @@ async def _build_djsql_query(
         use_materialized=use_materialized,
         engine_name=engine_name,
         engine_version=engine_version,
-        filters=parsed.filters or None,
+        filters=effective_filters or None,
     )
     generated_sql = await build_metrics_sql(
         session=session,
         metrics=parsed.metrics,
         dimensions=parsed.dimensions,
-        filters=parsed.filters or None,
+        filters=effective_filters or None,
         orderby=parsed.orderby or None,
         limit=parsed.limit,
         dialect=execution_ctx.dialect,
         use_materialized=use_materialized,
     )
+    generated_sql.warnings = [*requirement_warnings, *(generated_sql.warnings or [])]
     return generated_sql, execution_ctx
 
 
@@ -335,6 +352,7 @@ async def get_data_for_djsql(
     # Inject column info if there are results
     if result.results.root:  # pragma: no cover
         result.results.root[0].columns = generated_sql.columns or []
+    result.warnings = generated_sql.warnings
     return result
 
 
@@ -393,5 +411,6 @@ async def get_data_stream_for_djsql(
             query_service_client=query_service_client,
             columns=generated_sql.columns,  # type: ignore
             request=request,
+            warnings=generated_sql.warnings,
         ),
     )

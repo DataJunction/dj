@@ -71,6 +71,7 @@ from datajunction_server.models.deployment import (
     SourceSpec,
     TransformSpec,
 )
+from datajunction_server.models.filter_requirements import parse_filter_requirements
 from datajunction_server.models.materialization import (
     DEFAULT_CUBE_RETENTION,
     MaterializationJobTypeEnum,
@@ -721,6 +722,12 @@ class Node(Base):
                 required_dimensions=self.current.required_dimensions_refs,
                 reaggregate=parse_reaggregate_spec(self.current.reaggregate),
                 fixed_grain=self.current.fixed_grain,
+                required_filters=parse_filter_requirements(
+                    self.current.required_filters,
+                ),
+                recommended_filters=parse_filter_requirements(
+                    self.current.recommended_filters,
+                ),
                 direction=self.current.metric_metadata.direction
                 if self.current.metric_metadata
                 else None,
@@ -1864,6 +1871,21 @@ class NodeRevision(
         default=None,
     )
 
+    # Dimension attributes a query must filter. Entries are validated by
+    # FilterRequirement at the API and deployment boundaries.
+    required_filters: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        JSON,
+        nullable=True,
+        default=None,
+    )
+
+    # Same shape as required_filters; a missing filter only warns.
+    recommended_filters: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        JSON,
+        nullable=True,
+        default=None,
+    )
+
     # Filters that are always applied when generating SQL for a cube node
     cube_filters: Mapped[list[str] | None] = mapped_column(
         JSON,
@@ -2224,6 +2246,14 @@ class NodeRevision(
             raise DJInvalidInputException(
                 f"Node {self.name} of type {self.type} cannot have "
                 "reaggregate settings which are only for metrics.",
+            )
+
+        if self.type != NodeType.METRIC and (
+            self.required_filters is not None or self.recommended_filters is not None
+        ):
+            raise DJInvalidInputException(
+                f"Node {self.name} of type {self.type} cannot have "
+                "filter requirements, which are only for metrics.",
             )
 
         if self.type == NodeType.METRIC:

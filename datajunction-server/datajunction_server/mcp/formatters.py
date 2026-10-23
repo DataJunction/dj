@@ -124,6 +124,20 @@ def format_node_details(
             result.append(f"  Unit: {unit.get('label', unit.get('name', 'unknown'))}")
         result.append("")
 
+    for title, key in (
+        ("Required Filters:", "requiredFilters"),
+        ("Recommended Filters:", "recommendedFilters"),
+    ):
+        entries = current.get(key) or []
+        if not entries:
+            continue
+        result.append(title)
+        for entry in entries:
+            attributes = ", ".join(entry["dimension"])
+            suffix = f" (default: {entry['default']})" if entry.get("default") else ""
+            result.append(f"  • {attributes}{suffix}")
+        result.append("")
+
     # SQL definition
     if current.get("query"):
         result.append("SQL Definition:")

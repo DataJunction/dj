@@ -35,7 +35,7 @@ from datajunction_server.construction.build_v2 import (
 from datajunction_server.database import Engine
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.errors import DJException, DJInvalidInputException
+from datajunction_server.errors import DJException, DJInvalidInputException, DJWarning
 from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.sql.parsing.backends.antlr4 import report_parse_cache_stats
 from datajunction_server.internal.access.authorization import (
@@ -191,6 +191,7 @@ async def generate_metrics_sql(
     endpoint: str = "/sql/metrics/v3/",
     populate_cube_metrics: bool = True,
     query_type: str | None = None,
+    enforce_filter_requirements: bool = True,
 ) -> "BuildV3GeneratedSQL":
     """
     Shared core for the "generate SQL for specific metrics" flow, used by both the
@@ -210,10 +211,14 @@ async def generate_metrics_sql(
         their own response models.
       - Emit the build-latency metrics and ``[SQL]`` log here (tagged with
         ``endpoint``) so they reflect the merged, as-built values.
+      - Check the metrics' filter requirements unless
+        ``enforce_filter_requirements`` is False. Distinct-value lookups pass
+        False: their metrics only scope the query to a cube.
     """
     # Imported lazily (like build_node_sql's build_v3 import below) to avoid an
     # import cycle: build_v3 pulls in modules that import this one.
     from datajunction_server.construction.build_v3 import (
+        apply_metric_filter_requirements,
         build_metrics_sql,
         resolve_dialect_and_engine_for_metrics,
         validate_pinned_cube_covers_filters,
@@ -235,18 +240,36 @@ async def generate_metrics_sql(
             if not dimensions:
                 dimensions = matched_cube.cube_node_dimensions
 
+    # Check the metrics' filter requirements on the merged filters, before
+    # anything reads them for cube matching.
+    requirement_warnings: list[DJWarning] = []
+    if enforce_filter_requirements:
+        (
+            merged_filters,
+            requirement_warnings,
+        ) = await apply_metric_filter_requirements(
+            session,
+            metrics,
+            merged_filters,
+        )
+
+    if (
+        matched_cube is not None
+        and metrics
+        and use_materialized
+        and dialect in (None, Dialect.DRUID)
+    ):
         # A pinned cube bypasses find_matching_cube's coverage check. When that
         # cube will actually back the build (materialized, Druid or auto-dialect),
         # verify it covers every filtered dimension so we fail loud here instead
         # of emitting Druid SQL that references a column the cube table lacks.
-        if metrics and use_materialized and dialect in (None, Dialect.DRUID):
-            await validate_pinned_cube_covers_filters(
-                session,
-                matched_cube,
-                dimensions,
-                merged_filters,
-                metrics,
-            )
+        await validate_pinned_cube_covers_filters(
+            session,
+            matched_cube,
+            dimensions,
+            merged_filters,
+            metrics,
+        )
 
     # Auto-resolve dialect if not explicitly provided.
     resolved_dialect = dialect
@@ -276,6 +299,7 @@ async def generate_metrics_sql(
         matched_cube=matched_cube,
         query_parameters=query_parameters,
     )
+    result.warnings = [*requirement_warnings, *(result.warnings or [])]
 
     elapsed_ms = (time.monotonic() - _t0) * 1000
     query_type = query_type or ("metrics" if metrics else "dimensions")
@@ -340,6 +364,7 @@ async def generate_dimensions_sql(
             endpoint=endpoint,
             populate_cube_metrics=False,
             query_type="dimensions",
+            enforce_filter_requirements=False,
         )
 
     from datajunction_server.construction.build_v3.node_query import (
@@ -368,6 +393,7 @@ async def generate_dimensions_sql(
         query_parameters=query_parameters,
         endpoint=endpoint,
         query_type="dimensions",
+        enforce_filter_requirements=False,
     )
     return project_dimension_values_sql(generated, dimensions, orderby, limit)
 

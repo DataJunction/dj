@@ -4552,6 +4552,66 @@ async def test_find_nodes_paginated_search_pages_follow_order_by(
 
 
 @pytest.mark.asyncio
+async def test_find_nodes_filter_requirements(client_with_build_v3: AsyncClient):
+    """Metrics expose their required and recommended filters."""
+    query = (await client_with_build_v3.get("/nodes/v3.total_revenue/")).json()["query"]
+    created = await client_with_build_v3.post(
+        "/nodes/metric/",
+        json={
+            "name": "v3.gql_filtered",
+            "description": "d",
+            "query": query,
+            "mode": "published",
+            "required_filters": [{"dimension": "v3.date.date_id"}],
+            "recommended_filters": [
+                {
+                    "dimension": "v3.location.country",
+                    "default": "v3.location.country = 'US'",
+                },
+            ],
+        },
+    )
+    assert created.status_code == 201, created.text
+    response = await client_with_build_v3.post(
+        "/graphql",
+        json={
+            "query": """
+            {
+              findNodes(names: ["v3.gql_filtered", "v3.total_revenue", "v3.order_details"]) {
+                name
+                current {
+                  requiredFilters { dimension default }
+                  recommendedFilters { dimension default }
+                }
+              }
+            }
+            """,
+        },
+    )
+    body = response.json()
+    assert body.get("errors") is None
+    assert {node["name"]: node["current"] for node in body["data"]["findNodes"]} == {
+        "v3.gql_filtered": {
+            "requiredFilters": [{"dimension": ["v3.date.date_id"], "default": None}],
+            "recommendedFilters": [
+                {
+                    "dimension": ["v3.location.country"],
+                    "default": "v3.location.country = 'US'",
+                },
+            ],
+        },
+        "v3.total_revenue": {
+            "requiredFilters": None,
+            "recommendedFilters": None,
+        },
+        "v3.order_details": {
+            "requiredFilters": None,
+            "recommendedFilters": None,
+        },
+    }
+
+
+@pytest.mark.asyncio
 async def test_required_dimensions_null_for_non_metric(
     client_with_roads: AsyncClient,
 ) -> None:

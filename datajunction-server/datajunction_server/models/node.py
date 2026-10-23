@@ -34,6 +34,7 @@ from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import MaterializationConfigOutput
 from datajunction_server.models.node_type import NodeNameOutput, NodeType
 from datajunction_server.models.partition import PartitionOutput
+from datajunction_server.models.filter_requirements import FilterRequirement
 from datajunction_server.models.reaggregate import ReaggregateSpec
 from datajunction_server.models.tag import TagMinimum, TagOutput
 from datajunction_server.models.unit import (
@@ -883,6 +884,8 @@ class MetricNodeFields(BaseModel):
     # Grain the aggregate is computed at; omitted means the query grain.
     fixed_grain: list[str] | None = None
     reaggregate: ReaggregateSpec | None = None
+    required_filters: list[FilterRequirement] | None = None
+    recommended_filters: list[FilterRequirement] | None = None
     metric_metadata: MetricMetadataInput | None = None
 
 
@@ -1040,6 +1043,8 @@ class NodeRevisionOutput(BaseModel):
     metric_metadata: MetricMetadataOutput | None = None
     fixed_grain: list[str] | None = None
     reaggregate: ReaggregateSpec | None = None
+    required_filters: list[FilterRequirement] | None = None
+    recommended_filters: list[FilterRequirement] | None = None
     dimension_links: list[LinkDimensionOutput] | None = None
     custom_metadata: dict | None = None
 
@@ -1074,6 +1079,8 @@ class NodeOutput(GenericNodeOutputModel):
     metric_metadata: MetricMetadataOutput | None = None
     fixed_grain: list[str] | None = None
     reaggregate: ReaggregateSpec | None = None
+    required_filters: list[FilterRequirement] | None = None
+    recommended_filters: list[FilterRequirement] | None = None
     dimension_links: list[LinkDimensionOutput] = Field(default_factory=list)
     created_at: UTCDatetime
     created_by: UserNameOnly | None = None

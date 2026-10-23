@@ -188,6 +188,10 @@ enum ErrorCode {
   QUERY_SERVICE_ERROR
   INVALID_ORDER_BY
   FANOUT_RISK
+  REQUIRED_FILTER_MISSING
+  RECOMMENDED_FILTER_MISSING
+  DEFAULT_FILTER_APPLIED
+  CONFLICTING_DEFAULT_FILTERS
   COMPOUND_BUILD_EXCEPTION
   MISSING_PARENT
   TYPE_INFERENCE
@@ -206,6 +210,11 @@ enum ErrorCode {
   TAG_NOT_FOUND
   CATALOG_NOT_FOUND
   INVALID_NAMESPACE
+}
+
+type FilterRequirement {
+  dimension: [String!]!
+  default: String
 }
 
 type GeneratedSQL {
@@ -415,6 +424,8 @@ type NodeRevision {
   materializations: [MaterializationConfig!]
   requiredDimensions: [Column!] @deprecated(reason: "Use requiredDimensionRefs, which keeps the node and role.")
   requiredDimensionRefs: [String!]
+  requiredFilters: [FilterRequirement!]
+  recommendedFilters: [FilterRequirement!]
   fixedGrain: [String!]
   reaggregate: ReaggregateSpec
   primaryKey: [String!]!

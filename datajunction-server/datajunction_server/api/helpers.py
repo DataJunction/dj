@@ -10,12 +10,13 @@ import re
 import time
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from http import HTTPStatus
 
 from fastapi import Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import defer, joinedload, selectinload
+from sqlalchemy.orm import aliased, defer, joinedload, selectinload
 from sqlalchemy.sql.operators import and_, is_
 
 from datajunction_server.api.notifications import get_notifier
@@ -26,7 +27,9 @@ from datajunction_server.construction.build_v2 import FullColumnName
 from datajunction_server.construction.build_v3.dimension_refs import (
     split_dimension_ref,
 )
+from datajunction_server.construction.build_v3.cte import strip_role_suffix
 from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
+from datajunction_server.construction.build_v3.loaders import find_upstream_node_names
 from datajunction_server.database.attributetype import AttributeType
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column
@@ -48,11 +51,13 @@ from datajunction_server.errors import (
     DJError,
     DJInvalidInputException,
     DJNodeNotFound,
+    DJWarning,
     ErrorCode,
 )
 from datajunction_server.internal.engines import get_engine
 from datajunction_server.internal.history import EntityType
 from datajunction_server.models.attribute import RESERVED_ATTRIBUTE_NAMESPACE
+from datajunction_server.models.dimensionlink import JoinType
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.history import status_change_history
 from datajunction_server.models.materialization import (
@@ -308,6 +313,8 @@ def _resolve_required_dimensions(
     dim_nodes: dict[str, "Node"],
     parent_dimension_links: list[DimensionLink] | None = None,
     pending_link_roles: set[tuple[str, str | None]] | None = None,
+    filter_parents: set[str] | None = None,
+    filter_graph: "FilterGraph | None" = None,
 ) -> tuple[set[str], list[RequiredDimension]]:
     """
     Pure resolution of required_dimensions strings against pre-fetched nodes.
@@ -325,8 +332,9 @@ def _resolve_required_dimensions(
     `pending_link_roles` holds (dimension node name, role) pairs for links a
     deployment declares but has not saved yet; they count as reachable too.
 
-    Role validation only checks reachability from a direct (one-hop) parent;
-    a role reachable only via a multi-hop dimension chain isn't validated here.
+    Role validation only checks reachability from a direct (one-hop) parent.
+    When `filter_graph` is given, a full path must instead pass
+    can_filter_on from `filter_parents`.
 
     Returns:
         Tuple of (invalid dimension paths, resolved RequiredDimension rows)
@@ -392,9 +400,12 @@ def _resolve_required_dimensions(
             if col_name not in dim_col_map:
                 invalid_required_dimensions.add(full_path)
                 continue
-            if role is not None and role not in reachable_roles:
-                # The declared role doesn't match any dimension link from a
-                # direct parent to this dimension node.
+            if filter_graph is not None:
+                if not can_filter_on(full_path, filter_parents or set(), filter_graph):
+                    invalid_required_dimensions.add(full_path)
+                    continue
+            elif role is not None and role not in reachable_roles:
+                # No link with this role reaches this node.
                 invalid_required_dimensions.add(full_path)
                 continue
             resolved.append(
@@ -409,12 +420,14 @@ async def find_required_dimensions(
     required_dimensions: list[str],
     parent_columns: list[Column],
     parent_dimension_links: list[DimensionLink] | None = None,
+    parent_names: set[str] | None = None,
 ) -> tuple[set[str], list[RequiredDimension]]:
     """
     Resolve required dimension paths into RequiredDimension rows.
 
     Fetches all needed dimension nodes in a single DB query, then delegates
-    resolution to _resolve_required_dimensions.
+    resolution to _resolve_required_dimensions. With `parent_names` (the
+    nodes the metric reads from), each attribute must pass can_filter_on.
 
     Returns:
         Tuple of (invalid dimension paths, resolved RequiredDimension rows)
@@ -442,12 +455,290 @@ async def find_required_dimensions(
         )
         dim_nodes = {node.name: node for node in result.scalars().all()}
 
+    filter_graph = None
+    if parent_names is not None:
+        _, parent_map = await find_upstream_node_names(session, sorted(parent_names))
+        filter_graph = await load_filter_graph(
+            session,
+            {
+                name: nodes_upstream(name, lambda child: parent_map.get(child, []))
+                for name in parent_names
+            },
+            attribute_nodes(required_dimensions),
+        )
+
     return _resolve_required_dimensions(
         required_dimensions,
         parent_columns,
         dim_nodes,
         parent_dimension_links,
+        filter_parents=parent_names,
+        filter_graph=filter_graph,
     )
+
+
+def attribute_nodes(attributes: list[str]) -> set[str]:
+    """Node names of `node.column` attributes."""
+    names: set[str] = set()
+    for attribute in attributes:
+        dim_part, _ = split_dimension_ref(attribute)
+        if SEPARATOR in dim_part:
+            names.add(dim_part.rsplit(SEPARATOR, 1)[0])
+    return names
+
+
+def nodes_upstream(name: str, parents: Callable[[str], list[str]]) -> set[str]:
+    """Every node upstream of `name`."""
+    seen: set[str] = set()
+    stack = [name]
+    while stack:
+        for parent in parents(stack.pop()):
+            if parent not in seen:
+                seen.add(parent)
+                stack.append(parent)
+    return seen
+
+
+@dataclass(frozen=True)
+class FilterLink:
+    """A join link from a node to a dimension node."""
+
+    dimension: str
+    role: str | None
+    # Dimension columns the join keys match.
+    keys: frozenset[str] = frozenset()
+
+
+@dataclass
+class FilterGraph:
+    """The links and columns SQL builds use to filter a metric's parents."""
+
+    # Parent name -> every node upstream of it.
+    upstream: dict[str, set[str]] = field(default_factory=dict)
+    # Node name -> its join links.
+    links: dict[str, set[FilterLink]] = field(default_factory=dict)
+    # Node name -> referenced (dimension, column) pairs.
+    references: dict[str, set[tuple[str, str]]] = field(default_factory=dict)
+
+
+def can_filter_on(attribute: str, parents: set[str], graph: FilterGraph) -> bool:
+    """
+    Whether SQL builds can filter every parent on a `node.column[role]`.
+
+    For each parent, in the order resolve_dimensions tries them:
+    1. The parent's own column, without a role.
+    2. Join links from the parent to the node, then between dimension
+       nodes, never returning to a node already on the path. Without a role
+       any path counts. With a role, the roles along one path, joined by
+       `->`, must equal it; links without a role are skipped. Otherwise
+       SQL builds use another path.
+    3. A parent column that references the attribute, under any role.
+    4. A join link on a node upstream of the parent whose keys include the
+       attribute, without a role. SQL builds then filter on the key column
+       upstream.
+    """
+    dim_part, role = split_dimension_ref(attribute)
+    node, column = dim_part.rsplit(SEPARATOR, 1)
+    return bool(parents) and all(
+        _parent_can_filter(parent, node, column, role, graph) for parent in parents
+    )
+
+
+def _parent_can_filter(
+    parent: str,
+    node: str,
+    column: str,
+    role: str | None,
+    graph: FilterGraph,
+) -> bool:
+    """can_filter_on for one parent."""
+    if node == parent and role is None:
+        return True
+    if _join_reaches(parent, node, graph.links):
+        return role is None or _join_spells_role(
+            parent,
+            node,
+            role.split("->"),
+            graph.links,
+        )
+    if (node, column) in graph.references.get(parent, set()):
+        return True
+    return role is None and any(
+        link.dimension == node and f"{node}{SEPARATOR}{column}" in link.keys
+        for name in graph.upstream.get(parent, set())
+        for link in graph.links.get(name, set())
+    )
+
+
+def _join_reaches(
+    start: str,
+    target: str,
+    links: dict[str, set[FilterLink]],
+) -> bool:
+    """Whether join links lead from `start` to `target`."""
+    seen: set[str] = set()
+    stack = [start]
+    while stack:
+        for link in links.get(stack.pop(), set()):
+            if link.dimension == target:
+                return True
+            if link.dimension not in seen:
+                seen.add(link.dimension)
+                stack.append(link.dimension)
+    return False
+
+
+def _join_spells_role(
+    start: str,
+    target: str,
+    segments: list[str],
+    links: dict[str, set[FilterLink]],
+) -> bool:
+    """Whether a path of join links to `target` has these roles in order."""
+    # State: (node, segments matched, nodes on the path).
+    frontier: set[tuple[str, int, frozenset[str]]] = {(start, 0, frozenset())}
+    while frontier:
+        current, frontier = frontier, set()
+        for name, matched, visited in current:
+            for link in links.get(name, set()):
+                if link.dimension in visited:
+                    # SQL builds skip a node already on the path.
+                    continue
+                if link.role is None:
+                    step = matched
+                elif matched < len(segments) and link.role == segments[matched]:
+                    step = matched + 1
+                else:
+                    continue
+                if link.dimension == target and step == len(segments):
+                    return True
+                frontier.add((link.dimension, step, visited | {link.dimension}))
+    return False
+
+
+def link_keys(
+    node: str,
+    dimension: str,
+    join_sql: str | None,
+    join_type: JoinType | None,
+) -> frozenset[str]:
+    """Dimension columns a link's join keys match, as `node.column`."""
+    mapping = DimensionLink.build_foreign_key_mapping(
+        join_sql,  # type: ignore
+        join_type or JoinType.LEFT,
+        node,
+        dimension,
+    )
+    return frozenset(column.identifier() for column in mapping)
+
+
+async def load_filter_graph(
+    session: AsyncSession,
+    upstream: dict[str, set[str]],
+    targets: set[str],
+    declared: FilterGraph | None = None,
+) -> FilterGraph:
+    """
+    Load what can_filter_on reads for these parents.
+
+    `upstream` maps each parent to every node upstream of it, and `targets`
+    are the attribute nodes. Saved links and references are merged with
+    `declared`, which holds links not saved yet. Join keys are read only
+    for upstream links to a target. Links load one query per hop.
+    """
+    declared = declared or FilterGraph()
+    graph = FilterGraph(
+        upstream=upstream,
+        links={name: set(links) for name, links in declared.links.items()},
+        references={name: set(refs) for name, refs in declared.references.items()},
+    )
+    parents = set(upstream)
+    ancestors = {name for names in upstream.values() for name in names}
+    for name, refs in (await column_references(session, parents)).items():
+        graph.references.setdefault(name, set()).update(refs)
+
+    loaded: set[str] = set()
+    walked: set[str] = set()
+    frontier = parents
+    # Upstream links load but are not walked.
+    unloaded = parents | ancestors
+    while frontier:
+        if unloaded:
+            saved = await _saved_filter_links(session, unloaded, ancestors, targets)
+            for name, links in saved.items():
+                graph.links.setdefault(name, set()).update(links)
+            loaded |= unloaded
+        walked |= frontier
+        frontier = {
+            link.dimension for name in frontier for link in graph.links.get(name, set())
+        } - walked
+        unloaded = frontier - loaded
+    return graph
+
+
+async def column_references(
+    session: AsyncSession,
+    node_names: set[str],
+) -> dict[str, set[tuple[str, str]]]:
+    """(dimension node, column) pairs that each node's current columns reference."""
+    dimension = aliased(Node)
+    rows = await session.execute(
+        select(Node.name, dimension.name, Column.name, Column.dimension_column)
+        .join(
+            NodeRevision,
+            and_(
+                NodeRevision.node_id == Node.id,
+                NodeRevision.version == Node.current_version,
+            ),
+        )
+        .join(Column, Column.node_revision_id == NodeRevision.id)
+        .join(dimension, dimension.id == Column.dimension_id)
+        .where(Node.name.in_(node_names)),
+    )
+    references: dict[str, set[tuple[str, str]]] = {}
+    for node_name, dimension_name, column_name, dimension_column in rows:
+        references.setdefault(node_name, set()).add(
+            (dimension_name, strip_role_suffix(dimension_column or column_name)),
+        )
+    return references
+
+
+async def _saved_filter_links(
+    session: AsyncSession,
+    node_names: set[str],
+    ancestors: set[str],
+    targets: set[str],
+) -> dict[str, set[FilterLink]]:
+    """Each node's current join links."""
+    dimension = aliased(Node)
+    rows = await session.execute(
+        select(
+            Node.name,
+            dimension.name,
+            DimensionLink.role,
+            DimensionLink.join_sql,
+            DimensionLink.join_type,
+        )
+        .join(
+            NodeRevision,
+            and_(
+                NodeRevision.node_id == Node.id,
+                NodeRevision.version == Node.current_version,
+            ),
+        )
+        .join(DimensionLink, DimensionLink.node_revision_id == NodeRevision.id)
+        .join(dimension, dimension.id == DimensionLink.dimension_id)
+        .where(Node.name.in_(node_names)),
+    )
+    links: dict[str, set[FilterLink]] = {}
+    for node_name, dimension_name, role, join_sql, join_type in rows:
+        keys: frozenset[str] = frozenset()
+        if node_name in ancestors and dimension_name in targets:
+            keys = link_keys(node_name, dimension_name, join_sql, join_type)
+        links.setdefault(node_name, set()).add(
+            FilterLink(dimension_name, role or None, keys),
+        )
+    return links
 
 
 async def resolve_downstream_references(
@@ -899,14 +1190,26 @@ async def query_event_stream(
     timeout: float = 0.0,
     stream_delay: float = 0.5,
     retry_timeout: int = 5000,
+    warnings: list[DJWarning] | None = None,
 ):
     """
-    A generator of events from a query submitted to the query service
+    A generator of events from a query submitted to the query service.
+
+    Build warnings, if any, come first as a `warnings` event.
     """
     starting_time = time.time()
     # Start with query and query_next as the initial state of the query
     query_prev = query_next = query
     query_id = query_prev.id
+    if warnings:
+        yield {
+            "event": "warnings",
+            "id": uuid.uuid4(),
+            "retry": retry_timeout,
+            "data": json.dumps(
+                [warning.model_dump(mode="json") for warning in warnings],
+            ),
+        }
     _logger.info("sending initial event to the client for query %s", query_id)
     yield {
         "event": "message",

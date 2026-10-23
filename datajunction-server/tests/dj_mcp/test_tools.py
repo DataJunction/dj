@@ -74,10 +74,15 @@ def _stub_dataset(rows: list[list[Any]], col_names: list[str]) -> Any:
     return result
 
 
+async def _no_requirements(session, metrics, filters):
+    return list(filters or []), []
+
+
 @pytest_asyncio.fixture
 async def bound_session_for_tools(monkeypatch):
     """Bind a contextvar session value (any object — tools we test here
     only call internals we stub out)."""
+    monkeypatch.setattr(tools, "apply_metric_filter_requirements", _no_requirements)
     token = context._session_var.set(MagicMock())  # type: ignore[arg-type]
     try:
         yield
@@ -96,6 +101,7 @@ async def test_get_metric_data_happy_path(
     fake_result = _stub_dataset(rows, ["date", "amount"])
 
     fake_generated = MagicMock()
+    fake_generated.warnings = []
     fake_generated.scan_estimate = ScanEstimate(
         total_bytes=42_000_000,
         sources=[],
@@ -822,6 +828,7 @@ async def test_get_metric_data_surfaces_query_errors(
     fake_result.errors = ["boom", "another"]
     fake_generated = MagicMock()
     fake_generated.scan_estimate = None
+    fake_generated.warnings = []
 
     async def fake_execute(*args, **kwargs):
         return fake_result, fake_generated
@@ -1467,6 +1474,7 @@ async def test_execute_metrics_query_prefers_bound_provider(monkeypatch) -> None
 
     fake_generated = MagicMock(spec=GeneratedSQL)
     fake_generated.scan_estimate = None
+    fake_generated.warnings = []
     fake_generated.sql = "SELECT 1"
     fake_generated.columns = []
 
@@ -1481,6 +1489,7 @@ async def test_execute_metrics_query_prefers_bound_provider(monkeypatch) -> None
     )
     monkeypatch.setattr(tools, "build_metrics_sql", fake_build)
     monkeypatch.setattr(tools, "get_mcp_session", lambda: MagicMock())
+    monkeypatch.setattr(tools, "apply_metric_filter_requirements", _no_requirements)
 
     provider_client = MagicMock()
 
@@ -1526,6 +1535,7 @@ async def test_execute_metrics_query_falls_back_when_no_provider(monkeypatch) ->
 
     fake_generated = MagicMock(spec=GeneratedSQL)
     fake_generated.scan_estimate = None
+    fake_generated.warnings = []
     fake_generated.sql = "SELECT 1"
     fake_generated.columns = []
 
@@ -1540,6 +1550,7 @@ async def test_execute_metrics_query_falls_back_when_no_provider(monkeypatch) ->
     )
     monkeypatch.setattr(tools, "build_metrics_sql", fake_build)
     monkeypatch.setattr(tools, "get_mcp_session", lambda: MagicMock())
+    monkeypatch.setattr(tools, "apply_metric_filter_requirements", _no_requirements)
 
     fallback_client = MagicMock()
 
