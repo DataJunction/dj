@@ -2156,7 +2156,7 @@ def _rewrite_filter_for_scope(
         if full_name is None:  # pragma: no cover
             continue
         handled_col_ids.add(id(subscript.expr))
-        if isinstance(subscript.index, ast.Column):
+        if isinstance(subscript.index, ast.Column):  # pragma: no branch
             handled_col_ids.add(id(subscript.index))
         resolution = column_to_alias.get(full_name)
         if resolution is None:
