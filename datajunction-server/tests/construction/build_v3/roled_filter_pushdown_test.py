@@ -9,6 +9,7 @@ under another role (`measure`), and only the inner column was replaced, leaving
 """
 
 from types import SimpleNamespace
+from typing import Any, cast
 
 from datajunction_server.construction.build_v3.cte import (
     _populate_scope_column_aliases,
@@ -27,14 +28,14 @@ def scope_for_source_linked_with_role(role: str | None):
         type=NodeType.SOURCE,
         current=SimpleNamespace(dimension_links=[link], columns=[]),
     )
-    table = parse("SELECT 1 FROM ns.impressions AS impressions").select.from_.relations[
-        0
-    ].primary
+    from_ = parse("SELECT 1 FROM ns.impressions AS impressions").select.from_
+    assert from_ is not None
+    table = from_.relations[0].primary
     scope: dict[str, tuple[str, str]] = {}
     _populate_scope_column_aliases(
         table,
         scope,
-        SimpleNamespace(nodes={"ns.impressions": node}),
+        cast(Any, SimpleNamespace(nodes={"ns.impressions": node})),
         {},
         {},
     )
