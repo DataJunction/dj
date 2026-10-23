@@ -27,7 +27,6 @@ from tests.property.known_issues import (
 )
 from tests.property.scenario import (
     METRIC_BY_DEFINITION,
-    SIMPLE_METRICS,
     FilterAtom,
     OrFilter,
     Scenario,
@@ -119,7 +118,7 @@ async def test_base_metric_matches_reference_query(
 
 @pytest.mark.asyncio
 @settings(max_examples=examples(20))
-@given(scenario=scenarios(metric_pool=SIMPLE_METRICS))
+@given(scenario=scenarios())
 async def test_derived_metric_matches_reference_query(
     module__client_with_roads: AsyncClient,
     duckdb_conn: duckdb.DuckDBPyConnection,
@@ -183,8 +182,7 @@ async def test_known_issue_or_filter_combined_with_another_filter(
 
 
 @pytest.mark.asyncio
-@PRINTER_DROPS_PARENTHESES.xfail()
-async def test_known_issue_derived_metric_over_compound_metric(
+async def test_derived_metric_over_compound_metric(
     module__client_with_roads: AsyncClient,
     duckdb_conn: duckdb.DuckDBPyConnection,
 ):

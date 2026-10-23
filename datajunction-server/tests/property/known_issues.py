@@ -39,7 +39,7 @@ class KnownIssue:
 PRINTER_DROPS_PARENTHESES = KnownIssue(
     "SQL assembled from AST nodes built in code prints without the parentheses "
     "its nesting needs: sample variance/stddev/correlation combiners, combined "
-    "filters, derived metrics over compound metrics, and `-(-x)` as `--x`",
+    "filters, and `-(-x)` as `--x`",
 )
 COVARIANCE_COUNTS_HALF_NULL_ROWS = KnownIssue(
     "COVAR_POP/COVAR_SAMP/CORR decompositions count rows where only one of the "
