@@ -12997,3 +12997,510 @@ async def test_copying_a_namespace_carries_its_governance(
     assert {v["check"]: v["verdict"] for v in data["checks"]} == {
         "demo.described": "failed",
     }
+
+
+@pytest.mark.xdist_group(name="deployments")
+class TestMetricTypedByLinkedDimension:
+    """
+    A metric whose output type comes only from a dimension attribute reached
+    through a dimension link, deployed in the same push as the links.
+    """
+
+    NAMESPACE = "dim_typed_metric"
+
+    @staticmethod
+    def _nodes(second_hop_query: str = "SELECT MAX(${prefix}acct_start.elapsed_days)"):
+        return [
+            SourceSpec(
+                name="events_src",
+                catalog="default",
+                schema="roads",
+                table="events",
+                columns=[
+                    ColumnSpec(name="event_id", type="int"),
+                    ColumnSpec(name="acct_id", type="int"),
+                ],
+                owners=["dj"],
+            ),
+            SourceSpec(
+                name="acct_src",
+                catalog="default",
+                schema="roads",
+                table="accounts",
+                columns=[
+                    ColumnSpec(name="acct_id", type="int"),
+                    ColumnSpec(name="start_id", type="int"),
+                    ColumnSpec(name="tenure_weeks", type="int"),
+                ],
+                owners=["dj"],
+            ),
+            SourceSpec(
+                name="start_src",
+                catalog="default",
+                schema="roads",
+                table="starts",
+                columns=[
+                    ColumnSpec(name="start_id", type="int"),
+                    ColumnSpec(name="elapsed_days", type="int"),
+                ],
+                owners=["dj"],
+            ),
+            DimensionSpec(
+                name="acct_start",
+                query="SELECT start_id, elapsed_days FROM ${prefix}start_src",
+                primary_key=["start_id"],
+                owners=["dj"],
+            ),
+            DimensionSpec(
+                name="acct_dim",
+                query=("SELECT acct_id, start_id, tenure_weeks FROM ${prefix}acct_src"),
+                primary_key=["acct_id"],
+                dimension_links=[
+                    DimensionJoinLinkSpec(
+                        dimension_node="${prefix}acct_start",
+                        join_type="left",
+                        join_on=(
+                            "${prefix}acct_dim.start_id = ${prefix}acct_start.start_id"
+                        ),
+                    ),
+                ],
+                owners=["dj"],
+            ),
+            TransformSpec(
+                name="event_facts",
+                query="SELECT event_id, acct_id FROM ${prefix}events_src",
+                dimension_links=[
+                    DimensionJoinLinkSpec(
+                        dimension_node="${prefix}acct_dim",
+                        join_type="left",
+                        join_on=(
+                            "${prefix}event_facts.acct_id = ${prefix}acct_dim.acct_id"
+                        ),
+                    ),
+                ],
+                owners=["dj"],
+            ),
+            MetricSpec(
+                name="max_tenure",
+                query="SELECT MAX(${prefix}acct_dim.tenure_weeks) FROM ${prefix}event_facts",
+                owners=["dj"],
+            ),
+            MetricSpec(
+                name="max_elapsed",
+                query=(
+                    "SELECT MAX(${prefix}acct_start.elapsed_days) "
+                    "FROM ${prefix}event_facts"
+                ),
+                owners=["dj"],
+            ),
+            MetricSpec(
+                name="double_tenure",
+                query="SELECT ${prefix}max_tenure * 2",
+                owners=["dj"],
+            ),
+        ]
+
+    async def _metric_states(self, client):
+        states = {}
+        for name in ("max_tenure", "max_elapsed", "double_tenure"):
+            response = await client.get(f"/nodes/{self.NAMESPACE}.{name}/")
+            assert response.status_code == 200, response.json()
+            node = response.json()
+            states[name] = (node["status"], node["columns"][0]["type"])
+        return states
+
+    VALID = {
+        "max_tenure": ("valid", "int"),
+        "max_elapsed": ("valid", "int"),
+        "double_tenure": ("valid", "int"),
+    }
+
+    @pytest.mark.asyncio
+    async def test_metrics_typed_by_dimension_attribute_are_valid(self, client):
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=self.NAMESPACE, nodes=self._nodes()),
+        )
+        assert data["status"] == "success", data["results"]
+        statuses = {
+            r["name"]: r["status"]
+            for r in data["results"]
+            if r["deploy_type"] == "node"
+        }
+        assert statuses == {
+            f"{self.NAMESPACE}.{name}": "success"
+            for name in (
+                "events_src",
+                "acct_src",
+                "start_src",
+                "acct_start",
+                "acct_dim",
+                "event_facts",
+                "max_tenure",
+                "max_elapsed",
+                "double_tenure",
+            )
+        }
+        assert await self._metric_states(client) == self.VALID
+
+        # Revalidating a stored metric resolves the attribute the same way.
+        for name in ("max_tenure", "max_elapsed"):
+            response = await client.post(f"/nodes/{self.NAMESPACE}.{name}/validate/")
+            assert response.status_code == 200, response.json()
+            assert response.json() == {
+                "status": "valid",
+                "errors": [],
+                "scan_warnings": None,
+            }
+        assert await self._metric_states(client) == self.VALID
+
+    @pytest.mark.asyncio
+    async def test_redeploy_and_upstream_change_keep_metrics_valid(self, client):
+        namespace = "dim_typed_metric_redeploy"
+        first = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=self._nodes()),
+        )
+        assert first["status"] == "success", first["results"]
+
+        # Nothing changed: every node is a noop.
+        second = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=self._nodes()),
+        )
+        assert {
+            r["name"]: (r["status"], r["operation"])
+            for r in second["results"]
+            if r["deploy_type"] == "node"
+        } == {
+            f"{namespace}.{name}": ("skipped", "noop")
+            for name in (
+                "events_src",
+                "acct_src",
+                "start_src",
+                "acct_dim",
+                "acct_start",
+                "event_facts",
+                "max_tenure",
+                "max_elapsed",
+                "double_tenure",
+            )
+        }
+
+        # A changed metric redeploys against links that already exist, and a
+        # changed fact revalidates the metrics below it.
+        nodes = self._nodes()
+        for node in nodes:
+            if node.name == "max_elapsed":
+                node.query = (
+                    "SELECT MAX(${prefix}acct_start.elapsed_days) + 1 "
+                    "FROM ${prefix}event_facts"
+                )
+            if node.name == "event_facts":
+                node.query = (
+                    "SELECT event_id, acct_id FROM ${prefix}events_src "
+                    "WHERE event_id > 0"
+                )
+        third = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert third["status"] == "success", third["results"]
+        assert {
+            r["name"]: r["status"]
+            for r in third["results"]
+            if r["deploy_type"] == "node" and r["status"] != "skipped"
+        } == {
+            f"{namespace}.event_facts": "success",
+            f"{namespace}.max_elapsed": "success",
+        }
+        states = {}
+        for name in ("max_tenure", "max_elapsed", "double_tenure"):
+            node = (await client.get(f"/nodes/{namespace}.{name}/")).json()
+            states[name] = (node["status"], node["columns"][0]["type"])
+        assert states == self.VALID
+
+    @pytest.mark.asyncio
+    async def test_dry_run_predicts_metrics_valid(self, client):
+        namespace = "dim_typed_metric_dry_run"
+        first = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=self._nodes()),
+        )
+        assert first["status"] == "success", first["results"]
+
+        nodes = self._nodes()
+        for node in nodes:
+            if node.name == "event_facts":
+                node.query = (
+                    "SELECT event_id, acct_id FROM ${prefix}events_src "
+                    "WHERE event_id > 0"
+                )
+        data = await impact_and_poll(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert {
+            d["name"]: d["predicted_status"] for d in data["downstream_impacts"]
+        } == {
+            f"{namespace}.max_tenure": "valid",
+            f"{namespace}.max_elapsed": "valid",
+            f"{namespace}.double_tenure": "valid",
+        }
+
+    @pytest.mark.asyncio
+    async def test_metric_on_missing_dimension_attribute_stays_invalid(self, client):
+        namespace = "dim_typed_metric_missing"
+        nodes = self._nodes()
+        for node in nodes:
+            if node.name == "max_elapsed":
+                node.query = (
+                    "SELECT MAX(${prefix}acct_start.no_such_column) "
+                    "FROM ${prefix}event_facts"
+                )
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        invalid = {
+            r["name"]: r["message"] for r in data["results"] if r["status"] == "invalid"
+        }
+        assert invalid == {
+            f"{namespace}.max_elapsed": (
+                "Created metric (v1.0)\n[invalid] Unable to infer type for column "
+                f"`{namespace.replace('.', '_DOT_')}_DOT_max_elapsed`. Unresolved "
+                f"column reference(s): {namespace}.acct_start.no_such_column."
+            ),
+        }
+
+    @classmethod
+    def _without_links(cls, *node_names, bump_metrics=False):
+        """The standard nodes minus the links on the named nodes. `bump_metrics`
+        edits each metric query so a redeploy validates it again."""
+        nodes = cls._nodes()
+        for node in nodes:
+            if node.name in node_names:
+                node.dimension_links = []
+            if bump_metrics and node.name in ("max_tenure", "max_elapsed"):
+                node.query = node.query.replace("SELECT MAX(", "SELECT 0 + MAX(")
+        return nodes
+
+    @staticmethod
+    def _unlinked_errors(namespace):
+        """Deployment message per metric when nothing links the fact to a dimension."""
+        return {
+            f"{namespace}.max_tenure": (
+                "Created metric (v1.0)\n[invalid] Unable to infer type for column "
+                f"`{namespace}_DOT_max_tenure`. Unresolved column reference(s): "
+                f"{namespace}.acct_dim.tenure_weeks."
+            ),
+            f"{namespace}.max_elapsed": (
+                "Created metric (v1.0)\n[invalid] Unable to infer type for column "
+                f"`{namespace}_DOT_max_elapsed`. Unresolved column reference(s): "
+                f"{namespace}.acct_start.elapsed_days."
+            ),
+            f"{namespace}.double_tenure": (
+                "Created metric (v1.0)\n[invalid] References invalid parent "
+                f"node(s) {namespace}.max_tenure"
+            ),
+        }
+
+    async def _validate_v2(self, client, namespace, name):
+        response = await client.post(f"/nodes/{namespace}.{name}/validate/")
+        assert response.status_code == 200, response.json()
+        return response.json()
+
+    @pytest.mark.asyncio
+    async def test_metric_on_unlinked_dimension_is_invalid(self, client):
+        namespace = "dim_typed_metric_unlinked"
+        nodes = self._without_links("event_facts")
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert {
+            r["name"]: r["message"] for r in data["results"] if r["status"] == "invalid"
+        } == self._unlinked_errors(namespace)
+
+        # Revalidating a stored metric agrees with the deployment.
+        assert await self._validate_v2(client, namespace, "max_tenure") == {
+            "status": "invalid",
+            "errors": [
+                {
+                    "type": "TYPE_INFERENCE",
+                    "message": (
+                        f"Unable to infer type for column `{namespace}_DOT_max_tenure`. "
+                        f"Unresolved column reference(s): {namespace}.acct_dim.tenure_weeks."
+                    ),
+                },
+            ],
+            "scan_warnings": None,
+        }
+
+        # So does the dry run of a fresh namespace.
+        dry_run_namespace = "dim_typed_metric_unlinked_dry_run"
+        dry_run = await impact_and_poll(
+            client,
+            DeploymentSpec(namespace=dry_run_namespace, nodes=nodes),
+        )
+        assert {
+            r["name"]: r["message"]
+            for r in dry_run["results"]
+            if r["status"] == "invalid"
+        } == self._unlinked_errors(dry_run_namespace)
+
+    @pytest.mark.asyncio
+    async def test_dimension_linked_only_toward_the_fact_is_unreachable(self, client):
+        # `acct_start` links to `acct_dim`, so the fact reaches `acct_dim` but
+        # nothing leads from the fact to `acct_start`.
+        namespace = "dim_typed_metric_wrong_direction"
+        nodes = self._nodes()
+        for node in nodes:
+            if node.name == "acct_dim":
+                node.dimension_links = []
+            if node.name == "acct_start":
+                node.dimension_links = [
+                    DimensionJoinLinkSpec(
+                        dimension_node="${prefix}acct_dim",
+                        join_type="left",
+                        join_on=(
+                            "${prefix}acct_start.start_id = ${prefix}acct_dim.start_id"
+                        ),
+                    ),
+                ]
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert {
+            r["name"]: r["message"] for r in data["results"] if r["status"] == "invalid"
+        } == {
+            f"{namespace}.max_elapsed": (
+                "Created metric (v1.0)\n[invalid] Unable to infer type for column "
+                f"`{namespace}_DOT_max_elapsed`. Unresolved column reference(s): "
+                f"{namespace}.acct_start.elapsed_days."
+            ),
+        }
+        assert await self._metric_states_in(client, namespace) == {
+            "max_tenure": ("valid", "int"),
+            "max_elapsed": ("invalid", "unknown"),
+            "double_tenure": ("valid", "int"),
+        }
+        assert (await self._validate_v2(client, namespace, "max_tenure"))[
+            "status"
+        ] == "valid"
+        assert (await self._validate_v2(client, namespace, "max_elapsed"))[
+            "status"
+        ] == "invalid"
+
+    @pytest.mark.asyncio
+    async def test_link_added_on_top_of_saved_links_makes_metrics_valid(self, client):
+        # A link declared in this push and a saved link, in either order along
+        # the path from the fact to the dimension.
+        for name, unsaved in (
+            ("dim_typed_metric_new_first_hop", "event_facts"),
+            ("dim_typed_metric_new_second_hop", "acct_dim"),
+        ):
+            first = await deploy_and_wait(
+                client,
+                DeploymentSpec(namespace=name, nodes=self._without_links(unsaved)),
+            )
+            assert first["status"] == "success", first["results"]
+
+            second = await deploy_and_wait(
+                client,
+                DeploymentSpec(
+                    namespace=name,
+                    nodes=self._without_links(bump_metrics=True),
+                ),
+            )
+            assert {
+                r["name"]: r["status"]
+                for r in second["results"]
+                if r["status"] == "invalid"
+            } == {}
+            assert await self._metric_states_in(client, name) == self.VALID
+
+    @pytest.mark.asyncio
+    async def test_removing_a_link_invalidates_metrics_in_dry_run_and_deploy(
+        self,
+        client,
+    ):
+        namespace = "dim_typed_metric_link_removed"
+        first = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=self._nodes()),
+        )
+        assert first["status"] == "success", first["results"]
+        unlinked = self._without_links("event_facts")
+
+        dry_run = await impact_and_poll(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=unlinked),
+        )
+        assert {
+            d["name"]: d["predicted_status"] for d in dry_run["downstream_impacts"]
+        } == {
+            f"{namespace}.max_tenure": "invalid",
+            f"{namespace}.max_elapsed": "invalid",
+            f"{namespace}.double_tenure": "invalid",
+        }
+        assert await self._metric_states_in(client, namespace) == self.VALID
+
+        await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=unlinked),
+        )
+        assert await self._metric_states_in(client, namespace) == {
+            "max_tenure": ("invalid", "int"),
+            "max_elapsed": ("invalid", "int"),
+            "double_tenure": ("invalid", "int"),
+        }
+
+    @pytest.mark.asyncio
+    async def test_upstream_change_keeps_unlinked_metrics_invalid(self, client):
+        namespace = "dim_typed_metric_unlinked_upstream"
+        unlinked = self._without_links("event_facts")
+        first = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=unlinked),
+        )
+        assert {
+            r["name"]: r["status"] for r in first["results"] if r["status"] == "invalid"
+        } == {
+            f"{namespace}.max_tenure": "invalid",
+            f"{namespace}.max_elapsed": "invalid",
+            f"{namespace}.double_tenure": "invalid",
+        }
+
+        for node in unlinked:
+            if node.name == "event_facts":
+                node.query = (
+                    "SELECT event_id, acct_id FROM ${prefix}events_src "
+                    "WHERE event_id > 0"
+                )
+        dry_run = await impact_and_poll(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=unlinked),
+        )
+        # Nothing is predicted to recover.
+        assert dry_run["downstream_impacts"] == []
+
+        await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=unlinked),
+        )
+        assert await self._metric_states_in(client, namespace) == {
+            "max_tenure": ("invalid", "unknown"),
+            "max_elapsed": ("invalid", "unknown"),
+            "double_tenure": ("invalid", "unknown"),
+        }
+
+    async def _metric_states_in(self, client, namespace):
+        states = {}
+        for name in ("max_tenure", "max_elapsed", "double_tenure"):
+            response = await client.get(f"/nodes/{namespace}.{name}/")
+            assert response.status_code == 200, response.json()
+            node = response.json()
+            states[name] = (node["status"], node["columns"][0]["type"])
+        return states
