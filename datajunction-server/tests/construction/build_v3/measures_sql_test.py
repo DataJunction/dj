@@ -8282,6 +8282,76 @@ class TestWrapperCTEAbsorption:
         )
 
     @pytest.mark.asyncio
+    async def test_join_hanging_off_the_outer_side_is_not_absorbed(
+        self,
+        client_with_build_v3,
+        setup_right_outer_dim,
+    ):
+        """A dim reached through the RIGHT-joined dim can't move into the
+        wrapper, which has no access to that alias; its filter stays outer."""
+        r = await client_with_build_v3.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.campaign_plan",
+                "description": "Campaign plan",
+                "query": "SELECT 'a' AS campaign, 1 AS plan_id",
+                "mode": "published",
+                "primary_key": ["campaign"],
+            },
+        )
+        assert r.status_code in (200, 201), r.text
+        r = await client_with_build_v3.post(
+            "/nodes/v3.allocation/link/",
+            json={
+                "dimension_node": "v3.campaign_plan",
+                "join_type": "left",
+                "join_on": "v3.allocation.campaign = v3.campaign_plan.campaign",
+            },
+        )
+        assert r.status_code in (200, 201), r.text
+
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.allocation.campaign"],
+                "filters": ["v3.campaign_plan.plan_id = 1"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH
+            v3_allocation AS (
+                SELECT customer_id, campaign, allocated_date
+                FROM default.v3.allocations
+            ),
+            v3_campaign_plan AS (
+                SELECT 'a' AS campaign, 1 AS plan_id
+            ),
+            v3_order_details AS (
+                SELECT
+                    o.customer_id,
+                    o.order_date,
+                    oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT t2.campaign, SUM(t1.line_total) line_total_sum_HASH
+            FROM v3_order_details t1
+            RIGHT OUTER JOIN v3_allocation t2
+                ON t1.customer_id = t2.customer_id
+                AND t1.order_date = t2.allocated_date
+            LEFT OUTER JOIN v3_campaign_plan t3 ON t2.campaign = t3.campaign
+            WHERE t3.plan_id = 1
+            GROUP BY t2.campaign
+            """,
+            normalize_aliases=True,
+        )
+
+    @pytest.mark.asyncio
     async def test_no_right_join_no_absorption(
         self,
         client_with_build_v3,

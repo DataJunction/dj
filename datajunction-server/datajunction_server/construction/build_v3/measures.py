@@ -768,6 +768,15 @@ def _absorb_filtered_joins_for_outer_safety(
             continue
         side_alias = _get_relation_side_id(jn.right)
         if side_alias and side_alias in atoms_by_alias:
+            # The wrapper holds only the parent and absorbed joins, so a join
+            # whose ON reaches any other alias must stay in the outer query.
+            on_aliases = (
+                {column_table_name(c) for c in jn.criteria.on.find_all(ast.Column)}
+                if jn.criteria and jn.criteria.on
+                else set()
+            )
+            if on_aliases - {main_alias, side_alias} - absorbed_aliases:
+                continue
             to_absorb_idx.append(i)
             absorbed_aliases.add(side_alias)
 

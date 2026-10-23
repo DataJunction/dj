@@ -2054,8 +2054,13 @@ def _populate_scope_column_aliases(
                 for dim_pk_fqn, fk_fqn in (link.foreign_keys_reversed or {}).items():
                     if not fk_fqn:  # pragma: no cover
                         continue
+                    resolution = (alias_name, get_short_name(fk_fqn))
                     if dim_pk_fqn not in col_alias:  # pragma: no branch
-                        col_alias[dim_pk_fqn] = (alias_name, get_short_name(fk_fqn))
+                        col_alias[dim_pk_fqn] = resolution
+                    # A role-qualified filter resolves only through a link with
+                    # that role, so register the link under its role as well.
+                    if link.role:
+                        col_alias.setdefault(f"{dim_pk_fqn}[{link.role}]", resolution)
             # If the target IS itself a dimension node, register
             # entries for its own primary-key columns pointing at
             # this alias — without this, filters on the dim's own
@@ -2137,8 +2142,31 @@ def _rewrite_filter_for_scope(
                 return None
     if not column_to_alias:
         return None
-    rewrites: list[tuple[ast.Column, ast.Column]] = []
+    rewrites: list[tuple[ast.Expression, ast.Column]] = []
+    # Role-qualified refs are ``Subscript(Column(dim.col), role)``.  They resolve
+    # only through a link with that role, and the whole subscript is replaced so
+    # no ``[role]`` suffix is left in the SQL.  A role the scope can't resolve
+    # means this scope can't take the filter: pushing the rest would leave the
+    # unresolved ref behind.
+    handled_col_ids: set[int] = set()
+    for subscript in filter_ast.find_all(ast.Subscript):
+        if not isinstance(subscript.expr, ast.Column):  # pragma: no cover
+            continue
+        full_name = dimension_ref_of_expression(subscript)
+        if full_name is None:  # pragma: no cover
+            continue
+        handled_col_ids.add(id(subscript.expr))
+        if isinstance(subscript.index, ast.Column):
+            handled_col_ids.add(id(subscript.index))
+        resolution = column_to_alias.get(full_name)
+        if resolution is None:
+            return None
+        target_alias, emit_col = resolution
+        new_name = ast.Name(emit_col, namespace=ast.Name(target_alias))
+        rewrites.append((subscript, ast.Column(name=new_name)))
     for col in cols:
+        if id(col) in handled_col_ids:
+            continue
         full = get_column_full_name(col)
         if not full:  # pragma: no cover
             continue
@@ -2150,9 +2178,9 @@ def _rewrite_filter_for_scope(
         rewrites.append((col, ast.Column(name=new_name)))
     if not rewrites:  # pragma: no cover
         return None
-    for old_col, new_col in rewrites:
-        if old_col.parent is not None:  # pragma: no branch
-            old_col.parent.replace(old_col, new_col, copy=False)
+    for old_expr, new_col in rewrites:
+        if old_expr.parent is not None:  # pragma: no branch
+            old_expr.parent.replace(old_expr, new_col, copy=False)
     return filter_ast
 
 
