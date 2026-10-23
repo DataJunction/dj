@@ -3,6 +3,7 @@ Tests for ``datajunction_server.sql.decompose``.
 """
 
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -35,6 +36,7 @@ from datajunction_server.sql.decompose import (
     decomposes_family,
     get_decomposition,
     make_func,
+    parenthesize_if_needed,
     is_duplication_invariant,
     is_metric_duplication_sensitive,
     safe_denominator,
@@ -3340,3 +3342,30 @@ async def test_percentile_without_a_family_still_does_not_decompose(
     components, _ = await MetricComponentExtractor(metric_rev.id).extract(session)
 
     assert components == []
+
+
+@pytest.mark.parametrize(
+    "outer, inner, expected",
+    [
+        ("x * 2", "a + b", "(a + b) * 2"),
+        ("2 / x", "a / b", "2 / (a / b)"),
+        ("x / 2", "a / b", "a / b / 2"),
+        ("x + 1", "a * b", "a * b + 1"),
+        ("x * 2", "(a + b)", "(a + b) * 2"),
+        ("x * 2", "SUM(a)", "SUM(a) * 2"),
+        ("x * 2", "a & b", "(a & b) * 2"),
+        ("x * 2", "a BETWEEN 1 AND 2", "(a BETWEEN 1 AND 2) * 2"),
+        ("NOT x", "a AND b", "NOT (a AND b)"),
+        ("x", "a + b", "a + b"),
+    ],
+)
+def test_parenthesize_if_needed(outer: str, inner: str, expected: str):
+    """Only a replacement that would regroup gets brackets."""
+    query = parse(f"SELECT {outer}")
+    old = next(query.find_all(ast.Column))
+    replacement = cast(ast.Expression, parse(f"SELECT {inner}").select.projection[0])
+    assert old.parent is not None
+
+    old.parent.replace(from_=old, to=parenthesize_if_needed(replacement, old))
+
+    assert str(query.select.projection[0]) == expected

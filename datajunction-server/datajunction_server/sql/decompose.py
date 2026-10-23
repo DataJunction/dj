@@ -82,6 +82,55 @@ def wrap_divisions_in_nullif(expr: ast.Expression) -> ast.Expression:
     return expr
 
 
+_OPERATOR_PRECEDENCE = {
+    ast.BinaryOpKind.Or: 1,
+    ast.BinaryOpKind.LogicalOr: 1,
+    ast.BinaryOpKind.And: 2,
+    ast.BinaryOpKind.LogicalAnd: 2,
+    ast.BinaryOpKind.Is: 4,
+    ast.BinaryOpKind.Eq: 4,
+    ast.BinaryOpKind.NotEq: 4,
+    ast.BinaryOpKind.NotEquals: 4,
+    ast.BinaryOpKind.Gt: 4,
+    ast.BinaryOpKind.Lt: 4,
+    ast.BinaryOpKind.GtEq: 4,
+    ast.BinaryOpKind.LtEq: 4,
+    ast.BinaryOpKind.NullSafeEq: 4,
+    ast.BinaryOpKind.Plus: 8,
+    ast.BinaryOpKind.Minus: 8,
+    ast.BinaryOpKind.Multiply: 9,
+    ast.BinaryOpKind.Divide: 9,
+    ast.BinaryOpKind.Modulo: 9,
+}
+
+
+def parenthesize_if_needed(
+    replacement: ast.Expression,
+    old: ast.Expression,
+) -> ast.Expression:
+    """
+    Bracket `replacement` if it would regroup once put where `old` is.
+
+    Atoms (columns, literals, function calls) are returned untouched, as are
+    operators that bind tighter than the operator around `old`.
+    """
+    parent = old.parent
+    operators = (ast.BinaryOp, ast.UnaryOp, ast.Predicate)
+    if replacement.parenthesized or not isinstance(replacement, operators):
+        return replacement
+    if not isinstance(parent, operators):
+        return replacement
+    if isinstance(replacement, ast.BinaryOp) and isinstance(parent, ast.BinaryOp):
+        inner = _OPERATOR_PRECEDENCE.get(replacement.op)
+        outer = _OPERATOR_PRECEDENCE.get(parent.op)
+        if inner is not None and outer is not None:
+            if inner > outer or (inner == outer and parent.left is old):
+                return replacement
+    bracketed = replacement.copy()
+    bracketed.parenthesized = True
+    return bracketed
+
+
 # =============================================================================
 # Decomposition Framework
 # =============================================================================
@@ -1329,7 +1378,7 @@ class MetricComponentExtractor:
                     nodes_cache=nodes_cache,
                     parent_map=parent_map,
                     metric_node=parent_node,
-                    _visited=_visited,
+                    _visited=set(_visited),
                     validate_fixed_grain_windows=validate_fixed_grain_windows,
                 )
             else:
@@ -1852,8 +1901,14 @@ class MetricComponentExtractor:
                 _, combiner_expr = base_metrics_data[col_name]
                 if combiner_expr and col.parent:  # pragma: no branch
                     # Parse the combiner expression (wrap in SELECT to make it valid SQL)
-                    combiner_ast = parse(f"SELECT {combiner_expr}").select.projection[0]
-                    col.parent.replace(from_=col, to=combiner_ast)
+                    combiner_ast = cast(
+                        ast.Expression,
+                        parse(f"SELECT {combiner_expr}").select.projection[0],
+                    )
+                    col.parent.replace(
+                        from_=col,
+                        to=parenthesize_if_needed(combiner_ast, col),
+                    )
 
         return query_ast
 
