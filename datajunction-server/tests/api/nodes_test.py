@@ -2640,6 +2640,9 @@ class TestNodeCRUD:
         assert after["version"] != before["version"]
         assert [link["role"] for link in after["dimension_links"]] == ["measure"]
 
+        # The roads client is shared across the module, so leave no linked node behind.
+        await client.delete("/nodes/default.role_kept_events/")
+
     @pytest.mark.asyncio
     async def test_update_and_copy_keep_dimension_link_roles(
         self,
@@ -2691,6 +2694,10 @@ class TestNodeCRUD:
         assert response.status_code in (200, 201), response.text
         copied = (await client.get("/nodes/default.role_copied_events_2/")).json()
         assert [link["role"] for link in copied["dimension_links"]] == ["measure"]
+
+        # The roads client is shared across the module, so leave no linked node behind.
+        await client.delete("/nodes/default.role_copied_events/")
+        await client.delete("/nodes/default.role_copied_events_2/")
 
     @pytest.mark.asyncio
     async def test_refresh_reassigns_owner_to_an_existing_user(
