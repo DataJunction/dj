@@ -594,9 +594,6 @@ class DeploymentOrchestrator:
         # SAVEPOINT, so setup-phase writes roll back too.
         await self._authorize_deployment_plan(deployment_plan)
 
-        with self._timer.phase("governance checks"):
-            await self._run_governance_checks(deployment_plan)
-
         if deployment_plan.is_empty() and not self.deployment_spec.hierarchies:
             # Pre-aggregations still need reconciling on an otherwise-empty
             # deploy: to register specs, or to delete external pre-aggs that were
@@ -619,6 +616,8 @@ class DeploymentOrchestrator:
                 isinstance(spec, CubeSpec) for spec in self.deployment_spec.nodes
             )
             if not needs_preagg_reconcile and not declares_cube:
+                with self._timer.phase("governance checks"):
+                    await self._run_governance_checks(deployment_plan)
                 with self._timer.phase("build semantic fingerprints"):
                     await self._build_and_apply_semantic_fingerprints(
                         deployment_plan,
@@ -633,6 +632,10 @@ class DeploymentOrchestrator:
                 )
 
         downstream = await self._execute_deployment_plan(deployment_plan)
+        # After the apply, so every node's output columns are known. A blocking
+        # failure raises inside the SAVEPOINT, which undoes the deploy.
+        with self._timer.phase("governance checks"):
+            await self._run_governance_checks(deployment_plan)
         return DeploymentExecuteResult(
             results=self.deployed_results,
             downstream_impacts=downstream,
@@ -677,8 +680,8 @@ class DeploymentOrchestrator:
     async def _run_governance_checks(self, plan: DeploymentPlan) -> None:
         """
         Compile the manifest's checks once, then evaluate them against every node
-        the deploy declares or removes. Runs before the plan is applied, so a
-        blocking failure refuses the deploy rather than undoing it.
+        the deploy declares or removes. Runs after the plan is applied, so a
+        blocking failure undoes the deploy.
         """
         if not self.deployment_spec.checks:
             return
@@ -736,6 +739,7 @@ class DeploymentOrchestrator:
                 errors=self.errors,
                 warnings=self.warnings,
             )
+        deployed_columns = await self._load_deployed_columns(entities)
         # Projecting and evaluating is pure CPU for as long as it takes, and on
         # the event loop it stops the worker answering its arbiter, which kills
         # the worker mid-deploy and leaves the deployment with no final status.
@@ -748,6 +752,7 @@ class DeploymentOrchestrator:
             tag_types,
             owner_kinds,
             entities,
+            deployed_columns,
         )
 
         if blocked:
@@ -766,6 +771,7 @@ class DeploymentOrchestrator:
         tag_types: TagTypes,
         owner_kinds: OwnerKinds,
         entities: list[tuple[NodeSpec, DeploymentResult.Operation]],
+        deployed_columns: dict[str, list[ColumnSpec]],
     ) -> list[str]:
         """
         Evaluate every node against the compiled checks, returning the blocking
@@ -806,7 +812,12 @@ class DeploymentOrchestrator:
                 declared=declared.properties,
                 tag_types=tag_types,
                 owner_kinds=owner_kinds,
-                outputs=self._deployed_columns(plan, name, operation),
+                outputs=self._deployed_columns(
+                    plan,
+                    name,
+                    operation,
+                    deployed_columns,
+                ),
             )
             previous_bindings = None
             if wants_previous and previous is not None:
@@ -878,16 +889,50 @@ class DeploymentOrchestrator:
 
         return blocked
 
+    async def _load_deployed_columns(
+        self,
+        entities: list[tuple[NodeSpec, DeploymentResult.Operation]],
+    ) -> dict[str, list[ColumnSpec]]:
+        """
+        Each checked node's output columns as saved, by node name. Removed nodes
+        are left out; their last deployed spec stands in.
+        """
+        names = [
+            spec.rendered_name
+            for spec, operation in entities
+            if operation is not DeploymentResult.Operation.DELETE
+        ]
+        rows = await self.session.execute(
+            select(Node.name, Column.name, Column.type, Column.order)
+            .join(
+                NodeRevision,
+                (NodeRevision.node_id == Node.id)
+                & (NodeRevision.version == Node.current_version),
+            )
+            .join(Column, Column.node_revision_id == NodeRevision.id)
+            .where(Node.name.in_(names), Node.deactivated_at.is_(None))
+            .order_by(Node.name, Column.order),
+        )
+        columns: dict[str, list[ColumnSpec]] = {}
+        for node_name, column_name, column_type, order in rows:
+            columns.setdefault(node_name, []).append(
+                ColumnSpec(name=column_name, type=str(column_type), order=order),
+            )
+        return columns
+
     @staticmethod
     def _deployed_columns(
         plan: DeploymentPlan,
         name: str,
         operation: DeploymentResult.Operation,
+        deployed_columns: dict[str, list[ColumnSpec]],
     ) -> list[ColumnSpec] | None:
         """
-        A skipped node's deployed columns. A changed node's are not known
-        until it is validated, after the checks run.
+        A node's output columns once the deploy is applied. A node not saved
+        yet falls back to its last deployed columns when it was skipped.
         """
+        if name in deployed_columns:
+            return deployed_columns[name]
         existing = plan.existing_specs.get(name)
         if operation is not DeploymentResult.Operation.NOOP or existing is None:
             return None

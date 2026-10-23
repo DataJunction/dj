@@ -12833,6 +12833,75 @@ async def test_check_results_survive_to_the_deployment_endpoint(
 
 
 @pytest.mark.asyncio
+async def test_checks_see_every_output_column_of_a_new_node(
+    module__client_with_roads,
+):
+    """
+    Checks run after the deploy is applied, so a node created in it is judged on
+    all the columns it selects, not just the ones its spec declares.
+    """
+    namespace = f"allcolumns{uuid.uuid4().hex[:8]}"
+    spec = DeploymentSpec(
+        namespace=namespace,
+        nodes=[
+            TransformSpec(
+                name="wide",
+                query="SELECT 1 AS one, 2 AS two, 3 AS three",
+                columns=[ColumnSpec(name="one", type="int", description="First.")],
+            ),
+        ],
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.sees_every_column",
+                condition="size(node.columns) == 3",
+                gate="warn",
+            ),
+            DeploymentCheckSpec(
+                name="demo.all_described",
+                condition="node.columns.all(c, c.description != '')",
+                gate="warn",
+            ),
+        ],
+    )
+    data = await deploy_and_poll(module__client_with_roads, spec)
+    by_node = {entry["node"]: entry for entry in data["check_results"]}
+
+    assert {
+        v["check"]: v["verdict"] for v in by_node[f"{namespace}.wide"]["checks"]
+    } == {
+        "demo.sees_every_column": "passed",
+        "demo.all_described": "failed",
+    }
+
+
+@pytest.mark.asyncio
+async def test_blocking_check_undoes_the_applied_deploy(
+    module__client_with_roads,
+):
+    """
+    Checks run after the deploy is applied, so a blocking failure has to take
+    the applied nodes back out with it.
+    """
+    namespace = f"blockedapply{uuid.uuid4().hex[:8]}"
+    spec = DeploymentSpec(
+        namespace=namespace,
+        nodes=[TransformSpec(name="bare", query="SELECT 1 AS one")],
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.described",
+                condition="node.description != ''",
+                gate="block",
+            ),
+        ],
+    )
+    data = await deploy_and_poll(module__client_with_roads, spec)
+    assert data["status"] == "failed"
+
+    response = await module__client_with_roads.get(f"/nodes/{namespace}.bare")
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_node_checks_endpoint_evaluates_the_current_node(
     module__client_with_roads,
 ):
