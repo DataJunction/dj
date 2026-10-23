@@ -219,8 +219,11 @@ async def list_tools() -> list[types.Tool]:
                 "Execute a query and get actual data for metrics with specified dimensions and filters. "
                 "Returns query results with data rows. Recommend setting a limit to avoid large result sets. "
                 "Use this when you want to see actual data values, not just the SQL. "
-                "IMPORTANT: This tool ALWAYS checks for materialized cubes first and REFUSES to run "
-                "expensive ad-hoc queries. Only queries with materialized cubes will execute."
+                "Runs against a materialized cube when one covers the query; otherwise runs "
+                "ad-hoc on the catalog's default engine (typically Trino), unless the query's "
+                "scan estimate exceeds "
+                f"{tools._format_bytes(tools._AD_HOC_SCAN_LIMIT_BYTES)}. Over that, it refuses and "
+                "reports the estimate, so narrow the filters or request fewer dimensions."
             ),
             inputSchema={
                 "type": "object",
