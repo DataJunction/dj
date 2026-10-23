@@ -12866,7 +12866,9 @@ async def test_checks_see_every_output_column_of_a_new_node(
     data = await deploy_and_poll(module__client_with_roads, spec)
     by_node = {entry["node"]: entry for entry in data["check_results"]}
 
-    assert {v["check"]: v["verdict"] for v in by_node[f"{namespace}.wide"]["checks"]} == {
+    assert {
+        v["check"]: v["verdict"] for v in by_node[f"{namespace}.wide"]["checks"]
+    } == {
         "demo.sees_every_column": "passed",
         "demo.all_described": "failed",
     }
