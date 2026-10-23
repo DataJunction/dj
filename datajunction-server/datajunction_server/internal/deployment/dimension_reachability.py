@@ -14,12 +14,12 @@ Used by:
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.construction.build_v3.loaders import find_join_paths_batch
 from datajunction_server.database.column import Column
-from datajunction_server.database.node import Node
+from datajunction_server.database.node import Node, NodeRevision
 
 
 async def find_reference_dimensions_batch(
@@ -184,3 +184,58 @@ class DimensionReachability:
             if unreachable_from:
                 missing[(dim_name, role)] = unreachable_from
         return missing
+
+
+async def reachable_dimensions_by_node(
+    session: AsyncSession,
+    sources: dict[str, int],
+    candidates: set[str],
+    pending_links: dict[str, set[str]] | None = None,
+) -> dict[str, set[str]]:
+    """Dimension nodes each source node reaches, directly or through other
+    dimensions, ignoring roles.
+
+    Args:
+        sources: Current revision id by node name.
+        candidates: Dimension names the caller asks about.
+        pending_links: Node name -> dimension nodes its links declare in a
+            deployment that has not saved them yet.
+    """
+    pending_links = pending_links or {}
+    pending_names = set(pending_links).union(*pending_links.values())
+    revisions = dict(sources)
+    unknown = pending_names - revisions.keys()
+    if unknown:
+        rows = await session.execute(
+            select(Node.name, NodeRevision.id)
+            .join(
+                NodeRevision,
+                and_(
+                    NodeRevision.node_id == Node.id,
+                    NodeRevision.version == Node.current_version,
+                ),
+            )
+            .where(Node.name.in_(unknown)),
+        )
+        revisions.update({name: revision_id for name, revision_id in rows})
+    reachability = await DimensionReachability.build(
+        session,
+        set(revisions.values()),
+        candidates | pending_names,
+    )
+    edges = {
+        name: reachability.reachable_from(revision_id)
+        for name, revision_id in revisions.items()
+    }
+    reached: dict[str, set[str]] = {}
+    for source in sources:
+        seen: set[str] = set()
+        frontier = [source]
+        while frontier:
+            node = frontier.pop()
+            for target in edges.get(node, set()) | pending_links.get(node, set()):
+                if target not in seen:
+                    seen.add(target)
+                    frontier.append(target)
+        reached[source] = seen
+    return reached

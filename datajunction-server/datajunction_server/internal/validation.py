@@ -19,6 +19,9 @@ from datajunction_server.errors import (
     ErrorCode,
 )
 from datajunction_server.instrumentation.provider import timed
+from datajunction_server.internal.deployment.dimension_reachability import (
+    reachable_dimensions_by_node,
+)
 from datajunction_server.internal.deployment.type_inference import validate_node_query
 from datajunction_server.internal.deployment.utils import (
     classify_parents,
@@ -886,6 +889,21 @@ async def validate_node_data_v2(
         dimension_names = sorted(
             extract_dimension_attribute_nodes(query_ast) - parent_columns_map.keys(),
         )
+        if dimension_names:
+            reachable = await reachable_dimensions_by_node(
+                session,
+                {
+                    parent.name: parent.current.id
+                    for parent in parents
+                    if parent.current
+                },
+                set(dimension_names),
+            )
+            dimension_names = [
+                name
+                for name in dimension_names
+                if any(name in nodes for nodes in reachable.values())
+            ]
         dimension_revisions = {
             node.current: []
             for node in (

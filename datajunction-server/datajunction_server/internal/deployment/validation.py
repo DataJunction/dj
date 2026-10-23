@@ -20,6 +20,9 @@ from datajunction_server.errors import (
     ErrorCode,
 )
 from datajunction_server.internal.deployment.type_inference import validate_node_query
+from datajunction_server.internal.deployment.dimension_reachability import (
+    reachable_dimensions_by_node,
+)
 from datajunction_server.internal.deployment.utils import (
     extract_dimension_attribute_nodes,
 )
@@ -226,6 +229,9 @@ class NodeSpecBulkValidator:
         # Derived metric parent -> the non-metric nodes it reads from, filled by
         # the same prefetch. Metrics have no links of their own.
         self._base_parents: dict[str, list[str]] = {}
+        # Parent node name -> dimension nodes its links reach, filled by
+        # _prefetch_reachable_dimensions for metrics that name dimension attributes.
+        self._reachable_dimensions: dict[str, set[str]] = {}
 
     async def validate(self, node_specs: list[NodeSpec]) -> list[NodeValidationResult]:
         """
@@ -257,6 +263,9 @@ class NodeSpecBulkValidator:
 
         # Pre-fetch dimension nodes referenced in dimension_links
         await self._prefetch_dimension_link_nodes(specs_needing_parse)
+
+        # Pre-fetch which dimensions metric parents link to
+        await self._prefetch_reachable_dimensions(specs_needing_parse)
 
         # Build results in original order.  Each spec's query_ast is lazily
         # parsed and cached (pre-populated by extract_node_graph).
@@ -657,10 +666,17 @@ class NodeSpecBulkValidator:
                     col.name: col.type for col in parent_node.current.columns
                 }
         if spec.node_type == NodeType.METRIC and spec.query_ast is not None:
+            reachable = set().union(
+                *(
+                    self._reachable_dimensions.get(name, set())
+                    for name in self.context.node_graph.get(spec.rendered_name, [])
+                ),
+            )
             for dim_name in extract_dimension_attribute_nodes(spec.query_ast):
                 dim_node = self.context.dependency_nodes.get(dim_name)
                 if (
-                    dim_name not in parent_map
+                    dim_name in reachable
+                    and dim_name not in parent_map
                     and dim_node
                     and dim_node.current
                     and dim_node.current.columns
@@ -896,6 +912,39 @@ class NodeSpecBulkValidator:
                 self._dim_link_col_names[name] = {
                     col.name for col in node.current.columns
                 }
+
+    async def _prefetch_reachable_dimensions(self, specs: list[NodeSpec]) -> None:
+        """
+        For metrics naming dimension attributes, find the dimensions their
+        parents link to, through saved links and links this deployment declares.
+        """
+        sources: dict[str, int] = {}
+        candidates: set[str] = set()
+        for spec in specs:
+            if spec.node_type != NodeType.METRIC or spec.query_ast is None:
+                continue
+            parent_names = self.context.node_graph.get(spec.rendered_name, [])
+            named = extract_dimension_attribute_nodes(spec.query_ast) - set(
+                parent_names,
+            )
+            if not named:
+                continue
+            candidates |= named
+            sources.update(
+                {
+                    name: parent.current.id
+                    for name in parent_names
+                    for parent in [self.context.dependency_nodes.get(name)]
+                    if parent and parent.type != NodeType.METRIC and parent.current
+                },
+            )
+        if sources:
+            self._reachable_dimensions = await reachable_dimensions_by_node(
+                self.context.session,
+                sources,
+                candidates,
+                self.context.deployment_link_targets,
+            )
 
     async def _prefetch_parent_dimension_links(
         self,
