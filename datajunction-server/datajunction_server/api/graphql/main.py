@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from functools import wraps
 
 import strawberry
+from lia import HTTPException
 from graphql import (
     GraphQLSyntaxError,
     OperationDefinitionNode,
@@ -22,6 +23,7 @@ from graphql import (
 from fastapi import BackgroundTasks, Depends, Request, Response
 from strawberry.extensions import SchemaExtension
 from strawberry.fastapi import GraphQLRouter
+from strawberry.http import GraphQLRequestData
 from sqlalchemy import func, select
 from starlette.concurrency import run_in_threadpool
 from strawberry.types import Info
@@ -392,7 +394,7 @@ class _FieldNames(Visitor):
         self.names.add(node.name.value)
 
 
-def _cacheable_request(payload: object) -> CacheableRequest | None:
+def _cacheable_request(data: GraphQLRequestData) -> CacheableRequest | None:
     """
     The request, if it is a query whose operation is allowed to be cached.
 
@@ -401,13 +403,10 @@ def _cacheable_request(payload: object) -> CacheableRequest | None:
     formatting does not matter, plus the variables.
     """
     allowed = get_settings().graphql_cacheable_operations
-    if not allowed or not isinstance(payload, dict):
-        return None
-    query = payload.get("query")
-    if not isinstance(query, str):
+    if not allowed or data.query is None:
         return None
     try:
-        document = parse(query)
+        document = parse(data.query)
     except GraphQLSyntaxError:
         return None
     operations = [
@@ -415,7 +414,7 @@ def _cacheable_request(payload: object) -> CacheableRequest | None:
         for definition in document.definitions
         if isinstance(definition, OperationDefinitionNode)
     ]
-    wanted = payload.get("operationName")
+    wanted = data.operation_name
     chosen = (
         [
             operation
@@ -436,7 +435,7 @@ def _cacheable_request(payload: object) -> CacheableRequest | None:
     fields = _FieldNames()
     visit(document, fields)
     canonical = json.dumps(
-        [name, print_ast(document), payload.get("variables") or {}],
+        [name, print_ast(document), data.variables or {}],
         sort_keys=True,
         separators=(",", ":"),
     )
@@ -546,10 +545,14 @@ class CachingGraphQLRouter(GraphQLRouter):
         if request.method != "POST":
             return await super().run(request, context, root_value)
         try:
-            payload = json.loads(await request.body())
-        except ValueError:
+            data = await self.parse_http_body(self.request_adapter_class(request))
+        except HTTPException:
+            # Let the normal path answer an invalid request.
             return await super().run(request, context, root_value)
-        cacheable = _cacheable_request(payload)
+        # A batch, which this schema does not enable, is a list.
+        cacheable = (
+            _cacheable_request(data) if isinstance(data, GraphQLRequestData) else None
+        )
         cache = context.get("cache") if isinstance(context, dict) else None
         if cacheable is None or cache is None:
             return await super().run(request, context, root_value)

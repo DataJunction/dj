@@ -281,24 +281,34 @@ async def test_formatting_does_not_change_the_key(
     assert executed.call_count == 1
 
 
-@pytest.mark.asyncio
-async def test_only_queries_are_cached(allow):
+def _request(query, operation_name=None, variables=None):
+    from strawberry.http import GraphQLRequestData
+
+    return GraphQLRequestData(
+        query=query,
+        variables=variables,
+        operation_name=operation_name,
+        extensions=None,
+    )
+
+
+def test_only_queries_are_cached(allow):
     from datajunction_server.api.graphql.main import _cacheable_request
 
     allow("FindReportCubes", "Anonymous")
 
-    assert _cacheable_request({"query": "query FindReportCubes { findNodes { name } }"})
+    assert _cacheable_request(_request("query FindReportCubes { findNodes { name } }"))
     # A mutation with an allowed name, an unnamed query, several operations with
     # no choice between them, and a name that is not in the document.
-    assert not _cacheable_request({"query": "mutation FindReportCubes { x }"})
-    assert not _cacheable_request({"query": "{ findNodes { name } }"})
+    assert not _cacheable_request(_request("mutation FindReportCubes { x }"))
+    assert not _cacheable_request(_request("{ findNodes { name } }"))
     two = "query A { findNodes { name } } query FindReportCubes { findNodes { name } }"
-    assert not _cacheable_request({"query": two})
-    assert _cacheable_request({"query": two, "operationName": "FindReportCubes"})
-    assert not _cacheable_request({"query": two, "operationName": "Nope"})
-    assert not _cacheable_request({"query": "query FindReportCubes {"})
-    assert not _cacheable_request({"query": 5})
-    assert not _cacheable_request([])
+    assert not _cacheable_request(_request(two))
+    assert _cacheable_request(_request(two, "FindReportCubes"))
+    assert not _cacheable_request(_request(two, "Nope"))
+    # Invalid syntax, and a request with no query (a persisted query).
+    assert not _cacheable_request(_request("query FindReportCubes {"))
+    assert not _cacheable_request(_request(None))
 
 
 @pytest.mark.asyncio
