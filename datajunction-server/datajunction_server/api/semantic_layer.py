@@ -10,6 +10,7 @@ DJ generates SQL; the client executes it. This router does NOT run queries —
 """
 
 import logging
+from copy import deepcopy
 from typing import Any
 
 from fastapi import Depends
@@ -19,14 +20,28 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
-from datajunction_server.errors import DJException
+from datajunction_server.errors import DJException, DJInvalidMetricQueryException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.sql import (
     build_row_count_sql,
     generate_dimensions_sql,
     generate_metrics_sql,
 )
+from datajunction_server.construction.build_v3.builder import apply_orderby_limit
+from datajunction_server.construction.build_v3.group_others import (
+    GroupOthers,
+    bucket_dimension_rows,
+)
+from datajunction_server.construction.build_v3.ranked_groups import (
+    ranked_column,
+    ranked_tuple_join,
+)
+from datajunction_server.construction.build_v3.types import (
+    GeneratedSQL as V3GeneratedSQL,
+)
+from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.sql.parsing import ast
 from datajunction_server.utils import get_current_user, get_session
 
 logger = logging.getLogger(__name__)
@@ -41,6 +56,7 @@ router = SecureAPIRouter(prefix="/semantic", tags=["semantic-layer"])
 DEFAULT_ROW_LIMIT = 10000
 # An explicit limit above this is rejected (400).
 MAX_ROW_LIMIT = 100000
+SEMANTIC_VIEW_FEATURES = ["GROUP_LIMIT", "GROUP_OTHERS"]
 
 DIMENSION_FALLBACK_ARROW_TYPE_NAME = "utf8"
 METRIC_FALLBACK_ARROW_TYPE_NAME = "floating"
@@ -177,7 +193,7 @@ def _view_payload(cube: NodeRevision) -> "ViewDetail":
         name=cube.name,
         display_name=cube.display_name or None,
         uid=cube.name,
-        features=[],  # no optional spec features for now
+        features=SEMANTIC_VIEW_FEATURES,
         dimensions=_dimensions_payload(cube),
         metrics=_metrics_payload(cube),
     )
@@ -276,6 +292,22 @@ class FilterPayload(BaseModel):
     value: Any = None
 
 
+class GroupLimitPayload(BaseModel):
+    """Top or bottom groups selected independently of the displayed rows.
+
+    GROUP_OTHERS currently uses the fixed label ``Others``. A real ranked value
+    with that label can merge with the synthetic bucket in the displayed result.
+    """
+
+    dimensions: list[str]
+    top: int
+    metric: str | None = None
+    direction: str = "DESC"
+    group_others: bool = False
+    # None inherits the outer filters; [] deliberately ranks without them.
+    filters: list[FilterPayload] | None = None
+
+
 class QueryPayload(BaseModel):
     """The query specification."""
 
@@ -287,6 +319,7 @@ class QueryPayload(BaseModel):
     # Accepted so we can explicitly reject it (DJ SQL generation has no offset);
     # silently ignoring it would return page 1 for every page.
     offset: int | None = None
+    group_limit: GroupLimitPayload | None = None
 
 
 class QueryRequest(BaseModel):
@@ -404,7 +437,7 @@ async def list_views(
             name=cube_name,
             display_name=display_name or None,
             uid=cube_name,
-            features=[],
+            features=SEMANTIC_VIEW_FEATURES,
         )
         for cube_name, display_name in cubes
     ]
@@ -430,6 +463,114 @@ async def get_view(
     return _view_payload(cube_node.current)
 
 
+def _limit_to_ranked_groups(
+    main: V3GeneratedSQL,
+    ranked: V3GeneratedSQL,
+    dimensions: list[str],
+    orderby: list[str] | None,
+    limit: int,
+) -> V3GeneratedSQL:
+    """Keep main-query rows whose dimension tuple occurs in the top-N query."""
+    main_columns = {column.semantic_name: column.name for column in main.columns}
+    ranked_columns = {column.semantic_name: column.name for column in ranked.columns}
+    main_alias = "semantic_query"
+    ranked_alias = "ranked_groups"
+
+    pairs = [
+        (
+            ranked_column(main_columns[dimension], main_alias),
+            ranked_column(ranked_columns[dimension], ranked_alias),
+        )
+        for dimension in dimensions
+    ]
+
+    main_query = deepcopy(main.query)
+    main_query.parenthesized = True
+    main_query.alias = ast.Name(main_alias)
+    main_query.as_ = True
+    ranked_query = deepcopy(ranked.query)
+    ranked_query.parenthesized = True
+    ranked_query.alias = ast.Name(ranked_alias)
+    ranked_query.as_ = True
+
+    query = ast.Query(
+        select=ast.Select(
+            projection=[
+                ranked_column(col.name, main_alias)
+                .set_alias(ast.Name(col.name))
+                .set_as(True)
+                for col in main.columns
+            ],
+            from_=ast.From(
+                relations=[
+                    ast.Relation(
+                        primary=main_query,
+                        extensions=[
+                            ranked_tuple_join(ranked_query, pairs, "INNER"),
+                        ],
+                    ),
+                ],
+            ),
+        ),
+    )
+    result = V3GeneratedSQL(
+        query=query,
+        columns=main.columns,
+        dialect=main.dialect,
+        cube_name=main.cube_name,
+        scan_estimate=main.scan_estimate,
+        warnings=main.warnings + ranked.warnings,
+    )
+    return apply_orderby_limit(result, orderby, limit)
+
+
+async def _build_ranked_groups_sql(
+    session: AsyncSession,
+    cube_rev: NodeRevision,
+    payload: QueryPayload,
+    group_limit: GroupLimitPayload,
+    dialect: Dialect,
+) -> V3GeneratedSQL:
+    """Build the top or bottom group tuples with the chosen filter override."""
+    ranking_metric = group_limit.metric or payload.metrics[0]
+    ranking_filters = (
+        payload.filters if group_limit.filters is None else group_limit.filters
+    )
+    # HAVING predicates can refer to metrics other than the sort metric. Build
+    # those metrics too so the ranking query can evaluate its own filters.
+    filter_metrics = [
+        flt.column
+        for flt in ranking_filters
+        if flt.column is not None
+        and flt.column in cube_rev.cube_node_metrics
+        and flt.column != ranking_metric
+    ]
+    ranked = await generate_metrics_sql(
+        session,
+        metrics=list(dict.fromkeys([ranking_metric, *filter_metrics])),
+        dimensions=group_limit.dimensions,
+        filters=[_filter_to_sql(f) for f in ranking_filters],
+        matched_cube=cube_rev,
+        use_materialized=False,
+        dialect=dialect,
+        orderby=[f"{ranking_metric} {group_limit.direction.upper()}"]
+        + [f"{dim} ASC" for dim in group_limit.dimensions],
+        limit=group_limit.top,
+        endpoint="/semantic-layer/views/sql/group-limit",
+    )
+    ranked_dimensions = [
+        col.semantic_name for col in ranked.columns if col.semantic_type == "dimension"
+    ]
+    if len(ranked_dimensions) != len(group_limit.dimensions) or set(
+        ranked_dimensions,
+    ) != set(group_limit.dimensions):
+        raise DJInvalidMetricQueryException(
+            "GROUP_LIMIT ranking must produce one row per requested dimension "
+            "tuple; its output dimensions differ from group_limit.dimensions.",
+        )
+    return ranked
+
+
 async def _generate_sql(
     session: AsyncSession,
     payload: QueryPayload,
@@ -448,6 +589,28 @@ async def _generate_sql(
     limit = payload.limit if payload.limit is not None else DEFAULT_ROW_LIMIT
 
     request_filters = [_filter_to_sql(f) for f in payload.filters]
+    group_limit = payload.group_limit
+    ranked_sql: V3GeneratedSQL | None = None
+    if group_limit and group_limit.group_others and payload.metrics:
+        from datajunction_server.construction.build_v3.cube_matcher import (
+            resolve_dialect_and_engine_for_metrics,
+        )
+
+        execution = await resolve_dialect_and_engine_for_metrics(
+            session=session,
+            metrics=payload.metrics,
+            dimensions=payload.dimensions,
+            filters=request_filters,
+            matched_cube=cube_rev,
+            use_materialized=False,
+        )
+        ranked_sql = await _build_ranked_groups_sql(
+            session,
+            cube_rev,
+            payload,
+            group_limit,
+            execution.dialect,
+        )
 
     if payload.metrics:
         generated_sql = await generate_metrics_sql(
@@ -456,8 +619,18 @@ async def _generate_sql(
             dimensions=payload.dimensions,
             filters=request_filters,
             matched_cube=cube_rev,
-            orderby=orderby,
-            limit=limit,
+            # A group limit adds a subquery join with null-safe tuple matching.
+            # Build both sides from live sources so an available Druid cube
+            # cannot route this SQL to Druid's restricted join planner.
+            use_materialized=payload.group_limit is None,
+            dialect=ranked_sql.dialect if ranked_sql else None,
+            orderby=None if payload.group_limit else orderby,
+            limit=None if payload.group_limit else limit,
+            group_others=(
+                GroupOthers(tuple(group_limit.dimensions), ranked_sql)
+                if group_limit and group_limit.group_others and ranked_sql
+                else None
+            ),
             endpoint="/semantic-layer/views/sql",
         )
     else:
@@ -466,10 +639,36 @@ async def _generate_sql(
             dimensions=payload.dimensions,
             filters=request_filters,
             matched_cube=cube_rev,
-            orderby=orderby,
-            limit=limit,
+            use_materialized=payload.group_limit is None,
+            orderby=None if payload.group_limit else orderby,
+            limit=None if payload.group_limit else limit,
             endpoint="/semantic-layer/views/sql",
         )
+    if group_limit:
+        if ranked_sql is None:
+            ranked_sql = await _build_ranked_groups_sql(
+                session,
+                cube_rev,
+                payload,
+                group_limit,
+                generated_sql.dialect,
+            )
+        if group_limit.group_others:
+            if not payload.metrics:
+                generated_sql = bucket_dimension_rows(
+                    generated_sql,
+                    ranked_sql,
+                    tuple(group_limit.dimensions),
+                )
+            generated_sql = apply_orderby_limit(generated_sql, orderby, limit)
+        else:
+            generated_sql = _limit_to_ranked_groups(
+                generated_sql,
+                ranked_sql,
+                group_limit.dimensions,
+                orderby,
+                limit,
+            )
     if row_count:
         generated_sql = build_row_count_sql(generated_sql)
     # ``generated_sql.sql`` renders via ``to_sql(query, dialect)``, which already
@@ -531,6 +730,55 @@ async def _generate_view_sql(
                 f"metrics={bad_metrics} dimensions={bad_dims} "
                 f"filter_columns={bad_filters}",
             )
+        if group_limit := payload.group_limit:
+            if not payload.metrics and not group_limit.metric:
+                return _problem(400, "`group_limit` requires a ranking metric.")
+            if not group_limit.dimensions or len(set(group_limit.dimensions)) != len(
+                group_limit.dimensions,
+            ):
+                return _problem(
+                    400,
+                    "`group_limit.dimensions` must be non-empty and unique.",
+                )
+            if not set(group_limit.dimensions).issubset(payload.dimensions):
+                return _problem(
+                    400,
+                    "`group_limit.dimensions` must be selected dimensions.",
+                )
+            if group_limit.metric and group_limit.metric not in allowed_metrics:
+                return _problem(400, "`group_limit.metric` must belong to the view.")
+            if group_limit.top < 1 or group_limit.top > MAX_ROW_LIMIT:
+                return _problem(
+                    400,
+                    f"`group_limit.top` must be between 1 and {MAX_ROW_LIMIT}.",
+                )
+            if group_limit.direction.upper() not in {"ASC", "DESC"}:
+                return _problem(400, "`group_limit.direction` must be ASC or DESC.")
+            bad_group_filters = [
+                f.column for f in group_limit.filters or [] if f.column not in allowed
+            ]
+            if bad_group_filters:
+                return _problem(
+                    400,
+                    f"View `{view_name}` does not contain group-limit filter columns: "
+                    f"{bad_group_filters}",
+                )
+            for flt in group_limit.filters or []:
+                filter_type = flt.type.upper()
+                if filter_type not in {"WHERE", "HAVING"}:
+                    return _problem(
+                        400,
+                        "`group_limit.filters.type` must be WHERE or HAVING.",
+                    )
+                valid_columns = (
+                    allowed_dims if filter_type == "WHERE" else allowed_metrics
+                )
+                if flt.column not in valid_columns:
+                    return _problem(
+                        400,
+                        f"`group_limit.filters` {filter_type} columns must be "
+                        f"{'dimensions' if filter_type == 'WHERE' else 'metrics'}.",
+                    )
         result = await _generate_sql(session, payload, cube_rev, row_count=row_count)
     except DJException as exc:
         return _problem(exc.http_status_code or 400, exc.message)

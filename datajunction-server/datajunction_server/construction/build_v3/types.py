@@ -318,9 +318,15 @@ class GrainGroupSQL:
     aggregability: Aggregability
     metrics: list[str]  # Metric names covered by this grain group
     parent_name: str  # Name of the parent node (fact/transform) for this grain group
+    # Semantic dimension ref -> position in the query's GROUP BY. Built alongside
+    # the grain; positions remain distinct when two dimensions use the same SQL.
+    dimension_group_by_positions: dict[str, int] = field(default_factory=dict)
     # Mapping from component name (hashed) to actual SQL alias in the output
     # Used by metrics SQL to correctly reference component columns
     component_aliases: dict[str, str] = field(default_factory=dict)
+    # Raw input name -> private output name when GROUP_OTHERS buckets an input
+    # still needed by a non-decomposable metric such as MAX_BY.
+    raw_metric_input_aliases: dict[str, str] = field(default_factory=dict)
 
     # Active semi-additive components that need collapse in the metrics layer.
     # Maps component.name -> protected dimension column alias emitted by this CTE.
