@@ -447,6 +447,31 @@ def _cacheable_request(payload: object) -> CacheableRequest | None:
     )
 
 
+# How many of the most recent history ids are counted to notice a row that was
+# allocated an id before a later one but committed after it.
+HISTORY_VERSION_WINDOW = 50_000
+
+
+async def _history_version(session, *conditions) -> str:
+    """
+    The latest history id matching the conditions and how many matching rows sit
+    in the last ``HISTORY_VERSION_WINDOW`` ids.
+
+    The latest id alone is not enough: ids are allocated when a row is inserted
+    but become visible when its transaction commits, so a row with a lower id can
+    commit after a higher one and leave the maximum unchanged. It does change the
+    count. Both come from one statement, so they share a snapshot.
+    """
+    latest = select(func.max(History.id)).where(*conditions).scalar_subquery()
+    recent = (
+        select(func.count(History.id))
+        .where(History.id > latest - HISTORY_VERSION_WINDOW, *conditions)
+        .scalar_subquery()
+    )
+    newest, count = (await session.execute(select(latest, recent))).one()
+    return f"{newest or 0}.{count}"
+
+
 async def _data_version(request: Request, fields: frozenset[str]) -> str:
     """
     Changes whenever data a cached response could contain has changed.
@@ -458,19 +483,18 @@ async def _data_version(request: Request, fields: frozenset[str]) -> str:
     one that lists them.
     """
     async with session_context(request) as session:
-        version = await session.scalar(
-            select(func.max(History.id)).where(
+        parts = [
+            await _history_version(
+                session,
                 History.entity_type != EntityType.AVAILABILITY,
             ),
-        )
-        parts = [str(version or 0)]
+        ]
         if "availability" in fields:
-            availability = await session.scalar(
-                select(func.max(History.id)).where(
-                    History.entity_type == EntityType.AVAILABILITY,
-                ),
+            availability = await _history_version(
+                session,
+                History.entity_type == EntityType.AVAILABILITY,
             )
-            parts.append(f"a{availability or 0}")
+            parts.append(f"a{availability}")
         if "listCollections" in fields:
             collections = (
                 await session.execute(
@@ -545,8 +569,9 @@ class CachingGraphQLRouter(GraphQLRouter):
 
         response = await super().run(request, context, root_value)
         body = bytes(response.body)
-        # An error is encoded after the data, so it is at the end.
-        if response.status_code == 200 and b'"errors"' not in body[-4096:]:
+        # Anywhere in the body: an error message can be arbitrarily long. A data
+        # key named ``errors`` would only mean skipping the cache.
+        if response.status_code == 200 and b'"errors"' not in body:
             await run_in_threadpool(
                 cache.set,
                 key,

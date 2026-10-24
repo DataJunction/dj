@@ -383,3 +383,93 @@ async def test_collection_edits_invalidate_a_query_that_lists_them(
     # Back to the state of the first request, whose response is still right.
     assert executed.call_count == 3
     assert "cache_test" not in final.text
+
+
+@pytest.mark.asyncio
+async def test_an_error_too_long_for_the_tail_of_the_body_is_not_cached(
+    client_with_roads,
+    cache,
+    allow,
+    mocker,
+):
+    import json
+
+    from fastapi import Response
+
+    allow("FindReportCubes")
+    body = json.dumps(
+        {"data": None, "errors": [{"message": "unknown cube " + "x" * 10_000}]},
+    )
+    mocker.patch.object(
+        GraphQLRouter,
+        "run",
+        mocker.AsyncMock(return_value=Response(body, media_type="application/json")),
+    )
+
+    response = await client_with_roads.post("/graphql", json={"query": QUERY})
+
+    assert response.status_code == 200
+    assert cache.store == {}
+
+
+async def _history_row(session, row_id, entity_type):
+    from datajunction_server.database.history import History
+    from datajunction_server.internal.history import ActivityType
+
+    session.add(
+        History(
+            id=row_id,
+            entity_type=entity_type,
+            entity_name="default.somewhere",
+            node="default.somewhere",
+            activity_type=ActivityType.UPDATE,
+            user="tester",
+        ),
+    )
+    await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_a_late_commit_with_a_lower_id_changes_the_version(session):
+    from types import SimpleNamespace
+
+    from datajunction_server.api.graphql.main import _data_version
+    from datajunction_server.internal.history import EntityType
+
+    request = SimpleNamespace(state=SimpleNamespace(test_session=session))
+    nodes = frozenset({"findNodes"})
+
+    # Ids are allocated before commit: 2_000_001 commits first, then 2_000_000.
+    await _history_row(session, 2_000_001, EntityType.NODE)
+    before = await _data_version(request, nodes)
+    await _history_row(session, 2_000_000, EntityType.NODE)
+    after = await _data_version(request, nodes)
+
+    # The latest id is the same; only the count of recent rows moved.
+    assert before.split(".")[0] == after.split(".")[0]
+    assert before != after
+
+
+@pytest.mark.asyncio
+async def test_availability_events_only_move_the_version_of_a_query_that_selects_them(
+    session,
+):
+    from types import SimpleNamespace
+
+    from datajunction_server.api.graphql.main import _data_version
+    from datajunction_server.internal.history import EntityType
+
+    request = SimpleNamespace(state=SimpleNamespace(test_session=session))
+    plain = frozenset({"findNodes"})
+    selecting = frozenset({"findNodes", "availability"})
+
+    plain_before = await _data_version(request, plain)
+    selecting_before = await _data_version(request, selecting)
+    await _history_row(session, 3_000_001, EntityType.AVAILABILITY)
+    # A late availability commit with a lower id is noticed too.
+    selecting_mid = await _data_version(request, selecting)
+    await _history_row(session, 3_000_000, EntityType.AVAILABILITY)
+
+    assert await _data_version(request, plain) == plain_before
+    assert selecting_before != selecting_mid
+    assert selecting_mid != await _data_version(request, selecting)
