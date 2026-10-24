@@ -447,7 +447,7 @@ async def test_a_late_commit_with_a_lower_id_changes_the_version(session):
     from datajunction_server.internal.history import EntityType
 
     request = SimpleNamespace(state=SimpleNamespace(test_session=session))
-    nodes = frozenset({"findNodes"})
+    nodes = "{ findNodes { name } }"
 
     # Ids are allocated before commit: 2_000_001 commits first, then 2_000_000.
     await _history_row(session, 2_000_001, EntityType.NODE)
@@ -470,8 +470,8 @@ async def test_availability_events_only_move_the_version_of_a_query_that_selects
     from datajunction_server.internal.history import EntityType
 
     request = SimpleNamespace(state=SimpleNamespace(test_session=session))
-    plain = frozenset({"findNodes"})
-    selecting = frozenset({"findNodes", "availability"})
+    plain = "{ findNodes { name } }"
+    selecting = "{ findNodes { current { availability { validThroughTs } } } }"
 
     plain_before = await _data_version(request, plain)
     selecting_before = await _data_version(request, selecting)

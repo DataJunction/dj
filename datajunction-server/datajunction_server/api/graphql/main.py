@@ -13,12 +13,10 @@ import strawberry
 from lia import HTTPException
 from graphql import (
     GraphQLSyntaxError,
-    OperationDefinitionNode,
     OperationType,
-    Visitor,
+    get_operation_ast,
     parse,
     print_ast,
-    visit,
 )
 from fastapi import BackgroundTasks, Depends, Request, Response
 from strawberry.extensions import SchemaExtension
@@ -381,68 +379,40 @@ class CacheableRequest:
 
     operation: str
     key: str
-    # Every field the document selects, to know which data it depends on.
-    fields: frozenset[str]
-
-
-class _FieldNames(Visitor):
-    def __init__(self):
-        super().__init__()
-        self.names: set[str] = set()
-
-    def enter_field(self, node, *_):
-        self.names.add(node.name.value)
 
 
 def _cacheable_request(data: GraphQLRequestData) -> CacheableRequest | None:
     """
     The request, if it is a query whose operation is allowed to be cached.
 
-    The operation is chosen the way GraphQL does: by ``operationName``, or the
-    only one in the document. The key is built from the printed document, so
-    formatting does not matter, plus the variables.
+    The operation is the one GraphQL would run: the one named by
+    ``operationName``, or the only one in the document. The key is built from the
+    printed document, so formatting does not matter, plus the variables.
     """
     allowed = get_settings().graphql_cacheable_operations
     if not allowed or data.query is None:
+        # Nothing to cache, so don't parse every request.
         return None
     try:
         document = parse(data.query)
     except GraphQLSyntaxError:
         return None
-    operations = [
-        definition
-        for definition in document.definitions
-        if isinstance(definition, OperationDefinitionNode)
-    ]
-    wanted = data.operation_name
-    chosen = (
-        [
-            operation
-            for operation in operations
-            if (operation.name.value if operation.name else None) == wanted
-        ]
-        if wanted
-        else operations
-    )
-    if len(chosen) != 1:
+    operation = get_operation_ast(document, data.operation_name)
+    if (
+        operation is None
+        or operation.operation != OperationType.QUERY
+        or operation.name is None
+        or operation.name.value not in allowed
+    ):
         return None
-    operation = chosen[0]
-    if operation.operation != OperationType.QUERY or operation.name is None:
-        return None
-    name = operation.name.value
-    if name not in allowed:
-        return None
-    fields = _FieldNames()
-    visit(document, fields)
     canonical = json.dumps(
-        [name, print_ast(document), data.variables or {}],
+        [operation.name.value, print_ast(document), data.variables or {}],
         sort_keys=True,
         separators=(",", ":"),
     )
     return CacheableRequest(
-        operation=name,
+        operation=operation.name.value,
         key=f"graphql:response:{hashlib.sha256(canonical.encode()).hexdigest()}",
-        fields=frozenset(fields.names),
     )
 
 
@@ -471,15 +441,49 @@ async def _history_version(session, *conditions) -> str:
     return f"{newest or 0}.{count}"
 
 
-async def _data_version(request: Request, fields: frozenset[str]) -> str:
+async def _collections_version(session) -> str:
+    """
+    A signature of every collection and its members, which history does not
+    record: how many there are, the newest id, and a sum of hashed memberships so
+    that swapping one member for another still changes it.
+    """
+    collections = (
+        await session.execute(
+            select(func.count(DBCollection.id), func.max(DBCollection.id)),
+        )
+    ).one()
+    members = (
+        await session.execute(
+            select(
+                func.count(),
+                func.coalesce(
+                    func.sum(
+                        func.hashtextextended(
+                            func.concat(
+                                CollectionNodes.collection_id,
+                                ":",
+                                CollectionNodes.node_id,
+                            ),
+                            0,
+                        ),
+                    ),
+                    0,
+                ),
+            ).select_from(CollectionNodes),
+        )
+    ).one()
+    return ".".join(str(value) for value in (*collections, *members))
+
+
+async def _data_version(request: Request, query: str) -> str:
     """
     Changes whenever data a cached response could contain has changed.
 
     Every node, link, tag or namespace change is recorded in history, however it
-    was made, so the latest history id covers those. Availability updates are
-    frequent (thousands a day) so they only count for a document that selects
-    availability, and collections, which are not recorded in history, only for
-    one that lists them.
+    was made. Availability updates are frequent (thousands a day), so they only
+    count for a query that mentions availability, and collections, which history
+    does not record, only for one that mentions ``listCollections``. A query is
+    searched as text, which can only over-include.
     """
     async with session_context(request) as session:
         parts = [
@@ -488,7 +492,7 @@ async def _data_version(request: Request, fields: frozenset[str]) -> str:
                 History.entity_type != EntityType.AVAILABILITY,
             ),
         ]
-        if "availability" in fields:
+        if "availability" in query:
             parts.append(
                 "a"
                 + await _history_version(
@@ -496,35 +500,8 @@ async def _data_version(request: Request, fields: frozenset[str]) -> str:
                     History.entity_type == EntityType.AVAILABILITY,
                 ),
             )
-        if "listCollections" in fields:
-            collections = (
-                await session.execute(
-                    select(func.count(DBCollection.id), func.max(DBCollection.id)),
-                )
-            ).one()
-            members = (
-                await session.execute(
-                    select(
-                        func.count(),
-                        func.coalesce(
-                            func.sum(
-                                func.hashtextextended(
-                                    func.concat(
-                                        CollectionNodes.collection_id,
-                                        ":",
-                                        CollectionNodes.node_id,
-                                    ),
-                                    0,
-                                ),
-                            ),
-                            0,
-                        ),
-                    ).select_from(CollectionNodes),
-                )
-            ).one()
-            parts.append(
-                "c" + ".".join(str(value) for value in (*collections, *members))
-            )
+        if "listCollections" in query:
+            parts.append("c" + await _collections_version(session))
     return ":".join(parts)
 
 
@@ -560,7 +537,7 @@ class CachingGraphQLRouter(GraphQLRouter):
             return await super().run(request, context, root_value)
 
         # Read before the query runs: the data is then at least this new.
-        key = f"{cacheable.key}:{await _data_version(request, cacheable.fields)}"
+        key = f"{cacheable.key}:{await _data_version(request, data.query)}"
         # The cache clients are blocking network calls, so keep them off the loop.
         if (stored := await run_in_threadpool(cache.get, key)) is not None:
             get_metrics_provider().counter(
