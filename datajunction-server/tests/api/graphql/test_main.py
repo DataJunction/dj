@@ -199,10 +199,43 @@ async def test_resolve_silent_for_fast_resolvers():
             side_effect=[0.0, 0.001],  # 1ms — well under the threshold
         ),
     ):
-        result = await extension.resolve(sync_next, None, info)
+        result = extension.resolve(sync_next, None, info)
 
+    # A sync resolver is not wrapped in a coroutine: wrapping every field would
+    # make graphql-core schedule a task per field per list item.
     assert result == 42
     mock_logger.warning.assert_not_called()
+
+
+def test_resolve_logs_slow_sync_resolvers_and_slow_failures():
+    """Sync resolvers are timed too, including ones that raise."""
+    from datajunction_server.api.graphql.main import GraphQLErrorReporter
+
+    extension = GraphQLErrorReporter(execution_context=MagicMock())
+    info = MagicMock()
+    info.path.as_list.return_value = ["findNodes"]
+
+    def sync_next(_root, _info):
+        return "ok"
+
+    def failing_next(_root, _info):
+        raise ValueError("boom")
+
+    with (
+        patch("datajunction_server.api.graphql.main.logger") as mock_logger,
+        patch(
+            "datajunction_server.api.graphql.main.time.monotonic",
+            side_effect=[0.0, 1.0, 0.0, 2.0],
+        ),
+    ):
+        assert extension.resolve(sync_next, None, info) == "ok"
+        with pytest.raises(ValueError, match="boom"):
+            extension.resolve(failing_next, None, info)
+
+    assert [call.args[2] for call in mock_logger.warning.call_args_list] == [
+        1000.0,
+        2000.0,
+    ]
 
 
 def test_dj_schema_suppresses_default_error_logger():

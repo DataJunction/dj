@@ -179,21 +179,37 @@ class GraphQLErrorReporter(SchemaExtension):
                 },
             )
 
-    async def resolve(self, _next, root, info, *args, **kwargs):
+    def resolve(self, _next, root, info, *args, **kwargs):
+        # Sync on purpose: an ``async def`` here makes every field resolution
+        # awaitable, so graphql-core schedules a task per field per list item
+        # even for plain attribute reads. Only an awaitable result needs a
+        # coroutine to time it.
         start = time.monotonic()
         try:
             result = _next(root, info, *args, **kwargs)
-            if inspect.isawaitable(result):
-                result = await result
-            return result
+        except BaseException:
+            self._log_if_slow(start, info)
+            raise
+        if inspect.isawaitable(result):
+            return self._time_awaitable(result, start, info)
+        self._log_if_slow(start, info)
+        return result
+
+    async def _time_awaitable(self, result, start, info):
+        try:
+            return await result
         finally:
-            elapsed_ms = (time.monotonic() - start) * 1000
-            if elapsed_ms >= SLOW_RESOLVER_THRESHOLD_MS:
-                logger.warning(
-                    "[GQL] slow_resolver path=%s elapsed_ms=%.1f",
-                    info.path.as_list(),
-                    elapsed_ms,
-                )
+            self._log_if_slow(start, info)
+
+    @staticmethod
+    def _log_if_slow(start, info):
+        elapsed_ms = (time.monotonic() - start) * 1000
+        if elapsed_ms >= SLOW_RESOLVER_THRESHOLD_MS:
+            logger.warning(
+                "[GQL] slow_resolver path=%s elapsed_ms=%.1f",
+                info.path.as_list(),
+                elapsed_ms,
+            )
 
 
 async def get_context(
