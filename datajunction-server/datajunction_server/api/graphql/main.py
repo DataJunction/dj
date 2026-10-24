@@ -489,11 +489,13 @@ async def _data_version(request: Request, fields: frozenset[str]) -> str:
             ),
         ]
         if "availability" in fields:
-            availability = await _history_version(
-                session,
-                History.entity_type == EntityType.AVAILABILITY,
+            parts.append(
+                "a"
+                + await _history_version(
+                    session,
+                    History.entity_type == EntityType.AVAILABILITY,
+                ),
             )
-            parts.append(f"a{availability}")
         if "listCollections" in fields:
             collections = (
                 await session.execute(
@@ -557,16 +559,13 @@ class CachingGraphQLRouter(GraphQLRouter):
         if cacheable is None or cache is None:
             return await super().run(request, context, root_value)
 
-        name = cacheable.operation
         # Read before the query runs: the data is then at least this new.
-        version = await _data_version(request, cacheable.fields)
-        key = f"{cacheable.key}:{version}"
-        metrics = get_metrics_provider()
+        key = f"{cacheable.key}:{await _data_version(request, cacheable.fields)}"
         # The cache clients are blocking network calls, so keep them off the loop.
         if (stored := await run_in_threadpool(cache.get, key)) is not None:
-            metrics.counter(
+            get_metrics_provider().counter(
                 "dj.graphql.response_cache",
-                tags={"operation": name, "result": "hit"},
+                tags={"operation": cacheable.operation, "result": "hit"},
             )
             return Response(gzip.decompress(stored), media_type="application/json")
 
@@ -581,9 +580,9 @@ class CachingGraphQLRouter(GraphQLRouter):
                 gzip.compress(body, compresslevel=1),
                 timeout=get_settings().graphql_response_cache_ttl,
             )
-        metrics.counter(
+        get_metrics_provider().counter(
             "dj.graphql.response_cache",
-            tags={"operation": name, "result": "miss"},
+            tags={"operation": cacheable.operation, "result": "miss"},
         )
         return response
 
