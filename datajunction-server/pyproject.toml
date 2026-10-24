@@ -91,7 +91,7 @@ dependencies = [
     "nbformat>=5.10.4",
 
     # GraphQL
-    "strawberry-graphql>=0.235.0",
+    "strawberry-graphql>=0.289.4",
 
     # Data validation
     "pydantic<2.11,>=2.0",

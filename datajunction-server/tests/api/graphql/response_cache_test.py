@@ -9,6 +9,12 @@ from datajunction_server.api.main import app
 from datajunction_server.config import Settings
 from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.internal.caching.cachelib_cache import get_cache
+from datajunction_server.internal.caching.data_version import (
+    AVAILABILITY_KEY,
+    DATA_KEY,
+    invalidate_on_commit,
+    read_data_version,
+)
 from datajunction_server.utils import get_settings
 
 QUERY = """
@@ -35,9 +41,18 @@ class DictCache(Cache):
         self.store.pop(key, None)
 
 
+def responses(cache):
+    return [key for key in cache.store if key.startswith("graphql:response")]
+
+
 @pytest.fixture
-def cache():
+def cache(session):
     cache = DictCache()
+    cache.store.update({DATA_KEY: "v0", AVAILABILITY_KEY: "v0"})
+    cache.sets.clear()
+    # The tests share one session, which the app's own session dependency
+    # would otherwise be the one to attach this to.
+    invalidate_on_commit(session, lambda: cache)
     app.dependency_overrides[get_cache] = lambda: cache
     yield cache
     app.dependency_overrides.pop(get_cache, None)
@@ -79,7 +94,9 @@ async def test_an_allowed_operation_is_served_from_the_cache(
     assert first.status_code == second.status_code == 200
     assert second.content == first.content
     assert executed.call_count == 1
-    assert [timeout for _, timeout in cache.sets] == [45]
+    assert [
+        timeout for key, timeout in cache.sets if key.startswith("graphql:response")
+    ] == [45]
 
 
 @pytest.mark.asyncio
@@ -109,7 +126,7 @@ async def test_variables_and_query_text_are_part_of_the_key(
     )
 
     assert executed.call_count == 3
-    assert len(cache.store) == 3
+    assert len(responses(cache)) == 3
 
 
 @pytest.mark.asyncio
@@ -122,14 +139,13 @@ async def test_operation_name_selects_the_operation(client_with_roads, cache, al
         json={"query": query, "operationName": "Other"},
     )
     assert other.status_code == 200
-    assert cache.store == {}  # `operationName` picks `Other`, which is not allowed
+    assert responses(cache) == []  # `operationName` picks `Other`, which is not allowed
 
-    cache.store.clear()
     await client_with_roads.post(
         "/graphql",
         json={"query": query, "operationName": "NodeListing"},
     )
-    assert len(cache.store) == 1
+    assert len(responses(cache)) == 1
 
 
 @pytest.mark.asyncio
@@ -138,7 +154,7 @@ async def test_other_operations_are_not_cached(client_with_roads, cache, allow):
     await client_with_roads.post("/graphql", json={"query": QUERY})
     await client_with_roads.post("/graphql", json={"query": "{ findNodes { name } }"})
 
-    assert cache.store == {}
+    assert responses(cache) == []
 
 
 @pytest.mark.asyncio
@@ -150,7 +166,7 @@ async def test_nothing_is_cached_unless_operations_are_allowed(
     allow()
     await client_with_roads.post("/graphql", json={"query": QUERY})
 
-    assert cache.store == {}
+    assert responses(cache) == []
 
 
 @pytest.mark.asyncio
@@ -161,7 +177,7 @@ async def test_a_response_with_errors_is_not_cached(client_with_roads, cache, al
     response = await client_with_roads.post("/graphql", json={"query": broken})
 
     assert response.json()["errors"]
-    assert cache.store == {}
+    assert responses(cache) == []
 
 
 @pytest.mark.asyncio
@@ -186,7 +202,7 @@ async def test_unparseable_and_batched_requests_bypass_the_cache(
     assert garbage.status_code in (400, 422)
     assert batch.status_code in (200, 400)
     assert no_query.status_code in (200, 400)
-    assert cache.store == {}
+    assert responses(cache) == []
 
 
 @pytest.mark.asyncio
@@ -195,7 +211,7 @@ async def test_get_requests_bypass_the_cache(client_with_roads, cache, allow):
 
     await client_with_roads.get("/graphql", params={"query": QUERY})
 
-    assert cache.store == {}
+    assert responses(cache) == []
 
 
 @pytest.mark.asyncio
@@ -229,7 +245,7 @@ async def test_a_change_makes_the_cached_response_unreachable(
 
     assert executed.call_count == 2
     assert "default.a_new_source" in after.text
-    assert len(cache.store) == 2
+    assert len(responses(cache)) == 2
 
 
 @pytest.mark.asyncio
@@ -384,16 +400,14 @@ async def test_collection_edits_invalidate_a_query_that_lists_them(
         json=["default.repair_orders"],
     )
     assert removed.status_code == 204, removed.text
-    # Back to the state of the second request, whose response is still right.
     fourth = await client_with_roads.post("/graphql", json=listing)
-    assert executed.call_count == 3
+    assert executed.call_count == 4
     assert '"nodeCount":0' in fourth.text.replace(" ", "")
 
     deleted = await client_with_roads.delete("/collections/cache_test")
     assert deleted.status_code == 204, deleted.text
     final = await client_with_roads.post("/graphql", json=listing)
-    # Back to the state of the first request, whose response is still right.
-    assert executed.call_count == 3
+    assert executed.call_count == 5
     assert "cache_test" not in final.text
 
 
@@ -421,67 +435,83 @@ async def test_an_error_too_long_for_the_tail_of_the_body_is_not_cached(
     response = await client_with_roads.post("/graphql", json={"query": QUERY})
 
     assert response.status_code == 200
-    assert cache.store == {}
+    assert responses(cache) == []
 
 
-async def _history_row(session, row_id, entity_type):
-    from datajunction_server.database.history import History
-    from datajunction_server.internal.history import ActivityType
+@pytest.mark.asyncio
+async def test_a_missing_version_is_created_and_that_request_is_not_cached(
+    client_with_roads,
+    cache,
+    allow,
+    mocker,
+):
+    allow("NodeListing")
+    executed = mocker.spy(GraphQLRouter, "run")
+    cache.store.pop(DATA_KEY)
+    body = {"query": QUERY, "variables": {"types": ["SOURCE"]}}
 
-    session.add(
-        History(
-            id=row_id,
-            entity_type=entity_type,
-            entity_name="default.somewhere",
-            node="default.somewhere",
-            activity_type=ActivityType.UPDATE,
-            user="tester",
-        ),
-    )
+    await client_with_roads.post("/graphql", json=body)
+    assert DATA_KEY in cache.store
+    assert responses(cache) == []
+
+    await client_with_roads.post("/graphql", json=body)
+    await client_with_roads.post("/graphql", json=body)
+    assert executed.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_only_committed_writes_replace_versions(session):
+    from datajunction_server.database.tag import Tag
+
+    versions = DictCache()
+    invalidate_on_commit(session, lambda: versions)
+
+    session.add(Tag(name="rolled_back", tag_type="x", created_by_id=1))
+    await session.flush()
+    await session.rollback()
+    await session.commit()
+    assert versions.sets == []
+
+    session.add(Tag(name="committed", tag_type="x", created_by_id=1))
+    await session.commit()
+    assert [key for key, _ in versions.sets] == [DATA_KEY]
+
+
+@pytest.mark.asyncio
+async def test_bulk_statements_replace_versions_too(session):
+    from sqlalchemy import update
+
+    from datajunction_server.database.availabilitystate import AvailabilityState
+    from datajunction_server.database.tag import Tag
+
+    versions = DictCache()
+    invalidate_on_commit(session, lambda: versions)
+
+    await session.execute(update(Tag).values(display_name="renamed"))
+    await session.execute(update(AvailabilityState).values(table="renamed"))
     await session.commit()
 
-
-@pytest.mark.asyncio
-async def test_a_late_commit_with_a_lower_id_changes_the_version(session):
-    from types import SimpleNamespace
-
-    from datajunction_server.api.graphql.main import _data_version
-    from datajunction_server.internal.history import EntityType
-
-    request = SimpleNamespace(state=SimpleNamespace(test_session=session))
-    nodes = "{ findNodes { name } }"
-
-    # Ids are allocated before commit: 2_000_001 commits first, then 2_000_000.
-    await _history_row(session, 2_000_001, EntityType.NODE)
-    before = await _data_version(request, nodes)
-    await _history_row(session, 2_000_000, EntityType.NODE)
-    after = await _data_version(request, nodes)
-
-    # The latest id is the same; only the count of recent rows moved.
-    assert before.split(".")[0] == after.split(".")[0]
-    assert before != after
+    assert sorted(key for key, _ in versions.sets) == [AVAILABILITY_KEY, DATA_KEY]
 
 
 @pytest.mark.asyncio
-async def test_availability_events_only_move_the_version_of_a_query_that_selects_them(
-    session,
-):
-    from types import SimpleNamespace
+async def test_a_failing_cache_does_not_fail_the_commit(session, caplog):
+    from datajunction_server.database.tag import Tag
 
-    from datajunction_server.api.graphql.main import _data_version
-    from datajunction_server.internal.history import EntityType
+    class Broken(DictCache):
+        def set(self, key, value, timeout=300):
+            raise ConnectionError("down")
 
-    request = SimpleNamespace(state=SimpleNamespace(test_session=session))
-    plain = "{ findNodes { name } }"
-    selecting = "{ findNodes { current { availability { validThroughTs } } } }"
+    invalidate_on_commit(session, lambda: Broken())
+    session.add(Tag(name="unreachable_cache", tag_type="x", created_by_id=1))
+    await session.commit()
 
-    plain_before = await _data_version(request, plain)
-    selecting_before = await _data_version(request, selecting)
-    await _history_row(session, 3_000_001, EntityType.AVAILABILITY)
-    # A late availability commit with a lower id is noticed too.
-    selecting_mid = await _data_version(request, selecting)
-    await _history_row(session, 3_000_000, EntityType.AVAILABILITY)
+    assert "Could not replace versions" in caplog.text
 
-    assert await _data_version(request, plain) == plain_before
-    assert selecting_before != selecting_mid
-    assert selecting_mid != await _data_version(request, selecting)
+
+def test_read_data_version_joins_the_versions_a_query_depends_on():
+    versions = DictCache()
+    versions.store.update({DATA_KEY: "d", AVAILABILITY_KEY: "a"})
+
+    assert read_data_version(versions, "{ findNodes { name } }") == "d"
+    assert read_data_version(versions, "{ findNodes { availability } }") == "d:a"

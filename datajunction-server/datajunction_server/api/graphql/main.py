@@ -21,7 +21,6 @@ from fastapi import BackgroundTasks, Depends, Request, Response
 from strawberry.extensions import SchemaExtension
 from strawberry.fastapi import GraphQLRouter
 from strawberry.http import GraphQLRequestData
-from sqlalchemy import func, select
 from starlette.concurrency import run_in_threadpool
 from strawberry.types import Info
 from strawberry.types.unset import UNSET
@@ -74,20 +73,13 @@ from datajunction_server.api.graphql.scalars.sql import (
     MaterializationPlan,
 )
 from datajunction_server.api.graphql.scalars.tag import Tag
-from datajunction_server.database.collection import Collection as DBCollection
-from datajunction_server.database.collection import CollectionNodes
-from datajunction_server.database.history import History
 from datajunction_server.instrumentation.provider import get_metrics_provider
-from datajunction_server.internal.history import EntityType
 from datajunction_server.internal.access.authentication.http import DJHTTPBearer
 from datajunction_server.internal.caching.cachelib_cache import get_cache
-from datajunction_server.utils import get_session, get_settings, session_context
+from datajunction_server.internal.caching.data_version import read_data_version
+from datajunction_server.utils import get_session, get_settings
 
-try:
-    from lia import HTTPException
-except ImportError:  # pragma: no cover
-    # Older strawberry releases ship this under its former name.
-    from cross_web import HTTPException  # type: ignore[no-redef]
+from cross_web import HTTPException
 
 logger = logging.getLogger(__name__)
 
@@ -421,95 +413,6 @@ def _cacheable_request(data: GraphQLRequestData) -> CacheableRequest | None:
     )
 
 
-# How many of the most recent history ids are counted to notice a row that was
-# allocated an id before a later one but committed after it.
-HISTORY_VERSION_WINDOW = 50_000
-
-
-async def _history_version(session, *conditions) -> str:
-    """
-    The latest history id matching the conditions and how many matching rows sit
-    in the last ``HISTORY_VERSION_WINDOW`` ids.
-
-    The latest id alone is not enough: ids are allocated when a row is inserted
-    but become visible when its transaction commits, so a row with a lower id can
-    commit after a higher one and leave the maximum unchanged. It does change the
-    count. Both come from one statement, so they share a snapshot.
-    """
-    latest = select(func.max(History.id)).where(*conditions).scalar_subquery()
-    recent = (
-        select(func.count(History.id))
-        .where(History.id > latest - HISTORY_VERSION_WINDOW, *conditions)
-        .scalar_subquery()
-    )
-    newest, count = (await session.execute(select(latest, recent))).one()
-    return f"{newest or 0}.{count}"
-
-
-async def _collections_version(session) -> str:
-    """
-    A signature of every collection and its members, which history does not
-    record: how many there are, the newest id, and a sum of hashed memberships so
-    that swapping one member for another still changes it.
-    """
-    collections = (
-        await session.execute(
-            select(func.count(DBCollection.id), func.max(DBCollection.id)),
-        )
-    ).one()
-    members = (
-        await session.execute(
-            select(
-                func.count(),
-                func.coalesce(
-                    func.sum(
-                        func.hashtextextended(
-                            func.concat(
-                                CollectionNodes.collection_id,
-                                ":",
-                                CollectionNodes.node_id,
-                            ),
-                            0,
-                        ),
-                    ),
-                    0,
-                ),
-            ).select_from(CollectionNodes),
-        )
-    ).one()
-    return ".".join(str(value) for value in (*collections, *members))
-
-
-async def _data_version(request: Request, query: str) -> str:
-    """
-    Changes whenever data a cached response could contain has changed.
-
-    Every node, link, tag or namespace change is recorded in history, however it
-    was made. Availability updates are frequent (thousands a day), so they only
-    count for a query that mentions availability, and collections, which history
-    does not record, only for one that mentions ``listCollections``. A query is
-    searched as text, which can only over-include.
-    """
-    async with session_context(request) as session:
-        parts = [
-            await _history_version(
-                session,
-                History.entity_type != EntityType.AVAILABILITY,
-            ),
-        ]
-        if "availability" in query:
-            parts.append(
-                "a"
-                + await _history_version(
-                    session,
-                    History.entity_type == EntityType.AVAILABILITY,
-                ),
-            )
-        if "listCollections" in query:
-            parts.append("c" + await _collections_version(session))
-    return ":".join(parts)
-
-
 class CachingGraphQLRouter(GraphQLRouter):
     """
     GraphQL router that can serve the whole response of an allowed operation
@@ -541,10 +444,14 @@ class CachingGraphQLRouter(GraphQLRouter):
         if cacheable is None or cache is None:
             return await super().run(request, context, root_value)
 
-        # Read before the query runs: the data is then at least this new.
-        key = f"{cacheable.key}:{await _data_version(request, data.query)}"
-        # The cache clients are blocking network calls, so keep them off the loop.
-        if (stored := await run_in_threadpool(cache.get, key)) is not None:
+        # Read before the query runs: the data is then at least this new. The
+        # cache clients are blocking network calls, so keep them off the loop.
+        version = await run_in_threadpool(read_data_version, cache, data.query)
+        key = f"{cacheable.key}:{version}"
+        if (
+            version is not None
+            and (stored := await run_in_threadpool(cache.get, key)) is not None
+        ):
             get_metrics_provider().counter(
                 "dj.graphql.response_cache",
                 tags={"operation": cacheable.operation, "result": "hit"},
@@ -555,7 +462,11 @@ class CachingGraphQLRouter(GraphQLRouter):
         body = bytes(response.body)
         # Anywhere in the body: an error message can be arbitrarily long. A data
         # key named ``errors`` would only mean skipping the cache.
-        if response.status_code == 200 and b'"errors"' not in body:
+        if (
+            version is not None
+            and response.status_code == 200
+            and b'"errors"' not in body
+        ):
             await run_in_threadpool(
                 cache.set,
                 key,

@@ -40,6 +40,8 @@ from datajunction_server.errors import (
     DJUninitializedResourceException,
 )
 from datajunction_server.instrumentation.provider import get_metrics_provider
+from datajunction_server.internal.caching.cachelib_cache import get_cache
+from datajunction_server.internal.caching.data_version import invalidate_on_commit
 from datajunction_server.internal.access.group_membership import (
     get_group_membership_service,
 )
@@ -224,6 +226,15 @@ async def is_graphql_query(request: Request) -> bool:
         return False
 
 
+def _shared_cache(request: Request):
+    """
+    The app's cache, whatever the request's ``Cache-Control`` asks for: a write
+    must still replace the version that cached responses were stored under.
+    """
+    getter = request.app.dependency_overrides.get(get_cache, get_cache)
+    return getter(Request({"type": "http", "headers": [], "app": request.app}))
+
+
 async def get_session(
     request: Request = None,
     session_label: str | None = None,
@@ -256,6 +267,8 @@ async def get_session(
         async with session_maker() as session:
             session.info["query_count"] = query_count
             session.info["session_label"] = session_label
+            if request:
+                invalidate_on_commit(session, lambda: _shared_cache(request))
             try:
                 yield session
             except Exception as exc:
