@@ -13,6 +13,7 @@ import strawberry
 from fastapi import BackgroundTasks, Depends, Request, Response
 from strawberry.extensions import SchemaExtension
 from strawberry.fastapi import GraphQLRouter
+from starlette.concurrency import run_in_threadpool
 from strawberry.types import Info
 from strawberry.types.unset import UNSET
 
@@ -412,7 +413,8 @@ class CachingGraphQLRouter(GraphQLRouter):
 
         name, key = cacheable
         metrics = get_metrics_provider()
-        if (stored := cache.get(key)) is not None:
+        # The cache clients are blocking network calls, so keep them off the loop.
+        if (stored := await run_in_threadpool(cache.get, key)) is not None:
             metrics.counter(
                 "dj.graphql.response_cache",
                 tags={"operation": name, "result": "hit"},
@@ -423,7 +425,8 @@ class CachingGraphQLRouter(GraphQLRouter):
         body = bytes(response.body)
         # An error is encoded after the data, so it is at the end.
         if response.status_code == 200 and b'"errors"' not in body[-4096:]:
-            cache.set(
+            await run_in_threadpool(
+                cache.set,
                 key,
                 gzip.compress(body, compresslevel=1),
                 timeout=get_settings().graphql_response_cache_ttl,
