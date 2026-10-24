@@ -2015,7 +2015,7 @@ GOLDEN_FINGERPRINTS = {
     "source": "71dcbc388988c2bdd850670427710384687b58565ee38ca392dc220adfed868d",
     "transform": "978e692880c7bcfb1bd78ece85895a1ec1558e85377b064a8dac3f3719cff2a5",
     "dimension": "f7b3c87a61fdadf9997432fd9334befdf43f2488874ef555e3f7d4c4ba86e3e1",
-    "metric": "adf0927eb31f1ff500f064d7b6a7f286aa1381265e61e2e3421920059d9a2922",
+    "metric": "86cd19032016a7114dcfbf7114893b0386e0b56327113cac570c900d18135406",
     "cube": "9b0a56d974d1e3769bc2db94e2cfbae7a6a4839f664eebd2a4387ef112ceea81",
 }
 
@@ -2349,6 +2349,8 @@ def test_metric_presentation_fields_preserve_semantic_fingerprint():
             "required_dimensions",
             "reaggregate",
             "fixed_grain",
+            "required_filters",
+            "recommended_filters",
         }
     )
     assert all(
@@ -2515,6 +2517,22 @@ def test_required_dimensions_normalization_falls_back_for_invalid_query():
 
     assert normalize_field(metric, "required_dimensions") == [
         "analytics.orders.order_id",
+    ]
+
+
+def test_filter_requirements_normalization_mixed_defaults():
+    metric = MetricSpec(
+        name="orders",
+        query="SELECT COUNT(*) FROM orders",
+        required_filters=[
+            {"dimension": "a.b", "default": "a.b = 1"},
+            {"dimension": "a.b"},
+        ],
+    )
+
+    assert normalize_field(metric, "required_filters") == [
+        (["a.b"], None),
+        (["a.b"], "a.b = 1"),
     ]
 
 

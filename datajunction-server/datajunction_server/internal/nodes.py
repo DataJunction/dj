@@ -137,6 +137,10 @@ from datajunction_server.models.node import (
 from datajunction_server.models.fixed_grain import fixed_grain_identity
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import QueryCreate
+from datajunction_server.models.filter_requirements import (
+    dump_filter_requirements,
+    filter_requirements_identity,
+)
 from datajunction_server.models.reaggregate import dump_reaggregate_spec
 from datajunction_server.models.table_metadata import TableMetadata, TableOwner
 from datajunction_server.service_clients import QueryServiceClient
@@ -609,6 +613,8 @@ async def create_node_revision(
         # Passed through for every node type so `extra_validation` can reject
         # it, rather than silently dropping a declaration the author wrote.
         fixed_grain=data.fixed_grain,
+        required_filters=dump_filter_requirements(data.required_filters),
+        recommended_filters=dump_filter_requirements(data.recommended_filters),
         created_by_id=current_user.id,
         custom_metadata=data.custom_metadata,
     )
@@ -1224,6 +1230,8 @@ async def copy_to_new_node(
         metric_metadata=old_revision.metric_metadata,
         reaggregate=old_revision.reaggregate,
         fixed_grain=old_revision.fixed_grain,
+        required_filters=old_revision.required_filters,
+        recommended_filters=old_revision.recommended_filters,
         cube_elements=list(old_revision.cube_elements),
         cube_filters=old_revision.cube_filters,
         status=old_revision.status,
@@ -2646,6 +2654,8 @@ def copy_existing_node_revision(old_revision: NodeRevision, current_user: User):
         metric_metadata=old_revision.metric_metadata,
         reaggregate=old_revision.reaggregate,
         fixed_grain=old_revision.fixed_grain,
+        required_filters=old_revision.required_filters,
+        recommended_filters=old_revision.recommended_filters,
         dimension_links=[
             DimensionLink(
                 dimension_id=link.dimension_id,
@@ -2883,6 +2893,28 @@ async def create_new_revision_from_existing(
     reaggregate_changes = reaggregate_was_set and dump_reaggregate_spec(
         old_revision.reaggregate,
     ) != dump_reaggregate_spec(data.reaggregate if data else None)
+    required_filters_were_set = bool(
+        data and "required_filters" in data.model_fields_set,
+    )
+    new_required_filters = (
+        dump_filter_requirements(data.required_filters)
+        if required_filters_were_set and data
+        else old_revision.required_filters
+    )
+    recommended_filters_were_set = bool(
+        data and "recommended_filters" in data.model_fields_set,
+    )
+    new_recommended_filters = (
+        dump_filter_requirements(data.recommended_filters)
+        if recommended_filters_were_set and data
+        else old_revision.recommended_filters
+    )
+    filter_requirement_changes = filter_requirements_identity(
+        old_revision.required_filters,
+    ) != filter_requirements_identity(new_required_filters) or (
+        filter_requirements_identity(old_revision.recommended_filters)
+        != filter_requirements_identity(new_recommended_filters)
+    )
     major_changes = (
         query_changes
         or column_changes
@@ -2890,6 +2922,7 @@ async def create_new_revision_from_existing(
         or required_dim_changes
         or reaggregate_changes
         or fixed_grain_changes
+        or filter_requirement_changes
     )
 
     # If nothing has changed, do not create the new node revision
@@ -2947,6 +2980,8 @@ async def create_new_revision_from_existing(
             else old_revision.reaggregate
         ),
         fixed_grain=new_fixed_grain,
+        required_filters=new_required_filters,
+        recommended_filters=new_recommended_filters,
         dimension_links=[
             DimensionLink(
                 dimension_id=link.dimension_id,

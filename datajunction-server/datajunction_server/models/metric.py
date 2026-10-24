@@ -21,6 +21,7 @@ from datajunction_server.models.node import (
     MetricMetadataOutput,
 )
 from datajunction_server.models.query import ColumnMetadata, V3ColumnMetadata
+from datajunction_server.models.filter_requirements import FilterRequirement
 from datajunction_server.models.reaggregate import ReaggregateSpec
 from datajunction_server.models.sql import ScanEstimate, TranspiledSQL
 from datajunction_server.models.unit import unit_to_dict
@@ -105,6 +106,8 @@ class Metric(BaseModel):
     required_dimensions: list[str]
     reaggregate: ReaggregateSpec | None = None
     fixed_grain: list[str] | None = None
+    required_filters: list[FilterRequirement] | None = None
+    recommended_filters: list[FilterRequirement] | None = None
 
     # Whether the metric is a single aggregation call (a "measure") that can map
     # 1:1 to a column in an externally-built pre-aggregation table. Derived/ratio
@@ -170,6 +173,8 @@ class Metric(BaseModel):
             ),
             reaggregate=node.current.reaggregate,
             fixed_grain=node.current.fixed_grain,
+            required_filters=node.current.required_filters,
+            recommended_filters=node.current.recommended_filters,
             is_measure=node.current.is_measure,
             incompatible_druid_functions=incompatible_druid_functions,
             measures=measures,

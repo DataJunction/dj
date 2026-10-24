@@ -45,7 +45,14 @@ _FIELDS_BY_SPEC_TYPE: dict[type[NodeSpec], tuple[str, ...]] = {
         "primary_key",
         "query",
     ),
-    MetricSpec: ("query", "required_dimensions", "reaggregate", "fixed_grain"),
+    MetricSpec: (
+        "query",
+        "required_dimensions",
+        "reaggregate",
+        "fixed_grain",
+        "required_filters",
+        "recommended_filters",
+    ),
     CubeSpec: ("metrics", "dimensions", "filters", "columns"),
 }
 

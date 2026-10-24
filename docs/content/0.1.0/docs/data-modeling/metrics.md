@@ -427,6 +427,71 @@ A [required dimension](#required-dimensions) also keeps a snapshot from being su
 A rule picks one value along the collapsed dimension; it does not combine values across it. Anything that needs the whole range — a rolling total, an average across the period, a count of accounts seen on any day in it — is a separate calculation rather than a collapse function.
 {{< /alert >}}
 
+## Filter Requirements
+
+A metric can say which dimension attributes a query must filter and which it should filter. DJ checks this when it builds the SQL, so a query that would return a wrong answer or scan far more data than it needs is rejected or flagged instead of running.
+
+There are two reasons to declare one. The first is correctness: a pricing metric stored once per price list version adds up every version when no version is chosen. The second is cost: an event table partitioned by date is very large when it is read without a date filter.
+
+A metric has two optional lists, `required_filters` and `recommended_filters`.
+
+```yaml
+description: Total catalog value
+query: SELECT SUM(unit_price) FROM ${prefix}pricing.catalog_prices
+required_filters:
+  - dimension: ${prefix}pricing.price_list_version.is_current
+    default: ${prefix}pricing.price_list_version.is_current = true
+recommended_filters:
+  - dimension: ${prefix}pricing.price_list_version.version_id
+  - dimension: ${prefix}pricing.catalog_prices.effective_date
+```
+
+Each entry has a `dimension`, which is one attribute or a list of attributes, and an optional `default`. When `dimension` is a list, a filter on any one of the attributes satisfies the entry. The `default` is a filter on one of the entry's attributes, written the same way as the `filters` parameter of the `/sql` and `/data` endpoints. DJ rejects the metric when its `default` does not filter on any of the entry's attributes, matching roles the same way as a caller's filters. An attribute is written as `node.column`, or as `node.column[role]` to match one role only. An entry without a role matches the column under any role in a caller's filters.
+
+When you save the metric, DJ checks that it can build a query filtered on every attribute, in `dimension` or in `default`, and rejects the metric when it cannot. The check runs against each node the metric reads from, or for a derived metric, each node its base metrics read from, and the attribute has to work for all of them. From such a node, DJ can filter on:
+
+- a column of the node itself, without a role;
+- any column of a dimension that dimension links reach from the node, directly or through other dimensions, as long as the path does not come back to a dimension it already passed. With a role, the roles of the links along one path must spell the attribute's role, so `node.column[customer->home]` follows a `customer` link and then a `home` link, and links without a role along the way are skipped;
+- the dimension column that a reference link on one of the node's columns points to, but no other column of that dimension;
+- the dimension column that a join link on a node upstream of it joins on, without a role, because DJ then applies the filter to the upstream column it joins from. Other columns of that dimension are out of reach unless a link from the node itself gets there.
+
+A pinned cube (the `cube` parameter) is stricter: it must materialize the dimension under a matching role, or a roleless default is rejected with a 422 saying the cube does not cover it. The same goes for the SQL of a cube node, such as `/sql/{cube_name}/`, when DJ builds it for Druid. `${prefix}` is filled in for both `dimension` and `default`.
+
+When DJ builds a query for the metric, it looks at the filters the caller sent and handles each entry that no filter satisfies:
+
+- A required entry without a default rejects the query with a 422 that names the attribute and the metric that asked for it.
+- A recommended entry without a default lets the query run and adds a warning to the response.
+- An entry with a default adds that default to the query and lists it in the response warnings. A filter from the caller on any of the entry's attributes replaces the default.
+
+Grouping by an attribute does not count as filtering it. A filter on a different attribute of the same dimension node does not replace a default; the two are combined. An attribute can appear in only one of the two lists on a metric, and both lists are only allowed on metric nodes.
+
+A required entry without a default makes sure that every query says which part of a large table it wants:
+
+```yaml
+description: Active members
+query: SELECT SUM(is_active) FROM ${prefix}membership.daily_member_snapshot
+required_filters:
+  - dimension: ${prefix}membership.daily_member_snapshot.snapshot_date
+```
+
+A query on this metric with no filter on `snapshot_date` is rejected with an error such as `Missing required filter: one of membership.daily_member_snapshot.snapshot_date (required by metric membership.active_members)`.
+
+Any filter on the attribute satisfies the entry, including a range such as `snapshot_date >= '2020-01-01'` or a condition joined to another one with `OR`. The requirement guarantees that the caller said something about the attribute. It does not guarantee that the filter narrows the query to one value, and it does not guarantee that the engine skips any partitions. A range filter on `snapshot_date` still adds up every day in the range. If a metric must read exactly one snapshot, declare a [`reaggregate`](#semi-additive-metrics) rule such as `last_value` on the date, so that a query over a range returns the latest day's value, or a [required dimension](#required-dimensions) on the date, so that every query returns one row per day.
+
+The `/sql/metrics/v3/`, `/sql/{node_name}/`, `/data/`, `/data/{node_name}/`, `/djsql/` and `/djsql/data` endpoints list the applied defaults and the missing recommended filters in the `warnings` field of the response. The `/stream/`, `/stream/{node_name}` and `/djsql/stream/` endpoints send the same list as their first event, a `warnings` event whose data is a JSON array, and they skip that event when there is nothing to report. The semantic-layer view endpoints apply the same rules but do not list the applied defaults, because their response has no field for them. A lookup of the distinct values of a dimension, such as `/sql/dimensions/v3/` or a view's `/values` endpoint, is not affected by filter requirements: the metrics of the cube only scope that lookup, so no filter is required and no default is added.
+
+### Several metrics in one request
+
+When a request names several metrics, the entries from all of them apply together. A derived metric also gets the entries of every metric it is built from. Identical entries are merged, and if the same attribute is required on one metric and recommended on another, the required entry wins.
+
+Filters apply to every metric in the request, so a default from one metric also filters the others. An entry is only satisfied by a filter the caller sent: a default applied for another metric does not count. If one metric requires a filter with no default and another metric's default covers the same attribute, the query is still rejected. Entries whose defaults are the same text, ignoring spacing and case, are applied once.
+
+Two defaults on the same attribute with different text fail the query with an error that names both metrics. Defaults on different attributes can combine into a result with no rows. DJ does not detect this, so check the applied defaults listed in the response.
+
+### How this differs from required dimensions
+
+`required_dimensions` adds a column to the `GROUP BY` and says nothing about `WHERE`. A filter requirement is about `WHERE`: it makes sure the query restricts the data, and it never changes which columns the result is grouped by.
+
 ## Metric Metadata
 
 Beyond the SQL query, metrics support additional metadata to improve discoverability and usability.

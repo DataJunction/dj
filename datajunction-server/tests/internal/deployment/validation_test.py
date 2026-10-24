@@ -12,11 +12,12 @@ from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import OAuthProvider, User
-from datajunction_server.errors import ErrorCode
+from datajunction_server.errors import DJError, ErrorCode
 from datajunction_server.internal.deployment.validation import (
     NodeSpecBulkValidator,
     NodeValidationResult,
     ValidationContext,
+    _declared_link_keys,
     _reparse_column_types,
     bulk_validate_node_data,
 )
@@ -989,6 +990,70 @@ class TestRequiredDimensions:
 
         assert result.status == expected_status
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "entry,attribute",
+        [
+            ({"dimension": "test.dim.dateint[order]"}, "test.dim.dateint[order]"),
+            (
+                {
+                    "dimension": "test.dim.dateint",
+                    "default": "test.dim.dateint[order] = 1",
+                },
+                "test.dim.dateint[order]",
+            ),
+            (
+                {"dimension": "test.dim.dateint", "default": "test.dim.dateint = 1"},
+                None,
+            ),
+        ],
+        ids=["dimension-role", "default-role", "no-role"],
+    )
+    @pytest.mark.parametrize(
+        "pending_roles,role_valid",
+        [
+            ({"test.parent": {("test.dim", "order")}}, True),
+            ({"test.parent": {("test.dim", "ship")}}, False),
+        ],
+        ids=["declared-role", "other-role"],
+    )
+    async def test_filter_requirement_role_checked(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+        entry: dict,
+        attribute: str | None,
+        pending_roles: dict,
+        role_valid: bool,
+    ):
+        """A filter requirement role must match a link from a parent."""
+        dim_node = self._make_dim_node("test.dim", ["dateint"])
+        context = self._make_context(session, parent_node)
+        context.deployment_link_roles = pending_roles
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT SUM(value) FROM test.parent",
+            required_filters=[entry],
+        )
+        validator = NodeSpecBulkValidator(context)
+        validator._all_dim_nodes = {**context.dependency_nodes, "test.dim": dim_node}
+
+        errors = validator._check_filter_requirements(spec)
+
+        if role_valid or attribute is None:
+            assert errors == []
+        else:
+            assert errors == [
+                DJError(
+                    code=ErrorCode.INVALID_COLUMN,
+                    message=(
+                        "Node definition declares filter requirements that "
+                        "name attributes that could not be resolved."
+                    ),
+                    debug={"invalid_filter_requirement_attributes": [attribute]},
+                ),
+            ]
+
     @pytest.mark.parametrize(
         "base_parents,expected_error",
         [
@@ -1127,6 +1192,32 @@ class TestRequiredDimensions:
         err = next(e for e in result.errors if e.code == ErrorCode.INVALID_COLUMN)
         assert err.debug is not None
         assert "test.dim.nonexistent_col" in err.debug["invalid_fixed_grain_dimensions"]
+
+    @pytest.mark.asyncio
+    async def test_invalid_filter_requirement_dimension(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """An unresolvable filter requirement fails at deploy time."""
+        dim_node = self._make_dim_node("test.dim", ["dateint"])
+        context = self._make_context(session, parent_node)
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT SUM(value) FROM test.parent",
+            required_filters=[{"dimension": "test.dim.nonexistent_col"}],
+        )
+        validator = NodeSpecBulkValidator(context)
+        validator._all_dim_nodes = {**context.dependency_nodes, "test.dim": dim_node}
+        result = validator.validate_query_node(spec)
+
+        assert result.status == NodeStatus.INVALID
+        assert [(e.code, e.debug) for e in result.errors] == [
+            (
+                ErrorCode.INVALID_COLUMN,
+                {"invalid_filter_requirement_attributes": ["test.dim.nonexistent_col"]},
+            ),
+        ]
 
     @pytest.mark.asyncio
     async def test_fixed_grain_shape_rejected_at_deploy_time(
@@ -1281,6 +1372,364 @@ class TestRequiredDimensions:
         assert "test.external_dim" in validator._all_dim_nodes
 
     @pytest.mark.asyncio
+    async def test_filter_default_dimension_is_prefetched(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+        dim_node_in_db: Node,
+    ):
+        """A default may also name a dimension node that no entry names."""
+        context = self._make_context(session, parent_node)
+        context.dependency_nodes["test.dim"] = self._make_dim_node(
+            "test.dim",
+            ["dateint"],
+        )
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT SUM(value) FROM test.parent",
+            required_filters=[
+                {
+                    "dimension": "test.dim.dateint",
+                    "default": (
+                        "test.dim.dateint = 1 AND test.external_dim.region = 'x'"
+                    ),
+                },
+            ],
+        )
+        context.deployment_links = _join_links(
+            {
+                "test.parent": {("test.dim", None), ("test.external_dim", None)},
+            },
+        )
+        validator = NodeSpecBulkValidator(context)
+
+        await validator._prefetch_required_dimension_nodes([spec])
+        await validator._prefetch_filter_reachability([spec])
+        result = validator.validate_query_node(spec)
+
+        assert result.status == NodeStatus.VALID
+        assert result.errors == []
+
+    @pytest.mark.asyncio
+    async def test_filter_requirement_prefetch_skips_bare_column(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+        dim_node_in_db: Node,
+    ):
+        """A bare column names no dimension node, so only qualified ones are fetched."""
+        context = self._make_context(session, parent_node)
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT SUM(value) FROM test.parent",
+            required_filters=[{"dimension": ["value", "test.external_dim.region"]}],
+        )
+        validator = NodeSpecBulkValidator(context)
+
+        await validator._prefetch_required_dimension_nodes([spec])
+
+        assert "test.external_dim" in validator._all_dim_nodes
+        assert "value" not in validator._all_dim_nodes
+
+    @pytest.mark.asyncio
+    async def test_filter_default_dimension_missing(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """A default naming a node that does not exist is unresolved."""
+        context = self._make_context(session, parent_node)
+        context.dependency_nodes["test.dim"] = self._make_dim_node(
+            "test.dim",
+            ["dateint"],
+        )
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT SUM(value) FROM test.parent",
+            required_filters=[
+                {
+                    "dimension": "test.dim.dateint",
+                    "default": (
+                        "test.dim.dateint = 1 AND test.absent_dim.region = 'x'"
+                    ),
+                },
+            ],
+        )
+        context.deployment_links = _join_links(
+            {
+                "test.parent": {("test.dim", None), ("test.absent_dim", None)},
+            },
+        )
+        validator = NodeSpecBulkValidator(context)
+
+        await validator._prefetch_required_dimension_nodes([spec])
+        await validator._prefetch_filter_reachability([spec])
+        result = validator.validate_query_node(spec)
+
+        assert result.status == NodeStatus.INVALID
+        assert [(e.code, e.message, e.debug) for e in result.errors] == [
+            (
+                ErrorCode.INVALID_COLUMN,
+                "Node definition declares filter requirements that name "
+                "attributes that could not be resolved.",
+                {"invalid_filter_requirement_attributes": ["test.absent_dim.region"]},
+            ),
+        ]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "entry,links,invalid",
+        [
+            (
+                {"dimension": "test.external_dim.region"},
+                {"test.parent": {("test.dim", None)}},
+                ["test.external_dim.region"],
+            ),
+            (
+                {
+                    "dimension": "test.dim.dateint",
+                    "default": "test.dim.dateint = 1 OR test.external_dim.region = 'x'",
+                },
+                {"test.parent": {("test.dim", None)}},
+                ["test.external_dim.region"],
+            ),
+            (
+                {"dimension": "test.external_dim.region"},
+                {"test.parent": {("test.external_dim", "home")}},
+                [],
+            ),
+            (
+                {"dimension": "test.external_dim.region"},
+                {
+                    "test.parent": {("test.dim", None)},
+                    "test.dim": {("test.external_dim", None)},
+                },
+                [],
+            ),
+            ({"dimension": "test.parent.value"}, {}, []),
+        ],
+        ids=["unlinked", "unlinked-default", "one-hop", "two-hops", "own-table"],
+    )
+    async def test_filter_attribute_must_be_reachable(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+        dim_node_in_db: Node,
+        entry: dict,
+        links: dict,
+        invalid: list[str],
+    ):
+        """An attribute without a role must be on a node links reach."""
+        context = self._make_context(session, parent_node)
+        context.dependency_nodes["test.dim"] = self._make_dim_node(
+            "test.dim",
+            ["dateint"],
+        )
+        context.deployment_links = _join_links(links)
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT SUM(value) FROM test.parent",
+            required_filters=[entry],
+        )
+        validator = NodeSpecBulkValidator(context)
+
+        await validator._prefetch_required_dimension_nodes([spec])
+        await validator._prefetch_parent_dimension_links([spec])
+        await validator._prefetch_filter_reachability([spec])
+        result = validator.validate_query_node(spec)
+
+        assert [(e.code, e.message, e.debug) for e in result.errors] == (
+            [
+                (
+                    ErrorCode.INVALID_COLUMN,
+                    "Node definition declares filter requirements that name "
+                    "attributes that could not be resolved.",
+                    {"invalid_filter_requirement_attributes": invalid},
+                ),
+            ]
+            if invalid
+            else []
+        )
+
+    @pytest.mark.asyncio
+    async def test_filter_attribute_in_both_lists(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """The both-lists rule applies at deploy time."""
+        context = self._make_context(session, parent_node)
+        context.dependency_nodes["test.dim"] = self._make_dim_node(
+            "test.dim",
+            ["dateint"],
+        )
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT SUM(value) FROM test.parent",
+            required_filters=[{"dimension": "test.dim.dateint"}],
+            recommended_filters=[{"dimension": "test.dim.dateint"}],
+        )
+        validator = NodeSpecBulkValidator(context)
+
+        await validator._prefetch_required_dimension_nodes([spec])
+        result = validator.validate_query_node(spec)
+
+        assert result.status == NodeStatus.INVALID
+        assert [(e.code, e.message) for e in result.errors] == [
+            (
+                ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                "Metric `test.metric` lists test.dim.dateint in both "
+                "required_filters and recommended_filters.",
+            ),
+        ]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "entry,attributes",
+        [
+            (
+                {"dimension": "test.dim.dateint", "default": "test.dim.other = 1"},
+                "test.dim.dateint",
+            ),
+            (
+                {
+                    "dimension": ["test.dim.dateint[order]", "test.dim.other"],
+                    "default": "test.dim.dateint[ship] = 1",
+                },
+                "test.dim.dateint[order], test.dim.other",
+            ),
+        ],
+        ids=["other-attribute", "other-role"],
+    )
+    async def test_filter_default_on_other_attribute(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+        entry: dict,
+        attributes: str,
+    ):
+        """A default must filter on one of its entry's attributes."""
+        context = self._make_context(session, parent_node)
+        context.dependency_nodes["test.dim"] = self._make_dim_node(
+            "test.dim",
+            ["dateint", "other"],
+        )
+        context.deployment_link_roles = {
+            "test.parent": {("test.dim", "order"), ("test.dim", "ship")},
+        }
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT SUM(value) FROM test.parent",
+            required_filters=[entry],
+        )
+        validator = NodeSpecBulkValidator(context)
+
+        await validator._prefetch_required_dimension_nodes([spec])
+        result = validator.validate_query_node(spec)
+
+        assert result.status == NodeStatus.INVALID
+        assert [(e.code, e.message) for e in result.errors] == [
+            (
+                ErrorCode.INVALID_COLUMN,
+                "Metric `test.metric` has a default filter that does not "
+                f"filter on {attributes}: {entry['default']}",
+            ),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_filter_default_does_not_parse(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """An unparseable default is rejected at deploy time."""
+        context = self._make_context(session, parent_node)
+        context.dependency_nodes["test.dim"] = self._make_dim_node(
+            "test.dim",
+            ["dateint"],
+        )
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT SUM(value) FROM test.parent",
+            required_filters=[
+                {"dimension": "test.dim.dateint", "default": "dateint = ="},
+            ],
+        )
+        validator = NodeSpecBulkValidator(context)
+
+        await validator._prefetch_required_dimension_nodes([spec])
+        result = validator.validate_query_node(spec)
+
+        assert result.status == NodeStatus.INVALID
+        assert [(e.code, e.message) for e in result.errors] == [
+            (
+                ErrorCode.INVALID_SQL_QUERY,
+                "Metric `test.metric` has a default filter that does not "
+                "parse: dateint = =",
+            ),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_filter_default_with_bare_column(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """A default must name columns in node.column form."""
+        context = self._make_context(session, parent_node)
+        context.dependency_nodes["test.dim"] = self._make_dim_node(
+            "test.dim",
+            ["dateint"],
+        )
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT SUM(value) FROM test.parent",
+            required_filters=[
+                {"dimension": "test.dim.dateint", "default": "dateint = 20250101"},
+            ],
+        )
+        validator = NodeSpecBulkValidator(context)
+
+        await validator._prefetch_required_dimension_nodes([spec])
+        result = validator.validate_query_node(spec)
+
+        assert result.status == NodeStatus.INVALID
+        assert [(e.code, e.message) for e in result.errors] == [
+            (
+                ErrorCode.INVALID_COLUMN,
+                "Metric `test.metric` has a default filter with columns not "
+                "in node.column form (dateint): dateint = 20250101",
+            ),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_filter_bare_dimension(
+        self,
+        session: AsyncSession,
+        parent_node: Node,
+    ):
+        """An entry attribute must be in node.column form."""
+        context = self._make_context(session, parent_node)
+        spec = MetricSpec(
+            name="test.metric",
+            query="SELECT SUM(value) FROM test.parent",
+            required_filters=[{"dimension": "value"}],
+        )
+        validator = NodeSpecBulkValidator(context)
+
+        await validator._prefetch_required_dimension_nodes([spec])
+        result = validator.validate_query_node(spec)
+
+        assert result.status == NodeStatus.INVALID
+        assert [(e.code, e.message) for e in result.errors] == [
+            (
+                ErrorCode.INVALID_COLUMN,
+                "Metric `test.metric` has a filter requirement on value, "
+                "which is not in node.column form.",
+            ),
+        ]
+
+    @pytest.mark.asyncio
     async def test_prefetch_fetches_reaggregate_dim_node_from_db(
         self,
         session: AsyncSession,
@@ -1362,6 +1811,37 @@ class TestRequiredDimensions:
 # ---------------------------------------------------------------------------
 # Helpers shared by TestCrossFactDimensions
 # ---------------------------------------------------------------------------
+
+
+def _join_links(
+    pairs: dict[str, set[tuple[str, str | None]]],
+) -> dict[str, list[DimensionJoinLinkSpec]]:
+    """Join link specs for (dimension node, role) pairs, keyed by node."""
+    return {
+        node: [
+            DimensionJoinLinkSpec(
+                dimension_node=dimension,
+                join_on=f"{node}.id = {dimension}.id",
+                role=role,
+            )
+            for dimension, role in sorted(links, key=str)
+        ]
+        for node, links in pairs.items()
+    }
+
+
+@pytest.mark.parametrize(
+    "join_on,keys",
+    [
+        ("test.parent.day = test.dim.dateint", frozenset({"test.dim.dateint"})),
+        ("test.parent.day = = test.dim.dateint", frozenset()),
+    ],
+    ids=["parses", "does-not-parse"],
+)
+def test_declared_link_keys(join_on: str, keys: frozenset[str]):
+    """A declared join that cannot be read has no keys."""
+    link = DimensionJoinLinkSpec(dimension_node="test.dim", join_on=join_on)
+    assert _declared_link_keys("test.parent", link) == keys
 
 
 def _dim(name: str) -> DimensionAttributeOutput:

@@ -27,6 +27,11 @@ from datajunction_server.models.dimensionlink import (
     LinkType,
     SparkJoinStrategy,
 )
+from datajunction_server.models.filter_requirements import (
+    FilterRequirement,
+    dump_filter_requirements,
+    filter_requirements_identity,
+)
 from datajunction_server.models.fixed_grain import fixed_grain_identity
 from datajunction_server.models.impact import DownstreamImpact
 from datajunction_server.models.materialization import (
@@ -1044,6 +1049,8 @@ class MetricSpec(NodeSpec):
     # Omitted means the query grain; `[]` means the global grain.
     fixed_grain: list[str] | None = None
     reaggregate: ReaggregateSpec | None = None
+    required_filters: list[FilterRequirement] | None = None
+    recommended_filters: list[FilterRequirement] | None = None
     direction: MetricDirection | None = None
     unit_enum: MetricUnit | None = Field(default=None, exclude=True)
     # Structured unit form at the metric level — peer of `unit_enum`.
@@ -1063,6 +1070,9 @@ class MetricSpec(NodeSpec):
         # Where the aggregate is computed -- changes the number, not its label.
         "fixed_grain": ChangeTier.MAJOR,
         "reaggregate": ChangeTier.MAJOR,
+        # Filter requirements decide which queries run and which defaults apply.
+        "required_filters": ChangeTier.MAJOR,
+        "recommended_filters": ChangeTier.MAJOR,
         # Everything below is presentation metadata on the metric's single output
         # column -- the same set the PATCH path already treats as minor via
         # `metric_metadata` in `create_new_revision_from_existing`.
@@ -1078,6 +1088,8 @@ class MetricSpec(NodeSpec):
         "required_dimensions": ChangeTier.NONE,
         # A grain is a partition, so reordering carries no meaning.
         "fixed_grain": ChangeTier.NONE,
+        "required_filters": ChangeTier.NONE,
+        "recommended_filters": ChangeTier.NONE,
     }
 
     # Class-level adapter used by __init__ to eagerly validate structured
@@ -1153,6 +1165,54 @@ class MetricSpec(NodeSpec):
             for dim in self.fixed_grain
         ]
 
+    def _render_filter_requirements(
+        self,
+        entries: list[FilterRequirement] | None,
+    ) -> list[FilterRequirement] | None:
+        if entries is None:
+            return None
+        return [
+            FilterRequirement(
+                dimension=tuple(
+                    render_prefixes(dim, self.namespace) for dim in entry.dimension
+                ),
+                default=render_prefixes(entry.default, self.namespace)
+                if entry.default
+                else None,
+            )
+            for entry in entries
+        ]
+
+    @property
+    def rendered_required_filters(self) -> list[FilterRequirement] | None:
+        """
+        Required filters with `${prefix}` resolved to this spec's namespace.
+        """
+        return self._render_filter_requirements(self.required_filters)
+
+    @property
+    def rendered_recommended_filters(self) -> list[FilterRequirement] | None:
+        """
+        Recommended filters with `${prefix}` resolved to this spec's namespace.
+        """
+        return self._render_filter_requirements(self.recommended_filters)
+
+    @property
+    def filter_requirement_dimensions(self) -> list[str]:
+        """
+        Every attribute named by an entry or its default, without roles.
+        """
+        # Imported here: internal.validation imports this module's package.
+        from datajunction_server.internal.validation import (
+            filter_requirement_attributes,
+        )
+
+        attributes = filter_requirement_attributes(
+            dump_filter_requirements(self.rendered_required_filters),
+            dump_filter_requirements(self.rendered_recommended_filters),
+        )
+        return sorted({attr.split("[", 1)[0] for attr in attributes})
+
     @property
     def rendered_required_dimensions(self) -> list[str]:
         """
@@ -1226,6 +1286,14 @@ class MetricSpec(NodeSpec):
             != fixed_grain_identity(other.rendered_fixed_grain)
         ):
             changed.append("fixed_grain")
+
+        # Undo a flag caused only by reordering inside an entry.
+        if isinstance(other, MetricSpec):
+            for field in ("required_filters", "recommended_filters"):
+                if field in changed and filter_requirements_identity(
+                    getattr(self, f"rendered_{field}"),
+                ) == filter_requirements_identity(getattr(other, f"rendered_{field}")):
+                    changed.remove(field)
         return changed
 
     @property
@@ -1293,6 +1361,10 @@ class MetricSpec(NodeSpec):
             and self.rendered_reaggregate == other.rendered_reaggregate
             and fixed_grain_identity(self.rendered_fixed_grain)
             == fixed_grain_identity(other.rendered_fixed_grain)
+            and filter_requirements_identity(self.rendered_required_filters)
+            == filter_requirements_identity(other.rendered_required_filters)
+            and filter_requirements_identity(self.rendered_recommended_filters)
+            == filter_requirements_identity(other.rendered_recommended_filters)
             and eq_or_fallback(self.direction, other.direction, MetricDirection.NEUTRAL)
             and self._normalized_unit() == other._normalized_unit()
             and self.significant_digits == other.significant_digits

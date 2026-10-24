@@ -808,6 +808,43 @@ async def test_validate_node_data_v2_returns_valid_for_simple_transform(
 
 
 @pytest.mark.asyncio
+async def test_validate_node_data_v2_flags_bad_filter_requirements(
+    session: AsyncSession,
+    user: User,
+    v2_parent_source: Node,
+):
+    """Revalidation reports filter requirements that cannot be resolved."""
+    from datajunction_server.errors import ErrorCode
+    from datajunction_server.internal.validation import validate_node_data_v2
+
+    data = NodeRevision(
+        name="test.v2_filter_metric",
+        display_name="v2 filter metric",
+        type=NodeType.METRIC,
+        query="SELECT COUNT(*) FROM test.v2_parent",
+        required_filters=[{"dimension": ["test.v2_gone.col"]}],
+        recommended_filters=[{"dimension": ["test.v2_gone.col"]}],
+    )
+    validator = await validate_node_data_v2(data, session)
+
+    assert validator.status == NodeStatus.INVALID
+    assert [(e.code, e.message, e.debug) for e in validator.errors] == [
+        (
+            ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+            "Metric `test.v2_filter_metric` lists test.v2_gone.col in both "
+            "required_filters and recommended_filters.",
+            None,
+        ),
+        (
+            ErrorCode.INVALID_COLUMN,
+            "Metric `test.v2_filter_metric` has filter requirements that name "
+            "attributes that could not be resolved.",
+            {"invalid_filter_requirement_attributes": ["test.v2_gone.col"]},
+        ),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_validate_node_data_v2_flags_missing_parent(
     session: AsyncSession,
     user: User,

@@ -53,6 +53,7 @@ from datajunction_server.models.deployment import (
     NodeSpec,
 )
 from datajunction_server.models.dimensionlink import LinkType
+from datajunction_server.models.filter_requirements import FilterRequirement
 from datajunction_server.models.namespace import (
     BranchInfo,
     HardDeleteResponse,
@@ -1231,6 +1232,8 @@ def _metric_project_config(node: Node, namespace_requested: str) -> dict:
         "required_dimensions": node.current.required_dimensions_refs,
         "reaggregate": node.current.reaggregate,
         "fixed_grain": node.current.fixed_grain,
+        "required_filters": node.current.required_filters,
+        "recommended_filters": node.current.recommended_filters,
         "direction": (
             node.current.metric_metadata.direction.name.lower()
             if node.current.metric_metadata and node.current.metric_metadata.direction
@@ -1508,6 +1511,22 @@ def inject_prefixes(unparameterized_string: str, prefix: str) -> str:
     return unparameterized_string.replace(f"{prefix}" + SEPARATOR, "${prefix}")
 
 
+# A single-quoted SQL string, where '' is an escaped quote.
+_SQL_STRING = re.compile(r"('(?:[^']|'')*')")
+
+
+def inject_prefixes_outside_strings(text: str, prefix: str) -> str:
+    """
+    inject_prefixes, leaving single-quoted SQL strings unchanged.
+    """
+    parts = _SQL_STRING.split(text)
+    # re.split puts the quoted strings at odd indexes.
+    return "".join(
+        part if index % 2 else inject_prefixes(part, prefix)
+        for index, part in enumerate(parts)
+    )
+
+
 def _get_node_suffix(full_name: str, namespace_prefix: str) -> str | None:
     """
     Extract the suffix of a node name after the namespace prefix.
@@ -1656,6 +1675,28 @@ async def get_node_specs_for_export(
                     )
                     for dim in metric_spec.fixed_grain
                 ]
+            for requirements in (
+                metric_spec.required_filters,
+                metric_spec.recommended_filters,
+            ):
+                for index, entry in enumerate(requirements or []):
+                    requirements[index] = FilterRequirement(  # type: ignore[index]
+                        dimension=tuple(
+                            _inject_prefix_for_cube_ref(
+                                dim,
+                                namespace,
+                                parent_namespace,
+                                namespace_suffixes,
+                            )
+                            for dim in entry.dimension
+                        ),
+                        default=inject_prefixes_outside_strings(
+                            entry.default,
+                            namespace,
+                        )
+                        if entry.default
+                        else None,
+                    )
             if metric_spec.reaggregate:
                 for rule in metric_spec.reaggregate.rules:
                     rule.dimension = _inject_prefix_for_cube_ref(
