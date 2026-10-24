@@ -2574,6 +2574,132 @@ class TestNodeCRUD:
         assert after["version"] != before["version"]
 
     @pytest.mark.asyncio
+    async def test_refresh_keeps_dimension_link_roles(
+        self,
+        module__client_with_roads,
+        module__query_service_client: QueryServiceClient,
+        mocker: MockerFixture,
+    ):
+        """
+        A refresh that adds columns copies the source's links into the new
+        revision, and a link's role must come with it.
+        """
+        client = module__client_with_roads
+        columns = await module__query_service_client.get_columns_for_table(
+            "default",
+            "roads",
+            "repair_orders",
+            request_headers={},
+        )
+        response = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "default.role_kept_events",
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "roads",
+                "table": "repair_orders",
+                "columns": [
+                    {"name": col.name, "type": str(col.type)} for col in columns
+                ],
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+        response = await client.post(
+            "/nodes/default.role_kept_events/link/",
+            json={
+                "dimension_node": "default.repair_order",
+                "join_type": "left",
+                "join_on": (
+                    "default.role_kept_events.repair_order_id = "
+                    "default.repair_order.repair_order_id"
+                ),
+                "role": "measure",
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+
+        async def _with_new_column(*args, **kwargs):
+            return TableMetadata(
+                columns=[
+                    *columns,
+                    Column(name="reviewer", type=StringType(), order=len(columns)),
+                ],
+            )
+
+        mocker.patch.object(
+            module__query_service_client,
+            "get_table_metadata",
+            _with_new_column,
+        )
+        before = (await client.get("/nodes/default.role_kept_events/")).json()
+        response = await client.post("/nodes/default.role_kept_events/refresh/")
+        assert response.status_code == 201, response.text
+        after = (await client.get("/nodes/default.role_kept_events/")).json()
+
+        assert after["version"] != before["version"]
+        assert [link["role"] for link in after["dimension_links"]] == ["measure"]
+
+        # The roads client is shared across the module, so leave no linked node behind.
+        await client.delete("/nodes/default.role_kept_events/")
+
+    @pytest.mark.asyncio
+    async def test_update_and_copy_keep_dimension_link_roles(
+        self,
+        module__client_with_roads,
+    ):
+        """
+        Patching a node and copying it both rebuild its links, and neither may
+        drop a link's role.
+        """
+        client = module__client_with_roads
+        response = await client.post(
+            "/nodes/source/",
+            json={
+                "name": "default.role_copied_events",
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "roads",
+                "table": "repair_orders",
+                "columns": [{"name": "repair_order_id", "type": "int"}],
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+        response = await client.post(
+            "/nodes/default.role_copied_events/link/",
+            json={
+                "dimension_node": "default.repair_order",
+                "join_type": "left",
+                "join_on": (
+                    "default.role_copied_events.repair_order_id = "
+                    "default.repair_order.repair_order_id"
+                ),
+                "role": "measure",
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+
+        response = await client.patch(
+            "/nodes/default.role_copied_events/",
+            json={"description": "patched"},
+        )
+        assert response.status_code == 200, response.text
+        patched = (await client.get("/nodes/default.role_copied_events/")).json()
+        assert patched["description"] == "patched"
+        assert [link["role"] for link in patched["dimension_links"]] == ["measure"]
+
+        response = await client.post(
+            "/nodes/default.role_copied_events/copy?new_name=default.role_copied_events_2",
+        )
+        assert response.status_code in (200, 201), response.text
+        copied = (await client.get("/nodes/default.role_copied_events_2/")).json()
+        assert [link["role"] for link in copied["dimension_links"]] == ["measure"]
+
+        # The roads client is shared across the module, so leave no linked node behind.
+        await client.delete("/nodes/default.role_copied_events/")
+        await client.delete("/nodes/default.role_copied_events_2/")
+
+    @pytest.mark.asyncio
     async def test_refresh_reassigns_owner_to_an_existing_user(
         self,
         module__client_with_roads,
