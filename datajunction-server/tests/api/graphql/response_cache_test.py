@@ -12,7 +12,7 @@ from datajunction_server.internal.caching.cachelib_cache import get_cache
 from datajunction_server.utils import get_settings
 
 QUERY = """
-query FindReportCubes($types: [NodeType!]) {
+query NodeListing($types: [NodeType!]) {
   findNodes(nodeTypes: $types) { name }
 }
 """
@@ -69,7 +69,7 @@ async def test_an_allowed_operation_is_served_from_the_cache(
     allow,
     mocker,
 ):
-    allow("FindReportCubes", ttl=45)
+    allow("NodeListing", ttl=45)
     executed = mocker.spy(GraphQLRouter, "run")
     body = {"query": QUERY, "variables": {"types": ["CUBE"]}}
 
@@ -89,7 +89,7 @@ async def test_variables_and_query_text_are_part_of_the_key(
     allow,
     mocker,
 ):
-    allow("FindReportCubes")
+    allow("NodeListing")
     executed = mocker.spy(GraphQLRouter, "run")
 
     await client_with_roads.post(
@@ -114,7 +114,7 @@ async def test_variables_and_query_text_are_part_of_the_key(
 
 @pytest.mark.asyncio
 async def test_operation_name_selects_the_operation(client_with_roads, cache, allow):
-    allow("FindReportCubes")
+    allow("NodeListing")
     query = "query Other { findNodes { name } } " + QUERY.strip()
 
     other = await client_with_roads.post(
@@ -127,7 +127,7 @@ async def test_operation_name_selects_the_operation(client_with_roads, cache, al
     cache.store.clear()
     await client_with_roads.post(
         "/graphql",
-        json={"query": query, "operationName": "FindReportCubes"},
+        json={"query": query, "operationName": "NodeListing"},
     )
     assert len(cache.store) == 1
 
@@ -155,8 +155,8 @@ async def test_nothing_is_cached_unless_operations_are_allowed(
 
 @pytest.mark.asyncio
 async def test_a_response_with_errors_is_not_cached(client_with_roads, cache, allow):
-    allow("FindReportCubes")
-    broken = "query FindReportCubes { findNodes { doesNotExist } }"
+    allow("NodeListing")
+    broken = "query NodeListing { findNodes { doesNotExist } }"
 
     response = await client_with_roads.post("/graphql", json={"query": broken})
 
@@ -170,7 +170,7 @@ async def test_unparseable_and_batched_requests_bypass_the_cache(
     cache,
     allow,
 ):
-    allow("FindReportCubes")
+    allow("NodeListing")
 
     garbage = await client_with_roads.post(
         "/graphql",
@@ -191,7 +191,7 @@ async def test_unparseable_and_batched_requests_bypass_the_cache(
 
 @pytest.mark.asyncio
 async def test_get_requests_bypass_the_cache(client_with_roads, cache, allow):
-    allow("FindReportCubes")
+    allow("NodeListing")
 
     await client_with_roads.get("/graphql", params={"query": QUERY})
 
@@ -205,7 +205,7 @@ async def test_a_change_makes_the_cached_response_unreachable(
     allow,
     mocker,
 ):
-    allow("FindReportCubes")
+    allow("NodeListing")
     executed = mocker.spy(GraphQLRouter, "run")
     body = {"query": QUERY, "variables": {"types": ["SOURCE"]}}
 
@@ -239,7 +239,7 @@ async def test_availability_updates_do_not_invalidate(
     allow,
     mocker,
 ):
-    allow("FindReportCubes")
+    allow("NodeListing")
     executed = mocker.spy(GraphQLRouter, "run")
     body = {"query": QUERY, "variables": {"types": ["SOURCE"]}}
 
@@ -266,7 +266,7 @@ async def test_formatting_does_not_change_the_key(
     allow,
     mocker,
 ):
-    allow("FindReportCubes")
+    allow("NodeListing")
     executed = mocker.spy(GraphQLRouter, "run")
     variables = {"types": ["SOURCE"]}
 
@@ -295,19 +295,19 @@ def _request(query, operation_name=None, variables=None):
 def test_only_queries_are_cached(allow):
     from datajunction_server.api.graphql.main import _cacheable_request
 
-    allow("FindReportCubes", "Anonymous")
+    allow("NodeListing", "Anonymous")
 
-    assert _cacheable_request(_request("query FindReportCubes { findNodes { name } }"))
+    assert _cacheable_request(_request("query NodeListing { findNodes { name } }"))
     # A mutation with an allowed name, an unnamed query, several operations with
     # no choice between them, and a name that is not in the document.
-    assert not _cacheable_request(_request("mutation FindReportCubes { x }"))
+    assert not _cacheable_request(_request("mutation NodeListing { x }"))
     assert not _cacheable_request(_request("{ findNodes { name } }"))
-    two = "query A { findNodes { name } } query FindReportCubes { findNodes { name } }"
+    two = "query A { findNodes { name } } query NodeListing { findNodes { name } }"
     assert not _cacheable_request(_request(two))
-    assert _cacheable_request(_request(two, "FindReportCubes"))
+    assert _cacheable_request(_request(two, "NodeListing"))
     assert not _cacheable_request(_request(two, "Nope"))
     # Invalid syntax, and a request with no query (a persisted query).
-    assert not _cacheable_request(_request("query FindReportCubes {"))
+    assert not _cacheable_request(_request("query NodeListing {"))
     assert not _cacheable_request(_request(None))
 
 
@@ -318,10 +318,10 @@ async def test_availability_only_matters_to_a_query_that_selects_it(
     allow,
     mocker,
 ):
-    allow("FindReportCubes")
+    allow("NodeListing")
     executed = mocker.spy(GraphQLRouter, "run")
     with_availability = {
-        "query": 'query FindReportCubes { findNodes(names: ["default.repair_orders"]) '
+        "query": 'query NodeListing { findNodes(names: ["default.repair_orders"]) '
         "{ name current { availability { validThroughTs } } } }",
     }
 
@@ -349,10 +349,10 @@ async def test_collection_edits_invalidate_a_query_that_lists_them(
     allow,
     mocker,
 ):
-    allow("FindReportCubes")
+    allow("NodeListing")
     executed = mocker.spy(GraphQLRouter, "run")
     listing = {
-        "query": "query FindReportCubes { listCollections { name nodeCount } }",
+        "query": "query NodeListing { listCollections { name nodeCount } }",
     }
 
     first = await client_with_roads.post("/graphql", json=listing)
@@ -406,7 +406,7 @@ async def test_an_error_too_long_for_the_tail_of_the_body_is_not_cached(
 
     from fastapi import Response
 
-    allow("FindReportCubes")
+    allow("NodeListing")
     body = json.dumps(
         {"data": None, "errors": [{"message": "unknown cube " + "x" * 10_000}]},
     )
