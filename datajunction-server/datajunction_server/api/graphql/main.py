@@ -5,11 +5,20 @@ import hashlib
 import inspect
 import json
 import logging
-import re
 import time
+from dataclasses import dataclass
 from functools import wraps
 
 import strawberry
+from graphql import (
+    GraphQLSyntaxError,
+    OperationDefinitionNode,
+    OperationType,
+    Visitor,
+    parse,
+    print_ast,
+    visit,
+)
 from fastapi import BackgroundTasks, Depends, Request, Response
 from strawberry.extensions import SchemaExtension
 from strawberry.fastapi import GraphQLRouter
@@ -66,6 +75,8 @@ from datajunction_server.api.graphql.scalars.sql import (
     MaterializationPlan,
 )
 from datajunction_server.api.graphql.scalars.tag import Tag
+from datajunction_server.database.collection import Collection as DBCollection
+from datajunction_server.database.collection import CollectionNodes
 from datajunction_server.database.history import History
 from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.internal.history import EntityType
@@ -361,15 +372,33 @@ class DJSchema(strawberry.Schema):
 
 schema = DJSchema(query=Query, extensions=[GraphQLErrorReporter])
 
-_OPERATION_NAME = re.compile(
-    r"^\s*(?:query|mutation|subscription)\s+(\w+)", re.MULTILINE
-)
+
+@dataclass(frozen=True)
+class CacheableRequest:
+    """A request whose response may be cached."""
+
+    operation: str
+    key: str
+    # Every field the document selects, to know which data it depends on.
+    fields: frozenset[str]
 
 
-def _cacheable_operation(payload: object) -> tuple[str, str] | None:
+class _FieldNames(Visitor):
+    def __init__(self):
+        super().__init__()
+        self.names: set[str] = set()
+
+    def enter_field(self, node, *_):
+        self.names.add(node.name.value)
+
+
+def _cacheable_request(payload: object) -> CacheableRequest | None:
     """
-    The name and cache key of a single-operation request whose operation is
-    allowed to be cached, or None.
+    The request, if it is a query whose operation is allowed to be cached.
+
+    The operation is chosen the way GraphQL does: by ``operationName``, or the
+    only one in the document. The key is built from the printed document, so
+    formatting does not matter, plus the variables.
     """
     allowed = get_settings().graphql_cacheable_operations
     if not allowed or not isinstance(payload, dict):
@@ -377,35 +406,101 @@ def _cacheable_operation(payload: object) -> tuple[str, str] | None:
     query = payload.get("query")
     if not isinstance(query, str):
         return None
-    name = payload.get("operationName")
-    if not name:
-        found = _OPERATION_NAME.search(query)
-        name = found.group(1) if found else None
+    try:
+        document = parse(query)
+    except GraphQLSyntaxError:
+        return None
+    operations = [
+        definition
+        for definition in document.definitions
+        if isinstance(definition, OperationDefinitionNode)
+    ]
+    wanted = payload.get("operationName")
+    chosen = (
+        [
+            operation
+            for operation in operations
+            if (operation.name.value if operation.name else None) == wanted
+        ]
+        if wanted
+        else operations
+    )
+    if len(chosen) != 1:
+        return None
+    operation = chosen[0]
+    if operation.operation != OperationType.QUERY or operation.name is None:
+        return None
+    name = operation.name.value
     if name not in allowed:
         return None
+    fields = _FieldNames()
+    visit(document, fields)
     canonical = json.dumps(
-        [name, query, payload.get("variables") or {}],
+        [name, print_ast(document), payload.get("variables") or {}],
         sort_keys=True,
         separators=(",", ":"),
     )
-    return name, f"graphql:response:{hashlib.sha256(canonical.encode()).hexdigest()}"
+    return CacheableRequest(
+        operation=name,
+        key=f"graphql:response:{hashlib.sha256(canonical.encode()).hexdigest()}",
+        fields=frozenset(fields.names),
+    )
 
 
-async def _data_version(request: Request) -> int:
+async def _data_version(request: Request, fields: frozenset[str]) -> str:
     """
-    The id of the latest history event other than an availability update.
+    Changes whenever data a cached response could contain has changed.
 
     Every node, link, tag or namespace change is recorded in history, however it
-    was made, so this changes whenever a cached response could have gone stale.
-    Availability updates are frequent and never show in a cached response.
+    was made, so the latest history id covers those. Availability updates are
+    frequent (thousands a day) so they only count for a document that selects
+    availability, and collections, which are not recorded in history, only for
+    one that lists them.
     """
     async with session_context(request) as session:
-        latest = await session.scalar(
+        version = await session.scalar(
             select(func.max(History.id)).where(
                 History.entity_type != EntityType.AVAILABILITY,
             ),
         )
-    return latest or 0
+        parts = [str(version or 0)]
+        if "availability" in fields:
+            availability = await session.scalar(
+                select(func.max(History.id)).where(
+                    History.entity_type == EntityType.AVAILABILITY,
+                ),
+            )
+            parts.append(f"a{availability or 0}")
+        if "listCollections" in fields:
+            collections = (
+                await session.execute(
+                    select(func.count(DBCollection.id), func.max(DBCollection.id)),
+                )
+            ).one()
+            members = (
+                await session.execute(
+                    select(
+                        func.count(),
+                        func.coalesce(
+                            func.sum(
+                                func.hashtextextended(
+                                    func.concat(
+                                        CollectionNodes.collection_id,
+                                        ":",
+                                        CollectionNodes.node_id,
+                                    ),
+                                    0,
+                                ),
+                            ),
+                            0,
+                        ),
+                    ).select_from(CollectionNodes),
+                )
+            ).one()
+            parts.append(
+                "c" + ".".join(str(value) for value in (*collections, *members))
+            )
+    return ":".join(parts)
 
 
 class CachingGraphQLRouter(GraphQLRouter):
@@ -413,10 +508,11 @@ class CachingGraphQLRouter(GraphQLRouter):
     GraphQL router that can serve the whole response of an allowed operation
     from the shared cache until something changes.
 
-    Opt-in per operation name (``graphql_cacheable_operations``): the cached
-    response is the same for every caller, so only list operations whose result
-    does not depend on who asks. A response is stored under the latest history
-    id, read before the query runs, so any later change makes it unreachable;
+    Opt-in per operation name (``graphql_cacheable_operations``), for queries
+    only: the cached response is the same for every caller, so only list
+    operations whose result does not depend on who asks. A response is stored
+    under a version of the data it reads (see ``_data_version``), read before
+    the query runs, so any later change makes it unreachable;
     ``graphql_response_cache_ttl`` only bounds how long it is kept. Responses
     with errors are not cached. The request's cache (which honors
     ``Cache-Control: no-cache``) does the storing.
@@ -429,14 +525,15 @@ class CachingGraphQLRouter(GraphQLRouter):
             payload = json.loads(await request.body())
         except ValueError:
             return await super().run(request, context, root_value)
-        cacheable = _cacheable_operation(payload)
+        cacheable = _cacheable_request(payload)
         cache = context.get("cache") if isinstance(context, dict) else None
         if cacheable is None or cache is None:
             return await super().run(request, context, root_value)
 
-        name, key = cacheable
+        name = cacheable.operation
         # Read before the query runs: the data is then at least this new.
-        key = f"{key}:{await _data_version(request)}"
+        version = await _data_version(request, cacheable.fields)
+        key = f"{cacheable.key}:{version}"
         metrics = get_metrics_provider()
         # The cache clients are blocking network calls, so keep them off the loop.
         if (stored := await run_in_threadpool(cache.get, key)) is not None:

@@ -102,7 +102,10 @@ async def test_variables_and_query_text_are_part_of_the_key(
     )
     await client_with_roads.post(
         "/graphql",
-        json={"query": QUERY + " ", "variables": {"types": ["METRIC"]}},
+        json={
+            "query": QUERY.replace("{ name }", "{ name type }"),
+            "variables": {"types": ["METRIC"]},
+        },
     )
 
     assert executed.call_count == 3
@@ -254,3 +257,129 @@ async def test_availability_updates_do_not_invalidate(
     await client_with_roads.post("/graphql", json=body)
 
     assert executed.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_formatting_does_not_change_the_key(
+    client_with_roads,
+    cache,
+    allow,
+    mocker,
+):
+    allow("FindReportCubes")
+    executed = mocker.spy(GraphQLRouter, "run")
+    variables = {"types": ["SOURCE"]}
+
+    await client_with_roads.post(
+        "/graphql", json={"query": QUERY, "variables": variables}
+    )
+    compact = " ".join(QUERY.split())
+    await client_with_roads.post(
+        "/graphql", json={"query": compact, "variables": variables}
+    )
+
+    assert executed.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_only_queries_are_cached(allow):
+    from datajunction_server.api.graphql.main import _cacheable_request
+
+    allow("FindReportCubes", "Anonymous")
+
+    assert _cacheable_request({"query": "query FindReportCubes { findNodes { name } }"})
+    # A mutation with an allowed name, an unnamed query, several operations with
+    # no choice between them, and a name that is not in the document.
+    assert not _cacheable_request({"query": "mutation FindReportCubes { x }"})
+    assert not _cacheable_request({"query": "{ findNodes { name } }"})
+    two = "query A { findNodes { name } } query FindReportCubes { findNodes { name } }"
+    assert not _cacheable_request({"query": two})
+    assert _cacheable_request({"query": two, "operationName": "FindReportCubes"})
+    assert not _cacheable_request({"query": two, "operationName": "Nope"})
+    assert not _cacheable_request({"query": "query FindReportCubes {"})
+    assert not _cacheable_request({"query": 5})
+    assert not _cacheable_request([])
+
+
+@pytest.mark.asyncio
+async def test_availability_only_matters_to_a_query_that_selects_it(
+    client_with_roads,
+    cache,
+    allow,
+    mocker,
+):
+    allow("FindReportCubes")
+    executed = mocker.spy(GraphQLRouter, "run")
+    with_availability = {
+        "query": 'query FindReportCubes { findNodes(names: ["default.repair_orders"]) '
+        "{ name current { availability { validThroughTs } } } }",
+    }
+
+    await client_with_roads.post("/graphql", json=with_availability)
+    published = await client_with_roads.post(
+        "/data/default.repair_orders/availability/",
+        json={
+            "catalog": "default",
+            "schema_": "roads",
+            "table": "repair_orders",
+            "valid_through_ts": 9999999999,
+        },
+    )
+    assert published.status_code == 200, published.text
+    after = await client_with_roads.post("/graphql", json=with_availability)
+
+    assert executed.call_count == 2
+    assert "9999999999" in after.text
+
+
+@pytest.mark.asyncio
+async def test_collection_edits_invalidate_a_query_that_lists_them(
+    client_with_roads,
+    cache,
+    allow,
+    mocker,
+):
+    allow("FindReportCubes")
+    executed = mocker.spy(GraphQLRouter, "run")
+    listing = {
+        "query": "query FindReportCubes { listCollections { name nodeCount } }",
+    }
+
+    first = await client_with_roads.post("/graphql", json=listing)
+    await client_with_roads.post("/graphql", json=listing)
+    assert executed.call_count == 1
+
+    created = await client_with_roads.post(
+        "/collections/",
+        json={"name": "cache_test", "description": "a new collection"},
+    )
+    assert created.status_code in (200, 201), created.text
+    second = await client_with_roads.post("/graphql", json=listing)
+    assert executed.call_count == 2
+    assert "cache_test" in second.text and "cache_test" not in first.text
+
+    added = await client_with_roads.post(
+        "/collections/cache_test/nodes/",
+        json=["default.repair_orders"],
+    )
+    assert added.status_code == 204, added.text
+    third = await client_with_roads.post("/graphql", json=listing)
+    assert executed.call_count == 3
+    assert '"nodeCount":1' in third.text.replace(" ", "")
+
+    removed = await client_with_roads.post(
+        "/collections/cache_test/remove/",
+        json=["default.repair_orders"],
+    )
+    assert removed.status_code == 204, removed.text
+    # Back to the state of the second request, whose response is still right.
+    fourth = await client_with_roads.post("/graphql", json=listing)
+    assert executed.call_count == 3
+    assert '"nodeCount":0' in fourth.text.replace(" ", "")
+
+    deleted = await client_with_roads.delete("/collections/cache_test")
+    assert deleted.status_code == 204, deleted.text
+    final = await client_with_roads.post("/graphql", json=listing)
+    # Back to the state of the first request, whose response is still right.
+    assert executed.call_count == 3
+    assert "cache_test" not in final.text
