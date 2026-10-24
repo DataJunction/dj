@@ -87,6 +87,75 @@ class AuthorizationService(ABC):
         ]
 
 
+class ScopeIndex:
+    """
+    Role scopes bucketed by the (resource type, action) a request asks for, so a
+    request is matched by lookup instead of a scan of every scope.
+
+    Grants exactly what ``RBACAuthorizationService._scope_grants_permission``
+    grants for each scope, but a request costs the depth of its name however
+    many scopes the caller holds. A bucket is built from the scopes on first use.
+    """
+
+    def __init__(
+        self,
+        scopes: list["RoleScope"],
+        hierarchy: dict[ResourceAction, set[ResourceAction]],
+    ):
+        self._scopes = scopes
+        self._hierarchy = hierarchy
+        self._buckets: dict[
+            tuple[ResourceType, ResourceAction],
+            tuple[bool, set[str], set[str]],
+        ] = {}
+
+    def grants(self, request: ResourceRequest) -> bool:
+        """Whether any scope grants the request."""
+        resource = request.access_object
+        key = (resource.resource_type, request.verb)
+        bucket = self._buckets.get(key)
+        if bucket is None:
+            bucket = self._buckets[key] = self._bucket(*key)
+        everything, exact, subtrees = bucket
+        name = resource.name
+        if everything or name in exact:
+            return True
+        if subtrees:
+            # ``prefix.*`` covers a name exactly when the prefix ends at a separator.
+            at = name.find(SEPARATOR)
+            while at != -1:
+                if name[:at] in subtrees:
+                    return True
+                at = name.find(SEPARATOR, at + len(SEPARATOR))
+        return False
+
+    def _bucket(
+        self,
+        resource_type: ResourceType,
+        action: ResourceAction,
+    ) -> tuple[bool, set[str], set[str]]:
+        everything = False
+        exact: set[str] = set()
+        subtrees: set[str] = set()
+        for scope in self._scopes:
+            if action not in self._hierarchy.get(scope.action, {scope.action}):
+                continue
+            if scope.scope_value == "*":
+                everything = everything or scope.scope_type == resource_type
+                continue
+            if scope.scope_type != resource_type and not (
+                scope.scope_type == ResourceType.NAMESPACE
+                and resource_type == ResourceType.NODE
+            ):
+                continue
+            parsed = parse_scope_pattern(scope.scope_value)
+            if parsed is None:
+                continue
+            kind, prefix = parsed
+            (exact if kind == "exact" else subtrees).add(prefix)
+        return everything, exact, subtrees
+
+
 class RBACAuthorizationService(AuthorizationService):
     """
     Default RBAC implementation using pre-loaded roles and scopes.
@@ -165,13 +234,20 @@ class RBACAuthorizationService(AuthorizationService):
                 )
                 for request in requests
             ]
-        explicit_scopes = self.explicit_scopes(auth_context)
+        explicit_scopes = ScopeIndex(
+            self.explicit_scopes(auth_context),
+            self.PERMISSION_HIERARCHY,
+        )
+        default_scopes = ScopeIndex(
+            auth_context.default_scopes,
+            self.PERMISSION_HIERARCHY,
+        )
         restrictive_rules = self.restrictive_rules()
         return [
             self._make_decision(
                 request,
                 explicit_scopes,
-                auth_context.default_scopes,
+                default_scopes,
                 restrictive_rules,
             )
             for request in requests
@@ -209,8 +285,8 @@ class RBACAuthorizationService(AuthorizationService):
     def _make_decision(
         self,
         request: ResourceRequest,
-        explicit_scopes: list["RoleScope"],
-        default_scopes: list["RoleScope"],
+        explicit_scopes: ScopeIndex,
+        default_scopes: ScopeIndex,
         restrictive_rules: list[RestrictiveScopeRule],
     ) -> AccessDecision:
         """
@@ -219,7 +295,7 @@ class RBACAuthorizationService(AuthorizationService):
         Explicit grants are considered first. Restrictive policy then blocks
         fallback access before the default-access role and default policy.
         """
-        if self._matching_scope(explicit_scopes, request):
+        if explicit_scopes.grants(request):
             return AccessDecision(
                 request=request,
                 approved=True,
@@ -235,7 +311,7 @@ class RBACAuthorizationService(AuthorizationService):
                 approved=False,
                 reason=f"restrictive_scope:{restrictive_rule}",
             )
-        if self._matching_scope(default_scopes, request):
+        if default_scopes.grants(request):
             return AccessDecision(
                 request=request,
                 approved=True,
