@@ -82,6 +82,7 @@ from datajunction_server.utils import get_session, get_settings
 from cross_web import HTTPException
 
 logger = logging.getLogger(__name__)
+_warned_unshared: set[type] = set()
 
 # Resolvers that take longer than this are logged at WARNING with their path
 # so slow fields are visible without enabling per-resolver timing for everyone.
@@ -442,6 +443,17 @@ class CachingGraphQLRouter(GraphQLRouter):
         )
         cache = context.get("cache") if isinstance(context, dict) else None
         if cacheable is None or cache is None:
+            return await super().run(request, context, root_value)
+        if not getattr(cache, "shared", True):
+            # An edit replaces the version in one process only, so the others
+            # would keep serving what they stored.
+            if type(cache) not in _warned_unshared:
+                _warned_unshared.add(type(cache))
+                logger.warning(
+                    "GraphQL response caching needs a cache shared by every server "
+                    "process; %s is not, so it is skipped",
+                    type(cache).__name__,
+                )
             return await super().run(request, context, root_value)
 
         request.state.read_from_writer = True

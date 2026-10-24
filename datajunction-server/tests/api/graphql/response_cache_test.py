@@ -615,3 +615,21 @@ async def test_a_cacheable_request_reads_from_the_writer(
     cacheable, other = (call.args[1] for call in executed.call_args_list)
     assert cacheable.state.read_from_writer is True
     assert not hasattr(other.state, "read_from_writer")
+
+
+@pytest.mark.asyncio
+async def test_an_in_process_cache_is_not_used_for_responses(
+    client_with_roads,
+    allow,
+    mocker,
+    caplog,
+):
+    allow("NodeListing")
+    executed = mocker.spy(GraphQLRouter, "run")
+
+    for _ in range(2):
+        response = await client_with_roads.post("/graphql", json={"query": QUERY})
+        assert response.status_code == 200
+
+    assert executed.call_count == 2
+    assert caplog.text.count("needs a cache shared by every server process") <= 1

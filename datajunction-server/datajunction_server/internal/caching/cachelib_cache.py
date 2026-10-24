@@ -14,6 +14,9 @@ from datajunction_server.internal.caching.noop_cache import noop_cache
 class CachelibCache(Cache):
     """A standard implementation of CacheInterface that uses cachelib"""
 
+    # Each process has its own copy, so a change made in one is not seen by others.
+    shared = False
+
     def __init__(self):
         super().__init__()
         self.cache = SimpleCache()
