@@ -271,11 +271,13 @@ async def test_formatting_does_not_change_the_key(
     variables = {"types": ["SOURCE"]}
 
     await client_with_roads.post(
-        "/graphql", json={"query": QUERY, "variables": variables}
+        "/graphql",
+        json={"query": QUERY, "variables": variables},
     )
     compact = " ".join(QUERY.split())
     await client_with_roads.post(
-        "/graphql", json={"query": compact, "variables": variables}
+        "/graphql",
+        json={"query": compact, "variables": variables},
     )
 
     assert executed.call_count == 1

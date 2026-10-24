@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from functools import wraps
 
 import strawberry
-from lia import HTTPException
 from graphql import (
     GraphQLSyntaxError,
     OperationType,
@@ -83,6 +82,12 @@ from datajunction_server.internal.history import EntityType
 from datajunction_server.internal.access.authentication.http import DJHTTPBearer
 from datajunction_server.internal.caching.cachelib_cache import get_cache
 from datajunction_server.utils import get_session, get_settings, session_context
+
+try:
+    from lia import HTTPException
+except ImportError:  # pragma: no cover
+    # Older strawberry releases ship this under its former name.
+    from cross_web import HTTPException  # type: ignore[no-redef]
 
 logger = logging.getLogger(__name__)
 
