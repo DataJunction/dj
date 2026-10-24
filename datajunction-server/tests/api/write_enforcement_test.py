@@ -153,6 +153,15 @@ DENIAL_TESTED_ELSEWHERE: dict[tuple[str, str], str] = {
     ("DELETE", "/metadata-schemas/{schema_id}"): "test_custom_metadata_api.py",
 }
 
+# These endpoints use POST to accept discovery or filtering input, but only read
+# data. They reach an access check and remain covered by the route-coverage guard;
+# a WRITE denial test does not apply to them.
+READ_ONLY_POST_ROUTES: set[tuple[str, str]] = {
+    ("POST", "/semantic/discover"),
+    ("POST", "/semantic/views"),
+    ("POST", "/semantic/views/list"),
+}
+
 # PENDING_DENIAL_TESTS: routes that reach check() (so the coverage guard is green)
 # but have nothing proving the check enforces the right thing. A TEMPORARY backlog,
 # keyed by what is missing -- entries leave as their denial tests land.
@@ -268,15 +277,17 @@ async def test_endpoint_denies_its_action(
 
 def test_every_mutating_route_has_a_denial_test():
     """
-    Every mutating route must have a denial test, be intentionally excluded, or be
-    in the backlog with a reason.
+    Every write route must have a denial test, be intentionally excluded, or be
+    in the backlog with a reason. Read-only POST routes are tracked separately.
 
     The route-coverage guard cannot tell a correct check from one that fires on the
     wrong action or resource -- upsert_materialization reached a READ check on a
     cube's metrics while writing to the node, and the guard stayed green. This test
     is what closes that gap, so a new mutating route cannot land unnoticed.
     """
-    accounted = _tested_routes() | EXCLUDED_ROUTES | _pending_routes()
+    accounted = (
+        _tested_routes() | EXCLUDED_ROUTES | READ_ONLY_POST_ROUTES | _pending_routes()
+    )
     missing = sorted(
         {(method, path) for method, path, _ in _mutating_routes()} - accounted,
     )
@@ -292,10 +303,14 @@ def test_denial_test_registry_has_no_stale_entries():
     live = {(method, path) for method, path, _ in _mutating_routes()}
     tested = _tested_routes()
 
-    assert not sorted((tested | _pending_routes()) - live), (
-        "Registered routes that no longer exist: "
-        f"{sorted((tested | _pending_routes()) - live)}"
+    registered = tested | _pending_routes() | READ_ONLY_POST_ROUTES
+    assert not sorted(registered - live), (
+        f"Registered routes that no longer exist: {sorted(registered - live)}"
     )
     assert not sorted(tested & _pending_routes()), (
         f"Routes both tested and marked pending: {sorted(tested & _pending_routes())}"
+    )
+    assert not sorted(READ_ONLY_POST_ROUTES & (tested | _pending_routes())), (
+        "Read-only POST routes are also registered as writes: "
+        f"{sorted(READ_ONLY_POST_ROUTES & (tested | _pending_routes()))}"
     )
