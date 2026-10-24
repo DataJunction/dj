@@ -85,6 +85,7 @@ async def test_get_session_uses_correct_session(method, expected_session_attr):
     mock_session_manager = get_session_manager()
     request = MagicMock()
     request.method = method
+    request.state.read_from_writer = False
     assert mock_session_manager.reader_engine is not None
     assert mock_session_manager.writer_engine is not None
     assert mock_session_manager.reader_sessionmaker is not None
