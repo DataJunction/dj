@@ -3,6 +3,7 @@ Whole-response caching of opted-in GraphQL operations.
 """
 
 import pytest
+from fastapi import Request
 from strawberry.fastapi import GraphQLRouter
 
 from datajunction_server.api.main import app
@@ -53,7 +54,11 @@ def cache(session):
     # The tests share one session, which the app's own session dependency
     # would otherwise be the one to attach this to.
     invalidate_on_commit(session, lambda: cache)
-    app.dependency_overrides[get_cache] = lambda: cache
+
+    def get_test_cache(request: Request):
+        return cache
+
+    app.dependency_overrides[get_cache] = get_test_cache
     yield cache
     app.dependency_overrides.pop(get_cache, None)
 
@@ -515,3 +520,98 @@ def test_read_data_version_joins_the_versions_a_query_depends_on():
 
     assert read_data_version(versions, "{ findNodes { name } }") == "d"
     assert read_data_version(versions, "{ findNodes { availability } }") == "d:a"
+
+
+@pytest.mark.asyncio
+async def test_releasing_a_savepoint_does_not_replace_versions(session):
+    from datajunction_server.database.tag import Tag
+
+    versions = DictCache()
+    invalidate_on_commit(session, lambda: versions)
+
+    savepoint = await session.begin_nested()
+    session.add(Tag(name="in_savepoint", tag_type="x", created_by_id=1))
+    await session.flush()
+    await savepoint.commit()
+    assert versions.sets == []
+
+    await session.commit()
+    assert [key for key, _ in versions.sets] == [DATA_KEY]
+
+
+@pytest.mark.asyncio
+async def test_sessions_opened_without_a_request_replace_versions_too(
+    session,
+    cache,
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from datajunction_server import utils
+    from datajunction_server.database.tag import Tag
+
+    maker = async_sessionmaker(bind=session.bind, expire_on_commit=False)
+    monkeypatch.setattr(
+        utils,
+        "get_session_manager",
+        lambda: SimpleNamespace(writer_sessionmaker=maker, reader_sessionmaker=maker),
+    )
+    monkeypatch.setattr(utils, "_app", app)
+
+    async with utils.session_context() as background:
+        background.add(Tag(name="from_a_job", tag_type="x", created_by_id=1))
+        await background.commit()
+
+    assert DATA_KEY in [key for key, _ in cache.sets]
+
+
+@pytest.mark.asyncio
+async def test_a_request_that_asks_for_the_writer_does_not_get_the_reader(
+    session,
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from datajunction_server import utils
+
+    writer = async_sessionmaker(bind=session.bind, info={"role": "writer"})
+    reader = async_sessionmaker(bind=session.bind, info={"role": "reader"})
+    monkeypatch.setattr(
+        utils,
+        "get_session_manager",
+        lambda: SimpleNamespace(writer_sessionmaker=writer, reader_sessionmaker=reader),
+    )
+
+    async def role(read_from_writer):
+        request = SimpleNamespace(
+            method="GET",
+            app=app,
+            state=SimpleNamespace(read_from_writer=read_from_writer),
+        )
+        async with utils.session_context(request) as opened:  # type: ignore[arg-type]
+            return opened.info["role"]
+
+    assert await role(False) == "reader"
+    assert await role(True) == "writer"
+
+
+@pytest.mark.asyncio
+async def test_a_cacheable_request_reads_from_the_writer(
+    client_with_roads,
+    cache,
+    allow,
+    mocker,
+):
+    allow("NodeListing")
+    executed = mocker.spy(GraphQLRouter, "run")
+
+    await client_with_roads.post("/graphql", json={"query": QUERY})
+    await client_with_roads.post("/graphql", json={"query": "{ findNodes { name } }"})
+
+    cacheable, other = (call.args[1] for call in executed.call_args_list)
+    assert cacheable.state.read_from_writer is True
+    assert not hasattr(other.state, "read_from_writer")

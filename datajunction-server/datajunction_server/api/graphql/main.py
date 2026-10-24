@@ -444,6 +444,7 @@ class CachingGraphQLRouter(GraphQLRouter):
         if cacheable is None or cache is None:
             return await super().run(request, context, root_value)
 
+        request.state.read_from_writer = True
         # Read before the query runs: the data is then at least this new. The
         # cache clients are blocking network calls, so keep them off the loop.
         version = await run_in_threadpool(read_data_version, cache, data.query)

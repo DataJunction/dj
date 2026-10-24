@@ -226,13 +226,18 @@ async def is_graphql_query(request: Request) -> bool:
         return False
 
 
-def _shared_cache(request: Request):
+# Sessions opened outside a request (deployments, background work) have no app to
+# find the cache through, so they use the one a request last came through.
+_app = None
+
+
+def _shared_cache(app):
     """
-    The app's cache, whatever the request's ``Cache-Control`` asks for: a write
+    The app's cache, whatever a request's ``Cache-Control`` asks for: a write
     must still replace the version that cached responses were stored under.
     """
-    getter = request.app.dependency_overrides.get(get_cache, get_cache)
-    return getter(Request({"type": "http", "headers": [], "app": request.app}))
+    getter = app.dependency_overrides.get(get_cache, get_cache)
+    return getter(Request({"type": "http", "headers": [], "app": app}))
 
 
 async def get_session(
@@ -242,11 +247,17 @@ async def get_session(
     """
     Async database session.
     """
+    global _app
+    if request:
+        _app = request.app
     session_manager = get_session_manager()
     session_maker = (
         session_manager.reader_sessionmaker
         if request
         and (request.method.upper() == "GET" or await is_graphql_query(request))
+        # A cached response is stored under a version that changes when a write
+        # commits, so a lagging replica could be read as that new version.
+        and not getattr(request.state, "read_from_writer", False)
         else session_manager.writer_sessionmaker
     )
 
@@ -267,8 +278,8 @@ async def get_session(
         async with session_maker() as session:
             session.info["query_count"] = query_count
             session.info["session_label"] = session_label
-            if request:
-                invalidate_on_commit(session, lambda: _shared_cache(request))
+            if _app:
+                invalidate_on_commit(session, lambda: _shared_cache(_app))
             try:
                 yield session
             except Exception as exc:

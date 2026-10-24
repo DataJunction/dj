@@ -283,7 +283,9 @@ class Settings(BaseSettings):  # pragma: no cover
 
     # GraphQL operations whose whole response may be served from the cache, by
     # operation name. Empty turns response caching off. Only list operations
-    # whose result does not depend on who asks.
+    # whose result does not depend on who asks. A write replaces a version kept
+    # in the cache, so every server process has to use one shared cache (not the
+    # default in-process one) for a change to reach all of them.
     graphql_cacheable_operations: list[str] = []
 
     # How long a cached GraphQL response may be kept, in seconds. A response is

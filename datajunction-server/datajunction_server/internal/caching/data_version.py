@@ -93,7 +93,11 @@ def invalidate_on_commit(
             )
 
     @event.listens_for(session.sync_session, "after_commit")
-    def committed(_sync_session):
+    def committed(sync_session):
+        # Releasing a savepoint also commits; the write is not visible to other
+        # connections until the outermost transaction has.
+        if sync_session.in_nested_transaction():
+            return
         keys = list(changed)
         changed.clear()
         if not keys:
