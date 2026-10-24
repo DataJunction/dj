@@ -1,15 +1,20 @@
 """DJ graphql"""
 
+import gzip
+import hashlib
 import inspect
+import json
 import logging
+import re
 import time
 from functools import wraps
 
 import strawberry
-from fastapi import BackgroundTasks, Depends, Request
+from fastapi import BackgroundTasks, Depends, Request, Response
 from strawberry.extensions import SchemaExtension
 from strawberry.fastapi import GraphQLRouter
 from strawberry.types import Info
+from strawberry.types.unset import UNSET
 
 from datajunction_server.api.graphql.dataloaders import (
     create_collection_nodes_loader,
@@ -352,4 +357,82 @@ class DJSchema(strawberry.Schema):
 
 schema = DJSchema(query=Query, extensions=[GraphQLErrorReporter])
 
-graphql_app = GraphQLRouter(schema, context_getter=get_context)
+_OPERATION_NAME = re.compile(
+    r"^\s*(?:query|mutation|subscription)\s+(\w+)", re.MULTILINE
+)
+
+
+def _cacheable_operation(payload: object) -> tuple[str, str] | None:
+    """
+    The name and cache key of a single-operation request whose operation is
+    allowed to be cached, or None.
+    """
+    allowed = get_settings().graphql_cacheable_operations
+    if not allowed or not isinstance(payload, dict):
+        return None
+    query = payload.get("query")
+    if not isinstance(query, str):
+        return None
+    name = payload.get("operationName")
+    if not name:
+        found = _OPERATION_NAME.search(query)
+        name = found.group(1) if found else None
+    if name not in allowed:
+        return None
+    canonical = json.dumps(
+        [name, query, payload.get("variables") or {}],
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return name, f"graphql:response:{hashlib.sha256(canonical.encode()).hexdigest()}"
+
+
+class CachingGraphQLRouter(GraphQLRouter):
+    """
+    GraphQL router that can serve the whole response of an allowed operation
+    from the shared cache for ``graphql_response_cache_ttl`` seconds.
+
+    Opt-in per operation name (``graphql_cacheable_operations``): the cached
+    response is the same for every caller, so only list operations whose result
+    does not depend on who asks. Responses with errors are not cached. The
+    request's cache (which honors ``Cache-Control: no-cache``) does the storing.
+    """
+
+    async def run(self, request, context=UNSET, root_value=UNSET):  # type: ignore[no-untyped-def]
+        if request.method != "POST":
+            return await super().run(request, context, root_value)
+        try:
+            payload = json.loads(await request.body())
+        except ValueError:
+            return await super().run(request, context, root_value)
+        cacheable = _cacheable_operation(payload)
+        cache = context.get("cache") if isinstance(context, dict) else None
+        if cacheable is None or cache is None:
+            return await super().run(request, context, root_value)
+
+        name, key = cacheable
+        metrics = get_metrics_provider()
+        if (stored := cache.get(key)) is not None:
+            metrics.counter(
+                "dj.graphql.response_cache",
+                tags={"operation": name, "result": "hit"},
+            )
+            return Response(gzip.decompress(stored), media_type="application/json")
+
+        response = await super().run(request, context, root_value)
+        body = bytes(response.body)
+        # An error is encoded after the data, so it is at the end.
+        if response.status_code == 200 and b'"errors"' not in body[-4096:]:
+            cache.set(
+                key,
+                gzip.compress(body, compresslevel=1),
+                timeout=get_settings().graphql_response_cache_ttl,
+            )
+        metrics.counter(
+            "dj.graphql.response_cache",
+            tags={"operation": name, "result": "miss"},
+        )
+        return response
+
+
+graphql_app = CachingGraphQLRouter(schema, context_getter=get_context)

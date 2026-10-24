@@ -281,6 +281,15 @@ class Settings(BaseSettings):  # pragma: no cover
     # Cache expiration for SQL endpoints
     query_cache_timeout: int = 86400 * 300
 
+    # GraphQL operations whose whole response may be served from the cache, by
+    # operation name. Empty turns response caching off. Only list operations
+    # whose result does not depend on who asks.
+    graphql_cacheable_operations: list[str] = []
+
+    # How long a cached GraphQL response may be served, in seconds. This is how
+    # stale such a response can be.
+    graphql_response_cache_ttl: int = 60
+
     # Maximum number of concurrent background cache refreshes.
     # Caps how many SQL rebuilds run simultaneously to avoid DB connection spikes.
     query_cache_max_concurrent_refreshes: int = 3
