@@ -7,6 +7,7 @@ import pytest
 from fastapi import BackgroundTasks
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import FastAPI
 from starlette.datastructures import Headers
 
 from datajunction_server.database.queryrequest import QueryBuildType
@@ -30,6 +31,7 @@ class DummyRequest:
             headers["Cache-Control"] = cache_control
         self.headers = Headers(headers)
         self.method = "GET"
+        self.app = FastAPI()
 
         # Add state with a dummy user for get_current_user
         self.state = SimpleNamespace(
