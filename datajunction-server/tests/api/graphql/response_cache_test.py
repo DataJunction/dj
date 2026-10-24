@@ -193,3 +193,64 @@ async def test_get_requests_bypass_the_cache(client_with_roads, cache, allow):
     await client_with_roads.get("/graphql", params={"query": QUERY})
 
     assert cache.store == {}
+
+
+@pytest.mark.asyncio
+async def test_a_change_makes_the_cached_response_unreachable(
+    client_with_roads,
+    cache,
+    allow,
+    mocker,
+):
+    allow("FindReportCubes")
+    executed = mocker.spy(GraphQLRouter, "run")
+    body = {"query": QUERY, "variables": {"types": ["SOURCE"]}}
+
+    await client_with_roads.post("/graphql", json=body)
+    await client_with_roads.post("/graphql", json=body)
+    assert executed.call_count == 1
+
+    created = await client_with_roads.post(
+        "/nodes/source/",
+        json={
+            "name": "default.a_new_source",
+            "mode": "published",
+            "catalog": "default",
+            "schema_": "roads",
+            "table": "a_new_source",
+            "columns": [{"name": "id", "type": "int"}],
+        },
+    )
+    assert created.status_code in (200, 201), created.text
+    after = await client_with_roads.post("/graphql", json=body)
+
+    assert executed.call_count == 2
+    assert "default.a_new_source" in after.text
+    assert len(cache.store) == 2
+
+
+@pytest.mark.asyncio
+async def test_availability_updates_do_not_invalidate(
+    client_with_roads,
+    cache,
+    allow,
+    mocker,
+):
+    allow("FindReportCubes")
+    executed = mocker.spy(GraphQLRouter, "run")
+    body = {"query": QUERY, "variables": {"types": ["SOURCE"]}}
+
+    await client_with_roads.post("/graphql", json=body)
+    published = await client_with_roads.post(
+        "/data/default.repair_orders/availability/",
+        json={
+            "catalog": "default",
+            "schema_": "roads",
+            "table": "repair_orders",
+            "valid_through_ts": 9999999999,
+        },
+    )
+    assert published.status_code == 200, published.text
+    await client_with_roads.post("/graphql", json=body)
+
+    assert executed.call_count == 1

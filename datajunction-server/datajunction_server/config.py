@@ -286,9 +286,10 @@ class Settings(BaseSettings):  # pragma: no cover
     # whose result does not depend on who asks.
     graphql_cacheable_operations: list[str] = []
 
-    # How long a cached GraphQL response may be served, in seconds. This is how
-    # stale such a response can be.
-    graphql_response_cache_ttl: int = 60
+    # How long a cached GraphQL response may be kept, in seconds. A response is
+    # only served while no node, link or tag has changed since it was stored, so
+    # this is a backstop, not the staleness bound.
+    graphql_response_cache_ttl: int = 6 * 3600
 
     # Maximum number of concurrent background cache refreshes.
     # Caps how many SQL rebuilds run simultaneously to avoid DB connection spikes.

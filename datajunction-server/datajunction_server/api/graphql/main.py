@@ -13,6 +13,7 @@ import strawberry
 from fastapi import BackgroundTasks, Depends, Request, Response
 from strawberry.extensions import SchemaExtension
 from strawberry.fastapi import GraphQLRouter
+from sqlalchemy import func, select
 from starlette.concurrency import run_in_threadpool
 from strawberry.types import Info
 from strawberry.types.unset import UNSET
@@ -65,10 +66,12 @@ from datajunction_server.api.graphql.scalars.sql import (
     MaterializationPlan,
 )
 from datajunction_server.api.graphql.scalars.tag import Tag
+from datajunction_server.database.history import History
 from datajunction_server.instrumentation.provider import get_metrics_provider
+from datajunction_server.internal.history import EntityType
 from datajunction_server.internal.access.authentication.http import DJHTTPBearer
 from datajunction_server.internal.caching.cachelib_cache import get_cache
-from datajunction_server.utils import get_session, get_settings
+from datajunction_server.utils import get_session, get_settings, session_context
 
 logger = logging.getLogger(__name__)
 
@@ -388,15 +391,35 @@ def _cacheable_operation(payload: object) -> tuple[str, str] | None:
     return name, f"graphql:response:{hashlib.sha256(canonical.encode()).hexdigest()}"
 
 
+async def _data_version(request: Request) -> int:
+    """
+    The id of the latest history event other than an availability update.
+
+    Every node, link, tag or namespace change is recorded in history, however it
+    was made, so this changes whenever a cached response could have gone stale.
+    Availability updates are frequent and never show in a cached response.
+    """
+    async with session_context(request) as session:
+        latest = await session.scalar(
+            select(func.max(History.id)).where(
+                History.entity_type != EntityType.AVAILABILITY,
+            ),
+        )
+    return latest or 0
+
+
 class CachingGraphQLRouter(GraphQLRouter):
     """
     GraphQL router that can serve the whole response of an allowed operation
-    from the shared cache for ``graphql_response_cache_ttl`` seconds.
+    from the shared cache until something changes.
 
     Opt-in per operation name (``graphql_cacheable_operations``): the cached
     response is the same for every caller, so only list operations whose result
-    does not depend on who asks. Responses with errors are not cached. The
-    request's cache (which honors ``Cache-Control: no-cache``) does the storing.
+    does not depend on who asks. A response is stored under the latest history
+    id, read before the query runs, so any later change makes it unreachable;
+    ``graphql_response_cache_ttl`` only bounds how long it is kept. Responses
+    with errors are not cached. The request's cache (which honors
+    ``Cache-Control: no-cache``) does the storing.
     """
 
     async def run(self, request, context=UNSET, root_value=UNSET):  # type: ignore[no-untyped-def]
@@ -412,6 +435,8 @@ class CachingGraphQLRouter(GraphQLRouter):
             return await super().run(request, context, root_value)
 
         name, key = cacheable
+        # Read before the query runs: the data is then at least this new.
+        key = f"{key}:{await _data_version(request)}"
         metrics = get_metrics_provider()
         # The cache clients are blocking network calls, so keep them off the loop.
         if (stored := await run_in_threadpool(cache.get, key)) is not None:
