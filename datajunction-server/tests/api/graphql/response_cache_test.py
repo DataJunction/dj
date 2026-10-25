@@ -633,3 +633,46 @@ async def test_an_in_process_cache_is_not_used_for_responses(
 
     assert executed.call_count == 2
     assert caplog.text.count("needs a cache shared by every server process") <= 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failing", ["get", "set"])
+async def test_a_failing_cache_does_not_fail_the_request(
+    client_with_roads,
+    cache,
+    allow,
+    failing,
+):
+    allow("NodeListing")
+    cache.store.clear()
+    cache.store.update({DATA_KEY: "v0", AVAILABILITY_KEY: "v0"})
+    original = getattr(cache, failing)
+
+    def refuse(key, *args, **kwargs):
+        if key.startswith("graphql:response"):
+            raise ConnectionError("down")
+        return original(key, *args, **kwargs)
+
+    setattr(cache, failing, refuse)
+    response = await client_with_roads.post("/graphql", json={"query": QUERY})
+
+    assert response.status_code == 200
+    assert "findNodes" in response.text
+
+
+@pytest.mark.asyncio
+async def test_a_failing_version_read_does_not_fail_the_request(
+    client_with_roads,
+    cache,
+    allow,
+):
+    allow("NodeListing")
+
+    def refuse(key):
+        raise ConnectionError("down")
+
+    cache.get = refuse
+    response = await client_with_roads.post("/graphql", json={"query": QUERY})
+
+    assert response.status_code == 200
+    assert "findNodes" in response.text

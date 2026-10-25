@@ -459,12 +459,17 @@ class CachingGraphQLRouter(GraphQLRouter):
         request.state.read_from_writer = True
         # Read before the query runs: the data is then at least this new. The
         # cache clients are blocking network calls, so keep them off the loop.
-        version = await run_in_threadpool(read_data_version, cache, data.query)
-        key = f"{cacheable.key}:{version}"
-        if (
-            version is not None
-            and (stored := await run_in_threadpool(cache.get, key)) is not None
-        ):
+        # A cache that is down or refuses a value must not fail the request.
+        try:
+            version = await run_in_threadpool(read_data_version, cache, data.query)
+            key = f"{cacheable.key}:{version}"
+            stored = (
+                await run_in_threadpool(cache.get, key) if version is not None else None
+            )
+        except Exception:
+            logger.exception("GraphQL response cache unavailable; running the query")
+            return await super().run(request, context, root_value)
+        if stored is not None:
             get_metrics_provider().counter(
                 "dj.graphql.response_cache",
                 tags={"operation": cacheable.operation, "result": "hit"},
@@ -480,12 +485,15 @@ class CachingGraphQLRouter(GraphQLRouter):
             and response.status_code == 200
             and b'"errors"' not in body
         ):
-            await run_in_threadpool(
-                cache.set,
-                key,
-                gzip.compress(body, compresslevel=1),
-                timeout=get_settings().graphql_response_cache_ttl,
-            )
+            try:
+                await run_in_threadpool(
+                    cache.set,
+                    key,
+                    gzip.compress(body, compresslevel=1),
+                    timeout=get_settings().graphql_response_cache_ttl,
+                )
+            except Exception:
+                logger.exception("Could not store the GraphQL response")
         get_metrics_provider().counter(
             "dj.graphql.response_cache",
             tags={"operation": cacheable.operation, "result": "miss"},
