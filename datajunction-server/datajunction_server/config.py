@@ -281,12 +281,13 @@ class Settings(BaseSettings):  # pragma: no cover
     # Cache expiration for SQL endpoints
     query_cache_timeout: int = 86400 * 300
 
-    # GraphQL operations whose whole response may be served from the cache, by
-    # operation name. Empty turns response caching off. Only list operations
-    # whose result does not depend on who asks. A write replaces a version kept
+    # Top-level GraphQL query fields whose whole response may be served from the
+    # cache, by field name (for example ``findNodes``). A query is cached only if
+    # every top-level field it selects is listed. Empty turns response caching
+    # off. Only list fields whose result does not depend on who asks. A write replaces a version kept
     # in the cache, so it needs a cache shared by every server process; with the
     # default in-process one, responses are not cached.
-    graphql_cacheable_operations: list[str] = []
+    graphql_cacheable_fields: list[str] = []
 
     # How long a cached GraphQL response may be kept, in seconds. A response is
     # only served while no node, link or tag has changed since it was stored, so
