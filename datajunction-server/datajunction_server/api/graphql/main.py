@@ -413,7 +413,11 @@ def _cacheable_request(data: GraphQLRequestData) -> CacheableRequest | None:
         separators=(",", ":"),
     )
     return CacheableRequest(
-        fields=",".join(selection.name.value for selection in selections),  # type: ignore[attr-defined]
+        # Sorted and without repeats: this is a metric tag, so aliases or
+        # ordering must not mint new values.
+        fields=",".join(
+            sorted({selection.name.value for selection in selections}),  # type: ignore[attr-defined]
+        ),
         key=f"graphql:response:{hashlib.sha256(canonical.encode()).hexdigest()}",
     )
 

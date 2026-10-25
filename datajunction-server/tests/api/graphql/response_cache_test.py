@@ -352,6 +352,16 @@ def test_only_queries_of_allowed_fields_are_cached(allow):
         _request("{ findNodes { name } listCatalogs { name } }"),
     )
     assert not _cacheable_request(_request("{ listCatalogs { name } }"))
+    # The metric tag is the same however the fields are aliased or ordered.
+    tags = {
+        _cacheable_request(_request(query)).fields  # type: ignore[union-attr]
+        for query in (
+            "{ listCollections { name } findNodes { name } }",
+            "{ findNodes { name } listCollections { name } }",
+            "{ a: findNodes { name } b: findNodes { name } listCollections { name } }",
+        )
+    }
+    assert tags == {"findNodes,listCollections"}
     # Fragments at the top level are not looked into.
     assert not _cacheable_request(
         _request("{ ...All } fragment All on Query { findNodes { name } }"),
