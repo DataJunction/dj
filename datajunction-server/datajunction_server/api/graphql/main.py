@@ -12,6 +12,7 @@ from functools import wraps
 import strawberry
 from graphql import (
     GraphQLSyntaxError,
+    FieldNode,
     OperationType,
     get_operation_ast,
     parse,
@@ -375,19 +376,21 @@ schema = DJSchema(query=Query, extensions=[GraphQLErrorReporter])
 class CacheableRequest:
     """A request whose response may be cached."""
 
-    operation: str
+    fields: str
     key: str
 
 
 def _cacheable_request(data: GraphQLRequestData) -> CacheableRequest | None:
     """
-    The request, if it is a query whose operation is allowed to be cached.
+    The request, if it is a query that only selects fields allowed to be cached.
 
     The operation is the one GraphQL would run: the one named by
-    ``operationName``, or the only one in the document. The key is built from the
+    ``operationName``, or the only one in the document. Every top-level field it
+    selects must be allowed, by its field name whatever the alias; a top-level
+    fragment is not looked into, so it is not cached. The key is built from the
     printed document, so formatting does not matter, plus the variables.
     """
-    allowed = get_settings().graphql_cacheable_operations
+    allowed = get_settings().graphql_cacheable_fields
     if not allowed or data.query is None:
         # Nothing to cache, so don't parse every request.
         return None
@@ -396,20 +399,25 @@ def _cacheable_request(data: GraphQLRequestData) -> CacheableRequest | None:
     except GraphQLSyntaxError:
         return None
     operation = get_operation_ast(document, data.operation_name)
-    if (
-        operation is None
-        or operation.operation != OperationType.QUERY
-        or operation.name is None
-        or operation.name.value not in allowed
+    if operation is None or operation.operation != OperationType.QUERY:
+        return None
+    selections = operation.selection_set.selections
+    if not all(
+        isinstance(selection, FieldNode) and selection.name.value in allowed
+        for selection in selections
     ):
         return None
     canonical = json.dumps(
-        [operation.name.value, print_ast(document), data.variables or {}],
+        [data.operation_name, print_ast(document), data.variables or {}],
         sort_keys=True,
         separators=(",", ":"),
     )
     return CacheableRequest(
-        operation=operation.name.value,
+        # Sorted and without repeats: this is a metric tag, so aliases or
+        # ordering must not mint new values.
+        fields=",".join(
+            sorted({selection.name.value for selection in selections}),  # type: ignore[attr-defined]
+        ),
         key=f"graphql:response:{hashlib.sha256(canonical.encode()).hexdigest()}",
     )
 
@@ -419,10 +427,10 @@ class CachingGraphQLRouter(GraphQLRouter):
     GraphQL router that can serve the whole response of an allowed operation
     from the shared cache until something changes.
 
-    Opt-in per operation name (``graphql_cacheable_operations``), for queries
+    Opt-in per top-level field (``graphql_cacheable_fields``), for queries
     only: the cached response is the same for every caller, so only list
-    operations whose result does not depend on who asks. A response is stored
-    under a version of the data it reads (see ``_data_version``), read before
+    fields whose result does not depend on who asks. A response is stored
+    under a version of the data it reads (see ``read_data_version``), read before
     the query runs, so any later change makes it unreachable;
     ``graphql_response_cache_ttl`` only bounds how long it is kept. Responses
     with errors are not cached. The request's cache (which honors
@@ -459,15 +467,20 @@ class CachingGraphQLRouter(GraphQLRouter):
         request.state.read_from_writer = True
         # Read before the query runs: the data is then at least this new. The
         # cache clients are blocking network calls, so keep them off the loop.
-        version = await run_in_threadpool(read_data_version, cache, data.query)
-        key = f"{cacheable.key}:{version}"
-        if (
-            version is not None
-            and (stored := await run_in_threadpool(cache.get, key)) is not None
-        ):
+        # A cache that is down or refuses a value must not fail the request.
+        try:
+            version = await run_in_threadpool(read_data_version, cache, data.query)
+            key = f"{cacheable.key}:{version}"
+            stored = (
+                await run_in_threadpool(cache.get, key) if version is not None else None
+            )
+        except Exception:
+            logger.exception("GraphQL response cache unavailable; running the query")
+            return await super().run(request, context, root_value)
+        if stored is not None:
             get_metrics_provider().counter(
                 "dj.graphql.response_cache",
-                tags={"operation": cacheable.operation, "result": "hit"},
+                tags={"fields": cacheable.fields, "result": "hit"},
             )
             return Response(gzip.decompress(stored), media_type="application/json")
 
@@ -480,15 +493,18 @@ class CachingGraphQLRouter(GraphQLRouter):
             and response.status_code == 200
             and b'"errors"' not in body
         ):
-            await run_in_threadpool(
-                cache.set,
-                key,
-                gzip.compress(body, compresslevel=1),
-                timeout=get_settings().graphql_response_cache_ttl,
-            )
+            try:
+                await run_in_threadpool(
+                    cache.set,
+                    key,
+                    gzip.compress(body, compresslevel=1),
+                    timeout=get_settings().graphql_response_cache_ttl,
+                )
+            except Exception:
+                logger.exception("Could not store the GraphQL response")
         get_metrics_provider().counter(
             "dj.graphql.response_cache",
-            tags={"operation": cacheable.operation, "result": "miss"},
+            tags={"fields": cacheable.fields, "result": "miss"},
         )
         return response
 

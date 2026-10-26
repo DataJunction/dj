@@ -1,5 +1,5 @@
 """
-Whole-response caching of opted-in GraphQL operations.
+Whole-response caching of queries that select opted-in GraphQL fields.
 """
 
 import pytest
@@ -65,12 +65,12 @@ def cache(session):
 
 @pytest.fixture
 def allow(monkeypatch):
-    def _allow(*operations, ttl=60):
+    def _allow(*fields, ttl=60):
         settings = get_settings()
         patched = Settings(
             **{
                 **settings.model_dump(),
-                "graphql_cacheable_operations": list(operations),
+                "graphql_cacheable_fields": list(fields),
                 "graphql_response_cache_ttl": ttl,
             },
         )
@@ -83,13 +83,13 @@ def allow(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_an_allowed_operation_is_served_from_the_cache(
+async def test_a_query_of_an_allowed_field_is_served_from_the_cache(
     client_with_roads,
     cache,
     allow,
     mocker,
 ):
-    allow("NodeListing", ttl=45)
+    allow("findNodes", ttl=45)
     executed = mocker.spy(GraphQLRouter, "run")
     body = {"query": QUERY, "variables": {"types": ["CUBE"]}}
 
@@ -111,7 +111,7 @@ async def test_variables_and_query_text_are_part_of_the_key(
     allow,
     mocker,
 ):
-    allow("NodeListing")
+    allow("findNodes")
     executed = mocker.spy(GraphQLRouter, "run")
 
     await client_with_roads.post(
@@ -136,15 +136,15 @@ async def test_variables_and_query_text_are_part_of_the_key(
 
 @pytest.mark.asyncio
 async def test_operation_name_selects_the_operation(client_with_roads, cache, allow):
-    allow("NodeListing")
-    query = "query Other { findNodes { name } } " + QUERY.strip()
+    allow("findNodes")
+    query = "query Other { listCatalogs { name } } " + QUERY.strip()
 
     other = await client_with_roads.post(
         "/graphql",
         json={"query": query, "operationName": "Other"},
     )
     assert other.status_code == 200
-    assert responses(cache) == []  # `operationName` picks `Other`, which is not allowed
+    assert responses(cache) == []  # `Other` selects `listCatalogs`, not allowed
 
     await client_with_roads.post(
         "/graphql",
@@ -154,12 +154,32 @@ async def test_operation_name_selects_the_operation(client_with_roads, cache, al
 
 
 @pytest.mark.asyncio
-async def test_other_operations_are_not_cached(client_with_roads, cache, allow):
-    allow("SomethingElse")
+async def test_other_fields_are_not_cached(client_with_roads, cache, allow):
+    allow("listCatalogs")
     await client_with_roads.post("/graphql", json={"query": QUERY})
     await client_with_roads.post("/graphql", json={"query": "{ findNodes { name } }"})
 
     assert responses(cache) == []
+
+
+@pytest.mark.asyncio
+async def test_the_operation_name_does_not_matter(
+    client_with_roads,
+    cache,
+    allow,
+    mocker,
+):
+    allow("findNodes")
+    executed = mocker.spy(GraphQLRouter, "run")
+
+    for query in (
+        "{ findNodes(nodeTypes: [CUBE]) { name } }",
+        "query Anything { findNodes(nodeTypes: [CUBE]) { name } }",
+    ):
+        for _ in range(2):
+            await client_with_roads.post("/graphql", json={"query": query})
+
+    assert executed.call_count == 2
 
 
 @pytest.mark.asyncio
@@ -176,7 +196,7 @@ async def test_nothing_is_cached_unless_operations_are_allowed(
 
 @pytest.mark.asyncio
 async def test_a_response_with_errors_is_not_cached(client_with_roads, cache, allow):
-    allow("NodeListing")
+    allow("findNodes")
     broken = "query NodeListing { findNodes { doesNotExist } }"
 
     response = await client_with_roads.post("/graphql", json={"query": broken})
@@ -191,7 +211,7 @@ async def test_unparseable_and_batched_requests_bypass_the_cache(
     cache,
     allow,
 ):
-    allow("NodeListing")
+    allow("findNodes")
 
     garbage = await client_with_roads.post(
         "/graphql",
@@ -212,7 +232,7 @@ async def test_unparseable_and_batched_requests_bypass_the_cache(
 
 @pytest.mark.asyncio
 async def test_get_requests_bypass_the_cache(client_with_roads, cache, allow):
-    allow("NodeListing")
+    allow("findNodes")
 
     await client_with_roads.get("/graphql", params={"query": QUERY})
 
@@ -226,7 +246,7 @@ async def test_a_change_makes_the_cached_response_unreachable(
     allow,
     mocker,
 ):
-    allow("NodeListing")
+    allow("findNodes")
     executed = mocker.spy(GraphQLRouter, "run")
     body = {"query": QUERY, "variables": {"types": ["SOURCE"]}}
 
@@ -260,7 +280,7 @@ async def test_availability_updates_do_not_invalidate(
     allow,
     mocker,
 ):
-    allow("NodeListing")
+    allow("findNodes")
     executed = mocker.spy(GraphQLRouter, "run")
     body = {"query": QUERY, "variables": {"types": ["SOURCE"]}}
 
@@ -287,7 +307,7 @@ async def test_formatting_does_not_change_the_key(
     allow,
     mocker,
 ):
-    allow("NodeListing")
+    allow("findNodes")
     executed = mocker.spy(GraphQLRouter, "run")
     variables = {"types": ["SOURCE"]}
 
@@ -315,19 +335,45 @@ def _request(query, operation_name=None, variables=None):
     )
 
 
-def test_only_queries_are_cached(allow):
+def test_only_queries_of_allowed_fields_are_cached(allow):
     from datajunction_server.api.graphql.main import _cacheable_request
 
-    allow("NodeListing", "Anonymous")
+    allow("findNodes", "listCollections")
 
     assert _cacheable_request(_request("query NodeListing { findNodes { name } }"))
-    # A mutation with an allowed name, an unnamed query, several operations with
-    # no choice between them, and a name that is not in the document.
-    assert not _cacheable_request(_request("mutation NodeListing { x }"))
-    assert not _cacheable_request(_request("{ findNodes { name } }"))
-    two = "query A { findNodes { name } } query NodeListing { findNodes { name } }"
+    assert _cacheable_request(_request("{ findNodes { name } }"))
+    # An alias does not change which field it is, and every field that is selected
+    # has to be allowed.
+    assert _cacheable_request(_request("{ nodes: findNodes { name } }"))
+    assert _cacheable_request(
+        _request("{ findNodes { name } listCollections { name } }"),
+    )
+    assert not _cacheable_request(
+        _request("{ findNodes { name } listCatalogs { name } }"),
+    )
+    assert not _cacheable_request(_request("{ listCatalogs { name } }"))
+    # The metric tag is the same however the fields are aliased or ordered.
+    tags = {
+        _cacheable_request(_request(query)).fields  # type: ignore[union-attr]
+        for query in (
+            "{ listCollections { name } findNodes { name } }",
+            "{ findNodes { name } listCollections { name } }",
+            "{ a: findNodes { name } b: findNodes { name } listCollections { name } }",
+        )
+    }
+    assert tags == {"findNodes,listCollections"}
+    # Fragments at the top level are not looked into.
+    assert not _cacheable_request(
+        _request("{ ...All } fragment All on Query { findNodes { name } }"),
+    )
+    # A mutation, several operations with no choice between them, and a name that
+    # is not in the document.
+    assert not _cacheable_request(
+        _request("mutation NodeListing { findNodes { name } }"),
+    )
+    two = "query A { findNodes { name } } query B { findNodes { name } }"
     assert not _cacheable_request(_request(two))
-    assert _cacheable_request(_request(two, "NodeListing"))
+    assert _cacheable_request(_request(two, "B"))
     assert not _cacheable_request(_request(two, "Nope"))
     # Invalid syntax, and a request with no query (a persisted query).
     assert not _cacheable_request(_request("query NodeListing {"))
@@ -341,7 +387,7 @@ async def test_availability_only_matters_to_a_query_that_selects_it(
     allow,
     mocker,
 ):
-    allow("NodeListing")
+    allow("findNodes")
     executed = mocker.spy(GraphQLRouter, "run")
     with_availability = {
         "query": 'query NodeListing { findNodes(names: ["default.repair_orders"]) '
@@ -372,7 +418,7 @@ async def test_collection_edits_invalidate_a_query_that_lists_them(
     allow,
     mocker,
 ):
-    allow("NodeListing")
+    allow("listCollections")
     executed = mocker.spy(GraphQLRouter, "run")
     listing = {
         "query": "query NodeListing { listCollections { name nodeCount } }",
@@ -427,7 +473,7 @@ async def test_an_error_too_long_for_the_tail_of_the_body_is_not_cached(
 
     from fastapi import Response
 
-    allow("NodeListing")
+    allow("findNodes")
     body = json.dumps(
         {"data": None, "errors": [{"message": "unknown cube " + "x" * 10_000}]},
     )
@@ -450,7 +496,7 @@ async def test_a_missing_version_is_created_and_that_request_is_not_cached(
     allow,
     mocker,
 ):
-    allow("NodeListing")
+    allow("findNodes")
     executed = mocker.spy(GraphQLRouter, "run")
     cache.store.pop(DATA_KEY)
     body = {"query": QUERY, "variables": {"types": ["SOURCE"]}}
@@ -606,11 +652,14 @@ async def test_a_cacheable_request_reads_from_the_writer(
     allow,
     mocker,
 ):
-    allow("NodeListing")
+    allow("findNodes")
     executed = mocker.spy(GraphQLRouter, "run")
 
     await client_with_roads.post("/graphql", json={"query": QUERY})
-    await client_with_roads.post("/graphql", json={"query": "{ findNodes { name } }"})
+    await client_with_roads.post(
+        "/graphql",
+        json={"query": "{ listCatalogs { name } }"},
+    )
 
     cacheable, other = (call.args[1] for call in executed.call_args_list)
     assert cacheable.state.read_from_writer is True
@@ -624,7 +673,7 @@ async def test_an_in_process_cache_is_not_used_for_responses(
     mocker,
     caplog,
 ):
-    allow("NodeListing")
+    allow("findNodes")
     executed = mocker.spy(GraphQLRouter, "run")
 
     for _ in range(2):
@@ -633,3 +682,46 @@ async def test_an_in_process_cache_is_not_used_for_responses(
 
     assert executed.call_count == 2
     assert caplog.text.count("needs a cache shared by every server process") <= 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failing", ["get", "set"])
+async def test_a_failing_cache_does_not_fail_the_request(
+    client_with_roads,
+    cache,
+    allow,
+    failing,
+):
+    allow("findNodes")
+    cache.store.clear()
+    cache.store.update({DATA_KEY: "v0", AVAILABILITY_KEY: "v0"})
+    original = getattr(cache, failing)
+
+    def refuse(key, *args, **kwargs):
+        if key.startswith("graphql:response"):
+            raise ConnectionError("down")
+        return original(key, *args, **kwargs)
+
+    setattr(cache, failing, refuse)
+    response = await client_with_roads.post("/graphql", json={"query": QUERY})
+
+    assert response.status_code == 200
+    assert "findNodes" in response.text
+
+
+@pytest.mark.asyncio
+async def test_a_failing_version_read_does_not_fail_the_request(
+    client_with_roads,
+    cache,
+    allow,
+):
+    allow("findNodes")
+
+    def refuse(key):
+        raise ConnectionError("down")
+
+    cache.get = refuse
+    response = await client_with_roads.post("/graphql", json={"query": QUERY})
+
+    assert response.status_code == 200
+    assert "findNodes" in response.text
