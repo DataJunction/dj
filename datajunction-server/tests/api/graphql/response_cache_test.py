@@ -605,12 +605,18 @@ async def test_sessions_opened_without_a_request_replace_versions_too(
         lambda: SimpleNamespace(writer_sessionmaker=maker, reader_sessionmaker=maker),
     )
     monkeypatch.setattr(utils, "_app", app)
+    settings = utils.get_settings()
+    patched = Settings(
+        **{**settings.model_dump(), "graphql_response_cache_version_ttl": 4321},
+    )
+    monkeypatch.setattr(utils, "get_settings", lambda: patched)
 
     async with utils.session_context() as background:
         background.add(Tag(name="from_a_job", tag_type="x", created_by_id=1))
         await background.commit()
 
-    assert DATA_KEY in [key for key, _ in cache.sets]
+    # The version a commit replaces is kept for the configured time.
+    assert (DATA_KEY, 4321) in cache.sets
 
 
 @pytest.mark.asyncio
