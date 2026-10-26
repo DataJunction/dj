@@ -53,7 +53,7 @@ def cache(session):
     cache.sets.clear()
     # The tests share one session, which the app's own session dependency
     # would otherwise be the one to attach this to.
-    invalidate_on_commit(session, lambda: cache)
+    invalidate_on_commit(session, lambda: cache, 60)
 
     def get_test_cache(request: Request):
         return cache
@@ -515,7 +515,7 @@ async def test_only_committed_writes_replace_versions(session):
     from datajunction_server.database.tag import Tag
 
     versions = DictCache()
-    invalidate_on_commit(session, lambda: versions)
+    invalidate_on_commit(session, lambda: versions, 60)
 
     session.add(Tag(name="rolled_back", tag_type="x", created_by_id=1))
     await session.flush()
@@ -536,7 +536,7 @@ async def test_bulk_statements_replace_versions_too(session):
     from datajunction_server.database.tag import Tag
 
     versions = DictCache()
-    invalidate_on_commit(session, lambda: versions)
+    invalidate_on_commit(session, lambda: versions, 60)
 
     await session.execute(update(Tag).values(display_name="renamed"))
     await session.execute(update(AvailabilityState).values(table="renamed"))
@@ -553,7 +553,7 @@ async def test_a_failing_cache_does_not_fail_the_commit(session, caplog):
         def set(self, key, value, timeout=300):
             raise ConnectionError("down")
 
-    invalidate_on_commit(session, lambda: Broken())
+    invalidate_on_commit(session, lambda: Broken(), 60)
     session.add(Tag(name="unreachable_cache", tag_type="x", created_by_id=1))
     await session.commit()
 
@@ -564,8 +564,8 @@ def test_read_data_version_joins_the_versions_a_query_depends_on():
     versions = DictCache()
     versions.store.update({DATA_KEY: "d", AVAILABILITY_KEY: "a"})
 
-    assert read_data_version(versions, "{ findNodes { name } }") == "d"
-    assert read_data_version(versions, "{ findNodes { availability } }") == "d:a"
+    assert read_data_version(versions, "{ findNodes { name } }", 60) == "d"
+    assert read_data_version(versions, "{ findNodes { availability } }", 60) == "d:a"
 
 
 @pytest.mark.asyncio
@@ -573,7 +573,7 @@ async def test_releasing_a_savepoint_does_not_replace_versions(session):
     from datajunction_server.database.tag import Tag
 
     versions = DictCache()
-    invalidate_on_commit(session, lambda: versions)
+    invalidate_on_commit(session, lambda: versions, 60)
 
     savepoint = await session.begin_nested()
     session.add(Tag(name="in_savepoint", tag_type="x", created_by_id=1))
@@ -605,12 +605,18 @@ async def test_sessions_opened_without_a_request_replace_versions_too(
         lambda: SimpleNamespace(writer_sessionmaker=maker, reader_sessionmaker=maker),
     )
     monkeypatch.setattr(utils, "_app", app)
+    settings = utils.get_settings()
+    patched = Settings(
+        **{**settings.model_dump(), "graphql_response_cache_version_ttl": 4321},
+    )
+    monkeypatch.setattr(utils, "get_settings", lambda: patched)
 
     async with utils.session_context() as background:
         background.add(Tag(name="from_a_job", tag_type="x", created_by_id=1))
         await background.commit()
 
-    assert DATA_KEY in [key for key, _ in cache.sets]
+    # The version a commit replaces is kept for the configured time.
+    assert (DATA_KEY, 4321) in cache.sets
 
 
 @pytest.mark.asyncio
@@ -725,3 +731,35 @@ async def test_a_failing_version_read_does_not_fail_the_request(
 
     assert response.status_code == 200
     assert "findNodes" in response.text
+
+
+def test_the_version_ttl_defaults_to_less_than_a_shared_cache_may_cap():
+    # KVDal rejects a value kept longer than 14 days.
+    assert Settings().graphql_response_cache_version_ttl <= 14 * 24 * 3600
+
+
+@pytest.mark.asyncio
+async def test_the_version_ttl_comes_from_the_settings(
+    client_with_roads,
+    cache,
+    allow,
+    monkeypatch,
+):
+    allow("findNodes")
+    cache.store.clear()
+    settings = get_settings()
+    patched = Settings(
+        **{
+            **settings.model_dump(),
+            "graphql_cacheable_fields": ["findNodes"],
+            "graphql_response_cache_version_ttl": 1234,
+        },
+    )
+    monkeypatch.setattr(
+        "datajunction_server.api.graphql.main.get_settings",
+        lambda: patched,
+    )
+
+    await client_with_roads.post("/graphql", json={"query": QUERY})
+
+    assert dict(cache.sets)[DATA_KEY] == 1234
