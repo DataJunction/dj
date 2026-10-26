@@ -725,3 +725,10 @@ async def test_a_failing_version_read_does_not_fail_the_request(
 
     assert response.status_code == 200
     assert "findNodes" in response.text
+
+
+def test_versions_are_stored_for_less_than_a_shared_cache_may_cap():
+    from datajunction_server.internal.caching.data_version import VERSION_TTL
+
+    # KVDal rejects a value kept longer than 14 days.
+    assert VERSION_TTL <= 14 * 24 * 3600

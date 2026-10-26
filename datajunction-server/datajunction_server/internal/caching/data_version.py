@@ -22,9 +22,10 @@ DATA_KEY = "graphql:data_version"
 # Availability is updated thousands of times a day, so it has a version of its
 # own, read only by queries that mention it.
 AVAILABILITY_KEY = "graphql:availability_version"
-# An expired version only makes stored responses unreachable.
 AVAILABILITY_TABLES = {"availabilitystate", "nodeavailabilitystate"}
-VERSION_TTL = 30 * 24 * 3600
+# An expired version only makes stored responses unreachable. Shared caches can
+# cap how long a value may live (KVDal: 14 days) and refuse a longer one.
+VERSION_TTL = 7 * 24 * 3600
 
 
 def read_data_version(cache: CacheInterface, query: str) -> str | None:

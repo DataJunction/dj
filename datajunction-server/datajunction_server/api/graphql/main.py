@@ -474,8 +474,12 @@ class CachingGraphQLRouter(GraphQLRouter):
             stored = (
                 await run_in_threadpool(cache.get, key) if version is not None else None
             )
-        except Exception:
-            logger.exception("GraphQL response cache unavailable; running the query")
+        except Exception as exc:
+            # The error is in the message too: log pipelines may drop tracebacks.
+            logger.exception(
+                "GraphQL response cache unavailable (%r); running the query",
+                exc,
+            )
             return await super().run(request, context, root_value)
         if stored is not None:
             get_metrics_provider().counter(
@@ -500,8 +504,8 @@ class CachingGraphQLRouter(GraphQLRouter):
                     gzip.compress(body, compresslevel=1),
                     timeout=get_settings().graphql_response_cache_ttl,
                 )
-            except Exception:
-                logger.exception("Could not store the GraphQL response")
+            except Exception as exc:
+                logger.exception("Could not store the GraphQL response (%r)", exc)
         get_metrics_provider().counter(
             "dj.graphql.response_cache",
             tags={"fields": cacheable.fields, "result": "miss"},
