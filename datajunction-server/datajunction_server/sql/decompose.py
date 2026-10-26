@@ -112,8 +112,13 @@ def parenthesize_if_needed(
     Bracket `replacement` if it would regroup once put where `old` is.
 
     Atoms (columns, literals, function calls) are returned untouched, as are
-    operators that bind tighter than the operator around `old`.
+    operators that bind tighter than the operator around `old`. An alias is
+    dropped, so only the expression it names is put in its place.
     """
+    if isinstance(replacement, ast.Alias):
+        # `SELECT COUNT(x) AS foo` names the parent's own column; the expression
+        # read from inside another one is just `COUNT(x)`.
+        replacement = replacement.child.copy()
     parent = old.parent
     operators = (ast.BinaryOp, ast.UnaryOp, ast.Predicate)
     sign_operators = operators + (ast.ArithmeticUnaryOp,)

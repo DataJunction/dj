@@ -212,3 +212,70 @@ async def test_diamonds_requested_with_other_metrics(client_with_diamonds):
             f"{REVENUE} AS total_revenue",
         ),
     )
+
+
+@pytest_asyncio.fixture
+async def client_with_aliased_parents(client_with_build_v3: AsyncClient):
+    """Metrics that name their own result (`... AS name`) and are read by others."""
+    await _create_metrics(
+        client_with_build_v3,
+        {
+            "v3.aliased_base": "SELECT COUNT(DISTINCT order_id) AS order_total FROM v3.order_details",
+            "v3.aliased_sum": (
+                "SELECT COALESCE(v3.total_revenue, 0) "
+                "+ COALESCE(v3.total_quantity, 0) AS hours"
+            ),
+            "v3.ratio_of_aliased": "SELECT v3.aliased_sum / NULLIF(v3.aliased_base, 0)",
+            "v3.double_aliased": "SELECT v3.aliased_sum * 2 AS twice",
+        },
+    )
+    return client_with_build_v3
+
+
+@pytest.mark.asyncio
+async def test_a_parent_that_aliases_its_result_is_inlined_without_the_alias(
+    client_with_aliased_parents,
+):
+    """The alias names the parent's own column, so it does not follow the
+    expression into the metrics that read it."""
+    sql = await _metrics_sql(client_with_aliased_parents, ["v3.ratio_of_aliased"])
+
+    assert "AS hours" not in sql and "AS order_total" not in sql
+    assert_sql_equal(
+        sql,
+        """
+        WITH
+        v3_order_details AS (
+            SELECT o.order_id, o.status, oi.quantity, oi.quantity * oi.unit_price AS line_total
+            FROM default.v3.orders o
+            JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+        ),
+        order_details_0 AS (
+            SELECT t1.status, t1.order_id,
+                   SUM(t1.quantity) quantity_sum_06b64d2e,
+                   SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            GROUP BY t1.status, t1.order_id
+        )
+        SELECT order_details_0.status AS status,
+               (COALESCE(SUM(order_details_0.line_total_sum_e1f61696), 0)
+                + COALESCE(SUM(order_details_0.quantity_sum_06b64d2e), 0))
+               / NULLIF(COUNT(DISTINCT order_details_0.order_id), 0) AS ratio_of_aliased
+        FROM order_details_0
+        GROUP BY order_details_0.status
+        """,
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_derived_metric_over_an_aliased_parent_still_builds(
+    client_with_aliased_parents,
+):
+    response = await client_with_aliased_parents.get(
+        "/sql/metrics/v3/",
+        params={
+            "metrics": ["v3.double_aliased", "v3.aliased_base"],
+            "dimensions": ["v3.order_details.status"],
+        },
+    )
+    assert response.status_code == 200, response.json()
