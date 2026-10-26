@@ -279,7 +279,11 @@ async def get_session(
             session.info["query_count"] = query_count
             session.info["session_label"] = session_label
             if _app:
-                invalidate_on_commit(session, lambda: _shared_cache(_app))
+                invalidate_on_commit(
+                    session,
+                    lambda: _shared_cache(_app),
+                    get_settings().graphql_response_cache_version_ttl,
+                )
             try:
                 yield session
             except Exception as exc:

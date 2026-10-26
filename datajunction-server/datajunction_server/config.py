@@ -284,15 +284,21 @@ class Settings(BaseSettings):  # pragma: no cover
     # Top-level GraphQL query fields whose whole response may be served from the
     # cache, by field name (for example ``findNodes``). A query is cached only if
     # every top-level field it selects is listed. Empty turns response caching
-    # off. Only list fields whose result does not depend on who asks. A write replaces a version kept
-    # in the cache, so it needs a cache shared by every server process; with the
-    # default in-process one, responses are not cached.
+    # off. Only list fields whose result does not depend on who asks. A write
+    # replaces a version kept in the cache, so it needs a cache shared by every
+    # server process; with the default in-process one, responses are not cached.
     graphql_cacheable_fields: list[str] = []
 
     # How long a cached GraphQL response may be kept, in seconds. A response is
     # only served while no node, link or tag has changed since it was stored, so
     # this is a backstop, not the staleness bound.
     graphql_response_cache_ttl: int = 6 * 3600
+
+    # How long the version that cached responses are stored under is kept, in
+    # seconds. When it expires, responses stored under it are no longer served,
+    # so it only needs to outlast them. Some shared caches cap how long any value
+    # may live (a longer value is refused), so keep it within that cap.
+    graphql_response_cache_version_ttl: int = 7 * 24 * 3600
 
     # Maximum number of concurrent background cache refreshes.
     # Caps how many SQL rebuilds run simultaneously to avoid DB connection spikes.

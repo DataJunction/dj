@@ -23,12 +23,9 @@ DATA_KEY = "graphql:data_version"
 # own, read only by queries that mention it.
 AVAILABILITY_KEY = "graphql:availability_version"
 AVAILABILITY_TABLES = {"availabilitystate", "nodeavailabilitystate"}
-# An expired version only makes stored responses unreachable. Shared caches can
-# cap how long a value may live (KVDal: 14 days) and refuse a longer one.
-VERSION_TTL = 7 * 24 * 3600
 
 
-def read_data_version(cache: CacheInterface, query: str) -> str | None:
+def read_data_version(cache: CacheInterface, query: str, ttl: int) -> str | None:
     """
     The version a response to ``query`` would be stored under, or None if one of
     the versions was missing. A missing version is created for the next request,
@@ -39,7 +36,7 @@ def read_data_version(cache: CacheInterface, query: str) -> str | None:
     versions = [cache.get(key) for key in keys]
     for key, version in zip(keys, versions):
         if version is None:
-            cache.set(key, uuid.uuid4().hex, timeout=VERSION_TTL)
+            cache.set(key, uuid.uuid4().hex, timeout=ttl)
     return None if None in versions else ":".join(versions)  # type: ignore[arg-type]
 
 
@@ -65,6 +62,7 @@ def is_availability_change(obj) -> bool:
 def invalidate_on_commit(
     session: AsyncSession,
     get_cache: Callable[[], CacheInterface],
+    ttl: int,
 ) -> None:
     """
     Replace the versions a write touched once the session commits it.
@@ -106,7 +104,7 @@ def invalidate_on_commit(
         try:
             cache = get_cache()
             for key in keys:
-                cache.set(key, uuid.uuid4().hex, timeout=VERSION_TTL)
+                cache.set(key, uuid.uuid4().hex, timeout=ttl)
         except Exception:
             logger.exception("Could not replace versions %s", keys)
 

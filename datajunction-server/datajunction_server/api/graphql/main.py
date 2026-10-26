@@ -469,7 +469,12 @@ class CachingGraphQLRouter(GraphQLRouter):
         # cache clients are blocking network calls, so keep them off the loop.
         # A cache that is down or refuses a value must not fail the request.
         try:
-            version = await run_in_threadpool(read_data_version, cache, data.query)
+            version = await run_in_threadpool(
+                read_data_version,
+                cache,
+                data.query,
+                get_settings().graphql_response_cache_version_ttl,
+            )
             key = f"{cacheable.key}:{version}"
             stored = (
                 await run_in_threadpool(cache.get, key) if version is not None else None
