@@ -922,6 +922,76 @@ async def test_find_cubes(
 
 
 @pytest.mark.asyncio
+async def test_cube_dimensions_dimension_node(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    cubeDimensions dimensionNode resolves to Node objects.
+    """
+    response = await client_with_roads.post(
+        "/nodes/cube/",
+        json={
+            "metrics": ["default.num_repair_orders"],
+            "dimensions": [
+                "default.hard_hat.city",
+                "default.dispatcher.company_name",
+            ],
+            "description": "Cube for dimension node test",
+            "mode": "published",
+            "name": "default.dim_node_test_cube",
+        },
+    )
+    assert response.status_code < 400, response.json()
+
+    query = """
+    {
+        findNodes(names: ["default.dim_node_test_cube"]) {
+            current {
+                cubeDimensions {
+                    name
+                    dimensionNode {
+                        name
+                        type
+                        currentVersion
+                    }
+                }
+            }
+        }
+    }
+    """
+    response = await client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    assert response.json() == {
+        "data": {
+            "findNodes": [
+                {
+                    "current": {
+                        "cubeDimensions": [
+                            {
+                                "name": "default.hard_hat.city",
+                                "dimensionNode": {
+                                    "name": "default.hard_hat",
+                                    "type": "DIMENSION",
+                                    "currentVersion": "v1.1",
+                                },
+                            },
+                            {
+                                "name": "default.dispatcher.company_name",
+                                "dimensionNode": {
+                                    "name": "default.dispatcher",
+                                    "type": "DIMENSION",
+                                    "currentVersion": "v1.0",
+                                },
+                            },
+                        ],
+                    },
+                },
+            ],
+        },
+    }
+
+
+@pytest.mark.asyncio
 async def test_find_cubes_full_query(
     client_with_roads: AsyncClient,
 ) -> None:

@@ -715,7 +715,7 @@ class NodeRevision:
                 name=full_name + role,
                 attribute=element.name,
                 role=role,
-                _dimension_node=node_revision,
+                _dimension_node=None,
                 type=element.type,
                 properties=element.attribute_names(),
             )
