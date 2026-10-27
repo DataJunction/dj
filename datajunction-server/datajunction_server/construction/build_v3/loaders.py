@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import logging
 from collections import namedtuple
+from collections.abc import Iterable
+from typing import NamedTuple
 
 from sqlalchemy import bindparam, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +31,73 @@ JoinPathState = namedtuple(
     "JoinPathState",
     ["source_rev_id", "node_id", "path_so_far", "role_path", "visited"],
 )
+
+
+class JoinLinkRow(NamedTuple):
+    """A dimension link leaving a node, as one hop of the path search reads it."""
+
+    node_id: int
+    link_id: int
+    to_node_id: int
+    dim_name: str
+    link_role: str
+
+
+def advance_join_paths(
+    frontier: list[JoinPathState],
+    links: Iterable[JoinLinkRow],
+    targets: set[str],
+    found_paths: dict[tuple[int, str, str], list[int]],
+) -> list[JoinPathState]:
+    """
+    Extend every path in ``frontier`` by one link, recording the paths that
+    reach a target dimension in ``found_paths``. Returns the next frontier.
+
+    Shared by the database search below and by anything that walks links held
+    in memory, so both build role paths and avoid cycles the same way.
+    """
+    frontier_by_node: dict[int, list[JoinPathState]] = {}
+    for item in frontier:
+        frontier_by_node.setdefault(item.node_id, []).append(item)
+
+    new_frontier: list[JoinPathState] = []
+    for row in links:
+        for item in frontier_by_node.get(row.node_id, []):
+            # Cycle prevention: skip if we've already visited this node
+            if row.to_node_id in item.visited:
+                continue
+
+            # Build new path and role
+            new_path = item.path_so_far + [row.link_id]
+            # Only concatenate with '->' if both role_path and link_role are non-empty
+            if not item.role_path and not row.link_role:
+                new_role_path = ""
+            elif not item.role_path:
+                new_role_path = row.link_role
+            elif not row.link_role:
+                new_role_path = item.role_path
+            else:
+                new_role_path = item.role_path + "->" + row.link_role
+            new_visited = item.visited + [row.to_node_id]
+
+            # Check if this reaches a target
+            if row.dim_name in targets:
+                key = (item.source_rev_id, row.dim_name, new_role_path)
+                if key not in found_paths:  # pragma: no branch
+                    found_paths[key] = new_path
+
+            # Add to new frontier (explore further regardless of whether it's a target)
+            # This allows finding multi-hop paths through intermediate targets
+            new_frontier.append(
+                JoinPathState(
+                    source_rev_id=item.source_rev_id,
+                    node_id=row.to_node_id,
+                    path_so_far=new_path,
+                    role_path=new_role_path,
+                    visited=new_visited,
+                ),
+            )
+    return new_frontier
 
 
 def _collect_metric_expression_dim_nodes(ctx: BuildContext) -> set[str]:
@@ -260,18 +329,7 @@ async def find_join_paths_batch(
             break
 
         # Expand frontier by one hop - BATCH query for all frontier nodes
-        new_frontier: list[JoinPathState] = []
-        targets_found_at_depth = set()
-
-        # Build a map: node_id -> list of frontier items with that node
-        frontier_by_node: dict[int, list[JoinPathState]] = {}
-        for item in frontier:
-            if item.node_id not in frontier_by_node:
-                frontier_by_node[item.node_id] = []
-            frontier_by_node[item.node_id].append(item)
-
-        # Single batched query for ALL frontier nodes at this depth
-        frontier_node_ids = list(frontier_by_node.keys())
+        frontier_node_ids = list(dict.fromkeys(item.node_id for item in frontier))
 
         expand_query = text("""
             SELECT
@@ -292,7 +350,7 @@ async def find_join_paths_batch(
                 expand_query,
                 {"node_ids": frontier_node_ids},
             )
-            rows = expand_result.fetchall()
+            rows = [JoinLinkRow(*row) for row in expand_result.fetchall()]
         except Exception as e:  # pragma: no cover
             logger.error(
                 "[BuildV3] find_join_paths_batch: Query failed at depth %d: %s",
@@ -301,47 +359,12 @@ async def find_join_paths_batch(
             )
             break
 
-        # Process results: for each link found, apply to all frontier items with that source node
-        for row in rows:
-            for item in frontier_by_node[row.node_id]:
-                # Cycle prevention: skip if we've already visited this node
-                if row.to_node_id in item.visited:
-                    continue
-
-                # Build new path and role
-                new_path = item.path_so_far + [row.link_id]
-                # Only concatenate with '->' if both role_path and link_role are non-empty
-                if not item.role_path and not row.link_role:
-                    new_role_path = ""
-                elif not item.role_path:
-                    new_role_path = row.link_role
-                elif not row.link_role:
-                    new_role_path = item.role_path
-                else:
-                    new_role_path = item.role_path + "->" + row.link_role
-                new_visited = item.visited + [row.to_node_id]
-
-                # Check if this reaches a target
-                if row.dim_name in target_dimension_names:
-                    key = (item.source_rev_id, row.dim_name, new_role_path)
-                    if key not in found_paths:  # pragma: no branch
-                        found_paths[key] = new_path
-                        targets_found_at_depth.add(row.dim_name)
-
-                # Add to new frontier (explore further regardless of whether it's a target)
-                # This allows finding multi-hop paths through intermediate targets
-                new_frontier.append(
-                    JoinPathState(
-                        source_rev_id=item.source_rev_id,
-                        node_id=row.to_node_id,
-                        path_so_far=new_path,
-                        role_path=new_role_path,
-                        visited=new_visited,
-                    ),
-                )
-
-        # Update frontier for next iteration
-        frontier = new_frontier
+        frontier = advance_join_paths(
+            frontier,
+            rows,
+            target_dimension_names,
+            found_paths,
+        )
 
         # Continue exploring even if we found some targets, because:
         # 1. We might need the same dimension with different roles (multi-hop paths)

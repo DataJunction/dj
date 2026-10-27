@@ -11,6 +11,7 @@ import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from itertools import count
 from http import HTTPStatus
 
 from fastapi import Depends
@@ -29,7 +30,12 @@ from datajunction_server.construction.build_v3.dimension_refs import (
 )
 from datajunction_server.construction.build_v3.cte import strip_role_suffix
 from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
-from datajunction_server.construction.build_v3.loaders import find_upstream_node_names
+from datajunction_server.construction.build_v3.loaders import (
+    JoinLinkRow,
+    JoinPathState,
+    advance_join_paths,
+    find_upstream_node_names,
+)
 from datajunction_server.database.attributetype import AttributeType
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column
@@ -528,10 +534,11 @@ def can_filter_on(attribute: str, parents: set[str], graph: FilterGraph) -> bool
     For each parent, in the order resolve_dimensions tries them:
     1. The parent's own column, without a role.
     2. Join links from the parent to the node, then between dimension
-       nodes, never returning to a node already on the path. Without a role
-       any path counts. With a role, the roles along one path, joined by
-       `->`, must equal it; links without a role are skipped. Otherwise
-       SQL builds use another path.
+       nodes, never returning to a node already on the path. Paths are found
+       with advance_join_paths, the step the builder's path loader uses.
+       Without a role any path counts. With a role, the roles along one path,
+       joined by `->`, must equal it; links without a role are skipped.
+       Otherwise SQL builds use another path.
     3. A parent column that references the attribute, under any role.
     4. A join link on a node upstream of the parent whose keys include the
        attribute, without a role. SQL builds then filter on the key column
@@ -554,13 +561,9 @@ def _parent_can_filter(
     """can_filter_on for one parent."""
     if node == parent and role is None:
         return True
-    if _join_reaches(parent, node, graph.links):
-        return role is None or _join_spells_role(
-            parent,
-            node,
-            role.split("->"),
-            graph.links,
-        )
+    roles = join_role_paths(graph.links, parent, node)
+    if roles:
+        return role is None or role in roles
     if (node, column) in graph.references.get(parent, set()):
         return True
     return role is None and any(
@@ -570,50 +573,41 @@ def _parent_can_filter(
     )
 
 
-def _join_reaches(
+def join_role_paths(
+    links: dict[str, set[FilterLink]],
     start: str,
     target: str,
-    links: dict[str, set[FilterLink]],
-) -> bool:
-    """Whether join links lead from `start` to `target`."""
-    seen: set[str] = set()
-    stack = [start]
-    while stack:
-        for link in links.get(stack.pop(), set()):
-            if link.dimension == target:
-                return True
-            if link.dimension not in seen:
-                seen.add(link.dimension)
-                stack.append(link.dimension)
-    return False
+) -> set[str]:
+    """
+    Role paths of the join paths from `start` to `target`, written as SQL builds
+    write them. Uses the same search step as the builder's path loader.
+    """
+    names = [start]
+    ids = {start: 0}
 
+    def node_id(name: str) -> int:
+        if name not in ids:
+            ids[name] = len(names)
+            names.append(name)
+        return ids[name]
 
-def _join_spells_role(
-    start: str,
-    target: str,
-    segments: list[str],
-    links: dict[str, set[FilterLink]],
-) -> bool:
-    """Whether a path of join links to `target` has these roles in order."""
-    # State: (node, segments matched, nodes on the path).
-    frontier: set[tuple[str, int, frozenset[str]]] = {(start, 0, frozenset())}
+    found: dict[tuple[int, str, str], list[int]] = {}
+    next_link_id = count()
+    frontier = [JoinPathState(0, 0, [], "", [])]
     while frontier:
-        current, frontier = frontier, set()
-        for name, matched, visited in current:
-            for link in links.get(name, set()):
-                if link.dimension in visited:
-                    # SQL builds skip a node already on the path.
-                    continue
-                if link.role is None:
-                    step = matched
-                elif matched < len(segments) and link.role == segments[matched]:
-                    step = matched + 1
-                else:
-                    continue
-                if link.dimension == target and step == len(segments):
-                    return True
-                frontier.add((link.dimension, step, visited | {link.dimension}))
-    return False
+        rows = [
+            JoinLinkRow(
+                current,
+                next(next_link_id),
+                node_id(link.dimension),
+                link.dimension,
+                link.role or "",
+            )
+            for current in dict.fromkeys(item.node_id for item in frontier)
+            for link in links.get(names[current], set())
+        ]
+        frontier = advance_join_paths(frontier, rows, {target}, found)
+    return {role for _, _, role in found}
 
 
 def link_keys(
