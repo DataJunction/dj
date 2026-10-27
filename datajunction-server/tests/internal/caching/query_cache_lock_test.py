@@ -4,9 +4,13 @@ one holding the cache's lock builds while the others wait for the result.
 """
 
 import asyncio
+from types import SimpleNamespace
+from unittest import mock
 from unittest.mock import patch
 
 import pytest
+from fastapi import BackgroundTasks
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.queryrequest import QueryBuildType
 from datajunction_server.errors import (
@@ -300,6 +304,7 @@ def unknown_metric():
         message="unknown metric",
         errors=[DJError(code=ErrorCode.UNKNOWN_NODE, message="no such metric")],
         warnings=[DJWarning(message="did you mean another?")],
+        dbapi_exception="ProgrammingError",
         http_status_code=422,
     )
 
@@ -347,6 +352,7 @@ async def test_waiter_gets_the_error_the_holder_failed_with():
     assert raised.value.message == "unknown metric"
     assert raised.value.http_status_code == 422
     assert raised.value.errors == unknown_metric().errors
+    assert raised.value.dbapi_exception == "ProgrammingError"
     assert raised.value.warnings == unknown_metric().warnings
 
 
@@ -378,3 +384,25 @@ async def test_error_left_before_we_got_the_lock_is_returned_without_building():
 
     assert builds == []
     assert cache.locks == set()
+
+
+async def test_the_request_releases_its_connection_before_waiting_on_a_build():
+    session = mock.AsyncMock(spec=AsyncSession)
+    cache, committed_when_built = LockingCache(), []
+    manager = QueryCacheManager(cache, QueryBuildType.MEASURES)
+    manager.build_cache_key = mock.AsyncMock(return_value=KEY)  # type: ignore[method-assign]
+
+    async def fallback(request, params, session=None):
+        committed_when_built.append(session_commits())
+        return [{"sql": "BUILT"}]
+
+    def session_commits():
+        return session.commit.await_count
+
+    manager.fallback = fallback  # type: ignore[method-assign]
+    request = SimpleNamespace(headers={})
+
+    result = await manager.get_or_load(BackgroundTasks(), request, PARAMS, session)  # type: ignore[arg-type]
+
+    assert result == [{"sql": "BUILT"}]
+    assert committed_when_built == [1]

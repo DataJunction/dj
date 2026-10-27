@@ -200,6 +200,11 @@ class QueryCacheManager(
             )
 
         if not no_cache and not no_store:
+            if session is not None:
+                # Building the key left a connection checked out, and waiting on a
+                # build that needs another must not hold it. Committing returns it
+                # without expiring the objects the build still reads.
+                await session.commit()
             return await self._coalesced_build(key, request, params)
 
         result = await self.fallback(request, params, session)
@@ -346,6 +351,7 @@ class QueryCacheManager(
             "errors": error.errors,
             "warnings": error.warnings,
             "http_status_code": error.http_status_code,
+            "dbapi_exception": error.dbapi_exception,
         }
         await run_in_threadpool(
             self._set_cache_with_error_handling,
