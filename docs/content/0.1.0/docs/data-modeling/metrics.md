@@ -486,7 +486,7 @@ When a request names several metrics, the entries from all of them apply togethe
 
 Filters apply to every metric in the request, so a default from one metric also filters the others. An entry is only satisfied by a filter the caller sent: a default applied for another metric does not count. If one metric requires a filter with no default and another metric's default covers the same attribute, the query is still rejected. Entries whose defaults are the same text, ignoring spacing and case, are applied once.
 
-Two defaults on the same attribute with different text fail the query with an error that names both metrics. Defaults on different attributes can combine into a result with no rows. DJ does not detect this, so check the applied defaults listed in the response.
+Two defaults on the same attribute with different text fail the query with an error that names both metrics. The same column under different roles, such as `calendar.day` and `calendar.day[ship]`, counts as different attributes, so their defaults apply together. Defaults on different attributes can combine into a result with no rows. DJ does not detect this, so check the applied defaults listed in the response.
 
 ### How this differs from required dimensions
 

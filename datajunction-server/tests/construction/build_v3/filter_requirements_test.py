@@ -173,6 +173,21 @@ def test_conflicting_defaults_on_same_attribute_raise():
     ]
 
 
+def test_defaults_on_same_column_under_different_roles_do_not_conflict():
+    filters, warnings = apply_requirements(
+        [
+            entry(["cal.day"], default="cal.day = 1", metrics=("m",)),
+            entry(["cal.day[ship]"], default="cal.day[ship] = 2", metrics=("n",)),
+        ],
+        [],
+    )
+    assert filters == ["cal.day = 1", "cal.day[ship] = 2"]
+    assert [warning.message for warning in warnings] == [
+        "Applied default filter cal.day = 1 (from metric m)",
+        "Applied default filter cal.day[ship] = 2 (from metric n)",
+    ]
+
+
 def test_default_from_other_metric_does_not_satisfy_required_entry():
     with pytest.raises(DJInvalidInputException) as exc:
         apply_requirements(
