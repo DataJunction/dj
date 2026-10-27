@@ -553,23 +553,22 @@ def _view_payload(cube: NodeRevision) -> "ViewDetail":
     )
 
 
-def _view_json(view: "ViewSummary") -> JSONObject:
+def _view_detail_json(view: "ViewDetail") -> JSONObject:
     """Omit empty metadata while retaining nullable fields in the view contract."""
     payload = view.model_dump(mode="json")
-    if isinstance(view, ViewDetail):
-        columns: list[MetricInfo | DimensionInfo] = [
-            *view.metrics,
-            *view.dimensions,
-        ]
-        serialized_columns = payload["metrics"] + payload["dimensions"]
-        for serialized, column in zip(serialized_columns, columns, strict=True):
-            if column.metadata is None:
-                serialized.pop("metadata", None)
-            else:
-                serialized["metadata"] = column.metadata.model_dump(
-                    mode="json",
-                    exclude_none=True,
-                )
+    columns: list[MetricInfo | DimensionInfo] = [
+        *view.metrics,
+        *view.dimensions,
+    ]
+    serialized_columns = payload["metrics"] + payload["dimensions"]
+    for serialized, column in zip(serialized_columns, columns, strict=True):
+        if column.metadata is None:
+            serialized.pop("metadata", None)
+        else:
+            serialized["metadata"] = column.metadata.model_dump(
+                mode="json",
+                exclude_none=True,
+            )
     return cast(JSONObject, payload)
 
 
@@ -1426,7 +1425,7 @@ async def get_view(
         return _problem(exc.http_status_code or 404, exc.message)
     if cube_node is None or cube_node.current is None:
         return _problem(404, f"View `{view_name}` does not exist.")
-    return JSONResponse(content=_view_json(_view_payload(cube_node.current)))
+    return JSONResponse(content=_view_detail_json(_view_payload(cube_node.current)))
 
 
 def _limit_to_ranked_groups(
