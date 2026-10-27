@@ -30,6 +30,7 @@ from datajunction_server.internal.caching.query_cache_manager import (
 
 KEY = "sql:measures:abc"
 PARAMS = QueryRequestParams(nodes=["foo"], dimensions=[], filters=[])
+ERROR_KEY = QueryCacheManager._error_key(KEY, PARAMS)
 
 
 class LockingCache(CacheInterface):
@@ -118,7 +119,7 @@ async def test_lock_is_released_when_the_build_fails():
 
     assert cache.locks == set()
     assert qcm._inflight_builds == {}
-    assert f"{KEY}:error" not in cache.values  # not one every caller would get
+    assert ERROR_KEY not in cache.values  # not one every caller would get
 
 
 async def test_failed_build_fails_every_waiter_on_the_process():
@@ -316,7 +317,7 @@ async def test_a_failed_build_leaves_its_error_for_the_others():
     with pytest.raises(DJException):
         await manager._coalesced_build(KEY, None, PARAMS)  # type: ignore[arg-type]
 
-    assert cache.ttls[f"{KEY}:error"] == qcm.settings.query_cache_error_ttl
+    assert cache.ttls[ERROR_KEY] == qcm.settings.query_cache_error_ttl
     assert KEY not in cache.values
     assert cache.locks == set()
 
@@ -329,7 +330,7 @@ async def test_errors_that_depend_on_the_caller_are_not_left_for_others(error):
     with pytest.raises(error):
         await manager._coalesced_build(KEY, None, PARAMS)  # type: ignore[arg-type]
 
-    assert f"{KEY}:error" not in cache.values
+    assert ERROR_KEY not in cache.values
 
 
 async def test_waiter_gets_the_error_the_holder_failed_with():
@@ -340,7 +341,7 @@ async def test_waiter_gets_the_error_the_holder_failed_with():
 
     async def other_process_fails():
         await asyncio.sleep(0.1)
-        await holder._record_error(KEY, unknown_metric())
+        await holder._record_error(KEY, PARAMS, unknown_metric())
         cache.unlock(KEY)
 
     other = asyncio.create_task(other_process_fails())
@@ -377,7 +378,7 @@ async def test_waiter_takes_over_when_the_holder_leaves_nothing():
 async def test_error_left_before_we_got_the_lock_is_returned_without_building():
     cache, builds = LockingCache(), []
     manager = manager_building(cache, builds)
-    await manager._record_error(KEY, unknown_metric())
+    await manager._record_error(KEY, PARAMS, unknown_metric())
 
     with pytest.raises(DJException, match="unknown metric"):
         await manager._coalesced_build(KEY, None, PARAMS)  # type: ignore[arg-type]
@@ -406,3 +407,16 @@ async def test_the_request_releases_its_connection_before_waiting_on_a_build():
 
     assert result == [{"sql": "BUILT"}]
     assert committed_when_built == [1]
+
+
+async def test_an_error_is_only_returned_for_the_request_it_was_left_by():
+    cache, builds = LockingCache(), []
+    manager = manager_building(cache, builds)
+    invalid = QueryRequestParams(nodes=["foo"], dimensions=["something"], filters=[])
+    # Both requests get the same key, as when a dimension names no node.
+    await manager._record_error(KEY, invalid, unknown_metric())
+
+    result = await manager._coalesced_build(KEY, None, PARAMS)  # type: ignore[arg-type]
+
+    assert result == [{"sql": "BUILT"}]
+    assert len(builds) == 1

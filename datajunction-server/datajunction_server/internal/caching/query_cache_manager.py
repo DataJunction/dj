@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import logging
 import time
@@ -289,7 +290,7 @@ class QueryCacheManager(
             if (cached := await self._get_cached(key)) is not None:
                 count("waited_hit")
                 return cached
-            if (error := await self._recorded_error(key)) is not None:
+            if (error := await self._recorded_error(key, params)) is not None:
                 count("waited_error")
                 raise error
             if time.monotonic() - last_attempt >= _LOCK_RETRY_SECONDS:
@@ -302,7 +303,7 @@ class QueryCacheManager(
                 # The last holder may have finished between our miss and the lock.
                 if (cached := await self._get_cached(key)) is not None:
                     return cached
-                if (error := await self._recorded_error(key)) is not None:
+                if (error := await self._recorded_error(key, params)) is not None:
                     raise error
             try:
                 result = await self.fallback(request, params)
@@ -313,7 +314,7 @@ class QueryCacheManager(
                     e,
                     (DJAuthorizationException, DJAuthenticationException),
                 ):
-                    await self._record_error(key, e)
+                    await self._record_error(key, params, e)
                 raise
             await run_in_threadpool(
                 self._set_cache_with_error_handling,
@@ -342,10 +343,20 @@ class QueryCacheManager(
             return None
 
     @staticmethod
-    def _error_key(key: str) -> str:
-        return f"{key}:error"
+    def _error_key(key: str, params: QueryRequestParams) -> str:
+        # The key does not capture everything in the request (a dimension that names
+        # no node leaves it unchanged), so an error is only for the same request.
+        digest = hashlib.sha256(
+            json.dumps(asdict(params), sort_keys=True, default=str).encode(),
+        ).hexdigest()
+        return f"{key}:error:{digest}"
 
-    async def _record_error(self, key: str, error: DJException) -> None:
+    async def _record_error(
+        self,
+        key: str,
+        params: QueryRequestParams,
+        error: DJException,
+    ) -> None:
         record = {
             "message": error.message,
             "errors": error.errors,
@@ -355,13 +366,17 @@ class QueryCacheManager(
         }
         await run_in_threadpool(
             self._set_cache_with_error_handling,
-            self._error_key(key),
+            self._error_key(key, params),
             record,
             settings.query_cache_error_ttl,
         )
 
-    async def _recorded_error(self, key: str) -> DJException | None:
-        record = await self._get_cached(self._error_key(key))
+    async def _recorded_error(
+        self,
+        key: str,
+        params: QueryRequestParams,
+    ) -> DJException | None:
+        record = await self._get_cached(self._error_key(key, params))
         return None if record is None else DJException(**record)
 
     async def _get_cached(self, key: str) -> Any | None:
