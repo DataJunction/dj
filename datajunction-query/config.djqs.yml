@@ -16,10 +16,6 @@ engines:
     version: ''
     type: sqlalchemy
     uri: postgresql+psycopg://readonly_user:readonly_pass@postgres_metadata:5432/dj
-  - name: sales_pg
-    version: ''
-    type: sqlalchemy
-    uri: postgresql+psycopg://readonly_user:readonly_pass@postgres_metadata:5432/sales_demo
   # - name: bigquery
   #   version: ''
   #   type: bigquery
@@ -36,9 +32,6 @@ catalogs:
   - name: dj
     engines:
       - dj_system
-  - name: sales
-    engines:
-      - sales_pg
   # - name: <your-gcp-project>
   #   engines:
   #     - bigquery
