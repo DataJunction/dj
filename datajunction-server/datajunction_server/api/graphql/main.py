@@ -31,6 +31,7 @@ from datajunction_server.api.graphql.dataloaders import (
     create_extracted_measures_loader,
     create_git_info_loader,
     create_node_by_name_loader,
+    create_node_with_fields_loader,
 )
 from datajunction_server.api.graphql.queries.catalogs import list_catalogs
 from datajunction_server.api.graphql.queries.collections import list_collections
@@ -252,6 +253,7 @@ async def get_context(
 
     return {
         "node_loader": create_node_by_name_loader(request),
+        "node_fields_loader": create_node_with_fields_loader(request),
         "collection_nodes_loader": create_collection_nodes_loader(request),
         "git_info_loader": create_git_info_loader(request),
         "extracted_measures_loader": create_extracted_measures_loader(request),

@@ -13,6 +13,7 @@ from starlette.requests import Request
 from strawberry.dataloader import DataLoader
 
 from datajunction_server.api.graphql.resolvers.nodes import load_node_options
+from datajunction_server.api.graphql.utils import _merge_fields
 from datajunction_server.construction.build_v3.loaders import find_upstream_node_names
 from datajunction_server.database.collection import Collection as DBCollection
 from datajunction_server.database.namespace import NodeNamespace
@@ -177,6 +178,47 @@ def create_node_by_name_loader(request: Request) -> DataLoader[str, DBNode | Non
     return InstrumentedDataLoader(
         "node_by_name",
         load_fn=lambda keys: batch_load_nodes_by_name_only(keys, request),
+    )
+
+
+async def batch_load_nodes_with_fields(
+    keys: list[tuple[str, str]],
+    request: Request,
+) -> list[DBNode | None]:
+    """
+    Batch load nodes by name, eagerly loading the requested fields.
+
+    Keys are (node_name, fields_json) tuples, where fields_json is a
+    JSON-serialized dict of requested GraphQL fields for load_node_options.
+    """
+    names = [name for name, _ in keys]
+    all_fields: dict[str, Any] = {}
+    for _, fields_json in keys:
+        if fields_json:  # pragma: no branch
+            _merge_fields(all_fields, json.loads(fields_json))
+
+    async with session_context(request) as session:
+        # Reload nodes already in the session, which may lack requested fields.
+        statement = (
+            select(DBNode)
+            .where(DBNode.name.in_(names), DBNode.deactivated_at.is_(None))
+            .options(*load_node_options(all_fields))
+            .execution_options(populate_existing=True)
+        )
+        nodes = (await session.execute(statement)).unique().scalars().all()
+        node_map = {node.name: node for node in nodes}
+        return [node_map.get(name) for name in names]
+
+
+def create_node_with_fields_loader(
+    request: Request,
+) -> DataLoader[tuple[str, str], DBNode | None]:
+    """
+    Create a DataLoader for loading nodes by name with field-aware loading.
+    """
+    return InstrumentedDataLoader(
+        "node_with_fields",
+        load_fn=lambda keys: batch_load_nodes_with_fields(keys, request),
     )
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+import json
 from enum import Enum
 from typing import Any
 
@@ -248,8 +249,9 @@ class DimensionAttribute:
         dimension_node_name = self.name.rsplit(".", 1)[0]
 
         # Use the DataLoader from context to batch this lookup with other concurrent lookups
-        node_loader = info.context["node_loader"]
-        return await node_loader.load(dimension_node_name)  # type: ignore
+        node_loader = info.context["node_fields_loader"]
+        fields = json.dumps(extract_fields(info), sort_keys=True)
+        return await node_loader.load((dimension_node_name, fields))  # type: ignore
 
 
 def _required_dimension_name(ref: str) -> str:
@@ -715,7 +717,7 @@ class NodeRevision:
                 name=full_name + role,
                 attribute=element.name,
                 role=role,
-                _dimension_node=node_revision,
+                _dimension_node=None,
                 type=element.type,
                 properties=element.attribute_names(),
             )
