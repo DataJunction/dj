@@ -11,7 +11,7 @@ DJ generates SQL; the client executes it. This router does NOT run queries —
 
 import logging
 from collections.abc import Mapping
-from typing import Any, cast, Literal, TypeAlias
+from typing import Any, Literal, TypeAlias, cast
 
 from fastapi import Body, Depends
 from fastapi.responses import JSONResponse
@@ -68,6 +68,7 @@ from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.access import ResourceAction, ResourceType
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.semantic_layer_metadata import (
+    MAX_FORMAT_PRECISION,
     SEMANTIC_LAYER_METADATA_KEY,
 )
 from datajunction_server.models.unit import Unit, unit_to_dict
@@ -404,7 +405,7 @@ def _column_metadata(
                 raw_format.get("precision")
                 if isinstance(raw_format.get("precision"), int)
                 and not isinstance(raw_format.get("precision"), bool)
-                and raw_format["precision"] >= 0
+                and 0 <= raw_format["precision"] <= MAX_FORMAT_PRECISION
                 else None
             ),
             scale=(
@@ -746,7 +747,7 @@ class FormatMetadata(BaseModel):
         ]
         | None
     ) = None
-    precision: int | None = Field(default=None, ge=0)
+    precision: int | None = Field(default=None, ge=0, le=MAX_FORMAT_PRECISION)
     scale: float | None = None
 
     model_config = ConfigDict(extra="forbid")
