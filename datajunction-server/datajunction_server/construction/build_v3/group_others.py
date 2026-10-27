@@ -10,7 +10,6 @@ from datajunction_server.construction.build_v3.decomposition import (
     _reaggregate_dimension_requested,
 )
 from datajunction_server.construction.build_v3.ranked_groups import (
-    ranked_column,
     ranked_tuple_join,
 )
 from datajunction_server.construction.build_v3.types import (
@@ -20,7 +19,9 @@ from datajunction_server.construction.build_v3.types import (
     GrainGroupSQL,
 )
 from datajunction_server.construction.build_v3.utils import (
+    as_subquery,
     extract_filter_dimension_refs,
+    make_column_ref,
 )
 from datajunction_server.errors import (
     DJInvalidInputException,
@@ -90,13 +91,10 @@ def _ranked_query(
     }
     member_name = unused_name("__dj_group_member")
     source_alias = "__dj_ranked_source"
-    source = deepcopy(ranked.query)
-    source.parenthesized = True
-    source.alias = ast.Name(source_alias)
-    source.as_ = True
+    source = as_subquery(ranked.query, source_alias)
     projection: list[ast.Aliasable | ast.Expression] = [
         ast.Alias(
-            child=ranked_column(ranked_columns[dimension], source_alias),
+            child=make_column_ref(ranked_columns[dimension], source_alias),
             alias=ast.Name(key_names[dimension]),
         ).set_as(True)
         for dimension in dimensions
@@ -119,7 +117,7 @@ def _ranked_query(
 def _bucket_expression(original: ast.Expression, member_name: str) -> ast.Case:
     return ast.Case(
         conditions=[
-            ast.IsNull(expr=ranked_column(member_name, _RANKED_ALIAS), negated=True),
+            ast.IsNull(expr=make_column_ref(member_name, _RANKED_ALIAS), negated=True),
         ],
         results=[ast.Cast(data_type=StringType(), expression=deepcopy(original))],
         else_result=ast.String(f"'{_OTHERS_LABEL}'"),
@@ -230,7 +228,7 @@ def _bucket_grain_group(
     pairs = [
         (
             deepcopy(original),
-            ranked_column(ranked_keys[dimension], _RANKED_ALIAS),
+            make_column_ref(ranked_keys[dimension], _RANKED_ALIAS),
         )
         for _, original, dimension in selected
     ]
@@ -340,15 +338,12 @@ def bucket_dimension_rows(
 ) -> GeneratedSQL:
     """Bucket a dimension-only result using an explicit ranking metric."""
     main_alias = "__dj_dimension_rows"
-    main_query = deepcopy(main.query)
-    main_query.parenthesized = True
-    main_query.alias = ast.Name(main_alias)
-    main_query.as_ = True
+    main_query = as_subquery(main.query, main_alias)
     ranked_query, ranked_keys, member_name = _ranked_query(ranked, dimensions, set())
     pairs = [
         (
-            ranked_column(col.name, main_alias),
-            ranked_column(ranked_keys[col.semantic_name], _RANKED_ALIAS),
+            make_column_ref(col.name, main_alias),
+            make_column_ref(ranked_keys[col.semantic_name], _RANKED_ALIAS),
         )
         for col in main.columns
         if col.semantic_name in dimensions
@@ -359,7 +354,7 @@ def bucket_dimension_rows(
     projection: list[ast.Aliasable | ast.Expression] = []
     columns = deepcopy(main.columns)
     for col in columns:
-        original = ranked_column(col.name, main_alias)
+        original = make_column_ref(col.name, main_alias)
         expression = (
             _bucket_expression(original, member_name)
             if col.semantic_name in dimensions

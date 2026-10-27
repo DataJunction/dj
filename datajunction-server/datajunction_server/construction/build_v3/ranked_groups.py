@@ -6,11 +6,6 @@ from collections.abc import Sequence
 from datajunction_server.sql.parsing import ast
 
 
-def ranked_column(name: str, alias: str) -> ast.Column:
-    """Reference a column on one side of a ranked tuple join."""
-    return ast.Column(name=ast.Name(name), _table=ast.Table(ast.Name(alias)))
-
-
 def null_safe_match(left: ast.Expression, right: ast.Expression) -> ast.Expression:
     """Match tuple keys including pairs of NULL values."""
     match = ast.BinaryOp(

@@ -10,7 +10,6 @@ DJ generates SQL; the client executes it. This router does NOT run queries —
 """
 
 import logging
-from copy import deepcopy
 from typing import Any
 
 from fastapi import Body, Depends
@@ -44,11 +43,14 @@ from datajunction_server.construction.build_v3.group_others import (
     bucket_dimension_rows,
 )
 from datajunction_server.construction.build_v3.ranked_groups import (
-    ranked_column,
     ranked_tuple_join,
 )
 from datajunction_server.construction.build_v3.types import (
     GeneratedSQL as V3GeneratedSQL,
+)
+from datajunction_server.construction.build_v3.utils import (
+    as_subquery,
+    make_column_ref,
 )
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.node_type import NodeType
@@ -945,25 +947,19 @@ def _limit_to_ranked_groups(
 
     pairs = [
         (
-            ranked_column(main_columns[dimension], main_alias),
-            ranked_column(ranked_columns[dimension], ranked_alias),
+            make_column_ref(main_columns[dimension], main_alias),
+            make_column_ref(ranked_columns[dimension], ranked_alias),
         )
         for dimension in dimensions
     ]
 
-    main_query = deepcopy(main.query)
-    main_query.parenthesized = True
-    main_query.alias = ast.Name(main_alias)
-    main_query.as_ = True
-    ranked_query = deepcopy(ranked.query)
-    ranked_query.parenthesized = True
-    ranked_query.alias = ast.Name(ranked_alias)
-    ranked_query.as_ = True
+    main_query = as_subquery(main.query, main_alias)
+    ranked_query = as_subquery(ranked.query, ranked_alias)
 
     query = ast.Query(
         select=ast.Select(
             projection=[
-                ranked_column(col.name, main_alias)
+                make_column_ref(col.name, main_alias)
                 .set_alias(ast.Name(col.name))
                 .set_as(True)
                 for col in main.columns
