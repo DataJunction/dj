@@ -154,7 +154,7 @@ DENIAL_TESTED_ELSEWHERE: dict[tuple[str, str], str] = {
 }
 
 # These endpoints use POST to accept discovery or filtering input, but only read
-# data. They reach an access check and remain covered by the route-coverage guard;
+# data. They enforce READ access through AccessChecker.approved_resource_keys();
 # a WRITE denial test does not apply to them.
 READ_ONLY_POST_ROUTES: set[tuple[str, str]] = {
     ("POST", "/semantic/views"),
