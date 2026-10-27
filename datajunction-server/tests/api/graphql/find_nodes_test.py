@@ -1021,6 +1021,83 @@ async def test_cube_dimensions_dimension_node(
 
 
 @pytest.mark.asyncio
+async def test_cube_dimensions_dimension_node_overlapping_selections(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    Aliased dimensionNode selections with different nested fields all load.
+    """
+    response = await client_with_roads.post(
+        "/nodes/cube/",
+        json={
+            "metrics": ["default.num_repair_orders"],
+            "dimensions": ["default.dispatcher.company_name"],
+            "description": "Cube for overlapping selection test",
+            "mode": "published",
+            "name": "default.overlap_test_cube",
+        },
+    )
+    assert response.status_code < 400, response.json()
+
+    query = """
+    {
+        findNodes(names: ["default.overlap_test_cube"]) {
+            current {
+                cubeDimensions {
+                    name
+                    withColumns: dimensionNode {
+                        current {
+                            columns {
+                                name
+                            }
+                        }
+                    }
+                    withParents: dimensionNode {
+                        current {
+                            parents {
+                                name
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    """
+    response = await client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    assert response.json() == {
+        "data": {
+            "findNodes": [
+                {
+                    "current": {
+                        "cubeDimensions": [
+                            {
+                                "name": "default.dispatcher.company_name",
+                                "withColumns": {
+                                    "current": {
+                                        "columns": [
+                                            {"name": "dispatcher_id"},
+                                            {"name": "company_name"},
+                                            {"name": "phone"},
+                                        ],
+                                    },
+                                },
+                                "withParents": {
+                                    "current": {
+                                        "parents": [{"name": "default.dispatchers"}],
+                                    },
+                                },
+                            },
+                        ],
+                    },
+                },
+            ],
+        },
+    }
+
+
+@pytest.mark.asyncio
 async def test_find_cubes_full_query(
     client_with_roads: AsyncClient,
 ) -> None:

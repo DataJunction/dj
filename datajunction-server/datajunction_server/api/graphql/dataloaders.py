@@ -13,6 +13,7 @@ from starlette.requests import Request
 from strawberry.dataloader import DataLoader
 
 from datajunction_server.api.graphql.resolvers.nodes import load_node_options
+from datajunction_server.api.graphql.utils import _merge_fields
 from datajunction_server.construction.build_v3.loaders import find_upstream_node_names
 from datajunction_server.database.collection import Collection as DBCollection
 from datajunction_server.database.namespace import NodeNamespace
@@ -194,7 +195,7 @@ async def batch_load_nodes_with_fields(
     all_fields: dict[str, Any] = {}
     for _, fields_json in keys:
         if fields_json:  # pragma: no branch
-            all_fields.update(json.loads(fields_json))
+            _merge_fields(all_fields, json.loads(fields_json))
 
     async with session_context(request) as session:
         # Reload nodes already in the session, which may lack requested fields.
