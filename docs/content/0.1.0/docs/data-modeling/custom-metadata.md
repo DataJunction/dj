@@ -95,6 +95,11 @@ The key is reserved so namespace-scoped schemas cannot redefine the shared
 contract. Producer-specific fields must be placed inside an object under
 `extensions`.
 
+`semantic_layer.format.precision` accepts 0 through 100 decimal places. Unit
+codes follow DJ's structured unit rules: time and data-size units require a
+recognized code, currency codes use three uppercase letters, and percentage,
+proportion, and unitless units do not take codes.
+
 DJ currently accepts `=`, `!=`, `>`, `>=`, `<`, `<=`, `IS NULL`, and `IS NOT NULL`
 in `semantic_layer.filter.operators`. The built-in metadata schema rejects
 `IN`, `NOT IN`, and `between` hints, even though DJ's semantic SQL requests can

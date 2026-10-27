@@ -87,6 +87,7 @@ from datajunction_server.models.access import ResourceAction, ResourceType
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.models.semantic_layer_metadata import (
+    MAX_FORMAT_PRECISION,
     SEMANTIC_LAYER_METADATA_KEY,
 )
 from datajunction_server.service_clients import QueryServiceClient
@@ -537,7 +538,7 @@ def _column_metadata(
                 raw_format.get("precision")
                 if isinstance(raw_format.get("precision"), int)
                 and not isinstance(raw_format.get("precision"), bool)
-                and raw_format["precision"] >= 0
+                and 0 <= raw_format["precision"] <= MAX_FORMAT_PRECISION
                 else None
             ),
             scale=(
@@ -891,7 +892,7 @@ class FormatMetadata(BaseModel):
         ]
         | None
     ) = None
-    precision: int | None = Field(default=None, ge=0)
+    precision: int | None = Field(default=None, ge=0, le=MAX_FORMAT_PRECISION)
     scale: float | None = None
 
     model_config = ConfigDict(extra="forbid")

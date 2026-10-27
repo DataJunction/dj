@@ -30,11 +30,11 @@ from datajunction_server.api.semantic_layer import (
     GroupLimitPayload,
     QueryPayload,
     ViewSummary,
-    _arrow_type_name,
     _active_git_namespaces,
-    _cube_summaries,
+    _arrow_type_name,
     _catalog_error,
     _column_metadata,
+    _cube_summaries,
     _dimensions_payload,
     _discovery_filter,
     _execute_sql,
@@ -49,9 +49,9 @@ from datajunction_server.api.semantic_layer import (
     _path_filter,
     _physical_catalogs,
     _quote_value,
+    _raw_column_metadata,
     _result_value,
     _view_scopes,
-    _raw_column_metadata,
     _view_payload,
 )
 from datajunction_server.construction.build_v3.group_others import (
@@ -90,12 +90,12 @@ from datajunction_server.models.reaggregate import (
     DimensionReaggregateRule,
     ReaggregationFunction,
 )
+from datajunction_server.models.semantic_layer_metadata import MAX_FORMAT_PRECISION
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.transpilation import SQLTranspilationPlugin
 from datajunction_server.typing import QueryState
 from datajunction_server.utils import get_query_service_client
-from datajunction_server.models.node_type import NodeType
 
 
 class TestFilterToSql:
@@ -538,6 +538,35 @@ class TestSemanticViewPayloadTypes:
 
         assert metadata is not None
         assert metadata.extensions == expected_extensions
+
+    def test_saved_excessive_precision_uses_bounded_default(self):
+        column = SimpleNamespace(
+            type="double",
+            display_name="Value",
+            unit=None,
+            attribute_names=lambda: [],
+        )
+
+        metadata = _column_metadata(
+            column,
+            is_metric=True,
+            raw_metadata={
+                "format": {
+                    "preset": "number",
+                    "precision": MAX_FORMAT_PRECISION + 1_000_000,
+                },
+            },
+        )
+
+        assert metadata is not None
+        assert metadata.format is not None
+        assert metadata.format.precision is None
+        assert metadata.extensions == {
+            "superset": {"d3format": ",.2f"},
+            "google_sheets": {
+                "numberFormat": {"type": "NUMBER", "pattern": "#,##0.00"},
+            },
+        }
 
     @pytest.mark.parametrize("scale", [0, 0.001, 100])
     def test_scaled_portable_formats_do_not_generate_unscaled_client_formats(

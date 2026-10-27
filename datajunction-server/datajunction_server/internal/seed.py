@@ -5,6 +5,7 @@ Seed module for seeding default catalogs and more in the metadata database.
 import logging
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.catalog import Catalog
@@ -24,6 +25,23 @@ settings = get_settings()
 
 async def seed_default_custom_metadata_schemas(session: AsyncSession) -> None:
     """Register global schemas owned by the DJ server."""
+    # Multiple servers can seed the same database at startup. Insert first so
+    # the unique active key/scope index resolves that race atomically.
+    await session.execute(
+        pg_insert(CustomMetadataSchema)
+        .values(
+            key=SEMANTIC_LAYER_METADATA_KEY,
+            namespace=None,
+            node_type=None,
+            json_schema=SEMANTIC_LAYER_METADATA_SCHEMA,
+            value_kind="object",
+            filterable=False,
+            description=SEMANTIC_LAYER_METADATA_DESCRIPTION,
+            reserved=True,
+            deactivated_at=None,
+        )
+        .on_conflict_do_nothing(),
+    )
     schema = (
         await session.execute(
             select(CustomMetadataSchema).where(
@@ -33,14 +51,7 @@ async def seed_default_custom_metadata_schemas(session: AsyncSession) -> None:
                 CustomMetadataSchema.deactivated_at.is_(None),
             ),
         )
-    ).scalar_one_or_none()
-    if schema is None:
-        schema = CustomMetadataSchema(
-            key=SEMANTIC_LAYER_METADATA_KEY,
-            namespace=None,
-            node_type=None,
-        )
-        session.add(schema)
+    ).scalar_one()
 
     schema.json_schema = SEMANTIC_LAYER_METADATA_SCHEMA
     schema.value_kind = "object"

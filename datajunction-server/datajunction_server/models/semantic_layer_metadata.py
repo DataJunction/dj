@@ -1,9 +1,12 @@
 """Built-in JSON Schema for semantic-layer custom metadata."""
 
+from datajunction_server.models.unit import DATA_SIZE_CODES, TIME_CODES, UnitKind
+
 SEMANTIC_LAYER_METADATA_KEY = "semantic_layer"
 SEMANTIC_LAYER_METADATA_DESCRIPTION = (
     "Portable semantic-layer column metadata and client-specific extensions."
 )
+MAX_FORMAT_PRECISION = 100
 
 _SEMANTIC_TYPES = [
     "currency",
@@ -87,18 +90,40 @@ SEMANTIC_LAYER_METADATA_SCHEMA = {
             "properties": {
                 "kind": {
                     "type": "string",
-                    "enum": [
-                        "currency",
-                        "time",
-                        "data_size",
-                        "percentage",
-                        "proportion",
-                        "count",
-                        "unitless",
-                    ],
+                    "enum": [kind.value for kind in UnitKind],
                 },
                 "code": {"type": "string", "minLength": 1},
             },
+            "allOf": [
+                {
+                    "if": {"properties": {"kind": {"const": "currency"}}},
+                    "then": {"properties": {"code": {"pattern": "^[A-Z]{3}$"}}},
+                },
+                {
+                    "if": {"properties": {"kind": {"const": "time"}}},
+                    "then": {
+                        "required": ["code"],
+                        "properties": {"code": {"enum": sorted(TIME_CODES)}},
+                    },
+                },
+                {
+                    "if": {"properties": {"kind": {"const": "data_size"}}},
+                    "then": {
+                        "required": ["code"],
+                        "properties": {"code": {"enum": sorted(DATA_SIZE_CODES)}},
+                    },
+                },
+                {
+                    "if": {
+                        "properties": {
+                            "kind": {
+                                "enum": ["percentage", "proportion", "unitless"],
+                            },
+                        },
+                    },
+                    "then": {"not": {"required": ["code"]}},
+                },
+            ],
         },
         "CompoundUnit": {
             "type": "object",
@@ -114,7 +139,11 @@ SEMANTIC_LAYER_METADATA_SCHEMA = {
             "additionalProperties": False,
             "properties": {
                 "preset": {"type": "string", "enum": _FORMAT_PRESETS},
-                "precision": {"type": "integer", "minimum": 0},
+                "precision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": MAX_FORMAT_PRECISION,
+                },
                 "scale": {"type": "number"},
             },
         },
