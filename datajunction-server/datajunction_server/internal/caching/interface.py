@@ -22,6 +22,17 @@ class CacheInterface(ABC):
     def delete(self, key: str) -> None:
         """Delete a cache key"""
 
+    def try_lock(self, key: str, lease: int) -> bool:
+        """
+        Take an exclusive lock on ``key`` for up to ``lease`` seconds without
+        waiting, and return whether it was taken. A cache with no locks always
+        grants it.
+        """
+        return True
+
+    def unlock(self, key: str) -> None:
+        """Release a lock taken with ``try_lock``"""
+
 
 class Cache(CacheInterface):
     """A wrapper for the cache interface to ensure standardized logging"""

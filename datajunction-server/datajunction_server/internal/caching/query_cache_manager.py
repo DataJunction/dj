@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import logging
 import time
@@ -9,11 +10,17 @@ from typing import Any, Union, cast
 
 from fastapi import BackgroundTasks, Request
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from datajunction_server.database.queryrequest import (
     QueryBuildType,
     QueryRequestKey,
     VersionedQueryKey,
+)
+from datajunction_server.errors import (
+    DJAuthenticationException,
+    DJAuthorizationException,
+    DJException,
 )
 from datajunction_server.instrumentation.provider import get_metrics_provider, timed
 from datajunction_server.internal.access.authorization import (
@@ -51,6 +58,11 @@ settings = get_settings()
 # _refresh_semaphore: caps total concurrent refreshes across all keys to prevent
 #   DB connection spikes when many different cache entries need refreshing.
 _pending_refresh_keys: set[str] = set()
+# Builds under way in this process, by cache key. Requests that miss on a key
+# already being built wait for that build instead of starting their own.
+_inflight_builds: dict[str, "asyncio.Task[Any]"] = {}
+_LOCK_POLL_SECONDS = 0.5
+_LOCK_RETRY_SECONDS = 2.0
 _refresh_semaphore: asyncio.Semaphore | None = None
 
 
@@ -188,6 +200,14 @@ class QueryCacheManager(
                 params,
             )
 
+        if not no_cache and not no_store:
+            if session is not None:
+                # Building the key left a connection checked out, and waiting on a
+                # build that needs another must not hold it. Committing returns it
+                # without expiring the objects the build still reads.
+                await session.commit()
+            return await self._coalesced_build(key, request, params)
+
         result = await self.fallback(request, params, session)
 
         if not no_store:
@@ -199,6 +219,176 @@ class QueryCacheManager(
             )
 
         return result
+
+    async def _coalesced_build(
+        self,
+        key: str,
+        request: Request,
+        params: QueryRequestParams,
+    ) -> list[GeneratedSQL] | TranslatedSQL:
+        """
+        Build the value for ``key``, sharing the build with every request on this
+        process that misses on the same key meanwhile. The build is its own task so
+        that the request that started it going away does not fail the others, and it
+        uses a session of its own because the request's closes with it.
+        """
+        task = _inflight_builds.get(key)
+        started_here = task is None
+        if task is None:
+            task = asyncio.create_task(self._build_under_lock(key, request, params))
+            _inflight_builds[key] = task
+            task.add_done_callback(lambda done: self._build_finished(key, done))
+        else:
+            get_metrics_provider().counter(
+                "dj.cache.coalesced",
+                tags=self._metric_tags,
+            )
+        try:
+            return await asyncio.shield(task)
+        except DJAuthorizationException:
+            # Whether a build is allowed depends on who asked, so being refused on
+            # behalf of another caller says nothing about this one.
+            if started_here:
+                raise
+            return await self._coalesced_build(key, request, params)
+
+    @staticmethod
+    def _build_finished(key: str, task: "asyncio.Task[Any]") -> None:
+        # A key only gets a new build once the old one is gone from here.
+        _inflight_builds.pop(key, None)
+        # Marks a failure as retrieved, for when every waiter has gone away.
+        task.cancelled() or task.exception()
+
+    async def _build_under_lock(
+        self,
+        key: str,
+        request: Request,
+        params: QueryRequestParams,
+    ) -> list[GeneratedSQL] | TranslatedSQL:
+        """
+        Build the value, unless another process is already building it. Then wait
+        for what it leaves in the cache, which is the value or the error it failed
+        with, and take over the lock if it is released with neither. Build without
+        the lock only if the holder is still going when the wait runs out.
+        """
+        metrics = get_metrics_provider()
+
+        def count(result: str) -> None:
+            metrics.counter(
+                "dj.cache.lock",
+                tags={**self._metric_tags, "result": result},
+            )
+
+        deadline = time.monotonic() + settings.query_cache_lock_wait
+        acquired = await self._try_lock(key)
+        last_attempt = time.monotonic()
+        while acquired is False:
+            if time.monotonic() >= deadline:
+                count("wait_timeout")
+                break
+            await asyncio.sleep(_LOCK_POLL_SECONDS)
+            if (cached := await self._get_cached(key)) is not None:
+                count("waited_hit")
+                return cached
+            if (error := await self._recorded_error(key, params)) is not None:
+                count("waited_error")
+                raise error
+            if time.monotonic() - last_attempt >= _LOCK_RETRY_SECONDS:
+                acquired = await self._try_lock(key)
+                last_attempt = time.monotonic()
+        if acquired is not False:
+            count("acquired" if acquired else "error")
+        try:
+            if acquired:
+                # The last holder may have finished between our miss and the lock.
+                if (cached := await self._get_cached(key)) is not None:
+                    return cached
+                if (error := await self._recorded_error(key, params)) is not None:
+                    raise error
+            try:
+                result = await self.fallback(request, params)
+            except DJException as e:
+                # Whether a build is allowed depends on who asked, so only the
+                # errors that every caller would get are left for the others.
+                if acquired and not isinstance(
+                    e,
+                    (DJAuthorizationException, DJAuthenticationException),
+                ):
+                    await self._record_error(key, params, e)
+                raise
+            await run_in_threadpool(
+                self._set_cache_with_error_handling,
+                key,
+                result,
+                self.default_timeout,
+            )
+            return result
+        finally:
+            if acquired:
+                try:
+                    await run_in_threadpool(self.cache.unlock, key)
+                except Exception as e:
+                    self.logger.error("Could not unlock key=%s: %s", key, str(e))
+
+    async def _try_lock(self, key: str) -> bool | None:
+        """Whether the lock was taken, or None if the cache could not say."""
+        try:
+            return await run_in_threadpool(
+                self.cache.try_lock,
+                key,
+                settings.query_cache_lock_lease,
+            )
+        except Exception as e:
+            self.logger.error("Could not lock key=%s: %s", key, str(e))
+            return None
+
+    @staticmethod
+    def _error_key(key: str, params: QueryRequestParams) -> str:
+        # The key does not capture everything in the request (a dimension that names
+        # no node leaves it unchanged), so an error is only for the same request.
+        digest = hashlib.sha256(
+            json.dumps(asdict(params), sort_keys=True, default=str).encode(),
+        ).hexdigest()
+        return f"{key}:error:{digest}"
+
+    async def _record_error(
+        self,
+        key: str,
+        params: QueryRequestParams,
+        error: DJException,
+    ) -> None:
+        record = {
+            "message": error.message,
+            "errors": error.errors,
+            "warnings": error.warnings,
+            "http_status_code": error.http_status_code,
+            "dbapi_exception": error.dbapi_exception,
+        }
+        await run_in_threadpool(
+            self._set_cache_with_error_handling,
+            self._error_key(key, params),
+            record,
+            settings.query_cache_error_ttl,
+        )
+
+    async def _recorded_error(
+        self,
+        key: str,
+        params: QueryRequestParams,
+    ) -> DJException | None:
+        record = await self._get_cached(self._error_key(key, params))
+        return None if record is None else DJException(**record)
+
+    async def _get_cached(self, key: str) -> Any | None:
+        try:
+            return await run_in_threadpool(self.cache.get, key)
+        except Exception as e:
+            self.logger.error(
+                "Cache backend error when getting key=%s: %s",
+                key,
+                str(e),
+            )
+            return None
 
     @timed(
         "dj.sql.build_latency_ms",

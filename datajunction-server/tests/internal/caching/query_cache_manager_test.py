@@ -334,4 +334,30 @@ async def test_cache_backend_error_falls_back_to_fresh_value():
         result = await manager.get_or_load(background, request, params)
 
         assert result == [{"sql": "FRESH"}]
-        broken_cache.get.assert_called_once()
+        broken_cache.get.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_fallback_uses_the_session_it_is_given():
+    """
+    A build run by the caller, as with Cache-Control: no-cache, uses the caller's
+    session instead of opening another.
+    """
+    session = mock.AsyncMock(spec=AsyncSession)
+    with (
+        patch(
+            "datajunction_server.internal.caching.query_cache_manager.get_measures_query",
+            return_value=[{"sql": "SELECT * FROM test"}],
+        ) as get_measures_query_mock,
+        patch(
+            "datajunction_server.internal.caching.query_cache_manager.build_access_checker_from_request",
+            return_value=mock.AsyncMock(spec=AccessChecker),
+        ),
+    ):
+        manager = QueryCacheManager(CachelibCache(), QueryBuildType.MEASURES)
+        params = QueryRequestParams(nodes=["foo"], dimensions=[], filters=[])
+
+        result = await manager.fallback(DummyRequest(), params, session)
+
+        assert result == [{"sql": "SELECT * FROM test"}]
+        assert get_measures_query_mock.call_args.kwargs["session"] is session
