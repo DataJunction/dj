@@ -306,7 +306,9 @@ class QueryCacheManager(
             return await run_in_threadpool(self.cache.get, key)
         except Exception as e:
             self.logger.error(
-                "Cache backend error when getting key=%s: %s", key, str(e)
+                "Cache backend error when getting key=%s: %s",
+                key,
+                str(e),
             )
             return None
 
