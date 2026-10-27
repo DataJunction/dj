@@ -236,10 +236,10 @@ class QueryCacheManager(
 
     @staticmethod
     def _build_finished(key: str, task: "asyncio.Task[Any]") -> None:
-        if _inflight_builds.get(key) is task:
-            del _inflight_builds[key]
-        if not task.cancelled():
-            task.exception()  # mark retrieved when every waiter has gone away
+        # A key only gets a new build once the old one is gone from here.
+        _inflight_builds.pop(key, None)
+        # Marks a failure as retrieved, for when every waiter has gone away.
+        task.cancelled() or task.exception()
 
     async def _build_under_lock(
         self,
