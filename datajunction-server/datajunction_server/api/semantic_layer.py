@@ -861,7 +861,8 @@ async def list_views(
         return summaries
     hierarchy = (
         ViewHierarchy(
-            next=DiscoverLevel(id="branch", display_name="Branch"), values=[None]
+            next=DiscoverLevel(id="branch", display_name="Branch"),
+            values=[None],
         )
         if len(path) == 1
         else ViewHierarchy(next=None)
