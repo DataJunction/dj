@@ -953,6 +953,11 @@ async def test_cube_dimensions_dimension_node(
                         name
                         type
                         currentVersion
+                        current {
+                            columns {
+                                name
+                            }
+                        }
                     }
                 }
             }
@@ -973,6 +978,23 @@ async def test_cube_dimensions_dimension_node(
                                     "name": "default.hard_hat",
                                     "type": "DIMENSION",
                                     "currentVersion": "v1.1",
+                                    "current": {
+                                        "columns": [
+                                            {"name": "hard_hat_id"},
+                                            {"name": "last_name"},
+                                            {"name": "first_name"},
+                                            {"name": "title"},
+                                            {"name": "birth_date"},
+                                            {"name": "hire_date"},
+                                            {"name": "address"},
+                                            {"name": "city"},
+                                            {"name": "state"},
+                                            {"name": "postal_code"},
+                                            {"name": "country"},
+                                            {"name": "manager"},
+                                            {"name": "contractor_id"},
+                                        ],
+                                    },
                                 },
                             },
                             {
@@ -981,6 +1003,13 @@ async def test_cube_dimensions_dimension_node(
                                     "name": "default.dispatcher",
                                     "type": "DIMENSION",
                                     "currentVersion": "v1.0",
+                                    "current": {
+                                        "columns": [
+                                            {"name": "dispatcher_id"},
+                                            {"name": "company_name"},
+                                            {"name": "phone"},
+                                        ],
+                                    },
                                 },
                             },
                         ],

@@ -180,6 +180,47 @@ def create_node_by_name_loader(request: Request) -> DataLoader[str, DBNode | Non
     )
 
 
+async def batch_load_nodes_with_fields(
+    keys: list[tuple[str, str]],
+    request: Request,
+) -> list[DBNode | None]:
+    """
+    Batch load nodes by name, eagerly loading the requested fields.
+
+    Keys are (node_name, fields_json) tuples, where fields_json is a
+    JSON-serialized dict of requested GraphQL fields for load_node_options.
+    """
+    names = [name for name, _ in keys]
+    all_fields: dict[str, Any] = {}
+    for _, fields_json in keys:
+        if fields_json:  # pragma: no branch
+            all_fields.update(json.loads(fields_json))
+
+    async with session_context(request) as session:
+        # Reload nodes already in the session, which may lack requested fields.
+        statement = (
+            select(DBNode)
+            .where(DBNode.name.in_(names), DBNode.deactivated_at.is_(None))
+            .options(*load_node_options(all_fields))
+            .execution_options(populate_existing=True)
+        )
+        nodes = (await session.execute(statement)).unique().scalars().all()
+        node_map = {node.name: node for node in nodes}
+        return [node_map.get(name) for name in names]
+
+
+def create_node_with_fields_loader(
+    request: Request,
+) -> DataLoader[tuple[str, str], DBNode | None]:
+    """
+    Create a DataLoader for loading nodes by name with field-aware loading.
+    """
+    return InstrumentedDataLoader(
+        "node_with_fields",
+        load_fn=lambda keys: batch_load_nodes_with_fields(keys, request),
+    )
+
+
 async def batch_load_collection_nodes(
     keys: list[tuple[int, str]],
     request: Request,
