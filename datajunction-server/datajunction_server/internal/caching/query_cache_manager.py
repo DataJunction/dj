@@ -9,6 +9,7 @@ from typing import Any, Union, cast
 
 from fastapi import BackgroundTasks, Request
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from datajunction_server.database.queryrequest import (
     QueryBuildType,
@@ -51,6 +52,10 @@ settings = get_settings()
 # _refresh_semaphore: caps total concurrent refreshes across all keys to prevent
 #   DB connection spikes when many different cache entries need refreshing.
 _pending_refresh_keys: set[str] = set()
+# Builds under way in this process, by cache key. Requests that miss on a key
+# already being built wait for that build instead of starting their own.
+_inflight_builds: dict[str, "asyncio.Task[Any]"] = {}
+_LOCK_POLL_SECONDS = 0.5
 _refresh_semaphore: asyncio.Semaphore | None = None
 
 
@@ -188,6 +193,9 @@ class QueryCacheManager(
                 params,
             )
 
+        if not no_cache and not no_store:
+            return await self._coalesced_build(key, request, params, session)
+
         result = await self.fallback(request, params, session)
 
         if not no_store:
@@ -199,6 +207,116 @@ class QueryCacheManager(
             )
 
         return result
+
+    async def _coalesced_build(
+        self,
+        key: str,
+        request: Request,
+        params: QueryRequestParams,
+        session: AsyncSession | None,
+    ) -> list[GeneratedSQL] | TranslatedSQL:
+        """
+        Build the value for ``key``, sharing the build with every request on this
+        process that misses on the same key meanwhile. The build is its own task so
+        that the request that started it going away does not fail the others.
+        """
+        task = _inflight_builds.get(key)
+        if task is None:
+            task = asyncio.create_task(
+                self._build_under_lock(key, request, params, session),
+            )
+            _inflight_builds[key] = task
+            task.add_done_callback(lambda done: self._build_finished(key, done))
+        else:
+            get_metrics_provider().counter(
+                "dj.cache.coalesced",
+                tags=self._metric_tags,
+            )
+        return await asyncio.shield(task)
+
+    @staticmethod
+    def _build_finished(key: str, task: "asyncio.Task[Any]") -> None:
+        if _inflight_builds.get(key) is task:
+            del _inflight_builds[key]
+        if not task.cancelled():
+            task.exception()  # mark retrieved when every waiter has gone away
+
+    async def _build_under_lock(
+        self,
+        key: str,
+        request: Request,
+        params: QueryRequestParams,
+        session: AsyncSession | None,
+    ) -> list[GeneratedSQL] | TranslatedSQL:
+        """
+        Build the value, unless another process is already building it: then wait
+        for it to reach the cache, and build it here only if it does not in time.
+        """
+        metrics = get_metrics_provider()
+        acquired: bool | None
+        try:
+            acquired = await run_in_threadpool(
+                self.cache.try_lock,
+                key,
+                settings.query_cache_lock_lease,
+            )
+        except Exception as e:
+            self.logger.error("Could not lock key=%s: %s", key, str(e))
+            acquired = None
+        try:
+            if acquired is False:
+                if (cached := await self._wait_for_cache(key)) is not None:
+                    metrics.counter(
+                        "dj.cache.lock",
+                        tags={**self._metric_tags, "result": "waited_hit"},
+                    )
+                    return cached
+                metrics.counter(
+                    "dj.cache.lock",
+                    tags={**self._metric_tags, "result": "wait_timeout"},
+                )
+            else:
+                metrics.counter(
+                    "dj.cache.lock",
+                    tags={
+                        **self._metric_tags,
+                        "result": "acquired" if acquired else "error",
+                    },
+                )
+                # The last holder may have stored it between our miss and the lock.
+                if (cached := await self._get_cached(key)) is not None:
+                    return cached
+            result = await self.fallback(request, params, session)
+            await run_in_threadpool(
+                self._set_cache_with_error_handling,
+                key,
+                result,
+                self.default_timeout,
+            )
+            return result
+        finally:
+            if acquired:
+                try:
+                    await run_in_threadpool(self.cache.unlock, key)
+                except Exception as e:
+                    self.logger.error("Could not unlock key=%s: %s", key, str(e))
+
+    async def _get_cached(self, key: str) -> Any | None:
+        try:
+            return await run_in_threadpool(self.cache.get, key)
+        except Exception as e:
+            self.logger.error(
+                "Cache backend error when getting key=%s: %s", key, str(e)
+            )
+            return None
+
+    async def _wait_for_cache(self, key: str) -> Any | None:
+        deadline = time.monotonic() + settings.query_cache_lock_wait
+        while time.monotonic() < deadline:
+            await asyncio.sleep(_LOCK_POLL_SECONDS)
+            if (cached := await self._get_cached(key)) is not None:
+                return cached
+        return None
 
     @timed(
         "dj.sql.build_latency_ms",

@@ -334,4 +334,4 @@ async def test_cache_backend_error_falls_back_to_fresh_value():
         result = await manager.get_or_load(background, request, params)
 
         assert result == [{"sql": "FRESH"}]
-        broken_cache.get.assert_called_once()
+        broken_cache.get.assert_called()
