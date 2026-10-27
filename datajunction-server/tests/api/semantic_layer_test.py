@@ -839,7 +839,7 @@ async def test_semantic_git_discovery_and_view_filtering(
     assert "plain.metrics" in first_level.json()["hierarchy"]["values"]
     assert "plain.metrics.deep" in first_level.json()["hierarchy"]["values"]
     assert "empty.metrics" in first_level.json()["hierarchy"]["values"]
-    assert first_level.json()["hierarchy"]["current"] is None
+    assert "current" not in first_level.json()["hierarchy"]
     assert first_level.json()["views"] == []
     second_level = await client.post(
         "/semantic/views",
@@ -847,7 +847,6 @@ async def test_semantic_git_discovery_and_view_filtering(
     )
     assert second_level.json() == {
         "hierarchy": {
-            "current": {"id": "namespace", "display_name": "Namespace"},
             "next": {"id": "branch", "display_name": "Branch"},
             "values": ["feature/foo", "main", "unversioned"],
         },
@@ -878,6 +877,7 @@ async def test_semantic_git_discovery_and_view_filtering(
         "/semantic/views",
         json={"path": ["branch_only", "feature"]},
     )
+    assert branch_only_views.json()["hierarchy"] == {"next": None}
     assert branch_only_views.status_code == 200, branch_only_views.text
     assert branch_only_views.json()["views"] == []
     for selector in (

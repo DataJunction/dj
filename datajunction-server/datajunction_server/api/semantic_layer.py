@@ -321,9 +321,8 @@ class DiscoverLevel(BaseModel):
 
 
 class ViewHierarchy(BaseModel):
-    current: DiscoverLevel | None
     next: DiscoverLevel | None
-    values: list[str | None]
+    values: list[str | None] | None = None
 
 
 class ValuesRequest(BaseModel):
@@ -731,7 +730,6 @@ async def list_views(
         if path is not None and not path:
             return BrowseViewsResponse(
                 hierarchy=ViewHierarchy(
-                    current=None,
                     next=DiscoverLevel(id="namespace", display_name="Namespace"),
                     values=await _discoverable_namespaces(session, access_checker),
                 ),
@@ -766,7 +764,6 @@ async def list_views(
                 return branch_values
             return BrowseViewsResponse(
                 hierarchy=ViewHierarchy(
-                    current=DiscoverLevel(id="namespace", display_name="Namespace"),
                     next=DiscoverLevel(id="branch", display_name="Branch"),
                     values=branch_values,
                 ),
@@ -862,19 +859,15 @@ async def list_views(
         summaries.append(summary)
     if path is None:
         return summaries
+    hierarchy = (
+        ViewHierarchy(
+            next=DiscoverLevel(id="branch", display_name="Branch"), values=[None]
+        )
+        if len(path) == 1
+        else ViewHierarchy(next=None)
+    )
     return BrowseViewsResponse(
-        hierarchy=ViewHierarchy(
-            current=DiscoverLevel(
-                id="namespace" if len(path) == 1 else "branch",
-                display_name="Namespace" if len(path) == 1 else "Branch",
-            ),
-            next=(
-                DiscoverLevel(id="branch", display_name="Branch")
-                if len(path) == 1
-                else None
-            ),
-            values=[None] if len(path) == 1 else [],
-        ),
+        hierarchy=hierarchy,
         views=summaries,
     )
 
