@@ -1778,7 +1778,7 @@ async def test_semantic_git_discovery_and_view_filtering(
                 "name": main_view,
                 "display_name": "download_session",
                 "uid": main_view,
-                "features": [],
+                "features": ["GROUP_LIMIT", "GROUP_OTHERS"],
                 "namespace": "demo.metrics",
                 "branch": "main",
             },

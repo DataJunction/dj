@@ -2876,7 +2876,7 @@ class TestNonDecomposableMetrics:
             col.semantic_name
             for col in ranked.columns
             if col.semantic_type == "dimension"
-        } == {"v3.product.category", "v3.date.date_id"}
+        } == {"v3.product.category", "v3.date.date_id[order]"}
 
     @pytest.mark.asyncio
     async def test_non_decomposable_metric_max_by(self, client_with_build_v3):
