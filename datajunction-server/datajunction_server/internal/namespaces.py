@@ -345,6 +345,8 @@ def resolve_git_info_from_map(
 async def get_git_info_for_namespace(
     session: AsyncSession,
     namespace: str,
+    *,
+    active_only: bool = False,
 ) -> dict | None:
     """
     Return git repository info for a namespace.
@@ -362,6 +364,8 @@ async def get_git_info_for_namespace(
     """
     ancestor_names = get_parent_namespaces(namespace) + [namespace]
     stmt = select(NodeNamespace).where(NodeNamespace.namespace.in_(ancestor_names))
+    if active_only:
+        stmt = stmt.where(NodeNamespace.deactivated_at.is_(None))
     rows = (await session.execute(stmt)).scalars().all()
     ns_map = {ns.namespace: ns for ns in rows}
 
@@ -376,7 +380,12 @@ async def get_git_info_for_namespace(
         and branch_ns.parent_namespace
         and branch_ns.parent_namespace not in ns_map
     ):
-        fk_parent = await session.get(NodeNamespace, branch_ns.parent_namespace)
+        parent_stmt = select(NodeNamespace).where(
+            NodeNamespace.namespace == branch_ns.parent_namespace,
+        )
+        if active_only:
+            parent_stmt = parent_stmt.where(NodeNamespace.deactivated_at.is_(None))
+        fk_parent = (await session.execute(parent_stmt)).scalar_one_or_none()
         if fk_parent:  # pragma: no branch
             ns_map[fk_parent.namespace] = fk_parent
 

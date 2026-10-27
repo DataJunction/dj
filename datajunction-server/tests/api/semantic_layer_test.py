@@ -23,7 +23,6 @@ from datajunction_server.api.semantic_layer import (
     ViewSummary,
     _arrow_type_name,
     _active_git_namespaces,
-    _active_git_info_for_namespace,
     _cube_summaries,
     _dimensions_payload,
     _discovery_filter,
@@ -43,10 +42,10 @@ from datajunction_server.construction.build_v3.types import (
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.errors import DJException
 from datajunction_server.internal.access.authorization import AccessChecker
+from datajunction_server.internal.namespaces import get_git_info_for_namespace
 from datajunction_server.internal.sql import build_row_count_sql
 from datajunction_server.models.access import (
     AccessDecision,
-    ResourceAction,
     ResourceType,
 )
 from datajunction_server.models.dialect import Dialect, DialectRegistry
@@ -290,10 +289,15 @@ def test_git_location_uses_root_and_actual_branch() -> None:
     )
     namespaces = {root.namespace: root, branch.namespace: branch}
 
-    assert _git_location("demo.metrics", namespaces) == ("demo.metrics", "main")
+    assert _git_location("demo.metrics", namespaces) == (
+        "demo.metrics",
+        "main",
+        None,
+    )
     assert _git_location("demo.metrics.feature.cubes", namespaces) == (
         "demo.metrics",
         "feature/foo",
+        "demo.metrics.feature",
     )
     assert _git_location("plain.main", namespaces) is None
 
@@ -364,7 +368,10 @@ async def test_git_info_ignores_deactivated_linked_parent(
     branch.git_branch = "feature"
     await session.commit()
 
-    assert await _active_git_info_for_namespace(session, branch.namespace) is None
+    assert (
+        await get_git_info_for_namespace(session, branch.namespace, active_only=True)
+        is None
+    )
 
 
 @pytest.mark.parametrize(
@@ -784,17 +791,12 @@ async def test_semantic_git_discovery_and_view_filtering(
     assert _git_location("legacy.feature.child", linked_namespaces) == (
         "demo.metrics",
         "feature/foo",
+        "legacy.feature",
     )
     assert "flat.release" not in linked_namespaces
     checker = AsyncMock(spec=AccessChecker)
-    checker.check.return_value = [
-        AccessDecision(
-            request=AccessChecker.resource_request_from_namespace(
-                namespace,
-                ResourceAction.READ,
-            ),
-            approved=True,
-        )
+    checker.approved_resource_keys.return_value = {
+        (ResourceType.NAMESPACE, namespace)
         for namespace in (
             "demo.metrics",
             "demo.metrics.main",
@@ -802,7 +804,7 @@ async def test_semantic_git_discovery_and_view_filtering(
             "legacy.feature",
             "demo.metrics.other.release",
         )
-    ]
+    }
     assert await _list_semantic_branches("demo.metrics", session, checker) == [
         "feature/foo",
         "main",
@@ -828,7 +830,8 @@ async def test_semantic_git_discovery_and_view_filtering(
     assert "demo.metrics.main" not in first_level.json()["hierarchy"]["values"]
     assert "legacy.feature" not in first_level.json()["hierarchy"]["values"]
     linked_branch = await client.post(
-        "/semantic/views", json={"path": ["legacy.feature"]}
+        "/semantic/views",
+        json={"path": ["legacy.feature"]},
     )
     assert linked_branch.status_code == 404, linked_branch.text
     assert "flat.release" in first_level.json()["hierarchy"]["values"]
