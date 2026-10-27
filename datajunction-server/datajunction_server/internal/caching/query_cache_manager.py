@@ -16,6 +16,7 @@ from datajunction_server.database.queryrequest import (
     QueryRequestKey,
     VersionedQueryKey,
 )
+from datajunction_server.errors import DJAuthorizationException
 from datajunction_server.instrumentation.provider import get_metrics_provider, timed
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
@@ -194,7 +195,7 @@ class QueryCacheManager(
             )
 
         if not no_cache and not no_store:
-            return await self._coalesced_build(key, request, params, session)
+            return await self._coalesced_build(key, request, params)
 
         result = await self.fallback(request, params, session)
 
@@ -213,18 +214,17 @@ class QueryCacheManager(
         key: str,
         request: Request,
         params: QueryRequestParams,
-        session: AsyncSession | None,
     ) -> list[GeneratedSQL] | TranslatedSQL:
         """
         Build the value for ``key``, sharing the build with every request on this
         process that misses on the same key meanwhile. The build is its own task so
-        that the request that started it going away does not fail the others.
+        that the request that started it going away does not fail the others, and it
+        uses a session of its own because the request's closes with it.
         """
         task = _inflight_builds.get(key)
+        started_here = task is None
         if task is None:
-            task = asyncio.create_task(
-                self._build_under_lock(key, request, params, session),
-            )
+            task = asyncio.create_task(self._build_under_lock(key, request, params))
             _inflight_builds[key] = task
             task.add_done_callback(lambda done: self._build_finished(key, done))
         else:
@@ -232,7 +232,14 @@ class QueryCacheManager(
                 "dj.cache.coalesced",
                 tags=self._metric_tags,
             )
-        return await asyncio.shield(task)
+        try:
+            return await asyncio.shield(task)
+        except DJAuthorizationException:
+            # Whether a build is allowed depends on who asked, so being refused on
+            # behalf of another caller says nothing about this one.
+            if started_here:
+                raise
+            return await self._coalesced_build(key, request, params)
 
     @staticmethod
     def _build_finished(key: str, task: "asyncio.Task[Any]") -> None:
@@ -246,7 +253,6 @@ class QueryCacheManager(
         key: str,
         request: Request,
         params: QueryRequestParams,
-        session: AsyncSession | None,
     ) -> list[GeneratedSQL] | TranslatedSQL:
         """
         Build the value, unless another process is already building it: then wait
@@ -286,7 +292,7 @@ class QueryCacheManager(
                 # The last holder may have stored it between our miss and the lock.
                 if (cached := await self._get_cached(key)) is not None:
                     return cached
-            result = await self.fallback(request, params, session)
+            result = await self.fallback(request, params)
             await run_in_threadpool(
                 self._set_cache_with_error_handling,
                 key,
