@@ -308,6 +308,8 @@ class Settings(BaseSettings):  # pragma: no cover
     # shortest the shared cache allows; it only matters if the builder dies.
     query_cache_lock_wait: float = 10.0
     query_cache_lock_lease: int = 60
+    # How long the error a build failed with is kept for the requests waiting on it.
+    query_cache_error_ttl: int = 10
 
     # How many parsed node definitions to keep. Each entry retains its parser
     # and token stream, per worker process.

@@ -9,7 +9,14 @@ from unittest.mock import patch
 import pytest
 
 from datajunction_server.database.queryrequest import QueryBuildType
-from datajunction_server.errors import DJAuthorizationException
+from datajunction_server.errors import (
+    DJAuthenticationException,
+    DJAuthorizationException,
+    DJError,
+    DJException,
+    DJWarning,
+    ErrorCode,
+)
 from datajunction_server.internal.caching import query_cache_manager as qcm
 from datajunction_server.internal.caching.interface import CacheInterface
 from datajunction_server.internal.caching.query_cache_manager import (
@@ -26,6 +33,7 @@ class LockingCache(CacheInterface):
 
     def __init__(self):
         self.values: dict = {}
+        self.ttls: dict = {}
         self.locks: set[str] = set()
         self.lock_calls = 0
 
@@ -34,6 +42,7 @@ class LockingCache(CacheInterface):
 
     def set(self, key, value, timeout=300):
         self.values[key] = value
+        self.ttls[key] = timeout
 
     def delete(self, key):
         self.values.pop(key, None)
@@ -53,6 +62,7 @@ class LockingCache(CacheInterface):
 def quick_waits():
     with (
         patch.object(qcm, "_LOCK_POLL_SECONDS", 0.02),
+        patch.object(qcm, "_LOCK_RETRY_SECONDS", 0.05),
         patch.object(qcm.settings, "query_cache_lock_wait", 0.3),
     ):
         yield
@@ -104,6 +114,7 @@ async def test_lock_is_released_when_the_build_fails():
 
     assert cache.locks == set()
     assert qcm._inflight_builds == {}
+    assert f"{KEY}:error" not in cache.values  # not one every caller would get
 
 
 async def test_failed_build_fails_every_waiter_on_the_process():
@@ -282,3 +293,88 @@ async def test_a_caller_refused_on_its_own_build_gets_the_refusal():
 
     with pytest.raises(DJAuthorizationException):
         await manager._coalesced_build(KEY, None, PARAMS)  # type: ignore[arg-type]
+
+
+def unknown_metric():
+    return DJException(
+        message="unknown metric",
+        errors=[DJError(code=ErrorCode.UNKNOWN_NODE, message="no such metric")],
+        warnings=[DJWarning(message="did you mean another?")],
+        http_status_code=422,
+    )
+
+
+async def test_a_failed_build_leaves_its_error_for_the_others():
+    cache = LockingCache()
+    manager = manager_building(cache, [], result=unknown_metric())
+
+    with pytest.raises(DJException):
+        await manager._coalesced_build(KEY, None, PARAMS)  # type: ignore[arg-type]
+
+    assert cache.ttls[f"{KEY}:error"] == qcm.settings.query_cache_error_ttl
+    assert KEY not in cache.values
+    assert cache.locks == set()
+
+
+@pytest.mark.parametrize("error", [DJAuthorizationException, DJAuthenticationException])
+async def test_errors_that_depend_on_the_caller_are_not_left_for_others(error):
+    cache = LockingCache()
+    manager = manager_building(cache, [], result=error())
+
+    with pytest.raises(error):
+        await manager._coalesced_build(KEY, None, PARAMS)  # type: ignore[arg-type]
+
+    assert f"{KEY}:error" not in cache.values
+
+
+async def test_waiter_gets_the_error_the_holder_failed_with():
+    cache, builds = LockingCache(), []
+    holder = manager_building(cache, [], result=unknown_metric(), delay=0.1)
+    waiter = manager_building(cache, builds)
+    cache.try_lock(KEY, 60)  # another process is building it
+
+    async def other_process_fails():
+        await asyncio.sleep(0.1)
+        await holder._record_error(KEY, unknown_metric())
+        cache.unlock(KEY)
+
+    other = asyncio.create_task(other_process_fails())
+    with pytest.raises(DJException) as raised:
+        await waiter._coalesced_build(KEY, None, PARAMS)  # type: ignore[arg-type]
+    await other
+
+    assert builds == []
+    assert raised.value.message == "unknown metric"
+    assert raised.value.http_status_code == 422
+    assert raised.value.errors == unknown_metric().errors
+    assert raised.value.warnings == unknown_metric().warnings
+
+
+async def test_waiter_takes_over_when_the_holder_leaves_nothing():
+    cache, builds = LockingCache(), []
+    manager = manager_building(cache, builds)
+    cache.try_lock(KEY, 60)  # another process is building it
+
+    async def other_process_dies_unexpectedly():
+        await asyncio.sleep(0.1)
+        cache.unlock(KEY)
+
+    other = asyncio.create_task(other_process_dies_unexpectedly())
+    result = await manager._coalesced_build(KEY, None, PARAMS)  # type: ignore[arg-type]
+    await other
+
+    assert result == [{"sql": "BUILT"}]
+    assert len(builds) == 1
+    assert cache.locks == set()
+
+
+async def test_error_left_before_we_got_the_lock_is_returned_without_building():
+    cache, builds = LockingCache(), []
+    manager = manager_building(cache, builds)
+    await manager._record_error(KEY, unknown_metric())
+
+    with pytest.raises(DJException, match="unknown metric"):
+        await manager._coalesced_build(KEY, None, PARAMS)  # type: ignore[arg-type]
+
+    assert builds == []
+    assert cache.locks == set()

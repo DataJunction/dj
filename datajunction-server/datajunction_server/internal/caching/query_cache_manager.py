@@ -16,7 +16,11 @@ from datajunction_server.database.queryrequest import (
     QueryRequestKey,
     VersionedQueryKey,
 )
-from datajunction_server.errors import DJAuthorizationException
+from datajunction_server.errors import (
+    DJAuthenticationException,
+    DJAuthorizationException,
+    DJException,
+)
 from datajunction_server.instrumentation.provider import get_metrics_provider, timed
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
@@ -57,6 +61,7 @@ _pending_refresh_keys: set[str] = set()
 # already being built wait for that build instead of starting their own.
 _inflight_builds: dict[str, "asyncio.Task[Any]"] = {}
 _LOCK_POLL_SECONDS = 0.5
+_LOCK_RETRY_SECONDS = 2.0
 _refresh_semaphore: asyncio.Semaphore | None = None
 
 
@@ -255,44 +260,56 @@ class QueryCacheManager(
         params: QueryRequestParams,
     ) -> list[GeneratedSQL] | TranslatedSQL:
         """
-        Build the value, unless another process is already building it: then wait
-        for it to reach the cache, and build it here only if it does not in time.
+        Build the value, unless another process is already building it. Then wait
+        for what it leaves in the cache, which is the value or the error it failed
+        with, and take over the lock if it is released with neither. Build without
+        the lock only if the holder is still going when the wait runs out.
         """
         metrics = get_metrics_provider()
-        acquired: bool | None
-        try:
-            acquired = await run_in_threadpool(
-                self.cache.try_lock,
-                key,
-                settings.query_cache_lock_lease,
+
+        def count(result: str) -> None:
+            metrics.counter(
+                "dj.cache.lock",
+                tags={**self._metric_tags, "result": result},
             )
-        except Exception as e:
-            self.logger.error("Could not lock key=%s: %s", key, str(e))
-            acquired = None
+
+        deadline = time.monotonic() + settings.query_cache_lock_wait
+        acquired = await self._try_lock(key)
+        last_attempt = time.monotonic()
+        while acquired is False:
+            if time.monotonic() >= deadline:
+                count("wait_timeout")
+                break
+            await asyncio.sleep(_LOCK_POLL_SECONDS)
+            if (cached := await self._get_cached(key)) is not None:
+                count("waited_hit")
+                return cached
+            if (error := await self._recorded_error(key)) is not None:
+                count("waited_error")
+                raise error
+            if time.monotonic() - last_attempt >= _LOCK_RETRY_SECONDS:
+                acquired = await self._try_lock(key)
+                last_attempt = time.monotonic()
+        if acquired is not False:
+            count("acquired" if acquired else "error")
         try:
-            if acquired is False:
-                if (cached := await self._wait_for_cache(key)) is not None:
-                    metrics.counter(
-                        "dj.cache.lock",
-                        tags={**self._metric_tags, "result": "waited_hit"},
-                    )
-                    return cached
-                metrics.counter(
-                    "dj.cache.lock",
-                    tags={**self._metric_tags, "result": "wait_timeout"},
-                )
-            else:
-                metrics.counter(
-                    "dj.cache.lock",
-                    tags={
-                        **self._metric_tags,
-                        "result": "acquired" if acquired else "error",
-                    },
-                )
-                # The last holder may have stored it between our miss and the lock.
+            if acquired:
+                # The last holder may have finished between our miss and the lock.
                 if (cached := await self._get_cached(key)) is not None:
                     return cached
-            result = await self.fallback(request, params)
+                if (error := await self._recorded_error(key)) is not None:
+                    raise error
+            try:
+                result = await self.fallback(request, params)
+            except DJException as e:
+                # Whether a build is allowed depends on who asked, so only the
+                # errors that every caller would get are left for the others.
+                if acquired and not isinstance(
+                    e,
+                    (DJAuthorizationException, DJAuthenticationException),
+                ):
+                    await self._record_error(key, e)
+                raise
             await run_in_threadpool(
                 self._set_cache_with_error_handling,
                 key,
@@ -307,6 +324,40 @@ class QueryCacheManager(
                 except Exception as e:
                     self.logger.error("Could not unlock key=%s: %s", key, str(e))
 
+    async def _try_lock(self, key: str) -> bool | None:
+        """Whether the lock was taken, or None if the cache could not say."""
+        try:
+            return await run_in_threadpool(
+                self.cache.try_lock,
+                key,
+                settings.query_cache_lock_lease,
+            )
+        except Exception as e:
+            self.logger.error("Could not lock key=%s: %s", key, str(e))
+            return None
+
+    @staticmethod
+    def _error_key(key: str) -> str:
+        return f"{key}:error"
+
+    async def _record_error(self, key: str, error: DJException) -> None:
+        record = {
+            "message": error.message,
+            "errors": error.errors,
+            "warnings": error.warnings,
+            "http_status_code": error.http_status_code,
+        }
+        await run_in_threadpool(
+            self._set_cache_with_error_handling,
+            self._error_key(key),
+            record,
+            settings.query_cache_error_ttl,
+        )
+
+    async def _recorded_error(self, key: str) -> DJException | None:
+        record = await self._get_cached(self._error_key(key))
+        return None if record is None else DJException(**record)
+
     async def _get_cached(self, key: str) -> Any | None:
         try:
             return await run_in_threadpool(self.cache.get, key)
@@ -317,14 +368,6 @@ class QueryCacheManager(
                 str(e),
             )
             return None
-
-    async def _wait_for_cache(self, key: str) -> Any | None:
-        deadline = time.monotonic() + settings.query_cache_lock_wait
-        while time.monotonic() < deadline:
-            await asyncio.sleep(_LOCK_POLL_SECONDS)
-            if (cached := await self._get_cached(key)) is not None:
-                return cached
-        return None
 
     @timed(
         "dj.sql.build_latency_ms",
