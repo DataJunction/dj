@@ -157,7 +157,6 @@ DENIAL_TESTED_ELSEWHERE: dict[tuple[str, str], str] = {
 # data. They reach an access check and remain covered by the route-coverage guard;
 # a WRITE denial test does not apply to them.
 READ_ONLY_POST_ROUTES: set[tuple[str, str]] = {
-    ("POST", "/semantic/discover"),
     ("POST", "/semantic/views"),
     ("POST", "/semantic/views/list"),
 }

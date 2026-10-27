@@ -10,7 +10,7 @@ DJ generates SQL; the client executes it. This router does NOT run queries —
 """
 
 import logging
-from typing import Any, cast
+from typing import Any
 
 from fastapi import Body, Depends
 from fastapi.responses import JSONResponse
@@ -314,22 +314,15 @@ class ListViewsRequest(BaseModel):
     path: list[str | None] | None = None
 
 
-class DiscoverRequest(BaseModel):
-    """A positional selection in the view discovery hierarchy."""
-
-    runtime_configuration: dict[str, Any] = Field(default_factory=dict)
-    path: list[str | None] = Field(default_factory=list)
-
-
 class DiscoverLevel(BaseModel):
     id: str
     display_name: str
 
 
-class DiscoverResponse(BaseModel):
-    level: DiscoverLevel
+class ViewHierarchy(BaseModel):
+    current: DiscoverLevel | None
+    next: DiscoverLevel | None
     values: list[str | None]
-    next_level: DiscoverLevel | None = None
 
 
 class ValuesRequest(BaseModel):
@@ -390,6 +383,11 @@ class ViewSummary(BaseModel):
     features: list[str]
     namespace: str | None = None
     branch: str | None = None
+
+
+class BrowseViewsResponse(BaseModel):
+    hierarchy: ViewHierarchy
+    views: list[ViewSummary]
 
 
 class ViewDetail(ViewSummary):
@@ -744,63 +742,6 @@ def _branch_namespaces(
     return branches
 
 
-@router.post(
-    "/discover",
-    response_model=DiscoverResponse,
-    response_model_exclude_none=True,
-)
-async def discover_views(
-    request: DiscoverRequest,
-    session: AsyncSession = Depends(get_session),
-    access_checker: AccessChecker = Depends(get_access_checker),
-) -> DiscoverResponse | JSONResponse:
-    """Browse Git branches and non-Git cube namespaces in two levels."""
-    try:
-        if (
-            request.runtime_configuration.get("namespace") is not None
-            or request.runtime_configuration.get("branch") is not None
-        ):
-            raise DJException(
-                message="Use path for view discovery",
-                http_status_code=400,
-            )
-        _path_filter(request.path)
-        if len(request.path) == 2:
-            raise DJException(
-                message="No hierarchy level follows this path",
-                http_status_code=400,
-            )
-    except DJException as exc:
-        return _problem(exc.http_status_code or 400, exc.message)
-    if not request.path:
-        return DiscoverResponse(
-            level=DiscoverLevel(id="namespace", display_name="Namespace"),
-            values=await _discoverable_namespaces(session, access_checker),
-            next_level=DiscoverLevel(id="branch", display_name="Branch"),
-        )
-    namespace = cast(str, request.path[0])  # _path_filter validated the path.
-    selected = await _selected_namespace(session, namespace)
-    if selected is None:
-        return _problem(404, f"Namespace `{namespace}` does not exist.")
-    if not selected[1]:
-        access_checker.add_namespace(namespace, ResourceAction.READ)
-        if (ResourceType.NAMESPACE, namespace) not in await _approved_resources(
-            access_checker,
-        ):
-            return _problem(404, f"Namespace `{namespace}` does not exist.")
-        return DiscoverResponse(
-            level=DiscoverLevel(id="branch", display_name="Branch"),
-            values=[None],
-        )
-    branch_values = await _list_semantic_branches(namespace, session, access_checker)
-    if isinstance(branch_values, JSONResponse):
-        return branch_values
-    return DiscoverResponse(
-        level=DiscoverLevel(id="branch", display_name="Branch"),
-        values=branch_values,
-    )
-
-
 async def _list_semantic_branches(
     namespace: str,
     session: AsyncSession,
@@ -837,19 +778,19 @@ async def _list_semantic_branches(
 
 @router.post(
     "/views",
-    response_model=list[ViewSummary],
+    response_model=list[ViewSummary] | BrowseViewsResponse,
     response_model_exclude_unset=True,
 )
 @router.post(
     "/views/list",
-    response_model=list[ViewSummary],
+    response_model=list[ViewSummary] | BrowseViewsResponse,
     response_model_exclude_unset=True,
 )
 async def list_views(
     request: ListViewsRequest | None = Body(default=None),
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> list[ViewSummary] | JSONResponse:
+) -> list[ViewSummary] | BrowseViewsResponse | JSONResponse:
     """List the semantic views (DJ cubes) available to the caller.
 
     The spec's ``/views`` returns summaries only;
@@ -868,9 +809,36 @@ async def list_views(
         else:
             namespace, branch = _discovery_filter(configuration)
 
+        if path is not None and not path:
+            return BrowseViewsResponse(
+                hierarchy=ViewHierarchy(
+                    current=None,
+                    next=DiscoverLevel(id="namespace", display_name="Namespace"),
+                    values=await _discoverable_namespaces(session, access_checker),
+                ),
+                views=[],
+            )
+
         selected = await _selected_namespace(session, namespace) if namespace else None
         if namespace and selected is None:
             return _problem(404, "Invalid view discovery path")
+
+        if path is not None and len(path) == 1 and selected and selected[1]:
+            branch_values = await _list_semantic_branches(
+                namespace,
+                session,
+                access_checker,
+            )
+            if isinstance(branch_values, JSONResponse):
+                return branch_values
+            return BrowseViewsResponse(
+                hierarchy=ViewHierarchy(
+                    current=DiscoverLevel(id="namespace", display_name="Namespace"),
+                    next=DiscoverLevel(id="branch", display_name="Branch"),
+                    values=branch_values,
+                ),
+                views=[],
+            )
 
         branch_namespaces: list[tuple[str, str]] = []
         if selected and not selected[1]:
@@ -958,7 +926,23 @@ async def list_views(
         if location:
             summary.namespace, summary.branch = location[:2]
         summaries.append(summary)
-    return summaries
+    if path is None:
+        return summaries
+    return BrowseViewsResponse(
+        hierarchy=ViewHierarchy(
+            current=DiscoverLevel(
+                id="namespace" if len(path) == 1 else "branch",
+                display_name="Namespace" if len(path) == 1 else "Branch",
+            ),
+            next=(
+                DiscoverLevel(id="branch", display_name="Branch")
+                if len(path) == 1
+                else None
+            ),
+            values=[None] if len(path) == 1 else [],
+        ),
+        views=summaries,
+    )
 
 
 @router.post(
