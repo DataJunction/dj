@@ -24,7 +24,11 @@ from datajunction_server.config import Settings
 from datajunction_server.construction.build_v3.measures import (
     build_grain_group_from_preagg,
 )
-from datajunction_server.construction.build_v3.types import BuildContext, GrainGroup
+from datajunction_server.construction.build_v3.types import (
+    BuildContext,
+    GrainGroup,
+    ResolvedDimension,
+)
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.preaggregation import (
     PreAggregation,
@@ -3201,6 +3205,54 @@ class TestBuildGrainGroupFromPreaggErrorPaths:
         node = Node(name="test_node", type="transform")
         node.current = revision
         return node
+
+    def test_preagg_group_positions_follow_dimension_order(self):
+        """Pre-agg grain dimensions retain their positions for bucketing."""
+        from datajunction_server.database.availabilitystate import AvailabilityState
+
+        node = self._make_node()
+        preagg = PreAggregation(
+            node_revision_id=1,
+            grain_columns=["test_node.region", "test_node.country"],
+            measures=[],
+            sql="SELECT 1",
+            grain_group_hash="abc",
+            preagg_hash="def",
+            availability=AvailabilityState(
+                catalog="wh",
+                schema_="preaggs",
+                table="tbl",
+                valid_through_ts=99999,
+            ),
+        )
+        dimensions = [
+            ResolvedDimension(
+                original_ref=f"test_node.{name}",
+                node_name="test_node",
+                column_name=name,
+                role=None,
+                join_path=None,
+                is_local=True,
+            )
+            for name in ("region", "country")
+        ]
+
+        group = build_grain_group_from_preagg(
+            self._make_ctx(),
+            self._make_grain_group(node, []),
+            preagg,
+            resolved_dimensions=dimensions,
+            components_per_metric={},
+        )
+
+        assert group.dimension_group_by_positions == {
+            "test_node.region": 0,
+            "test_node.country": 1,
+        }
+        assert [str(expr) for expr in group.query.select.group_by] == [
+            "region",
+            "country",
+        ]
 
     def test_raises_when_preagg_has_no_availability(self):
         """build_grain_group_from_preagg raises ValueError if preagg.availability is None."""

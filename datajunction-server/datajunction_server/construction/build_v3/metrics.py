@@ -467,8 +467,9 @@ def _build_pre_agg_wrapper_cte(
     # gg.grain = [dim_col_aliases..., grain_key, ...]
     # We want only the user-requested dimension columns (e.g., "category"), not the
     # extra grain keys (e.g., "customer_id") that are being collapsed by COUNT DISTINCT.
+    # Bucketing may preserve a selected distinct key under a private alias.
     limited_grain_keys = {
-        comp.rule.level[0]
+        gg.component_aliases.get(comp.name) or comp.rule.level[0]
         for comp in gg.components
         if comp.rule and comp.rule.type == Aggregability.LIMITED and comp.rule.level
     }
@@ -480,7 +481,9 @@ def _build_pre_agg_wrapper_cte(
     ]
     for comp in gg.components:
         if comp.rule and comp.rule.type == Aggregability.LIMITED:  # pragma: no branch
-            grain_col = comp.rule.level[0] if comp.rule.level else None
+            grain_col = gg.component_aliases.get(comp.name) or (
+                comp.rule.level[0] if comp.rule.level else None
+            )
             if not grain_col:
                 continue  # pragma: no cover
             grain_col_ref = ast.Column(name=ast.Name(grain_col))
@@ -586,8 +589,9 @@ def collect_and_build_ctes(
         # Also skip when the grain key IS the dimension (dim_col_names would be empty):
         # the grain group already has 1 row per dimension so there's no fan-out.
         # A wrapper with no GROUP BY would produce a scalar aggregate, which is wrong.
+        # Use the emitted key name; GROUP_OTHERS may have moved it to a private alias.
         limited_grain_keys = {
-            comp.rule.level[0]
+            gg.component_aliases.get(comp.name) or comp.rule.level[0]
             for comp in gg.components
             if comp.rule and comp.rule.type == Aggregability.LIMITED and comp.rule.level
         }
@@ -828,6 +832,9 @@ def process_base_metrics(
                 cte_table = ast.Table(name=ast.Name(alias))
                 for col in expr_ast.find_all(ast.Column):  # type: ignore
                     if col.name and not col._table:  # type: ignore  # pragma: no branch
+                        raw_alias = gg.raw_metric_input_aliases.get(col.name.name)
+                        if raw_alias:
+                            col.name = ast.Name(raw_alias)
                         col._table = cte_table  # type: ignore
 
                 metric_exprs[metric_name] = MetricExprInfo(
@@ -2023,6 +2030,7 @@ def generate_metrics_sql(
     ctx: BuildContext,
     measures_result: GeneratedMeasuresSQL,
     decomposed_metrics: dict[str, DecomposedMetricInfo],
+    output_dimension_filters: list[str] | None = None,
 ) -> GeneratedSQL:
     """
     Generate the final metrics SQL query.
@@ -2414,7 +2422,11 @@ def generate_metrics_sql(
     # Use pre-classified filters from BuildContext
     # Filters were classified early in setup_build_context() to ensure grain groups
     # only use dimension filters (not metric filters)
-    dimension_filters_raw = ctx.dimension_filters
+    dimension_filters_raw = (
+        ctx.dimension_filters
+        if output_dimension_filters is None
+        else output_dimension_filters
+    )
     metric_filters_raw = ctx.metric_filters
 
     # Build WHERE clause from dimension filters

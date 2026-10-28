@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
+from copy import deepcopy
 from typing import TYPE_CHECKING, NamedTuple
 
 from datajunction_server.construction.build_v3.filters import (
@@ -79,6 +80,15 @@ def make_column_ref(col_name: str, table_alias: str | None = None) -> ast.Column
             _table=ast.Table(ast.Name(table_alias)),
         )
     return ast.Column(name=ast.Name(col_name))  # pragma: no cover
+
+
+def as_subquery(query: ast.Query, alias: str) -> ast.Query:
+    """Copy a query for use as an aliased FROM or JOIN relation."""
+    subquery = deepcopy(query)
+    subquery.parenthesized = True
+    subquery.alias = ast.Name(alias)
+    subquery.as_ = True
+    return subquery
 
 
 def get_cte_name(node_name: str) -> str:
