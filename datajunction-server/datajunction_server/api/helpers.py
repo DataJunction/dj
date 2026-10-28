@@ -631,14 +631,17 @@ async def load_filter_graph(
     upstream: dict[str, set[str]],
     targets: set[str],
     declared: FilterGraph | None = None,
+    replaced: set[str] | None = None,
 ) -> FilterGraph:
     """
     Load what can_filter_on reads for these parents.
 
     `upstream` maps each parent to every node upstream of it, and `targets`
     are the attribute nodes. Saved links and references are merged with
-    `declared`, which holds links not saved yet. Join keys are read only
-    for upstream links to a target. Links load one query per hop.
+    `declared`, which holds links not saved yet. Nodes in `replaced` use
+    only `declared`, so their saved links and references are skipped. Join
+    keys are read only for upstream links to a target. Links load one query
+    per hop.
     """
     declared = declared or FilterGraph()
     graph = FilterGraph(
@@ -646,9 +649,10 @@ async def load_filter_graph(
         links={name: set(links) for name, links in declared.links.items()},
         references={name: set(refs) for name, refs in declared.references.items()},
     )
+    replaced = replaced or set()
     parents = set(upstream)
     ancestors = {name for names in upstream.values() for name in names}
-    for name, refs in (await column_references(session, parents)).items():
+    for name, refs in (await column_references(session, parents - replaced)).items():
         graph.references.setdefault(name, set()).update(refs)
 
     loaded: set[str] = set()
@@ -658,7 +662,12 @@ async def load_filter_graph(
     unloaded = parents | ancestors
     while frontier:
         if unloaded:
-            saved = await _saved_filter_links(session, unloaded, ancestors, targets)
+            saved = await _saved_filter_links(
+                session,
+                unloaded - replaced,
+                ancestors,
+                targets,
+            )
             for name, links in saved.items():
                 graph.links.setdefault(name, set()).update(links)
             loaded |= unloaded

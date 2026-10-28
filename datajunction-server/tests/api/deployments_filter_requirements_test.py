@@ -640,3 +640,34 @@ async def test_declared_upstream_link_counts(client, namespace, attribute, valid
         assert metric["status"] == "success", data["results"]
     else:
         assert metric == _invalid_result(f"{namespace}.event_total")
+
+
+@pytest.mark.asyncio
+async def test_removed_link_no_longer_counts(client):
+    namespace = "rf_removed_link"
+    data = await deploy_and_wait(
+        client,
+        DeploymentSpec(namespace=namespace, nodes=_nodes()),
+    )
+    assert data["status"] == "success", data["results"]
+    metric = (await client.get(f"/nodes/{namespace}.total_price/")).json()
+    assert metric["status"] == "valid"
+
+    nodes = _nodes()
+    nodes[0].dimension_links = []
+    nodes[2].description = "Changed so the metric is checked again"
+    data = await deploy_and_wait(
+        client,
+        DeploymentSpec(namespace=namespace, nodes=nodes),
+    )
+    result = next(r for r in data["results"] if r["name"].endswith("total_price"))
+    assert result == {
+        "name": f"{namespace}.total_price",
+        "deploy_type": "node",
+        "status": "invalid",
+        "operation": "update",
+        "message": "Updated metric (v1.1)\n└─ Updated description\n"
+        "[invalid] Node definition declares filter requirements that name "
+        "attributes that could not be resolved.",
+        "changed_fields": ["description"],
+    }

@@ -1066,9 +1066,8 @@ class NodeSpecBulkValidator:
         Load what can_filter_on needs for metrics with filter requirements.
 
         Upstream nodes come from this deployment's node graph and, for saved
-        nodes, their saved parents. Links declared in this deployment count
-        alongside saved links. A saved link that this deployment removes
-        still counts, so the check can accept an attribute it should not.
+        nodes, their saved parents. Nodes in this deployment use only the
+        links and references it declares, so a removed link does not count.
         """
         targets: set[str] = set()
         for spec in specs:
@@ -1095,6 +1094,7 @@ class NodeSpecBulkValidator:
             upstream,
             targets,
             self._declared_filter_graph(ancestors, targets),
+            set(self.context.node_graph),
         )
 
     async def _upstream_by_parent(self, parents: set[str]) -> dict[str, set[str]]:
