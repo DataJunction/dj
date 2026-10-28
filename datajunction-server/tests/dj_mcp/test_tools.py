@@ -14,6 +14,7 @@ from unittest.mock import MagicMock
 import pytest
 import pytest_asyncio
 
+from datajunction_server.construction.build_v3 import CheckedFilters
 from datajunction_server.construction.build_v3.types import GeneratedSQL
 from datajunction_server.database.column import Column
 from datajunction_server.errors import ErrorCode
@@ -75,14 +76,14 @@ def _stub_dataset(rows: list[list[Any]], col_names: list[str]) -> Any:
 
 
 async def _no_requirements(session, metrics, filters):
-    return list(filters or []), []
+    return CheckedFilters(list(filters or []))
 
 
 @pytest_asyncio.fixture
 async def bound_session_for_tools(monkeypatch):
     """Bind a contextvar session value (any object — tools we test here
     only call internals we stub out)."""
-    monkeypatch.setattr(tools, "apply_metric_filter_requirements", _no_requirements)
+    monkeypatch.setattr(tools, "check_filter_requirements", _no_requirements)
     token = context._session_var.set(MagicMock())  # type: ignore[arg-type]
     try:
         yield
@@ -1489,7 +1490,7 @@ async def test_execute_metrics_query_prefers_bound_provider(monkeypatch) -> None
     )
     monkeypatch.setattr(tools, "build_metrics_sql", fake_build)
     monkeypatch.setattr(tools, "get_mcp_session", lambda: MagicMock())
-    monkeypatch.setattr(tools, "apply_metric_filter_requirements", _no_requirements)
+    monkeypatch.setattr(tools, "check_filter_requirements", _no_requirements)
 
     provider_client = MagicMock()
 
@@ -1550,7 +1551,7 @@ async def test_execute_metrics_query_falls_back_when_no_provider(monkeypatch) ->
     )
     monkeypatch.setattr(tools, "build_metrics_sql", fake_build)
     monkeypatch.setattr(tools, "get_mcp_session", lambda: MagicMock())
-    monkeypatch.setattr(tools, "apply_metric_filter_requirements", _no_requirements)
+    monkeypatch.setattr(tools, "check_filter_requirements", _no_requirements)
 
     fallback_client = MagicMock()
 

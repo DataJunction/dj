@@ -25,6 +25,10 @@ from datajunction_server.construction.build_v3.decomposition import (
     missing_reaggregate_dimensions,
 )
 from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
+from datajunction_server.construction.build_v3.filter_requirements import (
+    CheckedFilters,
+    check_filter_requirements,
+)
 from datajunction_server.construction.build_v3.filters import (
     get_filter_column_references,
 )
@@ -531,6 +535,49 @@ def _telemetry_filter_columns(filters: list[str] | None) -> list[str]:
 
 
 async def build_metrics_sql(
+    session: AsyncSession,
+    metrics: list[str],
+    dimensions: list[str],
+    filters: list[str] | CheckedFilters | None = None,
+    orderby: list[str] | None = None,
+    limit: int | None = None,
+    dialect: Dialect | None = None,
+    use_materialized: bool = True,
+    matched_cube: NodeRevision | None = None,
+    query_parameters: dict[str, Any] | None = None,
+    lookback_window: str | None = None,
+) -> GeneratedSQL:
+    """
+    Build metrics SQL for a set of metrics and dimensions.
+
+    Plain filters are checked against the metrics' filter requirements first:
+    a missing required filter raises, and defaults are added. The warnings
+    from that check come first in the result's warnings. Pass CheckedFilters
+    when the check already ran.
+    """
+    checked = (
+        filters
+        if isinstance(filters, CheckedFilters)
+        else await check_filter_requirements(session, metrics, filters)
+    )
+    result = await _build_metrics_sql(
+        session=session,
+        metrics=metrics,
+        dimensions=dimensions,
+        filters=checked.filters or None,
+        orderby=orderby,
+        limit=limit,
+        dialect=dialect,
+        use_materialized=use_materialized,
+        matched_cube=matched_cube,
+        query_parameters=query_parameters,
+        lookback_window=lookback_window,
+    )
+    result.warnings = [*checked.warnings, *(result.warnings or [])]
+    return result
+
+
+async def _build_metrics_sql(
     session: AsyncSession,
     metrics: list[str],
     dimensions: list[str],

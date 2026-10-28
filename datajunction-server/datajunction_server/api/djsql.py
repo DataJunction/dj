@@ -14,7 +14,7 @@ from sse_starlette.sse import EventSourceResponse
 from datajunction_server.api.helpers import query_event_stream
 from datajunction_server.construction.build_v3.builder import build_metrics_sql
 from datajunction_server.construction.build_v3.filter_requirements import (
-    apply_metric_filter_requirements,
+    check_filter_requirements,
 )
 from datajunction_server.construction.build_v3.cube_matcher import (
     resolve_dialect_and_engine_for_metrics,
@@ -221,21 +221,15 @@ async def get_sql_for_djsql(
         dialect_enum = dialect_map.get(dialect.lower())
 
     # Build SQL using v3 builder
-    effective_filters, requirement_warnings = await apply_metric_filter_requirements(
-        session,
-        parsed.metrics,
-        parsed.filters,
-    )
     result = await build_metrics_sql(
         session=session,
         metrics=parsed.metrics,
         dimensions=parsed.dimensions,
-        filters=effective_filters,
+        filters=parsed.filters,
         orderby=parsed.orderby or None,
         limit=parsed.limit,
         dialect=dialect_enum,
     )
-    result.warnings = [*requirement_warnings, *(result.warnings or [])]
     _logger.info(
         "[/djsql/] generated SQL via build_metrics_sql (v3 path) — sql=%s",
         result.sql,
@@ -271,7 +265,7 @@ async def _build_djsql_query(
     the same metrics + dimensions.
     """
     parsed = parse_dj_sql(query)
-    effective_filters, requirement_warnings = await apply_metric_filter_requirements(
+    checked = await check_filter_requirements(
         session,
         parsed.metrics,
         parsed.filters,
@@ -283,19 +277,18 @@ async def _build_djsql_query(
         use_materialized=use_materialized,
         engine_name=engine_name,
         engine_version=engine_version,
-        filters=effective_filters or None,
+        filters=checked.filters or None,
     )
     generated_sql = await build_metrics_sql(
         session=session,
         metrics=parsed.metrics,
         dimensions=parsed.dimensions,
-        filters=effective_filters or None,
+        filters=checked,
         orderby=parsed.orderby or None,
         limit=parsed.limit,
         dialect=execution_ctx.dialect,
         use_materialized=use_materialized,
     )
-    generated_sql.warnings = [*requirement_warnings, *(generated_sql.warnings or [])]
     return generated_sql, execution_ctx
 
 

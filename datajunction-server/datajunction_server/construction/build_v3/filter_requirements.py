@@ -1,6 +1,6 @@
 """Enforce the filter requirements declared on metrics."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -226,6 +226,36 @@ async def apply_metric_filter_requirements(
     """
     entries = await load_requirement_entries(session, metrics)
     return apply_requirements(entries, list(filters or []))
+
+
+@dataclass(frozen=True)
+class CheckedFilters:
+    """
+    Filters that went through the metrics' filter requirements, with the
+    warnings that check gave.
+
+    build_metrics_sql checks plain filters itself. Pass this to hand it filters
+    that were already checked, for example to read them before the build.
+    """
+
+    filters: list[str]
+    warnings: list[DJWarning] = field(default_factory=list)
+
+
+async def check_filter_requirements(
+    session: AsyncSession,
+    metrics: list[str],
+    filters: list[str] | None,
+) -> CheckedFilters:
+    """
+    apply_metric_filter_requirements, returned as CheckedFilters.
+    """
+    effective, warnings = await apply_metric_filter_requirements(
+        session,
+        metrics,
+        filters,
+    )
+    return CheckedFilters(effective, warnings)
 
 
 REQUIREMENT_WARNING_CODES = frozenset(

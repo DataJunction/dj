@@ -18,7 +18,7 @@ from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.sql.base import ExecutableOption
 
 from datajunction_server.construction.build_v3.filter_requirements import (
-    apply_metric_filter_requirements,
+    check_filter_requirements,
 )
 from datajunction_server.construction.build_v3.builder import (
     build_measures_sql,
@@ -343,16 +343,11 @@ async def build_metric_sql(
     session = get_mcp_session()
     dialect_enum = Dialect(dialect) if dialect else None
 
-    effective_filters, requirement_warnings = await apply_metric_filter_requirements(
-        session,
-        metrics,
-        filters,
-    )
     result = await build_metrics_sql(
         session=session,
         metrics=metrics,
         dimensions=dimensions or [],
-        filters=effective_filters or None,
+        filters=filters or None,
         orderby=orderby or None,
         limit=limit,
         dialect=dialect_enum,
@@ -376,8 +371,7 @@ async def build_metric_sql(
     for col in result.columns:
         semantic = f" (semantic: {col.semantic_name})" if col.semantic_name else ""
         lines.append(f"  • {col.name}: {col.type}{semantic}")
-    warnings = [*requirement_warnings, *(result.warnings or [])]
-    lines.extend(_format_warnings(warnings))
+    lines.extend(_format_warnings(result.warnings or []))
     return "\n".join(lines)
 
 
@@ -438,31 +432,25 @@ async def _execute_metrics_query(
 
     session = get_mcp_session()
 
-    effective_filters, requirement_warnings = await apply_metric_filter_requirements(
-        session,
-        metrics,
-        filters,
-    )
+    checked = await check_filter_requirements(session, metrics, filters)
     execution_ctx = await resolve_dialect_and_engine_for_metrics(
         session=session,
         metrics=metrics,
         dimensions=dimensions or [],
         use_materialized=True,
-        filters=effective_filters or None,
+        filters=checked.filters or None,
     )
 
     generated_sql = await build_metrics_sql(
         session=session,
         metrics=metrics,
         dimensions=dimensions or [],
-        filters=effective_filters or None,
+        filters=checked,
         orderby=orderby or None,
         limit=limit,
         dialect=execution_ctx.dialect,
         use_materialized=True,
     )
-
-    generated_sql.warnings = [*requirement_warnings, *(generated_sql.warnings or [])]
 
     estimate = generated_sql.scan_estimate
     is_materialized = bool(estimate and estimate.has_materialization)

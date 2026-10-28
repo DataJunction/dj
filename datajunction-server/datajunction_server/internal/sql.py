@@ -218,6 +218,7 @@ async def generate_metrics_sql(
     # Imported lazily (like build_node_sql's build_v3 import below) to avoid an
     # import cycle: build_v3 pulls in modules that import this one.
     from datajunction_server.construction.build_v3 import (
+        CheckedFilters,
         apply_metric_filter_requirements,
         build_metrics_sql,
         resolve_dialect_and_engine_for_metrics,
@@ -291,7 +292,7 @@ async def generate_metrics_sql(
         session=session,
         metrics=metrics,
         dimensions=dimensions,
-        filters=merged_filters,
+        filters=CheckedFilters(merged_filters, requirement_warnings),
         orderby=orderby,
         limit=limit,
         dialect=resolved_dialect,
@@ -299,7 +300,6 @@ async def generate_metrics_sql(
         matched_cube=matched_cube,
         query_parameters=query_parameters,
     )
-    result.warnings = [*requirement_warnings, *(result.warnings or [])]
 
     elapsed_ms = (time.monotonic() - _t0) * 1000
     query_type = query_type or ("metrics" if metrics else "dimensions")

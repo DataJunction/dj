@@ -21,7 +21,7 @@ from datajunction_server.api.helpers import (
 )
 from datajunction_server.construction.build_v3.builder import build_metrics_sql
 from datajunction_server.construction.build_v3.filter_requirements import (
-    apply_metric_filter_requirements,
+    check_filter_requirements,
 )
 from datajunction_server.construction.build_v3.cube_matcher import (
     resolve_dialect_and_engine_for_metrics,
@@ -535,11 +535,7 @@ async def get_data_for_metrics(
     """
     request_headers = dict(request.headers)
 
-    effective_filters, requirement_warnings = await apply_metric_filter_requirements(
-        session,
-        metrics,
-        filters,
-    )
+    checked = await check_filter_requirements(session, metrics, filters)
 
     # Resolve dialect and engine in a single lookup (avoids duplicate cube matching).
     # dialect_override ensures both SQL generation and engine selection use the same
@@ -552,7 +548,7 @@ async def get_data_for_metrics(
         engine_name=engine_name,
         engine_version=engine_version,
         dialect_override=dialect,
-        filters=effective_filters or None,
+        filters=checked.filters or None,
     )
 
     # Build SQL with the resolved dialect
@@ -560,7 +556,7 @@ async def get_data_for_metrics(
         session=session,
         metrics=metrics,
         dimensions=dimensions,
-        filters=effective_filters or None,
+        filters=checked,
         orderby=orderby if orderby else None,
         limit=limit,
         dialect=execution_ctx.dialect,
@@ -594,7 +590,7 @@ async def get_data_for_metrics(
     # Inject column info if there are results
     if result.results.root:  # pragma: no cover
         result.results.root[0].columns = generated_sql.columns or []  # type: ignore
-    result.warnings = [*requirement_warnings, *(generated_sql.warnings or [])]
+    result.warnings = generated_sql.warnings or []
     return result
 
 
@@ -627,11 +623,7 @@ async def get_data_stream_for_metrics(
     """
     request_headers = dict(request.headers)
 
-    effective_filters, requirement_warnings = await apply_metric_filter_requirements(
-        session,
-        metrics,
-        filters,
-    )
+    checked = await check_filter_requirements(session, metrics, filters)
 
     # Resolve dialect and engine in a single lookup (avoids duplicate cube matching)
     execution_ctx = await resolve_dialect_and_engine_for_metrics(
@@ -641,7 +633,7 @@ async def get_data_stream_for_metrics(
         use_materialized=use_materialized,
         engine_name=engine_name,
         engine_version=engine_version,
-        filters=effective_filters or None,
+        filters=checked.filters or None,
     )
 
     # Build SQL with the resolved dialect
@@ -649,7 +641,7 @@ async def get_data_stream_for_metrics(
         session=session,
         metrics=metrics,
         dimensions=dimensions,
-        filters=effective_filters or None,
+        filters=checked,
         orderby=orderby if orderby else None,
         limit=limit,
         dialect=execution_ctx.dialect,
@@ -677,6 +669,6 @@ async def get_data_stream_for_metrics(
             if generated_sql.columns
             else [],
             request=request,
-            warnings=[*requirement_warnings, *(generated_sql.warnings or [])],
+            warnings=generated_sql.warnings or [],
         ),
     )

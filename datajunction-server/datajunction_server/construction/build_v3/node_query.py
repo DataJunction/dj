@@ -37,7 +37,7 @@ from datajunction_server.construction.build_v3.dimensions import (
     resolve_dimensions,
 )
 from datajunction_server.construction.build_v3.filter_requirements import (
-    apply_metric_filter_requirements,
+    check_filter_requirements,
 )
 from datajunction_server.construction.build_v3.filters import (
     parse_and_resolve_filters,
@@ -295,27 +295,17 @@ async def build_node_sql_v3(
         # builder also accepts ``access_checker``.
         access_checker.add_node(starting_lookup, access.ResourceAction.READ)
         await access_checker.check(on_denied=AccessDenialMode.RAISE)
-        (
-            effective_filters,
-            requirement_warnings,
-        ) = await apply_metric_filter_requirements(
-            session,
-            [node_name],
-            filter_list,
-        )
-        result = await build_metrics_sql(
+        return await build_metrics_sql(
             session=session,
             metrics=[node_name],
             dimensions=dim_list,
-            filters=effective_filters,
+            filters=filter_list,
             orderby=orderby_list or None,
             limit=limit,
             dialect=dialect,
             use_materialized=use_materialized,
             query_parameters=query_parameters,
         )
-        result.warnings = [*requirement_warnings, *(result.warnings or [])]
-        return result
 
     if starting_type == NodeType.CUBE:
         cube = await Node.get_cube_by_name(session, node_name)
@@ -331,10 +321,7 @@ async def build_node_sql_v3(
         )
         # Cube's stored filters apply unconditionally; user filters AND on top.
         merged_filters = list(cube_revision.cube_filters or []) + filter_list
-        (
-            effective_filters,
-            requirement_warnings,
-        ) = await apply_metric_filter_requirements(
+        checked = await check_filter_requirements(
             session,
             list(cube_revision.cube_node_metrics),
             merged_filters,
@@ -345,14 +332,14 @@ async def build_node_sql_v3(
                 session,
                 cube_revision,
                 merged_dimensions,
-                effective_filters,
+                checked.filters,
                 list(cube_revision.cube_node_metrics),
             )
-        result = await build_metrics_sql(
+        return await build_metrics_sql(
             session=session,
             metrics=list(cube_revision.cube_node_metrics),
             dimensions=merged_dimensions,
-            filters=effective_filters,
+            filters=checked,
             orderby=orderby_list or None,
             limit=limit,
             dialect=dialect,
@@ -360,8 +347,6 @@ async def build_node_sql_v3(
             matched_cube=cube_revision,
             query_parameters=query_parameters,
         )
-        result.warnings = [*requirement_warnings, *(result.warnings or [])]
-        return result
 
     # Source / dimension / transform — the single-node path.
     # Collect everything we need to load: starting node + its upstream chain
