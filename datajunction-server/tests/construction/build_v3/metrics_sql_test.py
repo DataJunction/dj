@@ -2,6 +2,13 @@ import time
 
 import pytest
 
+from datajunction_server.construction.build_v3.builder import build_metrics_sql
+from datajunction_server.construction.build_v3.group_others import GroupOthers
+from datajunction_server.construction.build_v3.types import ColumnMetadata, GeneratedSQL
+from datajunction_server.errors import DJInvalidMetricQueryException
+from datajunction_server.models.dialect import Dialect
+from datajunction_server.sql.parsing.backends.antlr4 import parse
+
 from . import assert_sql_equal
 
 
@@ -2797,6 +2804,206 @@ class TestFilterOnlyDimensionLoop:
 
 class TestNonDecomposableMetrics:
     """Tests for metrics that cannot be decomposed (Aggregability.NONE)."""
+
+    @pytest.mark.asyncio
+    async def test_group_others_preserves_max_by_input_in_metrics_builder(
+        self,
+        session,
+    ):
+        """The real builder keeps the source product ID used by MAX_BY."""
+        ranked = GeneratedSQL(
+            query=parse("SELECT product_id FROM ranking LIMIT 1"),
+            columns=[
+                ColumnMetadata(
+                    "product_id",
+                    "v3.order_details.product_id",
+                    "bigint",
+                    "dimension",
+                ),
+            ],
+            dialect=Dialect.TRINO,
+        )
+        result = await build_metrics_sql(
+            session,
+            metrics=["v3.top_product_by_revenue"],
+            dimensions=["v3.order_details.product_id"],
+            dialect=Dialect.TRINO,
+            use_materialized=False,
+            group_others=GroupOthers(
+                ("v3.order_details.product_id",),
+                ranked,
+            ),
+        )
+
+        assert "__dj_raw_group_key_0" in result.sql
+        assert "MAX_BY(order_details_0.__dj_raw_group_key_0," in result.sql
+        assert "MAX_BY(order_details_0.product_id," not in result.sql
+        assert [(col.semantic_name, col.type) for col in result.columns] == [
+            ("v3.order_details.product_id", "string"),
+            ("v3.top_product_by_revenue", "int"),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_group_others_preserves_merged_component_input(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """SUM and MAX_BY both read the raw ID when its display is bucketed."""
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.product_id_sum_for_group_others",
+                "description": "Sum of product IDs for a merged-group regression.",
+                "query": "SELECT SUM(product_id) FROM v3.order_details",
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+        ranked = GeneratedSQL(
+            query=parse("SELECT product_id FROM ranking LIMIT 1"),
+            columns=[
+                ColumnMetadata(
+                    "product_id",
+                    "v3.order_details.product_id",
+                    "bigint",
+                    "dimension",
+                ),
+            ],
+            dialect=Dialect.TRINO,
+        )
+        result = await build_metrics_sql(
+            session,
+            metrics=[
+                "v3.product_id_sum_for_group_others",
+                "v3.top_product_by_revenue",
+            ],
+            dimensions=["v3.order_details.product_id"],
+            dialect=Dialect.TRINO,
+            use_materialized=False,
+            group_others=GroupOthers(("v3.order_details.product_id",), ranked),
+        )
+
+        assert "SUM(order_details_0.__dj_raw_group_key_0)" in result.sql
+        assert "MAX_BY(order_details_0.__dj_raw_group_key_0," in result.sql
+        assert "SUM(order_details_0.product_id)" not in result.sql
+        assert "MAX_BY(order_details_0.product_id," not in result.sql
+        assert result.columns[0].type == "string"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "filters",
+        [
+            [],
+            [
+                "v3.date.date_id >= 20240125",
+                "v3.date.date_id <= 20240131",
+            ],
+        ],
+    )
+    async def test_group_others_rejects_window_order_dimension(
+        self,
+        session,
+        filters,
+    ):
+        """Date buckets cannot replace the key used by a rolling window."""
+        ranked = GeneratedSQL(
+            query=parse("SELECT date_id_order FROM ranking LIMIT 1"),
+            columns=[
+                ColumnMetadata(
+                    "date_id_order",
+                    "v3.date.date_id[order]",
+                    "bigint",
+                    "dimension",
+                ),
+            ],
+            dialect=Dialect.TRINO,
+        )
+        with pytest.raises(
+            DJInvalidMetricQueryException,
+            match="window ordering dimension",
+        ) as exc:
+            await build_metrics_sql(
+                session,
+                metrics=["v3.trailing_7d_revenue"],
+                dimensions=["v3.date.date_id[order]"],
+                filters=filters,
+                dialect=Dialect.TRINO,
+                use_materialized=False,
+                group_others=GroupOthers(("v3.date.date_id[order]",), ranked),
+            )
+        assert exc.value.http_status_code == 400
+        assert "v3.date.date_id[order]" in exc.value.message
+
+    @pytest.mark.asyncio
+    async def test_group_others_allows_other_window_dimension(self, session):
+        """Bucketing a category leaves the rolling window's date key intact."""
+        ranked = GeneratedSQL(
+            query=parse("SELECT category FROM ranking LIMIT 1"),
+            columns=[
+                ColumnMetadata(
+                    "category",
+                    "v3.product.category",
+                    "string",
+                    "dimension",
+                ),
+            ],
+            dialect=Dialect.TRINO,
+        )
+        result = await build_metrics_sql(
+            session,
+            metrics=["v3.trailing_7d_revenue"],
+            dimensions=["v3.date.date_id[order]", "v3.product.category"],
+            filters=[
+                "v3.date.date_id >= 20240125",
+                "v3.date.date_id <= 20240131",
+            ],
+            dialect=Dialect.TRINO,
+            use_materialized=False,
+            group_others=GroupOthers(("v3.product.category",), ranked),
+        )
+        assert "__dj_group_member" in result.sql
+        assert any(
+            col.semantic_name == "v3.date.date_id[order]" and col.type != "string"
+            for col in result.columns
+        )
+
+    @pytest.mark.asyncio
+    async def test_window_ranking_exposes_its_required_grain(
+        self,
+        client_with_build_v3,
+        session,
+    ):
+        """The ranking guard can observe a window metric's added date grain."""
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.cumulative_revenue_for_ranking",
+                "description": "Cumulative revenue used to rank categories.",
+                "query": (
+                    "SELECT SUM(v3.total_revenue) OVER "
+                    "(ORDER BY v3.date.date_id[order] "
+                    "ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)"
+                ),
+                "mode": "published",
+                "required_dimensions": ["v3.date.date_id[order]"],
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+        ranked = await build_metrics_sql(
+            session,
+            metrics=["v3.cumulative_revenue_for_ranking"],
+            dimensions=["v3.product.category"],
+            dialect=Dialect.TRINO,
+            use_materialized=False,
+        )
+        assert {
+            col.semantic_name
+            for col in ranked.columns
+            if col.semantic_type == "dimension"
+        } == {"v3.product.category", "v3.date.date_id[order]"}
 
     @pytest.mark.asyncio
     async def test_non_decomposable_metric_max_by(self, client_with_build_v3):
