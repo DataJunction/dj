@@ -66,6 +66,10 @@ DRUID_AGG_MAPPING = {
     ("int", "count"): "longSum",
     ("double", "count"): "longSum",
     ("float", "count"): "longSum",
+    # Druid has no decimal type, so decimals aggregate as doubles
+    ("decimal", "sum"): "doubleSum",
+    ("decimal", "min"): "doubleMin",
+    ("decimal", "max"): "doubleMax",
     # HLL Sketch support (Druid DataSketches extension)
     ("binary", "hll_union_agg"): "HLLSketchMerge",
     ("binary", "hll_sketch_agg"): "HLLSketchMerge",
@@ -132,6 +136,16 @@ def register_druid_aggregator(
         DRUID_SKETCH_CONFIG[aggregator] = new_config
 
 
+def find_druid_aggregator(column_type: str, agg_func: str) -> str | None:
+    """
+    Look up the Druid aggregator, ignoring type parameters like `(19, 6)`.
+    """
+    agg_func = agg_func.lower()
+    return DRUID_AGG_MAPPING.get(
+        (column_type, agg_func),
+    ) or DRUID_AGG_MAPPING.get((column_type.split("(")[0].strip(), agg_func))
+
+
 def get_druid_aggregator_spec(
     column_name: str,
     column_type: str | None,
@@ -154,7 +168,7 @@ def get_druid_aggregator_spec(
     if not agg_func or column_type is None:
         return None
 
-    aggregator = DRUID_AGG_MAPPING.get((column_type, agg_func.lower()))
+    aggregator = find_druid_aggregator(column_type, agg_func)
     if aggregator is None:
         return None
 
@@ -612,7 +626,7 @@ class DruidMeasuresCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
             measure.field_name
             for measure_group in self.measures.values()  # type: ignore
             for measure in measure_group.measures
-            if (measure.type.lower(), measure.agg.lower()) not in DRUID_AGG_MAPPING
+            if find_druid_aggregator(measure.type.lower(), measure.agg) is None
         ]
         # The V2 `Measure` model lacks a merge phase, so `agg` is used for lookup.
         specs = {
@@ -720,10 +734,10 @@ class DruidMetricsCubeConfig(DruidMeasuresCubeConfig):
             metric.name: {
                 "fieldName": metric.name,
                 "name": metric.name,
-                "type": DRUID_AGG_MAPPING[(metric.type.lower(), "sum")],
+                "type": find_druid_aggregator(metric.type.lower(), "sum"),
             }
             for metric in self.metrics  # type: ignore
-            if (metric.type.lower(), "sum") in DRUID_AGG_MAPPING
+            if find_druid_aggregator(metric.type.lower(), "sum") is not None
         }
 
 
