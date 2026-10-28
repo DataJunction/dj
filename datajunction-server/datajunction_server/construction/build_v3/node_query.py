@@ -25,9 +25,6 @@ from datajunction_server.construction.build_v3.builder import (
     build_metrics_sql,
     substitute_query_params,
 )
-from datajunction_server.construction.build_v3.cube_matcher import (
-    validate_pinned_cube_covers_filters,
-)
 from datajunction_server.construction.build_v3.cte import (
     _fk_key_column_names,
     collect_node_ctes,
@@ -35,9 +32,6 @@ from datajunction_server.construction.build_v3.cte import (
 from datajunction_server.construction.build_v3.dimensions import (
     parse_dimension_ref,
     resolve_dimensions,
-)
-from datajunction_server.construction.build_v3.filter_requirements import (
-    check_filter_requirements,
 )
 from datajunction_server.construction.build_v3.filters import (
     parse_and_resolve_filters,
@@ -48,6 +42,7 @@ from datajunction_server.construction.build_v3.loaders import (
     load_post_preload_chain,
     preload_join_paths,
 )
+from datajunction_server.construction.build_v3.prepare import prepare_metrics_query
 from datajunction_server.construction.build_v3.measures import (
     build_dimension_col_expr,
     build_dimension_joins,
@@ -321,25 +316,20 @@ async def build_node_sql_v3(
         )
         # Cube's stored filters apply unconditionally; user filters AND on top.
         merged_filters = list(cube_revision.cube_filters or []) + filter_list
-        checked = await check_filter_requirements(
+        prepared = await prepare_metrics_query(
             session,
             list(cube_revision.cube_node_metrics),
+            merged_dimensions,
             merged_filters,
+            matched_cube=cube_revision,
+            use_materialized=use_materialized,
+            dialect=dialect,
         )
-        if use_materialized and dialect in (None, Dialect.DRUID):
-            # The cube must have every filtered column.
-            await validate_pinned_cube_covers_filters(
-                session,
-                cube_revision,
-                merged_dimensions,
-                checked.filters,
-                list(cube_revision.cube_node_metrics),
-            )
         return await build_metrics_sql(
             session=session,
             metrics=list(cube_revision.cube_node_metrics),
             dimensions=merged_dimensions,
-            filters=checked,
+            filters=prepared.filters,
             orderby=orderby_list or None,
             limit=limit,
             dialect=dialect,

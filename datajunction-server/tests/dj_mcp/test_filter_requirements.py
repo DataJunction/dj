@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 import pytest_asyncio
 
+from datajunction_server.construction.build_v3 import prepare
 from datajunction_server.mcp import context, server, tools
 from datajunction_server.models.query import QueryWithResults
 from datajunction_server.typing import QueryState
@@ -210,7 +211,7 @@ async def test_get_metric_data_uses_effective_filters_for_engine_choice(
         seen["filters"] = kwargs["filters"]
         raise ValueError("stop here")
 
-    monkeypatch.setattr(tools, "resolve_dialect_and_engine_for_metrics", fake_resolve)
+    monkeypatch.setattr(prepare, "resolve_dialect_and_engine_for_metrics", fake_resolve)
     await tools.get_metric_data(["v3.mcp_default"], ["v3.location.country"])
     assert seen == {"filters": ["v3.date.date_id = 20250101"]}
 

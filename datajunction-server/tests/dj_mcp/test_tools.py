@@ -14,7 +14,10 @@ from unittest.mock import MagicMock
 import pytest
 import pytest_asyncio
 
-from datajunction_server.construction.build_v3 import CheckedFilters
+from datajunction_server.construction.build_v3 import (
+    CheckedFilters,
+    PreparedMetricsQuery,
+)
 from datajunction_server.construction.build_v3.types import GeneratedSQL
 from datajunction_server.database.column import Column
 from datajunction_server.errors import ErrorCode
@@ -75,15 +78,10 @@ def _stub_dataset(rows: list[list[Any]], col_names: list[str]) -> Any:
     return result
 
 
-async def _no_requirements(session, metrics, filters):
-    return CheckedFilters(list(filters or []))
-
-
 @pytest_asyncio.fixture
 async def bound_session_for_tools(monkeypatch):
     """Bind a contextvar session value (any object — tools we test here
     only call internals we stub out)."""
-    monkeypatch.setattr(tools, "check_filter_requirements", _no_requirements)
     token = context._session_var.set(MagicMock())  # type: ignore[arg-type]
     try:
         yield
@@ -783,7 +781,11 @@ async def test_execute_metrics_query_no_query_service_configured(
             ),
         )
 
-    monkeypatch.setattr(tools, "resolve_dialect_and_engine_for_metrics", fake_resolve)
+    async def fake_prepare(*args, **kwargs):
+        ctx = await fake_resolve()
+        return PreparedMetricsQuery(CheckedFilters([]), ctx.dialect, ctx)
+
+    monkeypatch.setattr(tools, "prepare_metrics_query", fake_prepare)
     monkeypatch.setattr(tools, "build_metrics_sql", fake_build)
     monkeypatch.setattr(tools, "get_query_service_client", lambda settings: None)
 
@@ -1313,7 +1315,11 @@ async def test_execute_metrics_query_full_round_trip(
             ),
         )
 
-    monkeypatch.setattr(tools, "resolve_dialect_and_engine_for_metrics", fake_resolve)
+    async def fake_prepare(*args, **kwargs):
+        ctx = await fake_resolve()
+        return PreparedMetricsQuery(CheckedFilters([]), ctx.dialect, ctx)
+
+    monkeypatch.setattr(tools, "prepare_metrics_query", fake_prepare)
     monkeypatch.setattr(tools, "build_metrics_sql", fake_build)
     monkeypatch.setattr(
         tools,
@@ -1397,7 +1403,11 @@ async def test_execute_metrics_query_empty_results_skips_column_inject(
             ),
         )
 
-    monkeypatch.setattr(tools, "resolve_dialect_and_engine_for_metrics", fake_resolve)
+    async def fake_prepare(*args, **kwargs):
+        ctx = await fake_resolve()
+        return PreparedMetricsQuery(CheckedFilters([]), ctx.dialect, ctx)
+
+    monkeypatch.setattr(tools, "prepare_metrics_query", fake_prepare)
     monkeypatch.setattr(tools, "build_metrics_sql", fake_build)
     monkeypatch.setattr(
         tools,
@@ -1470,8 +1480,8 @@ async def test_execute_metrics_query_prefers_bound_provider(monkeypatch) -> None
     fake_ctx.engine.version = "3.5"
     fake_ctx.catalog_name = "prod"
 
-    async def fake_resolve(**_kwargs):
-        return fake_ctx
+    async def fake_prepare(*_args, **_kwargs):
+        return PreparedMetricsQuery(CheckedFilters([]), fake_ctx.dialect, fake_ctx)
 
     fake_generated = MagicMock(spec=GeneratedSQL)
     fake_generated.scan_estimate = None
@@ -1482,15 +1492,9 @@ async def test_execute_metrics_query_prefers_bound_provider(monkeypatch) -> None
     async def fake_build(**_kwargs):
         return fake_generated
 
-    monkeypatch.setattr(
-        tools,
-        "resolve_dialect_and_engine_for_metrics",
-        fake_resolve,
-        raising=False,
-    )
+    monkeypatch.setattr(tools, "prepare_metrics_query", fake_prepare)
     monkeypatch.setattr(tools, "build_metrics_sql", fake_build)
     monkeypatch.setattr(tools, "get_mcp_session", lambda: MagicMock())
-    monkeypatch.setattr(tools, "check_filter_requirements", _no_requirements)
 
     provider_client = MagicMock()
 
@@ -1531,8 +1535,8 @@ async def test_execute_metrics_query_falls_back_when_no_provider(monkeypatch) ->
     fake_ctx.engine.version = "3.5"
     fake_ctx.catalog_name = "prod"
 
-    async def fake_resolve(**_kwargs):
-        return fake_ctx
+    async def fake_prepare(*_args, **_kwargs):
+        return PreparedMetricsQuery(CheckedFilters([]), fake_ctx.dialect, fake_ctx)
 
     fake_generated = MagicMock(spec=GeneratedSQL)
     fake_generated.scan_estimate = None
@@ -1543,15 +1547,9 @@ async def test_execute_metrics_query_falls_back_when_no_provider(monkeypatch) ->
     async def fake_build(**_kwargs):
         return fake_generated
 
-    monkeypatch.setattr(
-        tools,
-        "resolve_dialect_and_engine_for_metrics",
-        fake_resolve,
-        raising=False,
-    )
+    monkeypatch.setattr(tools, "prepare_metrics_query", fake_prepare)
     monkeypatch.setattr(tools, "build_metrics_sql", fake_build)
     monkeypatch.setattr(tools, "get_mcp_session", lambda: MagicMock())
-    monkeypatch.setattr(tools, "check_filter_requirements", _no_requirements)
 
     fallback_client = MagicMock()
 

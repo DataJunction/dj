@@ -13,12 +13,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from datajunction_server.api.helpers import query_event_stream
 from datajunction_server.construction.build_v3.builder import build_metrics_sql
-from datajunction_server.construction.build_v3.filter_requirements import (
-    check_filter_requirements,
-)
-from datajunction_server.construction.build_v3.cube_matcher import (
-    resolve_dialect_and_engine_for_metrics,
-)
+from datajunction_server.construction.build_v3.prepare import prepare_metrics_query
 from datajunction_server.errors import DJInvalidInputException, DJWarning
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.models.dialect import Dialect
@@ -265,25 +260,23 @@ async def _build_djsql_query(
     the same metrics + dimensions.
     """
     parsed = parse_dj_sql(query)
-    checked = await check_filter_requirements(
+    prepared = await prepare_metrics_query(
         session,
         parsed.metrics,
+        parsed.dimensions,
         parsed.filters,
-    )
-    execution_ctx = await resolve_dialect_and_engine_for_metrics(
-        session=session,
-        metrics=parsed.metrics,
-        dimensions=parsed.dimensions,
         use_materialized=use_materialized,
         engine_name=engine_name,
         engine_version=engine_version,
-        filters=checked.filters or None,
+        resolve_execution=True,
     )
+    execution_ctx = prepared.execution
+    assert execution_ctx is not None
     generated_sql = await build_metrics_sql(
         session=session,
         metrics=parsed.metrics,
         dimensions=parsed.dimensions,
-        filters=checked,
+        filters=prepared.filters,
         orderby=parsed.orderby or None,
         limit=parsed.limit,
         dialect=execution_ctx.dialect,

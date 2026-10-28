@@ -17,16 +17,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.sql.base import ExecutableOption
 
-from datajunction_server.construction.build_v3.filter_requirements import (
-    check_filter_requirements,
-)
 from datajunction_server.construction.build_v3.builder import (
     build_measures_sql,
     build_metrics_sql,
 )
-from datajunction_server.construction.build_v3.cube_matcher import (
-    resolve_dialect_and_engine_for_metrics,
-)
+from datajunction_server.construction.build_v3.prepare import prepare_metrics_query
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.internal.namespaces import get_git_info_for_namespace
@@ -432,20 +427,22 @@ async def _execute_metrics_query(
 
     session = get_mcp_session()
 
-    checked = await check_filter_requirements(session, metrics, filters)
-    execution_ctx = await resolve_dialect_and_engine_for_metrics(
-        session=session,
-        metrics=metrics,
-        dimensions=dimensions or [],
+    prepared = await prepare_metrics_query(
+        session,
+        metrics,
+        dimensions or [],
+        filters,
         use_materialized=True,
-        filters=checked.filters or None,
+        resolve_execution=True,
     )
+    execution_ctx = prepared.execution
+    assert execution_ctx is not None
 
     generated_sql = await build_metrics_sql(
         session=session,
         metrics=metrics,
         dimensions=dimensions or [],
-        filters=checked,
+        filters=prepared.filters,
         orderby=orderby or None,
         limit=limit,
         dialect=execution_ctx.dialect,

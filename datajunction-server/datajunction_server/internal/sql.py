@@ -35,7 +35,7 @@ from datajunction_server.construction.build_v2 import (
 from datajunction_server.database import Engine
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.errors import DJException, DJInvalidInputException, DJWarning
+from datajunction_server.errors import DJException, DJInvalidInputException
 from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.sql.parsing.backends.antlr4 import report_parse_cache_stats
 from datajunction_server.internal.access.authorization import (
@@ -204,25 +204,22 @@ async def generate_metrics_sql(
       - If a cube revision is in play, prepend its stored ``cube_filters`` to the
         request filters. Metrics callers also fall back to the cube's metrics when
         none are explicit; dimensions callers disable that behavior.
-      - If ``dialect`` is None, auto-resolve it via
-        ``resolve_dialect_and_engine_for_metrics``; adopt that resolver's cube only
-        when no cube was otherwise provided (mirrors the canonical endpoint).
+      - If ``dialect`` is None, auto-resolve it (see ``prepare_metrics_query``);
+        adopt that resolver's cube only when no cube was otherwise provided
+        (mirrors the canonical endpoint).
       - Call and return the raw ``build_metrics_sql`` result; callers map it to
         their own response models.
       - Emit the build-latency metrics and ``[SQL]`` log here (tagged with
         ``endpoint``) so they reflect the merged, as-built values.
-      - Check the metrics' filter requirements unless
-        ``enforce_filter_requirements`` is False. Distinct-value lookups pass
-        False: their metrics only scope the query to a cube.
+      - Check the metrics' filter requirements (in ``prepare_metrics_query``)
+        unless ``enforce_filter_requirements`` is False. Distinct-value lookups
+        pass False: their metrics only scope the query to a cube.
     """
     # Imported lazily (like build_node_sql's build_v3 import below) to avoid an
     # import cycle: build_v3 pulls in modules that import this one.
     from datajunction_server.construction.build_v3 import (
-        CheckedFilters,
-        apply_metric_filter_requirements,
         build_metrics_sql,
-        resolve_dialect_and_engine_for_metrics,
-        validate_pinned_cube_covers_filters,
+        prepare_metrics_query,
     )
 
     _t0 = time.monotonic()
@@ -241,58 +238,29 @@ async def generate_metrics_sql(
             if not dimensions:
                 dimensions = matched_cube.cube_node_dimensions
 
-    # Check the metrics' filter requirements on the merged filters, before
-    # anything reads them for cube matching.
-    requirement_warnings: list[DJWarning] = []
-    if enforce_filter_requirements:
-        (
-            merged_filters,
-            requirement_warnings,
-        ) = await apply_metric_filter_requirements(
-            session,
-            metrics,
-            merged_filters,
-        )
-
-    if (
-        matched_cube is not None
-        and metrics
-        and use_materialized
-        and dialect in (None, Dialect.DRUID)
-    ):
-        # A pinned cube bypasses find_matching_cube's coverage check. When that
-        # cube will actually back the build (materialized, Druid or auto-dialect),
-        # verify it covers every filtered dimension so we fail loud here instead
-        # of emitting Druid SQL that references a column the cube table lacks.
-        await validate_pinned_cube_covers_filters(
-            session,
-            matched_cube,
-            dimensions,
-            merged_filters,
-            metrics,
-        )
-
-    # Auto-resolve dialect if not explicitly provided.
-    resolved_dialect = dialect
-    if resolved_dialect is None:
-        execution_ctx = await resolve_dialect_and_engine_for_metrics(
-            session=session,
-            metrics=metrics,
-            dimensions=dimensions,
-            use_materialized=use_materialized,
-            matched_cube=matched_cube if metrics else None,
-            filters=merged_filters,
-        )
-        resolved_dialect = execution_ctx.dialect
-        # Only reuse the resolved cube if the caller didn't provide one.
-        if matched_cube is None:
-            matched_cube = execution_ctx.cube
+    # Check requirements, validate a pinned cube, and (without a dialect) pick
+    # the dialect, all on the merged filters.
+    prepared = await prepare_metrics_query(
+        session,
+        metrics,
+        dimensions,
+        merged_filters,
+        matched_cube=matched_cube,
+        use_materialized=use_materialized,
+        dialect=dialect,
+        resolve_execution=dialect is None,
+        enforce_filter_requirements=enforce_filter_requirements,
+    )
+    resolved_dialect = prepared.dialect
+    # Only reuse the resolved cube if the caller didn't provide one.
+    if matched_cube is None and prepared.execution is not None:
+        matched_cube = prepared.execution.cube
 
     result = await build_metrics_sql(
         session=session,
         metrics=metrics,
         dimensions=dimensions,
-        filters=CheckedFilters(merged_filters, requirement_warnings),
+        filters=prepared.filters,
         orderby=orderby,
         limit=limit,
         dialect=resolved_dialect,

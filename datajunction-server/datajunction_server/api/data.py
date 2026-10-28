@@ -20,12 +20,7 @@ from datajunction_server.api.helpers import (
     resolve_engine,
 )
 from datajunction_server.construction.build_v3.builder import build_metrics_sql
-from datajunction_server.construction.build_v3.filter_requirements import (
-    check_filter_requirements,
-)
-from datajunction_server.construction.build_v3.cube_matcher import (
-    resolve_dialect_and_engine_for_metrics,
-)
+from datajunction_server.construction.build_v3.prepare import prepare_metrics_query
 from datajunction_server.construction.build_v3.types import GeneratedSQL
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.history import History
@@ -535,28 +530,30 @@ async def get_data_for_metrics(
     """
     request_headers = dict(request.headers)
 
-    checked = await check_filter_requirements(session, metrics, filters)
-
-    # Resolve dialect and engine in a single lookup (avoids duplicate cube matching).
-    # dialect_override ensures both SQL generation and engine selection use the same
-    # dialect — without this, Trino SQL could be submitted to a Spark engine.
-    execution_ctx = await resolve_dialect_and_engine_for_metrics(
-        session=session,
-        metrics=metrics,
-        dimensions=dimensions,
+    # Check the filter requirements, then resolve dialect and engine in a single
+    # lookup (avoids duplicate cube matching). The dialect override makes SQL
+    # generation and engine selection use the same dialect — without it, Trino
+    # SQL could be submitted to a Spark engine.
+    prepared = await prepare_metrics_query(
+        session,
+        metrics,
+        dimensions,
+        filters,
         use_materialized=use_materialized,
+        dialect=dialect,
         engine_name=engine_name,
         engine_version=engine_version,
-        dialect_override=dialect,
-        filters=checked.filters or None,
+        resolve_execution=True,
     )
+    execution_ctx = prepared.execution
+    assert execution_ctx is not None
 
     # Build SQL with the resolved dialect
     generated_sql = await build_metrics_sql(
         session=session,
         metrics=metrics,
         dimensions=dimensions,
-        filters=checked,
+        filters=prepared.filters,
         orderby=orderby if orderby else None,
         limit=limit,
         dialect=execution_ctx.dialect,
@@ -623,25 +620,27 @@ async def get_data_stream_for_metrics(
     """
     request_headers = dict(request.headers)
 
-    checked = await check_filter_requirements(session, metrics, filters)
-
-    # Resolve dialect and engine in a single lookup (avoids duplicate cube matching)
-    execution_ctx = await resolve_dialect_and_engine_for_metrics(
-        session=session,
-        metrics=metrics,
-        dimensions=dimensions,
+    # Check the filter requirements, then resolve dialect and engine in a single
+    # lookup (avoids duplicate cube matching)
+    prepared = await prepare_metrics_query(
+        session,
+        metrics,
+        dimensions,
+        filters,
         use_materialized=use_materialized,
         engine_name=engine_name,
         engine_version=engine_version,
-        filters=checked.filters or None,
+        resolve_execution=True,
     )
+    execution_ctx = prepared.execution
+    assert execution_ctx is not None
 
     # Build SQL with the resolved dialect
     generated_sql = await build_metrics_sql(
         session=session,
         metrics=metrics,
         dimensions=dimensions,
-        filters=checked,
+        filters=prepared.filters,
         orderby=orderby if orderby else None,
         limit=limit,
         dialect=execution_ctx.dialect,
