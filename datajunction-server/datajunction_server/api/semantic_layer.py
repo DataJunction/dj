@@ -10,6 +10,7 @@ Mounted at ``/semantic``.
 """
 
 import logging
+import math
 from copy import deepcopy
 from dataclasses import dataclass
 from decimal import Decimal
@@ -1390,11 +1391,22 @@ def _result_value(value: Any, arrow_type: str) -> Any:
     if value is None:
         return None
     if arrow_type == "floating":
-        return float(value) if isinstance(value, (Decimal, str)) else value
+        number = float(value)
+        if not math.isfinite(number):
+            raise ValueError("Non-finite floating result")
+        return number
     if arrow_type == "decimal":
+        if isinstance(value, Decimal) and not value.is_finite():
+            raise ValueError("Non-finite decimal result")
         return str(value)
-    if arrow_type == "int" and isinstance(value, Decimal):
-        return int(value)
+    if arrow_type == "int":
+        decimal_value = Decimal(str(value))
+        if (
+            not decimal_value.is_finite()
+            or decimal_value != decimal_value.to_integral_value()
+        ):
+            raise ValueError("Non-integral integer result")
+        return int(decimal_value)
     return value
 
 
@@ -1579,17 +1591,26 @@ async def _execute_sql(
     names = [column.name for column in generated.columns]
     if any(len(row) != len(names) for row in statement.rows):
         return _problem(500, "Query returned a row with unexpected columns.")
+    try:
+        rows = [
+            {
+                column.name: _result_value(value, column.type)
+                for column, value in zip(generated.columns, row)
+            }
+            for row in statement.rows
+        ]
+    except (ValueError, TypeError, OverflowError, ArithmeticError):
+        logger.exception("Query returned invalid typed values")
+        return _problem(
+            502,
+            "Query returned invalid values.",
+            code="INVALID_QUERY_RESULT",
+        )
     return SemanticResult(
         requests=[RequestInfo(type="sql", definition=generated.sql)],
         results=TableResult(
             schema=generated.columns,
-            rows=[
-                {
-                    column.name: _result_value(value, column.type)
-                    for column, value in zip(generated.columns, row)
-                }
-                for row in statement.rows
-            ],
+            rows=rows,
         ),
     )
 
@@ -1619,7 +1640,10 @@ async def execute_query(
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     access_checker: AccessChecker = Depends(get_access_checker),
 ) -> SemanticResult | JSONResponse:
-    """Run a semantic query and return its data."""
+    """Run a semantic query and return its data.
+
+    ``X-SL-Result-Truncated`` is a DJ extension to the spec for implicit limits.
+    """
     if not await _can_read_view(view_name, access_checker):
         return _view_not_found(view_name)
     probe = body.query.limit is None
@@ -1705,6 +1729,7 @@ async def get_values(
     query = QueryPayload(
         dimensions=[body.dimension],
         filters=body.filters,
+        order=[OrderPayload(by=body.dimension)],
         limit=DEFAULT_ROW_LIMIT + 1,
     )
     try:

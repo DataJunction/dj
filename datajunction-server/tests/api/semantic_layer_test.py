@@ -6,6 +6,7 @@ seeded cube) use the standard ``client`` fixture over the testcontainers
 Postgres harness.
 """
 
+import json
 import re
 from decimal import Decimal
 from datetime import UTC, datetime
@@ -1655,6 +1656,7 @@ async def test_semantic_endpoints_end_to_end(client: AsyncClient, monkeypatch):
     assert "DISTINCT" in values_body["requests"][0]["definition"]
     assert "total_amount" in values_body["requests"][0]["definition"]
     assert " IN ('North', 'South')" in values_body["requests"][0]["definition"]
+    assert "ORDER BY" in values_body["requests"][0]["definition"]
     assert "LIMIT 10001" in values_body["requests"][0]["definition"]
     assert values_body["results"] == {
         "schema": [{"name": "region_name", "type": "utf8"}],
@@ -2479,6 +2481,18 @@ async def test_group_limit_endpoint_builds_independent_ranked_query(
     )
     assert "'Others'" in others_resp.json()["sql"]
     assert "LEFT OUTER JOIN" in others_resp.json()["sql"]
+    for group_query in (query, with_others):
+        page_query = {**group_query, "limit": 2, "offset": 3}
+        page_resp = await _expect(
+            await client.post(
+                f"/semantic/views/{view}/sql",
+                json={"query": page_query},
+            ),
+            200,
+        )
+        page_sql = page_resp.json()["sql"]
+        assert page_sql.count("OFFSET 3") == 1
+        assert page_sql.rstrip().endswith("OFFSET 3\nLIMIT 2"), page_sql[-180:]
     others_count = await _expect(
         await client.post(
             f"/semantic/views/{view}/row-count",
@@ -2882,12 +2896,28 @@ async def test_execution_preserves_empty_schema_and_reports_failure():
     assert b"secret" not in response.body
     assert response.headers["content-type"] == "application/problem+json"
 
+    service.submit_query.side_effect = None
+    result.state = QueryState.FINISHED
+    result.errors = []
+    result.results.root[0].rows = [["not a number"]]
+    generated.columns[0].type = "floating"
+    response = await _execute_sql(prepared, request, service)
+    assert response.status_code == 502
+    assert json.loads(response.body)["code"] == "INVALID_QUERY_RESULT"
+    assert b"not a number" not in response.body
+
 
 def test_semantic_result_values_follow_arrow_types():
     assert _result_value(Decimal("1.25"), "floating") == 1.25
     assert _result_value("1.25", "floating") == 1.25
     assert _result_value(Decimal("1.25"), "decimal") == "1.25"
     assert _result_value(Decimal("12"), "int") == 12
+    with pytest.raises(ValueError):
+        _result_value(float("nan"), "floating")
+    with pytest.raises(ValueError):
+        _result_value(float("inf"), "floating")
+    with pytest.raises(ValueError):
+        _result_value(Decimal("1.5"), "int")
 
 
 def test_sql_ast_preserves_offset_and_page_count():
@@ -2897,6 +2927,18 @@ def test_sql_ast_preserves_offset_and_page_count():
     count_sql = build_row_count_sql(generated).sql
     assert "LIMIT 2" in count_sql
     assert "OFFSET 3" in count_sql
+
+
+@pytest.mark.parametrize(
+    ("dialect", "expected"),
+    [
+        (Dialect.TRINO, "OFFSET 3\nLIMIT 5"),
+        (Dialect.DRUID, "LIMIT 5\nOFFSET 3"),
+    ],
+)
+def test_offset_rendering_by_dialect(dialect, expected):
+    query = parse("SELECT id FROM records ORDER BY id LIMIT 5 OFFSET 3")
+    assert expected in ast.to_sql(query, dialect)
 
 
 @pytest.mark.asyncio

@@ -3568,10 +3568,19 @@ class Select(SelectExpression):
 
         if self.organization:
             select += f"\n{self.organization}"
-        if self.limit:
-            select += f"\nLIMIT {self.limit}"
-        if self.offset:
-            select += f"\nOFFSET {self.offset}"
+        # Trino requires OFFSET before LIMIT. Other supported dialects use
+        # LIMIT before OFFSET when native rendering is needed.
+        dialect = get_render_dialect()
+        if dialect is not None and dialect.value == "trino":
+            if self.offset:
+                select += f"\nOFFSET {self.offset}"
+            if self.limit:
+                select += f"\nLIMIT {self.limit}"
+        else:
+            if self.limit:
+                select += f"\nLIMIT {self.limit}"
+            if self.offset:
+                select += f"\nOFFSET {self.offset}"
 
         if self.alias:
             as_ = " AS " if self.as_ else " "
