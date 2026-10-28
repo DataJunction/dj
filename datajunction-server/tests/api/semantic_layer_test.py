@@ -509,6 +509,30 @@ def test_postgres_semantic_sql_omits_catalog_from_physical_tables(
     assert "'dj_metadata.public.node'" in executable
 
 
+@pytest.mark.parametrize(
+    ("dialect", "physical_catalog"),
+    [(Dialect.BIGQUERY, "real-project"), (Dialect.SNOWFLAKE, "REAL_DB")],
+)
+def test_semantic_sql_uses_physical_catalog_without_changing_ctes_or_literals(
+    dialect,
+    physical_catalog,
+):
+    sql = (
+        "WITH local AS (SELECT id FROM warehouse.sales.orders) "
+        "SELECT 'warehouse.sales.orders' AS label FROM local "
+        "JOIN other.sales.reference AS ref ON local.id = ref.id"
+    )
+    generated = V3GeneratedSQL(query=parse(sql), columns=[], dialect=dialect)
+
+    executable = _executable_sql(generated, "warehouse", physical_catalog)
+
+    assert f"{physical_catalog}.sales.orders" in executable
+    assert "FROM local" in executable
+    assert "other.sales.reference" in executable
+    assert "'warehouse.sales.orders'" in executable
+    assert "warehouse.sales.orders" in generated.sql
+
+
 def test_postgres_rejects_physical_tables_in_another_catalog():
     generated_sql = V3GeneratedSQL(
         query=parse(
@@ -2843,7 +2867,7 @@ async def test_compatibility_rejects_unknown_selection(
 @pytest.mark.asyncio
 async def test_execution_preserves_empty_schema_and_reports_failure():
     context = SimpleNamespace(
-        engine=SimpleNamespace(name="trino", version="451"),
+        engine=SimpleNamespace(name="trino", version="451", uri=None),
         catalog_name="semcat",
     )
     generated = GeneratedSQLResponse(
@@ -2951,7 +2975,13 @@ async def test_bigquery_offset_only_row_count_has_required_limit(monkeypatch):
     monkeypatch.setattr(
         semantic_layer_api,
         "resolve_dialect_and_engine_for_metrics",
-        AsyncMock(return_value=SimpleNamespace(dialect=Dialect.BIGQUERY)),
+        AsyncMock(
+            return_value=SimpleNamespace(
+                dialect=Dialect.BIGQUERY,
+                catalog_name="warehouse",
+                engine=SimpleNamespace(uri="bigquery://real-project"),
+            ),
+        ),
     )
     monkeypatch.setattr(
         semantic_layer_api,
@@ -3162,7 +3192,13 @@ async def test_generate_sql_djexception_returns_problem(
     )
     monkeypatch.setattr(
         "datajunction_server.api.semantic_layer.resolve_dialect_and_engine_for_metrics",
-        AsyncMock(return_value=SimpleNamespace(dialect=Dialect.TRINO)),
+        AsyncMock(
+            return_value=SimpleNamespace(
+                dialect=Dialect.TRINO,
+                catalog_name="warehouse",
+                engine=SimpleNamespace(uri="trino://host"),
+            ),
+        ),
     )
     monkeypatch.setattr(
         "datajunction_server.api.semantic_layer.generate_metrics_sql",

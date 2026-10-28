@@ -530,7 +530,7 @@ class TestDataForNode:
             assert response.status_code == 200
             full_text = "".join([text async for text in response.aiter_text()])
             assert "event: message" in full_text
-            assert "avg(repair_order_details.price)" in full_text
+            assert "avg_repair_price" in full_text
 
         # Test streaming of node data for a metric. v3 decomposes the COUNT
         # metric into a grain-group CTE (``repair_orders_fact_0``) whose

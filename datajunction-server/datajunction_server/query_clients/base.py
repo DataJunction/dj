@@ -141,20 +141,22 @@ class BaseQueryServiceClient(ABC):
         query: QueryCreate,
         columns: list[ColumnMetadata],
         rows: list[tuple[Any, ...]],
+        executed_sql: str | None = None,
     ) -> QueryWithResults:
         """Use the same result envelope as the HTTP query service."""
+        executed_sql = executed_sql or query.submitted_query
         return QueryWithResults(
             id=str(uuid4()),
             engine_name=query.engine_name,
             engine_version=query.engine_version,
             submitted_query=query.submitted_query,
-            executed_query=query.submitted_query,
+            executed_query=executed_sql,
             state=QueryState.FINISHED,
             progress=1.0,
             results=QueryResults(
                 root=[
                     StatementResults(
-                        sql=query.submitted_query,
+                        sql=executed_sql,
                         columns=columns,
                         rows=rows,
                         row_count=len(rows),

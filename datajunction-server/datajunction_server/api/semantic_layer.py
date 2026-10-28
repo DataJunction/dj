@@ -74,6 +74,7 @@ from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.access import ResourceAction, ResourceType
 from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
+from datajunction_server.query_clients.catalog import catalog_from_engine_uri
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import to_sql
 from datajunction_server.typing import QueryState
@@ -1313,7 +1314,11 @@ async def _generate_sql(
     physical_catalogs = _physical_catalogs(generated_sql)
     return (
         GeneratedSQLResponse(
-            sql=_executable_sql(generated_sql),
+            sql=_executable_sql(
+                generated_sql,
+                execution.catalog_name,
+                catalog_from_engine_uri(execution.engine.uri, execution.dialect),
+            ),
             dialect=generated_sql.dialect.value,
             columns=[
                 ColumnInfo(name=col.name, type=_generated_column_arrow_type_name(col))
@@ -1370,8 +1375,12 @@ async def _prepare_execution(
     return PreparedSemanticQuery(generated, execution)
 
 
-def _executable_sql(generated_sql: V3GeneratedSQL) -> str:
-    """Render physical SQL with PostgreSQL's two-part table names."""
+def _executable_sql(
+    generated_sql: V3GeneratedSQL,
+    catalog_name: str | None = None,
+    physical_catalog: str | None = None,
+) -> str:
+    """Render physical SQL with the execution engine's catalog name."""
     query = deepcopy(generated_sql.query)
     if generated_sql.dialect == Dialect.POSTGRES:
         for table in query.find_all(ast.Table):
@@ -1383,6 +1392,15 @@ def _executable_sql(generated_sql: V3GeneratedSQL) -> str:
             elif len(parts) == 1 and parts[0].name.count(".") == 2:
                 # The v3 builder also stores physical names as one dotted Name.
                 parts[0].name = parts[0].name.split(".", 1)[1]
+    elif catalog_name and physical_catalog and catalog_name != physical_catalog:
+        for table in query.find_all(ast.Table):
+            parts = table.name.names
+            if len(parts) == 3 and parts[0].name == catalog_name:
+                parts[0].name = physical_catalog
+            elif len(parts) == 1 and parts[0].name.startswith(f"{catalog_name}."):
+                suffix = parts[0].name[len(catalog_name) + 1 :]
+                if suffix.count(".") == 1:
+                    parts[0].name = f"{physical_catalog}.{suffix}"
     return to_sql(query, generated_sql.dialect)
 
 
@@ -1563,6 +1581,7 @@ async def _execute_sql(
             catalog_name=context.catalog_name,
             submitted_query=generated.sql,
             async_=False,
+            engine_uri=context.engine.uri,
         )
         request_headers = (
             {"cache-control": request.headers["cache-control"]}

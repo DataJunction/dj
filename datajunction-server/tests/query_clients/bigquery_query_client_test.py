@@ -38,6 +38,41 @@ async def test_submit_query_returns_rows():
 
 
 @pytest.mark.asyncio
+async def test_submit_query_resolves_catalog_alias_from_engine_uri():
+    client = _make_client(project="configured-project")
+    result_rows = MagicMock()
+    result_rows.schema = []
+    result_rows.__iter__.return_value = iter([])
+    backend = MagicMock()
+    backend.query.return_value.result.return_value = result_rows
+    client._get_client = MagicMock(return_value=backend)
+    query = QueryCreate(
+        catalog_name="warehouse",
+        engine_name="bigquery",
+        engine_version="1",
+        submitted_query=(
+            "WITH local AS (SELECT * FROM warehouse.sales.orders) "
+            "SELECT 'warehouse.sales.orders' AS label FROM local "
+            "JOIN other.sales.reference AS ref ON local.id = ref.id"
+        ),
+        engine_uri="bigquery://real-project",
+    )
+
+    result = await client.submit_query(query)
+
+    executed = backend.query.call_args.args[0]
+    assert "real-project.sales.orders" in executed
+    assert "'warehouse.sales.orders'" in executed
+    assert "FROM local" in executed
+    assert "other.sales.reference" in executed
+    client._get_client.assert_called_once_with(project="real-project")
+    assert "engine_uri" not in query.model_dump()
+    assert result.submitted_query == query.submitted_query
+    assert result.executed_query == executed
+    assert result.results.root[0].sql == executed
+
+
+@pytest.mark.asyncio
 async def test_submit_query_hides_driver_error():
     client = _make_client()
     client._get_client = MagicMock(side_effect=RuntimeError("secret project"))

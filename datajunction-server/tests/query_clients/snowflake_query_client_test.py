@@ -39,6 +39,44 @@ async def test_submit_query_returns_rows_and_closes_connection():
 
 
 @pytest.mark.asyncio
+async def test_submit_query_resolves_catalog_alias_from_engine_uri():
+    from datajunction_server.query_clients.snowflake import SnowflakeClient
+
+    with patch("datajunction_server.query_clients.snowflake.SNOWFLAKE_AVAILABLE", True):
+        client = SnowflakeClient(account="test", user="test", database="CONFIG_DB")
+    cursor = MagicMock()
+    cursor.description = []
+    cursor.fetchall.return_value = []
+    connection = MagicMock()
+    connection.cursor.return_value.__enter__.return_value = cursor
+    client._get_connection = MagicMock(return_value=connection)
+    query = QueryCreate(
+        catalog_name="warehouse",
+        engine_name="snowflake",
+        engine_version="1",
+        submitted_query=(
+            "WITH local AS (SELECT * FROM warehouse.sales.orders) "
+            "SELECT 'warehouse.sales.orders' AS label FROM local "
+            "JOIN other.sales.reference AS ref ON local.id = ref.id"
+        ),
+        engine_uri="snowflake://user:pass@account/REAL_DB",
+    )
+
+    result = await client.submit_query(query)
+
+    executed = cursor.execute.call_args.args[0]
+    assert "REAL_DB.sales.orders" in executed
+    assert "'warehouse.sales.orders'" in executed
+    assert "FROM local" in executed
+    assert "other.sales.reference" in executed
+    client._get_connection.assert_called_once_with(database="REAL_DB")
+    assert "engine_uri" not in query.model_dump()
+    assert result.submitted_query == query.submitted_query
+    assert result.executed_query == executed
+    assert result.results.root[0].sql == executed
+
+
+@pytest.mark.asyncio
 async def test_submit_query_hides_driver_error():
     from datajunction_server.query_clients.snowflake import SnowflakeClient
 
