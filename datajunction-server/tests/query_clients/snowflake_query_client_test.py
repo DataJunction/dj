@@ -1,8 +1,40 @@
 """Test SnowflakeClient."""
 
 from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
 
 import pytest
+
+from datajunction_server.models.query import QueryCreate
+from datajunction_server.typing import QueryState
+
+
+@pytest.mark.asyncio
+async def test_submit_query_returns_rows_and_closes_connection():
+    from datajunction_server.query_clients.snowflake import SnowflakeClient
+
+    with patch("datajunction_server.query_clients.snowflake.SNOWFLAKE_AVAILABLE", True):
+        client = SnowflakeClient(account="test", user="test")
+    cursor = MagicMock()
+    cursor.description = [SimpleNamespace(name="total", type_code="NUMBER")]
+    cursor.fetchall.return_value = [(42,)]
+    connection = MagicMock()
+    connection.cursor.return_value.__enter__.return_value = cursor
+    client._get_connection = MagicMock(return_value=connection)
+    query = QueryCreate(
+        catalog_name="warehouse",
+        engine_name="snowflake",
+        engine_version="1",
+        submitted_query="SELECT 42 AS total",
+    )
+
+    result = await client.submit_query(query)
+
+    assert result.state == QueryState.FINISHED
+    assert result.results.root[0].rows == [(42,)]
+    assert result.results.root[0].columns[0].name == "total"
+    cursor.execute.assert_called_once_with(query.submitted_query)
+    connection.close.assert_called_once()
 
 
 def test_snowflake_client_import_error():

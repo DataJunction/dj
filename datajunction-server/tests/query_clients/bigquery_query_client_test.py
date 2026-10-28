@@ -6,6 +6,35 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from datajunction_server.models.query import QueryCreate
+from datajunction_server.typing import QueryState
+
+
+@pytest.mark.asyncio
+async def test_submit_query_returns_rows():
+    client = _make_client()
+    result_rows = MagicMock()
+    result_rows.schema = [MagicMock(name="total", field_type="INTEGER")]
+    result_rows.schema[0].name = "total"
+    result_rows.__iter__.return_value = iter([(42,)])
+    backend = MagicMock()
+    backend.query.return_value.result.return_value = result_rows
+    client._get_client = MagicMock(return_value=backend)
+    query = QueryCreate(
+        catalog_name="warehouse",
+        engine_name="bigquery",
+        engine_version="1",
+        submitted_query="SELECT 42 AS total",
+    )
+
+    result = await client.submit_query(query)
+
+    assert result.state == QueryState.FINISHED
+    assert result.results.root[0].rows == [(42,)]
+    assert result.results.root[0].columns[0].name == "total"
+    backend.query.assert_called_once_with(query.submitted_query)
+    backend.close.assert_called_once()
+
 
 def test_bigquery_available_true_when_package_importable():
     """BIGQUERY_AVAILABLE is True when google-cloud-bigquery can be imported."""

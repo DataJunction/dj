@@ -22,6 +22,7 @@ from datajunction_server.api import semantic_layer as semantic_layer_api
 from datajunction_server.api.semantic_layer import (
     ColumnInfo,
     GeneratedSQLResponse,
+    PreparedSemanticQuery,
     MAX_ROW_LIMIT,
     FilterPayload,
     GroupLimitPayload,
@@ -30,6 +31,7 @@ from datajunction_server.api.semantic_layer import (
     _arrow_type_name,
     _active_git_namespaces,
     _cube_summaries,
+    _catalog_error,
     _dimensions_payload,
     _discovery_filter,
     _execute_sql,
@@ -42,6 +44,7 @@ from datajunction_server.api.semantic_layer import (
     _build_ranked_groups_sql,
     _metrics_payload,
     _path_filter,
+    _physical_catalogs,
     _quote_value,
     _view_scopes,
     _view_payload,
@@ -500,6 +503,33 @@ def test_postgres_semantic_sql_omits_catalog_from_physical_tables(
     assert "FROM dj_metadata.public" not in executable
     assert "JOIN dj_metadata.public" not in executable
     assert "'dj_metadata.public.node'" in executable
+
+
+def test_postgres_rejects_physical_tables_in_another_catalog():
+    generated_sql = V3GeneratedSQL(
+        query=parse(
+            "SELECT * FROM dj_metadata.public.node AS n "
+            "JOIN other_catalog.public.node AS o ON n.id = o.id",
+        ),
+        columns=[],
+        dialect=Dialect.POSTGRES,
+    )
+    catalogs = _physical_catalogs(generated_sql)
+    assert catalogs == {"dj_metadata", "other_catalog"}
+    generated = GeneratedSQLResponse(
+        sql=_executable_sql(generated_sql),
+        dialect="postgres",
+        columns=[],
+        cube_name=None,
+    )
+    error = _catalog_error(
+        generated,
+        catalogs,
+        SimpleNamespace(catalog_name="dj_metadata"),
+    )
+    assert error is not None
+    assert error.status_code == 400
+    assert "other_catalog" in error.body.decode()
 
 
 @pytest.mark.asyncio
@@ -2138,6 +2168,23 @@ async def test_semantic_git_discovery_and_view_filtering(
     )
     assert denied_plain.status_code == 404
 
+    denied_view = "demo.metrics.main"
+    named_requests = {
+        "": {},
+        "/sql": {"query": {"metrics": ["sem.total_amount"]}},
+        "/query": {"query": {"metrics": ["sem.total_amount"]}},
+        "/row-count": {"query": {"metrics": ["sem.total_amount"]}},
+        "/values": {"dimension": "sem.region.region_name"},
+        "/compatible-metrics": {},
+        "/compatible-dimensions": {},
+    }
+    for suffix, body in named_requests.items():
+        response = await client.post(
+            f"/semantic/views/{denied_view}{suffix}",
+            json=body,
+        )
+        assert response.status_code == 404, (suffix, response.text)
+
 
 @pytest.mark.asyncio
 async def test_scoped_discovery_uses_ancestor_branch(
@@ -2695,6 +2742,20 @@ async def test_semantic_validation_uses_problem_details(client: AsyncClient):
     ]
     resp = await client.post(
         "/semantic/views/any_view/query",
+        json={
+            "query": {
+                "metrics": ["m"],
+                "group_limit": {"dimensions": ["d"], "top": 1, "tops": 2},
+            },
+        },
+    )
+    assert resp.status_code == 422
+    assert any(
+        item["name"] == "/query/group_limit/tops"
+        for item in resp.json()["invalid_params"]
+    )
+    resp = await client.post(
+        "/semantic/views/any_view/query",
         json={"query": {"metrics": ["m"], "limt": 1}},
     )
     assert resp.status_code == 422
@@ -2725,14 +2786,10 @@ async def test_compatibility_rejects_unknown_selection(
 
 
 @pytest.mark.asyncio
-async def test_execution_preserves_empty_schema_and_reports_failure(monkeypatch):
+async def test_execution_preserves_empty_schema_and_reports_failure():
     context = SimpleNamespace(
         engine=SimpleNamespace(name="trino", version="451"),
         catalog_name="semcat",
-    )
-    monkeypatch.setattr(
-        "datajunction_server.api.semantic_layer.resolve_dialect_and_engine_for_metrics",
-        AsyncMock(return_value=context),
     )
     generated = GeneratedSQLResponse(
         sql="SELECT region_name FROM sem.regions",
@@ -2747,8 +2804,8 @@ async def test_execution_preserves_empty_schema_and_reports_failure(monkeypatch)
     )
     service = SimpleNamespace(submit_query=AsyncMock(return_value=result))
     request = Request({"type": "http", "headers": []})
-    payload = QueryPayload(dimensions=["sem.region.region_name"])
-    response = await _execute_sql(None, None, payload, generated, request, service)
+    prepared = PreparedSemanticQuery(generated, context)
+    response = await _execute_sql(prepared, request, service)
     assert response.model_dump(by_alias=True)["results"] == {
         "schema": [{"name": "region_name", "type": "utf8"}],
         "rows": [],
@@ -2756,17 +2813,17 @@ async def test_execution_preserves_empty_schema_and_reports_failure(monkeypatch)
 
     result.state = QueryState.FAILED
     result.errors = ["Warehouse query failed"]
-    response = await _execute_sql(None, None, payload, generated, request, service)
+    response = await _execute_sql(prepared, request, service)
     assert response.status_code == 500
     assert response.body == (
         b'{"type":"about:blank","title":"Internal Server Error",'
         b'"status":500,"detail":"Warehouse query failed"}'
     )
 
-    response = await _execute_sql(None, None, payload, generated, request, None)
+    response = await _execute_sql(prepared, request, None)
     assert response.status_code == 503
     service.submit_query.side_effect = NotImplementedError()
-    response = await _execute_sql(None, None, payload, generated, request, service)
+    response = await _execute_sql(prepared, request, service)
     assert response.status_code == 501
 
 

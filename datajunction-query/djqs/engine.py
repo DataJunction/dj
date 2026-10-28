@@ -219,7 +219,9 @@ def serialize_for_json(obj):
     if isinstance(obj, (date, datetime)):
         return obj.isoformat()
     if isinstance(obj, Decimal):
-        return int(obj) if obj == obj.to_integral_value() else float(obj)
+        # JSON has no decimal type. Keep fractional values exact as strings;
+        # integral aggregates remain numeric for count-like metrics.
+        return int(obj) if obj == obj.to_integral_value() else str(obj)
     return obj
 
 

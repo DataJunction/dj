@@ -12,6 +12,11 @@ from datajunction_server.errors import (
     DJQueryServiceClientException,
 )
 from datajunction_server.query_clients.base import BaseQueryServiceClient
+from datajunction_server.models.query import (
+    ColumnMetadata,
+    QueryCreate,
+    QueryWithResults,
+)
 from datajunction_server.sql.parsing.types import ColumnType
 
 if TYPE_CHECKING:
@@ -98,6 +103,34 @@ class SnowflakeClient(BaseQueryServiceClient):
     def _get_connection(self):
         """Get a Snowflake connection."""
         return snowflake.connector.connect(**self.connection_params)
+
+    async def submit_query(
+        self,
+        query_create: QueryCreate,
+        request_headers: dict[str, str] | None = None,
+    ) -> QueryWithResults:
+        """Execute SQL with the configured Snowflake connection."""
+
+        def _fetch() -> tuple[list[ColumnMetadata], list[tuple[Any, ...]]]:
+            conn = self._get_connection()
+            try:
+                with conn.cursor() as cursor:
+                    cursor.execute(query_create.submitted_query)
+                    columns = [
+                        ColumnMetadata(name=col.name, type=str(col.type_code))
+                        for col in cursor.description or []
+                    ]
+                    return columns, [tuple(row) for row in cursor.fetchall()]
+            finally:
+                conn.close()
+
+        try:
+            columns, rows = await asyncio.to_thread(_fetch)
+        except Exception as exc:
+            raise DJQueryServiceClientException(
+                message=f"Snowflake query failed: {exc}",
+            ) from exc
+        return self._finished_query(query_create, columns, rows)
 
     def _get_database_from_engine(self, engine, fallback_catalog: str) -> str:
         """

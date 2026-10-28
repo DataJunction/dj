@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
+from uuid import uuid4
 from typing import TYPE_CHECKING, Any
 
 from datajunction_server.database.column import Column
@@ -18,8 +19,15 @@ from datajunction_server.models.materialization import (
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import PartitionBackfill
 from datajunction_server.models.preaggregation import PreAggMaterializationInput
-from datajunction_server.models.query import QueryCreate, QueryWithResults
+from datajunction_server.models.query import (
+    ColumnMetadata,
+    QueryCreate,
+    QueryResults,
+    QueryWithResults,
+    StatementResults,
+)
 from datajunction_server.models.table_metadata import TableMetadata
+from datajunction_server.typing import QueryState
 
 if TYPE_CHECKING:
     from datajunction_server.database.engine import Engine
@@ -126,6 +134,33 @@ class BaseQueryServiceClient(ABC):
         """Submit a query to the query service."""
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support query submission",
+        )
+
+    @staticmethod
+    def _finished_query(
+        query: QueryCreate,
+        columns: list[ColumnMetadata],
+        rows: list[tuple[Any, ...]],
+    ) -> QueryWithResults:
+        """Use the same result envelope as the HTTP query service."""
+        return QueryWithResults(
+            id=str(uuid4()),
+            engine_name=query.engine_name,
+            engine_version=query.engine_version,
+            submitted_query=query.submitted_query,
+            executed_query=query.submitted_query,
+            state=QueryState.FINISHED,
+            progress=1.0,
+            results=QueryResults(
+                root=[
+                    StatementResults(
+                        sql=query.submitted_query,
+                        columns=columns,
+                        rows=rows,
+                        row_count=len(rows),
+                    ),
+                ],
+            ),
         )
 
     async def get_query(

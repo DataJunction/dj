@@ -40,4 +40,7 @@ def test_serialize_other_types():
 
 def test_serialize_decimal_values_in_query_rows():
     rows = [(Decimal("42"), Decimal("12.25"), date(2023, 4, 5))]
-    assert serialize_for_json(rows) == [[42, 12.25, "2023-04-05"]]
+    assert serialize_for_json(rows) == [[42, "12.25", "2023-04-05"]]
+    assert serialize_for_json(Decimal("0.123456789012345678901")) == (
+        "0.123456789012345678901"
+    )

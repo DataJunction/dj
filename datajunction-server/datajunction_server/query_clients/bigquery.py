@@ -12,6 +12,11 @@ from datajunction_server.errors import (
     DJQueryServiceClientException,
 )
 from datajunction_server.query_clients.base import BaseQueryServiceClient
+from datajunction_server.models.query import (
+    ColumnMetadata,
+    QueryCreate,
+    QueryWithResults,
+)
 from datajunction_server.sql.parsing.types import ColumnType
 
 if TYPE_CHECKING:
@@ -101,6 +106,34 @@ class BigQueryClient(BaseQueryServiceClient):
             location=self.location,
             **self._connection_kwargs,
         )
+
+    async def submit_query(
+        self,
+        query_create: QueryCreate,
+        request_headers: dict[str, str] | None = None,
+    ) -> QueryWithResults:
+        """Execute SQL with the configured BigQuery project."""
+
+        def _fetch() -> tuple[list[ColumnMetadata], list[tuple[Any, ...]]]:
+            client = self._get_client()
+            try:
+                job = client.query(query_create.submitted_query)
+                result = job.result()
+                columns = [
+                    ColumnMetadata(name=field.name, type=field.field_type)
+                    for field in result.schema
+                ]
+                return columns, [tuple(row) for row in result]
+            finally:
+                client.close()
+
+        try:
+            columns, rows = await asyncio.to_thread(_fetch)
+        except Exception as exc:
+            raise DJQueryServiceClientException(
+                message=f"BigQuery query failed: {exc}",
+            ) from exc
+        return self._finished_query(query_create, columns, rows)
 
     def _get_project_from_engine(
         self,

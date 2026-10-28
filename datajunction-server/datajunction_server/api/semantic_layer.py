@@ -5,10 +5,12 @@ cubes (each cube = a "view").
 Spec: https://github.com/betodealmeida/sl-db-engine-spec/blob/main/server/SPEC.md
 
 ``/views/{view}/sql`` returns physical SQL + dialect for external clients;
-the spec's data endpoints execute that SQL through DJQS. Mounted at ``/semantic``.
+the spec's data endpoints execute that SQL through the configured query client.
+Mounted at ``/semantic``.
 """
 
 import logging
+from dataclasses import dataclass
 from http import HTTPStatus
 from typing import Any
 
@@ -24,6 +26,7 @@ from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.user import User
 from datajunction_server.construction.build_v3.cube_matcher import (
+    ResolvedExecutionContext,
     resolve_dialect_and_engine_for_metrics,
 )
 from datajunction_server.errors import DJException, DJInvalidMetricQueryException
@@ -377,7 +380,7 @@ class FilterPayload(RequestModel):
     value: Any = None
 
 
-class GroupLimitPayload(BaseModel):
+class GroupLimitPayload(RequestModel):
     """Top or bottom groups selected independently of the displayed rows.
 
     GROUP_OTHERS currently uses the fixed label ``Others``. A real ranked value
@@ -525,6 +528,14 @@ class GeneratedSQLResponse(BaseModel):
     dialect: str
     columns: list[ColumnInfo]
     cube_name: str | None
+
+
+@dataclass
+class PreparedSemanticQuery:
+    """SQL and the exact execution target selected for this request."""
+
+    generated: GeneratedSQLResponse
+    execution: ResolvedExecutionContext
 
 
 class RequestInfo(BaseModel):
@@ -1018,8 +1029,11 @@ async def get_view(
     view_name: str,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> ViewDetail | JSONResponse:
     """Describe a single semantic view: its metrics and dimensions."""
+    if not await _can_read_view(view_name, access_checker):
+        return _problem(404, f"View `{view_name}` does not exist.")
     try:
         cube_node = await Node.get_cube_by_name(
             session,
@@ -1031,6 +1045,13 @@ async def get_view(
     if cube_node is None or cube_node.current is None:
         return _problem(404, f"View `{view_name}` does not exist.")
     return _view_payload(cube_node.current)
+
+
+async def _can_read_view(view_name: str, access_checker: AccessChecker) -> bool:
+    """Apply the same cube READ decision used by view discovery."""
+    access_checker.add_request_by_node_name(view_name, ResourceAction.READ)
+    approved = await access_checker.approved_resource_keys()
+    return (ResourceType.NODE, view_name) in approved
 
 
 def _limit_to_ranked_groups(
@@ -1141,7 +1162,7 @@ async def _generate_sql(
     cube_rev: NodeRevision,
     row_count: bool = False,
     unlimited: bool = False,
-) -> GeneratedSQLResponse:
+) -> tuple[GeneratedSQLResponse, set[str]]:
     """Generate physical SQL pinned to this cube (``matched_cube=cube_rev``), so
     we don't let ``find_matching_cube`` pick a different/differently-filtered
     materialization.
@@ -1242,6 +1263,7 @@ async def _generate_sql(
     # Render with DJ's dialect rules and remove catalog qualifiers when the
     # target is PostgreSQL. Return the dialect so callers know which engine to run.
     columns = generated_sql.columns or []
+    physical_catalogs = _physical_catalogs(generated_sql)
     return GeneratedSQLResponse(
         sql=_executable_sql(generated_sql),
         dialect=generated_sql.dialect.value,
@@ -1250,7 +1272,61 @@ async def _generate_sql(
             for col in columns
         ],
         cube_name=generated_sql.cube_name,
+    ), physical_catalogs
+
+
+def _physical_catalogs(generated_sql: V3GeneratedSQL) -> set[str]:
+    """Catalog qualifiers on physical tables, excluding local CTE references."""
+    return {
+        identifier.split(".", 1)[0]
+        for table in generated_sql.query.find_all(ast.Table)
+        if (identifier := table.identifier(quotes=False)).count(".") == 2
+    }
+
+
+def _catalog_error(
+    generated: GeneratedSQLResponse,
+    physical_catalogs: set[str],
+    execution: ResolvedExecutionContext,
+) -> JSONResponse | None:
+    if generated.dialect == Dialect.POSTGRES.value and physical_catalogs - {
+        execution.catalog_name,
+    }:
+        return _problem(
+            400,
+            "PostgreSQL query references a catalog outside its execution database: "
+            + ", ".join(sorted(physical_catalogs - {execution.catalog_name})),
+        )
+    return None
+
+
+async def _prepare_execution(
+    session: AsyncSession,
+    cube_rev: NodeRevision,
+    payload: QueryPayload,
+    *,
+    row_count: bool = False,
+    unlimited: bool = False,
+) -> PreparedSemanticQuery | JSONResponse:
+    """Generate SQL, choose its execution target, and validate catalog scope."""
+    generated, physical_catalogs = await _generate_sql(
+        session,
+        payload,
+        cube_rev,
+        row_count=row_count,
+        unlimited=unlimited,
     )
+    execution = await resolve_dialect_and_engine_for_metrics(
+        session=session,
+        metrics=payload.metrics,
+        dimensions=payload.dimensions,
+        matched_cube=cube_rev,
+        use_materialized=payload.group_limit is None,
+        dialect_override=Dialect(generated.dialect),
+    )
+    if error := _catalog_error(generated, physical_catalogs, execution):
+        return error
+    return PreparedSemanticQuery(generated, execution)
 
 
 def _executable_sql(generated_sql: V3GeneratedSQL) -> str:
@@ -1273,7 +1349,7 @@ async def _prepare_view_sql(
     payload: QueryPayload,
     session: AsyncSession,
     row_count: bool = False,
-) -> tuple[GeneratedSQLResponse, NodeRevision] | JSONResponse:
+) -> PreparedSemanticQuery | JSONResponse:
     """Validate and generate SQL for a semantic view query."""
     if payload.offset:
         return _problem(
@@ -1374,10 +1450,14 @@ async def _prepare_view_sql(
             return _problem(400, "Filter `type` must be WHERE or HAVING.")
         if any(o.direction.upper() not in {"ASC", "DESC"} for o in payload.order):
             return _problem(400, "Order `direction` must be ASC or DESC.")
-        result = await _generate_sql(session, payload, cube_rev, row_count=row_count)
+        return await _prepare_execution(
+            session,
+            cube_rev,
+            payload,
+            row_count=row_count,
+        )
     except DJException as exc:
         return _problem(exc.http_status_code or 400, exc.message)
-    return result, cube_rev
 
 
 async def _generate_view_sql(
@@ -1388,28 +1468,20 @@ async def _generate_view_sql(
 ) -> GeneratedSQLResponse | JSONResponse:
     """Expose the prepared SQL for the DJ-specific /sql endpoint."""
     prepared = await _prepare_view_sql(view_name, payload, session, row_count)
-    return prepared if isinstance(prepared, JSONResponse) else prepared[0]
+    return prepared if isinstance(prepared, JSONResponse) else prepared.generated
 
 
 async def _execute_sql(
-    session: AsyncSession,
-    cube_rev: NodeRevision,
-    payload: QueryPayload,
-    generated: GeneratedSQLResponse,
+    prepared: PreparedSemanticQuery,
     request: Request,
     query_service_client: QueryServiceClient,
 ) -> SemanticResult | JSONResponse:
-    """Execute prepared SQL on its resolved dialect and convert DJQS rows."""
+    """Execute prepared SQL on its resolved engine and convert result rows."""
     if query_service_client is None:
         return _problem(503, "No query service is configured.")
+    generated = prepared.generated
+    context = prepared.execution
     try:
-        context = await resolve_dialect_and_engine_for_metrics(
-            session=session,
-            metrics=payload.metrics,
-            dimensions=payload.dimensions,
-            matched_cube=cube_rev,
-            dialect_override=Dialect(generated.dialect),
-        )
         query = QueryCreate(
             engine_name=context.engine.name,
             engine_version=context.engine.version,
@@ -1449,8 +1521,11 @@ async def generate_query_sql(
     body: QueryRequest,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> GeneratedSQLResponse | JSONResponse:
     """Generate physical SQL for a view query."""
+    if not await _can_read_view(view_name, access_checker):
+        return _problem(404, f"View `{view_name}` does not exist.")
     return await _generate_view_sql(view_name, body.query, session)
 
 
@@ -1462,20 +1537,15 @@ async def execute_query(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> SemanticResult | JSONResponse:
     """Run a semantic query and return its data."""
+    if not await _can_read_view(view_name, access_checker):
+        return _problem(404, f"View `{view_name}` does not exist.")
     prepared = await _prepare_view_sql(view_name, body.query, session)
     if isinstance(prepared, JSONResponse):
         return prepared
-    generated, cube_rev = prepared
-    return await _execute_sql(
-        session,
-        cube_rev,
-        body.query,
-        generated,
-        request,
-        query_service_client,
-    )
+    return await _execute_sql(prepared, request, query_service_client)
 
 
 @router.post("/views/{view_name}/row-count", response_model=SemanticResult)
@@ -1486,20 +1556,15 @@ async def get_row_count(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> SemanticResult | JSONResponse:
     """Count rows in the semantic query's result."""
+    if not await _can_read_view(view_name, access_checker):
+        return _problem(404, f"View `{view_name}` does not exist.")
     prepared = await _prepare_view_sql(view_name, body.query, session, row_count=True)
     if isinstance(prepared, JSONResponse):
         return prepared
-    generated, cube_rev = prepared
-    return await _execute_sql(
-        session,
-        cube_rev,
-        body.query,
-        generated,
-        request,
-        query_service_client,
-    )
+    return await _execute_sql(prepared, request, query_service_client)
 
 
 @router.post("/views/{view_name}/values", response_model=SemanticResult)
@@ -1510,8 +1575,11 @@ async def get_values(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> SemanticResult | JSONResponse:
     """Return a dimension's distinct values, optionally filtered."""
+    if not await _can_read_view(view_name, access_checker):
+        return _problem(404, f"View `{view_name}` does not exist.")
     try:
         cube_node = await Node.get_cube_by_name(session, view_name)
     except DJException as exc:
@@ -1544,17 +1612,12 @@ async def get_values(
         filters=body.filters,
     )
     try:
-        generated = await _generate_sql(session, query, cube_rev, unlimited=True)
+        prepared = await _prepare_execution(session, cube_rev, query, unlimited=True)
     except DJException as exc:
         return _problem(exc.http_status_code or 400, exc.message)
-    return await _execute_sql(
-        session,
-        cube_rev,
-        query,
-        generated,
-        request,
-        query_service_client,
-    )
+    if isinstance(prepared, JSONResponse):
+        return prepared
+    return await _execute_sql(prepared, request, query_service_client)
 
 
 async def _compatible_elements(
@@ -1597,8 +1660,11 @@ async def compatible_metrics(
     body: CompatibilityRequest,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> list[MetricInfo] | JSONResponse:
     """Return every metric exposed by this cube."""
+    if not await _can_read_view(view_name, access_checker):
+        return _problem(404, f"View `{view_name}` does not exist.")
     return await _compatible_elements(view_name, body, session, metrics=True)
 
 
@@ -1611,6 +1677,9 @@ async def compatible_dimensions(
     body: CompatibilityRequest,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> list[DimensionInfo] | JSONResponse:
     """Return every dimension exposed by this cube."""
+    if not await _can_read_view(view_name, access_checker):
+        return _problem(404, f"View `{view_name}` does not exist.")
     return await _compatible_elements(view_name, body, session, metrics=False)
