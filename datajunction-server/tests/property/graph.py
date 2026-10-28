@@ -176,8 +176,7 @@ async def metrics_sql(
         for filter_ in scenario.filters
     ]
     if parenthesize_filters:
-        # Combining an unparenthesized OR with another filter is
-        # known_issues.PRINTER_DROPS_PARENTHESES.
+        # Callers may pass OR filters bare; the builder groups them.
         filters = [f"({f})" for f in filters]
     response = await client.get(
         "/sql/metrics/v3/",

@@ -21,10 +21,7 @@ from tests.property.graph import (
     metrics_sql,
     reference,
 )
-from tests.property.known_issues import (
-    FILTER_PUSHED_PAST_LEFT_JOIN,
-    PRINTER_DROPS_PARENTHESES,
-)
+from tests.property.known_issues import FILTER_PUSHED_PAST_LEFT_JOIN
 from tests.property.scenario import (
     METRIC_BY_DEFINITION,
     FilterAtom,
@@ -163,8 +160,7 @@ async def test_derived_metric_division_by_zero_returns_null(
 
 
 @pytest.mark.asyncio
-@PRINTER_DROPS_PARENTHESES.xfail()
-async def test_known_issue_or_filter_combined_with_another_filter(
+async def test_or_filter_combined_with_another_filter(
     module__client_with_roads: AsyncClient,
     duckdb_conn: duckdb.DuckDBPyConnection,
 ):
