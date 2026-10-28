@@ -252,6 +252,7 @@ async def generate_metrics_sql(
         enforce_filter_requirements=enforce_filter_requirements,
     )
     resolved_dialect = prepared.dialect
+    merged_filters = prepared.filters.filters
     # Only reuse the resolved cube if the caller didn't provide one.
     if matched_cube is None and prepared.execution is not None:
         matched_cube = prepared.execution.cube
