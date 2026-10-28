@@ -247,6 +247,24 @@ async def test_build_sql_for_multiple_metrics(
 
 
 @pytest.mark.asyncio
+async def test_find_required_dimensions_without_attributes_loads_no_graph():
+    """Nothing to check means no queries, even when parents are given."""
+    session = MagicMock()
+    with (
+        patch.object(helpers, "find_upstream_node_names", side_effect=AssertionError),
+        patch.object(helpers, "load_filter_graph", side_effect=AssertionError),
+    ):
+        result = await find_required_dimensions(
+            session,
+            [],
+            [],
+            parent_names={"v3.parent"},
+        )
+    assert result == (set(), [])
+    session.execute.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_find_required_dimensions_with_role_suffix(
     module__client_with_examples,
     module__session: AsyncSession,

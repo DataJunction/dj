@@ -462,7 +462,7 @@ async def find_required_dimensions(
         dim_nodes = {node.name: node for node in result.scalars().all()}
 
     filter_graph = None
-    if parent_names is not None:
+    if parent_names is not None and required_dimensions:
         _, parent_map = await find_upstream_node_names(session, sorted(parent_names))
         filter_graph = await load_filter_graph(
             session,

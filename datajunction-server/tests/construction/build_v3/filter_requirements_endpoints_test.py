@@ -72,6 +72,35 @@ async def test_sql_rejects_missing_required_filter(client_with_build_v3):
 
 
 @pytest.mark.asyncio
+async def test_default_does_not_weaken_a_caller_or_filter(client_with_build_v3):
+    await _make_metric(
+        client_with_build_v3,
+        "v3.ep_or",
+        required_filters=[
+            {"dimension": "v3.date.date_id", "default": "v3.date.date_id = 20250101"},
+        ],
+    )
+    response = await client_with_build_v3.get(
+        "/sql/metrics/v3/",
+        params={
+            "metrics": ["v3.ep_or"],
+            "dimensions": ["v3.location.country"],
+            "filters": [
+                "v3.order_details.status = 'a' OR v3.order_details.status = 'b'",
+            ],
+        },
+    )
+    assert response.status_code == 200
+    assert_sql_equal(
+        response.json()["sql"],
+        _expected_sql(20250101, "ep_or").replace(
+            "WHERE o.order_date = 20250101",
+            "WHERE (o.status = 'a' OR o.status = 'b') AND o.order_date = 20250101",
+        ),
+    )
+
+
+@pytest.mark.asyncio
 async def test_sql_applies_default_and_reports_it(client_with_build_v3):
     await _make_metric(
         client_with_build_v3,
