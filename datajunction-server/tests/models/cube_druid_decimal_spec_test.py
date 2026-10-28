@@ -7,7 +7,13 @@ import pytest
 from datajunction_server.api.cubes import _build_metrics_spec
 from datajunction_server.models.cube_materialization import CombineMaterialization
 from datajunction_server.models.decompose import AggregationRule, MetricComponent
-from datajunction_server.models.materialization import find_druid_aggregator
+from datajunction_server.models.materialization import (
+    DruidMeasuresCubeConfig,
+    DruidMetricsCubeConfig,
+    Measure,
+    MetricMeasures,
+    find_druid_aggregator,
+)
 from datajunction_server.models.node_type import NodeNameVersion
 from datajunction_server.models.partition import Granularity
 from datajunction_server.models.query import ColumnMetadata
@@ -112,3 +118,61 @@ def test_cube_api_maps_decimal_sum_to_double_sum():
         measure_components=[_measure("mvs_sum", "SUM")],
         component_aliases={},
     ) == [{"fieldName": "mvs_sum", "name": "mvs_sum", "type": "doubleSum"}]
+
+
+class TestCubeConfigDecimalMetricsSpec:
+    """The older cube config classes look types up separately from the combiner."""
+
+    def test_measures_config_keeps_decimal_measure(self):
+        """A decimal measure gets an aggregator and is not made a dimension."""
+        config = DruidMeasuresCubeConfig.model_construct(
+            dimensions=["order_date"],
+            measures={
+                "some.metric": MetricMeasures.model_construct(
+                    metric="some.metric",
+                    combiner="x",
+                    measures=[
+                        Measure(
+                            name="mvs_sum",
+                            field_name="mvs_sum",
+                            agg="sum",
+                            type="decimal(19, 6)",
+                        ),
+                        Measure(
+                            name="starter_cnt_sum",
+                            field_name="starter_cnt_sum",
+                            agg="sum",
+                            type="bigint",
+                        ),
+                    ],
+                ),
+            },
+        )
+
+        assert config.metrics_spec() == {
+            "mvs_sum": {"fieldName": "mvs_sum", "name": "mvs_sum", "type": "doubleSum"},
+            "starter_cnt_sum": {
+                "fieldName": "starter_cnt_sum",
+                "name": "starter_cnt_sum",
+                "type": "longSum",
+            },
+        }
+        assert config.dimensions == ["order_date"]
+
+    def test_metrics_config_keeps_decimal_metric(self):
+        """A decimal metric is summed as a double."""
+        config = DruidMetricsCubeConfig.model_construct(
+            metrics=[
+                ColumnMetadata(name="mvs", type="decimal(19, 6)"),
+                ColumnMetadata(name="starters", type="bigint"),
+            ],
+        )
+
+        assert config.metrics_spec() == {
+            "mvs": {"fieldName": "mvs", "name": "mvs", "type": "doubleSum"},
+            "starters": {
+                "fieldName": "starters",
+                "name": "starters",
+                "type": "longSum",
+            },
+        }
