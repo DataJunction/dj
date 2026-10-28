@@ -3418,6 +3418,7 @@ class SelectExpression(Aliasable, Expression):
         "lateral_views",
         "set_op",
         "limit",
+        "offset",
         "organization",
         "hints",
     )
@@ -3431,6 +3432,7 @@ class SelectExpression(Aliasable, Expression):
     lateral_views: list[LateralView] = field(default_factory=list)
     set_op: SetOp | None = None
     limit: Expression | None = None
+    offset: Expression | None = None
     organization: Organization | None = None
     hints: list[Hint] | None = None
 
@@ -3536,6 +3538,7 @@ class Select(SelectExpression):
         "lateral_views",
         "set_op",
         "limit",
+        "offset",
         "organization",
         "hints",
     )
@@ -3567,6 +3570,8 @@ class Select(SelectExpression):
             select += f"\n{self.organization}"
         if self.limit:
             select += f"\nLIMIT {self.limit}"
+        if self.offset:
+            select += f"\nOFFSET {self.offset}"
 
         if self.alias:
             as_ = " AS " if self.as_ else " "

@@ -127,8 +127,9 @@ class SnowflakeClient(BaseQueryServiceClient):
         try:
             columns, rows = await asyncio.to_thread(_fetch)
         except Exception as exc:
+            _logger.exception("Snowflake query failed")
             raise DJQueryServiceClientException(
-                message=f"Snowflake query failed: {exc}",
+                message="Snowflake query failed.",
             ) from exc
         return self._finished_query(query_create, columns, rows)
 

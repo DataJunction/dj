@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from datajunction_server.models.query import QueryCreate
+from datajunction_server.errors import DJQueryServiceClientException
 from datajunction_server.typing import QueryState
 
 
@@ -34,6 +35,21 @@ async def test_submit_query_returns_rows():
     assert result.results.root[0].columns[0].name == "total"
     backend.query.assert_called_once_with(query.submitted_query)
     backend.close.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_submit_query_hides_driver_error():
+    client = _make_client()
+    client._get_client = MagicMock(side_effect=RuntimeError("secret project"))
+    query = QueryCreate(
+        catalog_name="warehouse",
+        engine_name="bigquery",
+        engine_version="1",
+        submitted_query="SELECT 1",
+    )
+    with pytest.raises(DJQueryServiceClientException) as exc:
+        await client.submit_query(query)
+    assert "secret" not in str(exc.value)
 
 
 def test_bigquery_available_true_when_package_importable():

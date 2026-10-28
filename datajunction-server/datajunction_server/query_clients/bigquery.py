@@ -130,8 +130,9 @@ class BigQueryClient(BaseQueryServiceClient):
         try:
             columns, rows = await asyncio.to_thread(_fetch)
         except Exception as exc:
+            _logger.exception("BigQuery query failed")
             raise DJQueryServiceClientException(
-                message=f"BigQuery query failed: {exc}",
+                message="BigQuery query failed.",
             ) from exc
         return self._finished_query(query_create, columns, rows)
 
