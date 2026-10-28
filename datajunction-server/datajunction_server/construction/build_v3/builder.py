@@ -611,6 +611,13 @@ async def build_metrics_sql(
         lookback_window=lookback_window,
     )
 
+    if group_others is not None:
+        from datajunction_server.construction.build_v3.group_others import (
+            validate_group_others_window_order,
+        )
+
+        validate_group_others_window_order(ctx, group_others)
+
     if not metrics:
         # Imported lazily because node_query also uses the shared ordering helper
         # from this module.

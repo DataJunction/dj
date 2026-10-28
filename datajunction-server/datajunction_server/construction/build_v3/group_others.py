@@ -9,10 +9,14 @@ from typing import cast
 from datajunction_server.construction.build_v3.decomposition import (
     _reaggregate_dimension_requested,
 )
+from datajunction_server.construction.build_v3.filters import (
+    dimension_ref_of_expression,
+)
 from datajunction_server.construction.build_v3.ranked_groups import (
     ranked_tuple_join,
 )
 from datajunction_server.construction.build_v3.types import (
+    BuildContext,
     ColumnMetadata,
     GeneratedMeasuresSQL,
     GeneratedSQL,
@@ -27,7 +31,6 @@ from datajunction_server.errors import (
     DJInvalidInputException,
     DJInvalidMetricQueryException,
 )
-from datajunction_server.models.decompose import Aggregability
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.types import StringType
 
@@ -174,6 +177,26 @@ def _non_decomposable_input_names(
     return names
 
 
+def validate_group_others_window_order(
+    ctx: BuildContext,
+    group_others: GroupOthers,
+) -> None:
+    """Reject bucketing a key needed to order a window metric."""
+    bucketed_dimensions = set(group_others.dimensions)
+    for metric_name, decomposed in ctx.decomposed_metrics.items():
+        query = ctx.get_parsed_query(decomposed.metric_node)
+        for function in query.find_all(ast.Function):
+            if not function.over or not function.over.order_by:
+                continue
+            for order_item in function.over.order_by:
+                order_dimension = dimension_ref_of_expression(order_item.expr)
+                if order_dimension in bucketed_dimensions:
+                    raise DJInvalidMetricQueryException(
+                        "GROUP_OTHERS cannot bucket window ordering dimension "
+                        f"`{order_dimension}` for metric `{metric_name}`.",
+                    )
+
+
 def _bucket_grain_group(
     group: GrainGroupSQL,
     ranked: GeneratedSQL,
@@ -237,7 +260,7 @@ def _bucket_grain_group(
         ranked_tuple_join(ranked_query, pairs, "LEFT OUTER"),
     )
 
-    # A selected dimension can also be a raw input to COUNT DISTINCT or a
+    # A selected dimension can also be a raw input to a component or a
     # non-decomposable metric. Preserve that input before displaying its bucket.
     raw_aliases_in_use = {name.lower() for name in occupied_names}
     raw_aliases_in_use.update(col.name.lower() for col in group.columns)
@@ -246,14 +269,12 @@ def _bucket_grain_group(
 
     for index, original, dimension in selected:
         alias = dimension_columns[dimension].name
-        raw_components = [
+        components_using_alias = [
             component
             for component in group.components
-            if component.rule.type == Aggregability.LIMITED
-            and not component.aggregation
-            and group.component_aliases.get(component.name) == alias
+            if group.component_aliases.get(component.name) == alias
         ]
-        if raw_components or alias in raw_metric_input_names:
+        if components_using_alias or alias in raw_metric_input_names:
             raw_alias = _preserve_raw_group_input(
                 group,
                 select,
@@ -262,7 +283,7 @@ def _bucket_grain_group(
                 index,
                 raw_aliases_in_use,
             )
-            for component in raw_components:
+            for component in components_using_alias:
                 group.component_aliases[component.name] = raw_alias
             if alias in raw_metric_input_names:
                 group.raw_metric_input_aliases[alias] = raw_alias
