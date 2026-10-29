@@ -178,3 +178,93 @@ async def test_measure_filter_is_still_pushed_when_another_role_is_joined(
         """,
         normalize_aliases=True,
     )
+
+
+@pytest.mark.asyncio
+async def test_role_less_label_filter_stays_blocked_beside_a_roled_one(
+    client_with_build_v3,
+):
+    """A label filter whose name matches the fact's int foreign key must not be
+    pushed onto that key, whether or not the same dimension is also requested
+    under a role."""
+    client = client_with_build_v3
+    resp = await client.post(
+        "/nodes/source/",
+        json={
+            "name": "v3.src_bot_events",
+            "columns": [
+                {"name": "account_id", "type": "int"},
+                {"name": "is_bot", "type": "int"},
+                {"name": "amount", "type": "double"},
+            ],
+            "mode": "published",
+            "catalog": "default",
+            "schema_": "v3",
+            "table": "bot_events",
+        },
+    )
+    assert resp.status_code in (200, 201), resp.json()
+    resp = await client.post(
+        "/nodes/transform/",
+        json={
+            "name": "v3.bot_events",
+            "query": "SELECT account_id, is_bot, amount FROM v3.src_bot_events",
+            "mode": "published",
+            "primary_key": ["account_id"],
+        },
+    )
+    assert resp.status_code == 201, resp.json()
+    resp = await client.post(
+        "/nodes/dimension/",
+        json={
+            "name": "v3.bot_label",
+            "query": (
+                "SELECT t.is_bot_key, t.is_bot "
+                "FROM (SELECT 0 AS is_bot_key, 'false' AS is_bot "
+                "UNION ALL SELECT 1, 'true') t"
+            ),
+            "mode": "published",
+            "primary_key": ["is_bot_key"],
+        },
+    )
+    assert resp.status_code == 201, resp.json()
+    for link in [
+        {"role": None},
+        {"role": "other"},
+    ]:
+        resp = await client.post(
+            "/nodes/v3.bot_events/link/",
+            json={
+                "dimension_node": "v3.bot_label",
+                "join_type": "left",
+                "join_on": "v3.bot_events.is_bot = v3.bot_label.is_bot_key",
+                **({"role": link["role"]} if link["role"] else {}),
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+    resp = await client.post(
+        "/nodes/metric/",
+        json={
+            "name": "v3.bot_amount",
+            "query": "SELECT SUM(amount) FROM v3.bot_events",
+            "mode": "published",
+        },
+    )
+    assert resp.status_code == 201, resp.json()
+
+    response = await client.get(
+        "/sql/measures/v3/",
+        params={
+            "metrics": ["v3.bot_amount"],
+            "dimensions": ["v3.bot_label.is_bot", "v3.bot_label.is_bot[other]"],
+            "filters": [
+                "v3.bot_label.is_bot = 'false'",
+                "v3.bot_label.is_bot[other] = 'false'",
+            ],
+        },
+    )
+    assert response.status_code == 200, response.json()
+    sql = get_first_grain_group(response.json())["sql"]
+    print("\n#### SQL\n", sql)
+    events_cte = sql.split("v3_bot_events AS (")[1].split(")")[0]
+    assert "'false'" not in events_cte

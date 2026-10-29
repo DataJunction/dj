@@ -1593,13 +1593,8 @@ def _resolve_pushdown_filters_for_cte(
     # ``local_aliases``.
     collision_cols = _fk_key_column_names(node) | (fk_collision_cols or set())
     blocked_refs: set[str] = set()
-    outer_only = outer_only_refs or set()
-    for ref in outer_only:
+    for ref in outer_only_refs or set():
         base = ref.split("[")[0]
-        # The role-less base is only a stand-in for the roles of that dimension,
-        # each of which is judged on its own below.
-        if ref == base and any(r.startswith(f"{base}[") for r in outer_only):
-            continue
         if ref in local_aliases or base in local_aliases:
             continue  # properly mapped locally (dim's own CTE / join key) — safe
         bare_col = effective_aliases.get(ref) or effective_aliases.get(base)
@@ -2103,8 +2098,18 @@ def _projection_output_name(proj: object) -> str | None:
 
 
 def _ref_is_blocked(ref: str, blocked_refs: set[str]) -> bool:
-    """Whether a filter's dim ref, role included, is in ``blocked_refs``."""
-    return ref in blocked_refs or ref.split("[")[0] in blocked_refs
+    """Whether a filter's dim ref is blocked.
+
+    A role-qualified ref is blocked by its own entry or a role-less one for the
+    dimension, not by another role's. A role-less ref is blocked by any role of
+    the dimension, since it can resolve through any of them.
+    """
+    if ref in blocked_refs:
+        return True
+    base = ref.split("[")[0]
+    if base != ref:
+        return base in blocked_refs
+    return any(blocked.startswith(f"{ref}[") for blocked in blocked_refs)
 
 
 def _filter_touches_blocked_ref(

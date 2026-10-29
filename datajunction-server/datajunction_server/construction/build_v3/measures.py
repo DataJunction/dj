@@ -557,18 +557,16 @@ def outer_only_filter_refs(
     parent's FK column through ``foreign_keys_reversed`` — both override this
     restriction where the ref maps to a real local column.
 
-    Both the role-qualified ref (``v3.location.country[customer->home]``) and
-    its role-stripped base (``v3.location.country``) are included so callers
-    can match either form.
+    Refs are reported as requested, role included
+    (``v3.location.country[customer->home]``).  A role-less entry therefore
+    means the dimension was requested without a role, not that some role of it
+    was joined.
     """
-    refs: set[str] = set()
-    for resolved_dim in resolved_dimensions:
-        if resolved_dim.is_local:
-            continue
-        refs.add(resolved_dim.original_ref)
-        if "[" in resolved_dim.original_ref:
-            refs.add(resolved_dim.original_ref.split("[")[0])
-    return refs
+    return {
+        resolved_dim.original_ref
+        for resolved_dim in resolved_dimensions
+        if not resolved_dim.is_local
+    }
 
 
 def build_outer_where(

@@ -99,3 +99,8 @@ def test_role_less_blocked_ref_still_blocks_every_role_and_plain_refs():
     assert blocked("ns.date.dateint[measure] = 1", {"ns.date.dateint"})
     assert blocked("ns.date.dateint = 1", {"ns.date.dateint"})
     assert not blocked("ns.other.col = 1", {"ns.date.dateint"})
+
+
+def test_role_less_filter_is_blocked_by_any_blocked_role_of_the_dimension():
+    assert blocked("ns.date.dateint = 1", {"ns.date.dateint[allocation_snapshot]"})
+    assert not blocked("ns.other.col = 1", {"ns.date.dateint[allocation_snapshot]"})
