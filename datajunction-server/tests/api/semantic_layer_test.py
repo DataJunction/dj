@@ -3095,6 +3095,18 @@ async def test_values_rejects_filter_outside_view(
 # ---------------------------------------------------------------------------
 
 
+def test_problem_title_is_stable_when_runtime_phrase_changes(monkeypatch):
+    monkeypatch.setattr(
+        semantic_layer_api,
+        "HTTPStatus",
+        lambda status: SimpleNamespace(phrase="Unprocessable Content"),
+    )
+
+    response = semantic_layer_api._problem(422, "Invalid query.")
+
+    assert json.loads(response.body)["title"] == "Unprocessable Entity"
+
+
 @pytest.mark.asyncio
 async def test_list_views_djexception_returns_problem(
     client: AsyncClient,

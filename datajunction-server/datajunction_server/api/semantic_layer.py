@@ -204,6 +204,10 @@ def _problem(
         title = HTTPStatus(status_code).phrase
     except ValueError:
         title = "Error"
+    # Python 3.13 renamed this phrase to "Unprocessable Content". Keep the
+    # public problem title stable across supported Python versions.
+    if status_code == 422:
+        title = "Unprocessable Entity"
     content: dict[str, Any] = {
         "type": "about:blank",
         "title": title,
