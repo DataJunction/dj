@@ -1,0 +1,108 @@
+# SQL generation interaction coverage
+
+The matrix in `interaction_matrix_test.py` complements the existing feature
+tests. It exercises the real v3 SQL builder through the SQL API, with the query
+service mocked by the existing fixtures. It does not execute metric queries or
+claim full semantic equivalence from parsing alone.
+
+The new suite contains 91 cases: 80 passing cases and 11 strict expected failures
+covering the three bugs documented below. Rejected combinations are passing
+tests with explicit error assertions, not skips.
+
+## Bounded core
+
+Twenty explicit requests cover all **71 pairs of settings** across these axes:
+
+| Axis | Settings |
+| --- | --- |
+| Aggregation | SUM, decomposed AVG, exact COUNT DISTINCT, raw MAX_BY, conditional SUM |
+| Composition | Base, derived ratio, nested derived expression |
+| Facts | Same fact, cross-fact |
+| Filter | None, grouped dimension, filter-only dimension, metric/HAVING |
+
+The full product would contain 120 requests. `test_core_matrix_covers_every_pair`
+checks the declared pair coverage and rejects duplicate rows. This guarantee is
+limited to these four axes; it is not a claim of pairwise coverage across every
+DJ feature, aggregation function, dialect, or possible graph shape.
+
+Derived requests also select their parent metrics. Their expression trees must
+use the same operands as the selected parents, including operator nesting. The
+suite checks the aggregates separately and verifies that cross-fact aggregate
+CTEs are computed before the final FULL JOIN. Raw MAX_BY inputs are an explicit
+exception: they remain at native grain. A derived MAX_BY metric spanning facts
+is currently rejected, and its case asserts that rejection.
+
+## Targeted higher-order interactions
+
+| Test | Interaction and SQL contract |
+| --- | --- |
+| `test_grain_derived_filter_interactions` | Global/partitioned fixed grain or each of four snapshot collapse functions, derived ratio, filters, and date retained/omitted. Only fixed-grain operands broadcast; snapshot operands collapse together before division. |
+| `test_window_over_grain_modified_parent` | Semi-additive parent, LAG, role-qualified week, and dimension filter. Collapse precedes LAG; category partitions remain separate. Fixed-grain parents currently reject LAG. |
+| `test_grain_derived_preagg_interactions` | Grain modifier/AVG/distinct, derived ratio, filter-only/HAVING predicates, and live versus materialized routing. Fine pre-aggregations retain dates and filter columns. A distinct group falls back when its pre-aggregation grain is not an exact match. |
+| `test_cross_fact_derived_filter_with_partial_preagg` | Cross-fact ratio with dimension and metric filters, where only one fact has a matching pre-aggregation. The other fact remains live. |
+| `test_grain_modifiers_fail_closed` | Partitioned fixed grain or a collapsed snapshot, additional additive metric, and filter-only dimension. Unsupported fanout/partition binding is rejected, including a same-fact additive/snapshot combination. |
+| `test_rolling_window_filter_interactions` | Rolling window, optional derived ratio, category partition, filter-only subcategory, and optional narrow date bounds. History is retained for the window and output dates are restricted afterward. |
+
+Snapshot ratios use two semi-additive operands with matching protected grain.
+Combining a collapsed snapshot with an additive metric can create separate
+grain groups even on the same fact and is subject to the builder's fanout guard.
+That restriction must not be confused with the supported snapshot/snapshot case.
+
+Successful cases check CTE projection closure with the existing
+`unprojected_references` helper. SQLGlot parses the emitted Spark SQL and
+translates it for DuckDB. DuckDB binds `EXPLAIN` and `DESCRIBE` against empty
+tables whose schemas come from the source model, checking grouping, column
+resolution, and the emitted output columns independently of DJ's parser. The
+pre-aggregation materialization SQL is bound too, before its declared physical
+columns are used to bind the serving query.
+
+Binding does not verify numeric answers, fanout effects on values, or actual
+Spark/Trino/Druid execution. The existing property tests supply independent
+result comparisons for their supported feature subset. Ratio assertions focus
+on operands and operator structure; engine-specific division-by-zero behavior
+remains in the existing dedicated tests.
+
+## Bugs exposed by the matrix
+
+Strict xfails preserve expected successful behavior for these regressions. An
+unexpected pass fails the suite, so fixing a bug requires removing its mark.
+
+| Failure | Regression |
+| --- | --- |
+| Nested cross-fact distinct metric | A nested ratio can apply COUNT DISTINCT to a CTE column that already contains distinct counts, while the separately selected base metric correctly reads that column with MAX. |
+| Fixed-grain derived metrics plus HAVING | Output metadata resolution fails for `base_metrics.total_quantity AS total_quantity`, reporting that the column has no parent. Both global and partitioned grains are affected. |
+| Derived arithmetic over a rolling metric | The generated SQL leaves `v3.trailing_7d_revenue` unresolved in the derived expression. It is a semantic metric name, not a table/column reference that an engine can bind. Both unfiltered and narrow date-range cases reproduce it. |
+
+The xfails are restricted to the particular failure classes. Fixture failures,
+SQL binding errors, and unrelated assertion failures remain failures.
+
+## Existing coverage and remaining expansion
+
+These files already assert the following interactions; extend them or add a
+named matrix scenario when a specific gap is identified rather than duplicating
+their full SQL expectations here.
+
+| Area | Existing coverage | Remaining matrix expansion |
+| --- | --- | --- |
+| Dimension roles, self joins, multi-hop paths | `measures_sql_test.py`, `metrics_sql_test.py`, `roled_filter_pushdown_test.py`, `measure_filter_with_roled_join_test.py`, `test_self_join_anchor_filter_pushdown.py` | Combine multiple roles and shared-transform pushdown with grain modifiers. |
+| Required dimensions | `metrics_sql_test.py` (`TestBareRequiredDimension`), `having_clause_test.py` | Add role-qualified required dimensions to grain/window cases. Requirements can add grouping columns automatically. |
+| Cube routing | `cube_matcher_test.py`, `fixed_grain_test.py`, `reaggregate_coverage_test.py` | Bind cube-serving combinations alongside these live/pre-aggregation cases. |
+| GROUP_LIMIT / GROUP_OTHERS | `tests/api/semantic_layer_test.py`, `metrics_sql_test.py` (`TestNonDecomposableMetrics`) | Add a full-build ranked-groups × derived-metric × window scenario. Existing tests cover component regrouping, raw/distinct inputs, role filters, and protected-dimension rejection. |
+| Sketches and dialects | `sketch_family_e2e_test.py`, `serialize_target_test.py`, `decomposition_test.py` | Add named sketch/grain/routing combinations per supported engine. Do not treat DuckDB binding as a sketch execution oracle. |
+| Transform SQL shapes | `cte_test.py`, `cte_transitive_consumer_test.py`, `set_operations_test.py`, `transform_query_shapes_test.py` | Add shared transforms to targeted triples involving roles and filters. |
+| Cardinality, composite keys, defaults | `fanout_guard_test.py`, `preagg_substitution_test.py`, `dimension_refs_test.py` | Combine fanout warnings and null/default semantics with grain modifiers; use result tests for actual duplication. |
+| Statistical aggregates, nulls, empty inputs | `decomposition_test.py`, `tests/property/metric_decomposition_test.py`, `tests/property/known_issues.py` | Extend independent numeric oracles; SQL binding alone cannot establish these properties. |
+
+No blanket skip excludes unsupported feature combinations. Known restrictions
+have rejection assertions; known bugs have strict xfails; uncovered interactions
+are recorded above. Adding another core-axis setting requires adding scenarios
+until its pairs are covered, together with a SQL contract for that setting.
+
+## Running
+
+From `datajunction-server`, using the existing environment and the standard
+Postgres test fixtures:
+
+```sh
+newt exec -- ../.venv/bin/python -m pytest tests/construction/build_v3/interaction_matrix_test.py -q
+```
