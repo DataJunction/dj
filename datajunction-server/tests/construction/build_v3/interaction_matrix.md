@@ -5,8 +5,8 @@ tests. It exercises the real v3 SQL builder through the SQL API, with the query
 service mocked by the existing fixtures. It does not execute metric queries or
 claim full semantic equivalence from parsing alone.
 
-The suite contains 100 cases, including passing regressions for the three bugs
-documented below. Rejected combinations are passing
+The suite contains 100 SQL interaction cases and two assertion-helper checks,
+including passing regressions for the three bugs documented below. Rejected combinations are passing
 tests with explicit error assertions, not skips.
 
 ## Bounded core
@@ -83,6 +83,19 @@ Additional regressions vary parent selection and request order, cover nested
 rolling formulas and weekly window values consumed at daily grain, and combine
 base/derived metric filters with window lookback and output date restrictions.
 
+Dependency planning includes unselected ancestors. Only definitions that own
+LAG/LEAD windows receive window grain groups; scalar descendants consume their
+results at the requested grain. Planned expressions are authoritative, including
+when the requested metric itself already maps to a coarser window CTE column.
+
+This changes existing SQL for the cross-fact `weekly_active_rate` regression:
+`trailing_7d_active_users` previously ran inside `base_metrics`, before date
+densification, with an unresolved semantic ORDER BY reference. It now runs in
+`__windowed` as `SUM(base_metrics.daily_active_users) OVER (...)`, after
+densification. The updated expectation records this intentional stage change.
+The internal `__metric_filter` predicate is projected only inside its CTE;
+the public SELECT and output metadata exclude it.
+
 ## Existing coverage and remaining expansion
 
 These files already assert the following interactions; extend them or add a
@@ -107,8 +120,15 @@ until its pairs are covered, together with a SQL contract for that setting.
 
 ## Running
 
-From `datajunction-server`, using the existing environment and the standard
-Postgres test fixtures:
+From `datajunction-server`, using a Newt-managed environment with the project
+dependencies and the standard Postgres test fixtures:
+
+```sh
+newt exec pytest -- tests/construction/build_v3/interaction_matrix_test.py -q
+```
+
+For this checkout's existing virtual environment at the repository root, the
+equivalent explicit-interpreter command is:
 
 ```sh
 newt exec -- ../.venv/bin/python -m pytest tests/construction/build_v3/interaction_matrix_test.py -q

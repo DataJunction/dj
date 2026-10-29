@@ -130,6 +130,12 @@ def assert_sql_contract(sql, columns, binder):
     """Check column closure, independent parsing/binding, and output shape."""
     assert not unprojected_references(sql), sql
     query = sqlglot.parse_one(sql, read="spark")
+    for guard in query.find_all(exp.Nullif):
+        inner = guard.this.unnest()
+        assert not (
+            isinstance(inner, exp.Nullif)
+            and guard.expression == inner.expression == exp.Literal.number(0)
+        ), "Repeated NULLIF(_, 0) guard"
     binder.execute("EXPLAIN " + query.sql(dialect="duckdb"))
     bound = binder.execute("DESCRIBE " + query.sql(dialect="duckdb")).fetchall()
     assert [column[0] for column in bound] == [c["name"] for c in columns]
@@ -225,11 +231,18 @@ def assert_ratio(query, name, numerator, denominator, *, nested=False):
         for node in reversed(list(expression.walk())):
             if isinstance(node, exp.Paren) and node.parent is not None:
                 node.replace(node.this)
-            # An unqualified raw input is equivalent to its qualified spelling
-            # only when the final SELECT has exactly one source (binding above
-            # independently checks that these columns exist).
-            elif isinstance(node, exp.Column) and not query.args.get("joins"):
-                node.set("table", None)
+            # Qualify bare raw inputs with the sole source, while retaining
+            # explicit qualifiers so mismatched relation names still fail.
+            elif (
+                isinstance(node, exp.Column)
+                and not node.table
+                and not query.args.get("joins")
+                and query.args.get("from_")
+            ):
+                node.set(
+                    "table",
+                    exp.to_identifier(query.args["from_"].this.alias_or_name),
+                )
         return expression.unnest()
 
     value = outputs[name].unnest()
@@ -242,10 +255,14 @@ def assert_ratio(query, name, numerator, denominator, *, nested=False):
     divisor = value.expression.unnest()
     # Some stages emit NULLIF explicitly, others rely on Spark division. This
     # contract compares the operands, not engine-specific zero handling.
-    while isinstance(divisor, exp.Nullif) and divisor.expression == exp.Literal.number(
+    if isinstance(divisor, exp.Nullif) and divisor.expression == exp.Literal.number(
         0,
     ):
         divisor = divisor.this.unnest()
+        assert not (
+            isinstance(divisor, exp.Nullif)
+            and divisor.expression == exp.Literal.number(0)
+        ), "Repeated NULLIF(_, 0) guard"
     for actual, expected in (
         (value.this, outputs[numerator]),
         (divisor, outputs[denominator]),
@@ -254,6 +271,23 @@ def assert_ratio(query, name, numerator, denominator, *, nested=False):
             raise SQLExpressionMismatch(
                 f"actual operand: {actual}\nexpected operand: {expected}",
             )
+
+
+@pytest.mark.parametrize(
+    ("numerator", "denominator"),
+    [
+        ("wrong.x", "source.y"),
+        ("source.x", "NULLIF(NULLIF(source.y, 0), 0)"),
+    ],
+    ids=["wrong-qualifier", "repeated-nullif"],
+)
+def test_ratio_contract_rejects_incorrect_operands(numerator, denominator):
+    query = sqlglot.parse_one(
+        f"SELECT source.x AS numerator, source.y AS denominator, "
+        f"{numerator} / {denominator} AS ratio FROM source",
+    )
+    with pytest.raises(AssertionError):
+        assert_ratio(query, "ratio", "numerator", "denominator")
 
 
 @pytest_asyncio.fixture(scope="module")
@@ -379,7 +413,10 @@ async def test_core_sql_interactions(matrix_client, sql_binder, case):
     elif case.aggregation == "conditional":
         assert list(query.find_all(exp.Case)), "Conditional accumulation must survive"
     else:
-        assert any("line_total" in str(n.this) for n in query.find_all(exp.Sum))
+        assert any(
+            isinstance(n.this, exp.Column) and n.this.name == "line_total"
+            for n in query.find_all(exp.Sum)
+        )
 
     if case.composition != "base":
         assert_ratio(
@@ -797,11 +834,15 @@ async def test_nested_distinct_uses_planned_parents(
     query = assert_sql_contract(result["sql"], result["columns"], sql_binder)
     expression = projections(query)[metric.split(".")[-1]]
     assert not list(expression.find_all(exp.Count))
-    assert {c.name for c in expression.find_all(exp.Column)} == {
-        "order_id",
-        "view_id_count_f41e2db4",
-    }
-    assert list(expression.find_all(exp.Max))
+    numerator = next(expression.find_all(exp.Max))
+    assert isinstance(numerator.this, exp.Column) and numerator.this.name == "order_id"
+    divisor = next(expression.find_all(exp.Div)).expression.unnest()
+    if isinstance(divisor, exp.Nullif):
+        divisor = divisor.this.unnest()
+    assert isinstance(divisor, exp.Sum) and isinstance(divisor.this, exp.Column)
+    count = column_definition(query, divisor.this)
+    assert isinstance(count, exp.Count) and isinstance(count.this, exp.Column)
+    assert count.this.name == "view_id"
     assert not list(query.args["having"].find_all(exp.Count))
 
 

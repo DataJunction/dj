@@ -907,7 +907,9 @@ def build_intermediate_metric_expr(
     Args:
         ctx: Build context with nodes and query cache
         metric_name: Name of the intermediate derived metric
-        base_metric_exprs: Expressions for base metrics (already computed in base_metrics CTE)
+        base_metric_exprs: Authoritative expressions already planned at this
+            SQL stage. If metric_name itself is present, return a copy of that
+            expression rather than rebuilding it at a different grain.
         resolve_dependencies: Recursively inline missing derived parents using
             the supplied expressions as the leaves. Leave False while planning
             intermediate CTEs, where unavailable dependencies must defer a metric.
@@ -922,6 +924,8 @@ def build_intermediate_metric_expr(
 
     def resolve(name: str) -> ast.Expression | None:
         if name in metric_exprs:
+            # Includes the root: a planned coarser-window column reference
+            # must take precedence over reconstructing its original formula.
             return deepcopy(metric_exprs[name])
         metric_node = ctx.nodes.get(name)
         if not metric_node or name in resolving:
