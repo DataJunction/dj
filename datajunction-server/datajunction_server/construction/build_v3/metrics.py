@@ -8,6 +8,7 @@ combining grain groups and applying combiner expressions.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, cast
@@ -18,7 +19,6 @@ from datajunction_server.construction.build_v3.cte import (
     get_column_full_name,
     has_window_function,
     inject_partition_by_into_windows,
-    process_metric_combiner_expression,
     references_filter_only_dimension,
     replace_component_refs_in_ast,
     replace_dimension_refs_in_ast,
@@ -34,8 +34,6 @@ from datajunction_server.construction.build_v3.types import (
     BuildContext,
     ColumnMetadata,
     ColumnRef,
-    ColumnResolver,
-    ColumnType,
     DecomposedMetricInfo,
     GeneratedMeasuresSQL,
     GeneratedSQL,
@@ -881,101 +879,54 @@ def process_base_metrics(
     )
 
 
-def build_intermediate_metric_expr(
+def resolve_metric_expressions(
     ctx: BuildContext,
-    metric_name: str,
-    base_metric_exprs: dict[str, MetricExprInfo],
-    *,
-    resolve_dependencies: bool = False,
-    protect_division: bool = True,
-) -> ast.Expression | None:
+    metric_names: Iterable[str],
+    available_exprs: dict[str, MetricExprInfo],
+) -> dict[str, ast.Expression]:
+    """Resolve formulas against the values available at one SQL stage.
+
+    Planned expressions are authoritative leaves, including for the requested
+    metrics themselves. Missing derived metrics expand through their original
+    definitions; missing base metrics are errors, since rebuilding them from
+    source columns would discard the planner's aggregation and grain choices.
+    Returned trees are independent of the supplied expressions and each other.
     """
-    Build expression for an intermediate derived metric.
-
-    Intermediate derived metrics (like avg_order_value) reference base metrics
-    (like total_revenue, order_count). In the base_metrics CTE, we need to
-    compute these by inlining the actual expressions for each referenced metric.
-
-    For example, if avg_order_value = total_revenue / order_count:
-    - total_revenue expr: SUM(order_details_0.line_total_sum_e1f61696)
-    - order_count expr: COUNT(DISTINCT order_details_0.order_id)
-    - avg_order_value becomes: SUM(...) / NULLIF(COUNT(...), 0)
-
-    We can't just reference column aliases from the same SELECT statement,
-    so we must inline the full expressions.
-
-    Args:
-        ctx: Build context with nodes and query cache
-        metric_name: Name of the intermediate derived metric
-        base_metric_exprs: Authoritative expressions already planned at this
-            SQL stage. If metric_name itself is present, return a copy of that
-            expression rather than rebuilding it at a different grain.
-        resolve_dependencies: Recursively inline missing derived parents using
-            the supplied expressions as the leaves. Leave False while planning
-            intermediate CTEs, where unavailable dependencies must defer a metric.
-        protect_division: Add NULLIF guards for aggregation-stage formulas.
-            Window-stage formulas preserve their declared division expressions.
-
-    Returns:
-        Expression AST for the intermediate metric, or None if cannot be built
-    """
-    metric_exprs = {name: info.expr_ast for name, info in base_metric_exprs.items()}
+    expressions = {name: info.expr_ast for name, info in available_exprs.items()}
     resolving: set[str] = set()
 
-    def resolve(name: str) -> ast.Expression | None:
-        if name in metric_exprs:
-            # Includes the root: a planned coarser-window column reference
-            # must take precedence over reconstructing its original formula.
-            return deepcopy(metric_exprs[name])
-        metric_node = ctx.nodes.get(name)
-        if not metric_node or name in resolving:
-            return None
+    def resolve(name: str) -> ast.Expression:
+        if name in expressions:
+            return deepcopy(expressions[name])
+        if name in resolving or not _metric_parent_refs(ctx, name):
+            raise DJInvalidInputException(
+                f"Cannot resolve metric '{name}' at this SQL stage",
+            )
         resolving.add(name)
-        original_query = ctx.get_parsed_query(metric_node)
-        expr_ast = cast(ast.Expression, deepcopy(original_query.select.projection[0]))
-        if isinstance(expr_ast, ast.Alias):
-            expr_ast = cast(ast.Expression, expr_ast.child)
-
-        for col in list(expr_ast.find_all(ast.Column)):
+        query = ctx.get_parsed_query(ctx.nodes[name])
+        expr = cast(ast.Expression, deepcopy(query.select.projection[0]))
+        if isinstance(expr, ast.Alias):
+            expr = cast(ast.Expression, expr.child)
+        for col in list(expr.find_all(ast.Column)):
             full_name = get_column_full_name(col)
             node = ctx.nodes.get(full_name)
-            if not node or node.type != NodeType.METRIC:
-                continue
-            replacement = metric_exprs.get(full_name)
-            if replacement is None and resolve_dependencies:
-                # Expand derived definitions only. Missing base metrics must
-                # retain their planned grain/aggregation rather than being
-                # reconstructed from source-table expressions.
-                if any(
-                    ctx.nodes.get(parent) and ctx.nodes[parent].type == NodeType.METRIC
-                    for parent in ctx.parent_map.get(full_name, [])
-                ):
-                    replacement = resolve(full_name)
-            if replacement is None:
-                resolving.remove(name)
-                return None
-            replacement = parenthesize_if_needed(deepcopy(replacement), col)
-            if col is expr_ast:
-                expr_ast = replacement
-            elif col.parent:
-                col.parent.replace(from_=col, to=replacement, copy=False)
-
-        if protect_division:
-            wrap_divisions_in_nullif(expr_ast)
+            if node and node.type == NodeType.METRIC:
+                replacement = parenthesize_if_needed(resolve(full_name), col)
+                if col is expr:
+                    expr = replacement
+                else:
+                    col.swap(replacement)
         resolving.remove(name)
-        metric_exprs[name] = expr_ast
-        return expr_ast
+        expressions[name] = expr
+        return deepcopy(expr)
 
-    return resolve(metric_name)
+    return {name: resolve(name) for name in metric_names}
 
 
 def build_base_metrics_cte(
     dim_info: list[tuple[str, str]],
     cte_aliases: list[str],
-    all_grain_group_metrics: set[str],
-    metric_expr_asts: dict[str, MetricExprInfo],
-    intermediate_metrics: set[str] | None = None,
-    intermediate_exprs: dict[str, ast.Expression] | None = None,
+    metric_exprs: dict[str, ast.Expression],
 ) -> ast.Query:
     """
     Build an intermediate CTE that pre-computes all base metrics.
@@ -991,10 +942,7 @@ def build_base_metrics_cte(
     Args:
         dim_info: List of (original_dim_ref, col_alias) tuples
         cte_aliases: CTE aliases for grain groups
-        all_grain_group_metrics: Set of base metric names
-        metric_expr_asts: Metric expressions from process_base_metrics
-        intermediate_metrics: Optional set of intermediate derived metric names
-        intermediate_exprs: Optional dict of intermediate metric expressions
+        metric_exprs: Base and derived expressions to compute in this stage
 
     Returns:
         AST Query for the base_metrics CTE
@@ -1015,25 +963,10 @@ def build_base_metrics_cte(
         aliased.set_as(True)
         base_metrics_projection.append(aliased)
 
-    # Add base metric expressions (sorted for deterministic ordering)
-    for base_metric_name in sorted(all_grain_group_metrics):
-        if base_metric_name not in metric_expr_asts:
-            continue  # pragma: no cover
-        info = metric_expr_asts[base_metric_name]
-        aliased_expr = deepcopy(info.expr_ast).set_alias(ast.Name(info.short_name))
+    for name, expr in metric_exprs.items():
+        aliased_expr = deepcopy(expr).set_alias(ast.Name(get_short_name(name)))
         aliased_expr.set_as(True)
         base_metrics_projection.append(aliased_expr)
-
-    # Add intermediate derived metrics (for nested derived metrics)
-    if intermediate_metrics and intermediate_exprs:
-        for metric_name in sorted(intermediate_metrics):
-            if metric_name not in intermediate_exprs:
-                continue  # pragma: no cover
-            expr_ast = intermediate_exprs[metric_name]
-            short_name = get_short_name(metric_name)
-            aliased_expr = deepcopy(expr_ast).set_alias(ast.Name(short_name))
-            aliased_expr.set_as(True)
-            base_metrics_projection.append(aliased_expr)
 
     # Build FROM clause with FULL OUTER JOINs
     dim_cols = [dim_col for _, dim_col in dim_info]
@@ -1211,174 +1144,18 @@ def build_metric_projection(
     return projection_items, columns_metadata
 
 
-def build_window_metric_expr(
-    ctx: BuildContext,
-    metric_name: str,
-    base_metric_names: set[str],
-    resolver: ColumnResolver,
-    partition_columns: list[str],
-    window_cte_alias: str,
-    intermediate_metric_names: set[str] | None = None,
-    alias_to_dimension_node: dict[str, str] | None = None,
-    metric_exprs: dict[str, MetricExprInfo] | None = None,
-) -> ast.Expression:
-    """
-    Build expression AST for a window function metric.
-
-    Window function metrics (LAG, LEAD, etc.) need special handling:
-    - Use the ORIGINAL metric query AST (not decomposed combiner_ast)
-    - Reference base_metrics CTE columns for metric values
-    - Inject PARTITION BY clauses
-
-    Args:
-        ctx: Build context with nodes
-        metric_name: Name of the window metric
-        base_metric_names: Set of base metric names (for building refs)
-        resolver: ColumnResolver (for dimension refs)
-        partition_columns: Column names for PARTITION BY injection
-        window_cte_alias: Alias of base_metrics CTE
-        intermediate_metric_names: Optional set of intermediate derived metric names
-        metric_exprs: Planned expressions, including coarser-grain window refs
-
-    Returns:
-        Expression AST with refs resolved and PARTITION BY injected
-    """
-    # Use the ORIGINAL metric query AST (not decomposed)
-    # The decomposed combiner_ast has metric refs expanded to component expressions,
-    # but we need the metric refs preserved so we can reference base_metrics columns
-    # Build refs pointing to window CTE for all base metrics
-    window_metric_refs: dict[str, tuple[str, str]] = {
-        name: (window_cte_alias, get_short_name(name)) for name in base_metric_names
-    }
-
-    # Also include intermediate derived metrics (for nested derived metrics)
-    if intermediate_metric_names:
-        for name in intermediate_metric_names:  # pragma: no cover
-            window_metric_refs[name] = (window_cte_alias, get_short_name(name))
-    available_exprs = dict(metric_exprs or {})
-    for name, (cte_alias, column_name) in window_metric_refs.items():
-        available_exprs[name] = MetricExprInfo(
-            expr_ast=make_column_ref(column_name, cte_alias),
-            short_name=column_name,
-            cte_alias=cte_alias,
-        )
-    expr_ast = build_intermediate_metric_expr(
-        ctx,
-        metric_name,
-        available_exprs,
-        resolve_dependencies=True,
-        protect_division=False,
-    )
-    if expr_ast is None:
-        raise DJInvalidInputException(
-            f"Cannot resolve dependencies of window metric '{metric_name}'",
-        )
-
-    # Dimension refs also point to window CTE
-    window_dim_refs: dict[str, tuple[str, str]] = {
-        name: (window_cte_alias, ref.column_name)
-        for name, ref in resolver.get_by_type(ColumnType.DIMENSION).items()
-    }
-    replace_dimension_refs_in_ast(expr_ast, window_dim_refs)
-
-    # Inject PARTITION BY for window functions
-    # Qualify with CTE alias to avoid ambiguity when there are JOINs
-    inject_partition_by_into_windows(
-        expr_ast,
-        partition_columns,
-        alias_to_dimension_node,
-        partition_cte_alias=window_cte_alias,
-    )
-
-    return expr_ast  # type: ignore
-
-
-def build_derived_metric_expr(
-    decomposed: DecomposedMetricInfo,
-    resolver: ColumnResolver,
-    partition_columns: list[str],
-    alias_to_dimension_node: dict[str, str] | None = None,
-) -> ast.Expression:
-    """
-    Build expression AST for a non-window derived metric.
-
-    Non-window derived metrics use the decomposed combiner_ast with
-    refs resolved via the ColumnResolver.
-
-    Args:
-        decomposed: Decomposed metric info with combiner_ast
-        resolver: ColumnResolver with metric, component, and dimension refs
-        partition_columns: Column names for PARTITION BY injection
-
-    Returns:
-        Expression AST with refs resolved and PARTITION BY injected
-    """
-    # Use the shared helper to ensure consistency with cube materialization
-    return process_metric_combiner_expression(
-        combiner_ast=decomposed.combiner_ast,
-        dimension_refs=resolver.dimension_refs(),
-        component_refs=resolver.component_refs(),
-        metric_refs=resolver.metric_refs(),
-        partition_dimensions=partition_columns,
-        alias_to_dimension_node=alias_to_dimension_node,
-    )
-
-
 def process_derived_metrics(
     ctx: BuildContext,
     decomposed_metrics: dict[str, DecomposedMetricInfo],
-    base_metric_names: set[str],
-    resolver: ColumnResolver,
+    available_exprs: dict[str, MetricExprInfo],
+    dimension_refs: dict[str, tuple[str, str]],
     partition_columns: list[str],
     window_cte_alias: str | None,
-    base_metric_exprs: dict[str, MetricExprInfo],
-    intermediate_metric_names: set[str] | None = None,
     alias_to_dimension_node: dict[str, str] | None = None,
 ) -> dict[str, MetricExprInfo]:
-    """
-    Process derived metrics (metrics not in any grain group).
-
-    Derived metrics are computed from base metrics and may include:
-    - Window function metrics (LAG, LEAD, etc.) that reference base_metrics CTE
-    - Non-window derived metrics that inline base metric expressions directly
-
-    Args:
-        ctx: Build context with metrics list and nodes
-        decomposed_metrics: Decomposed metric info
-        base_metric_names: Set of base metric names (in grain groups)
-        resolver: ColumnResolver with metric, component, and dimension refs
-        partition_columns: Column names for PARTITION BY injection
-        window_cte_alias: Alias of base_metrics CTE ("base_metrics" or None)
-        base_metric_exprs: Pre-built expressions for base metrics, used to inline
-            into derived metric formulas (correctly handles pre-aggregated cases)
-        intermediate_metric_names: Optional set of intermediate derived metric names
-
-    Returns:
-        Dict of derived metric expressions
-    """
-    result: dict[str, MetricExprInfo] = {}
-
-    # Identify which derived metrics use window functions
-    window_metrics: set[str] = set()
-    for metric_name in ctx.metrics:
-        if metric_name in base_metric_names:
-            continue
-        decomposed = decomposed_metrics.get(metric_name)
-        if decomposed and has_window_function(decomposed.combiner_ast):
-            window_metrics.add(metric_name)
-
-    # Get default CTE alias from resolver (for non-window path)
-    metric_refs = resolver.metric_refs()
-    default_cte_alias = next(iter(metric_refs.values()))[0] if metric_refs else ""
-
-    for metric_name in ctx.metrics:
-        if metric_name in base_metric_names:
-            continue
-
-        decomposed = decomposed_metrics.get(metric_name)
-        if not decomposed:  # pragma: no cover
-            continue
-
+    """Build requested formulas using one resolver for every SQL stage."""
+    metric_names = [name for name in ctx.metrics if name not in available_exprs]
+    for metric_name in metric_names:
         # Check if this derived metric references any NONE-aggregability parent metrics.
         # NONE-aggregability metrics (e.g. MAX_BY) cannot be safely combined into
         # derived metrics — their raw-grain expressions reference columns that are
@@ -1402,53 +1179,30 @@ def process_derived_metrics(
                 f"is not available at the derived metric's aggregation level.",
             )
 
-        short_name = get_short_name(metric_name)
-
-        # Handle window function metrics specially
-        if metric_name in window_metrics and window_cte_alias:
-            expr_ast = build_window_metric_expr(
-                ctx,
-                metric_name,
-                base_metric_names,
-                resolver,
-                partition_columns,
-                window_cte_alias,
-                intermediate_metric_names,
-                alias_to_dimension_node,
-                base_metric_exprs,
-            )
-            derived_cte_alias = window_cte_alias
-        else:
-            # Use build_intermediate_metric_expr to inline pre-built base metric
-            # expressions into the derived metric formula. This correctly handles
-            # COUNT DISTINCT base metrics from pre-aggregated (_agg) CTEs, where
-            # the combiner_ast would produce COUNT(DISTINCT ...) but the pre-built
-            # expression already uses MAX(...) as the correct passthrough aggregation.
-            # Fall back to build_derived_metric_expr when some base metrics are missing
-            # from base_metric_exprs (e.g., NONE-aggregability metrics not in any grain group).
-            expr_ast = (  # type: ignore[assignment]
-                build_intermediate_metric_expr(
-                    ctx,
-                    metric_name,
-                    base_metric_exprs,
-                    resolve_dependencies=True,
-                )
-                or build_derived_metric_expr(
-                    decomposed,
-                    resolver,
-                    partition_columns,
-                    alias_to_dimension_node,
-                )
-            )
-            derived_cte_alias = default_cte_alias
-
-        result[metric_name] = MetricExprInfo(
-            expr_ast=expr_ast,
-            short_name=short_name,
-            cte_alias=derived_cte_alias,
+    expressions = resolve_metric_expressions(ctx, metric_names, available_exprs)
+    for expr in expressions.values():
+        # SQL-stage transformations are separate from dependency resolution.
+        if not window_cte_alias:
+            wrap_divisions_in_nullif(expr)
+        replace_dimension_refs_in_ast(expr, dimension_refs)
+        inject_partition_by_into_windows(
+            expr,
+            partition_columns,
+            alias_to_dimension_node,
+            partition_cte_alias=window_cte_alias,
         )
-
-    return result
+    cte_alias = window_cte_alias or next(
+        (info.cte_alias for info in available_exprs.values()),
+        "",
+    )
+    return {
+        name: MetricExprInfo(
+            expr_ast=expr,
+            short_name=get_short_name(name),
+            cte_alias=cte_alias,
+        )
+        for name, expr in expressions.items()
+    }
 
 
 # def strip_role_suffix(ref: str) -> str:
@@ -2077,27 +1831,24 @@ def generate_metrics_sql(
     all_base_metrics_precheck: set[str] = {
         m for gg in base_grain_groups for m in gg.metrics
     }
-    will_have_base_metrics_cte = (
-        bool(window_grain_groups)
-        or bool(measures_result.window_metric_grains)
-        or any(
-            decomposed_metrics.get(m)
-            and has_window_function(decomposed_metrics[m].combiner_ast)
-            for m in ctx.metrics
-            if m not in all_base_metrics_precheck
-        )
-    )
-
-    # Convert base grain groups to CTEs (window grain groups handled separately)
+    window_metrics = {
+        name
+        for name, metric in decomposed_metrics.items()
+        if name not in all_base_metrics_precheck
+        and has_window_function(metric.combiner_ast)
+    }
+    window_metrics.update(measures_result.window_metric_grains)
+    for group in window_grain_groups:
+        window_metrics.update(group.window_metrics_served)
     all_cte_asts, cte_aliases = collect_and_build_ctes(
         base_grain_groups,
-        skip_pre_agg=will_have_base_metrics_cte,
+        skip_pre_agg=bool(window_metrics),
     )
     # Counted over base groups only: a window grain group is a second group for
     # the SAME fact table, which is not the cross-fact case this refuses.
-    for fixed_grain_candidate in decomposed_metrics.values():
+    for metric_name in sorted(all_base_metrics_precheck & decomposed_metrics.keys()):
         validate_fixed_grain_query_shape(
-            fixed_grain_candidate,
+            decomposed_metrics[metric_name],
             len(base_grain_groups),
         )
     _validate_reaggregate_base_group_join_safety(base_grain_groups)
@@ -2142,145 +1893,62 @@ def generate_metrics_sql(
     # Track window metrics and their CTEs
     window_metrics_cte_alias: str | None = None
     grain_window_ctes: dict[str, str] = {}  # metric_name -> window CTE alias
-    all_derived_for_base_metrics: set[str] = set()
     grain_levels: dict[str, GrainLevelInfo] = {}  # For FROM clause building
-
-    # Collect ALL window metrics - both from grain groups AND reaggregation metrics AND same-grain metrics
-    # - Window grain groups: created for non-subset cases
-    # - Same-grain metrics: when dimensions exactly match, tracked in window_metric_grains
-    # - Aggregate window metrics: metrics with SUM/AVG/etc OVER (like trailing metrics)
-    window_metrics: set[str] = set()
-    for wgg in window_grain_groups:
-        window_metrics.update(wgg.window_metrics_served)
-    # Also include same-grain window metrics (exact match case)
-    window_metrics.update(measures_result.window_metric_grains.keys())
-    # Also include aggregate window metrics (like trailing metrics with SUM OVER ORDER BY)
-    # These aren't LAG/LEAD so they weren't detected in measures phase, but they DO need
-    # the base_metrics CTE to resolve their metric references
-    for metric_name in decomposed_metrics:
-        if metric_name in all_grain_group_metrics:
-            continue  # Base metric
-        if metric_name in window_metrics:
-            continue  # Already detected
-        decomposed = decomposed_metrics.get(metric_name)
-        if decomposed and has_window_function(decomposed.combiner_ast):
-            window_metrics.add(metric_name)
 
     # If there are ANY window metrics, build the base_metrics CTE
     # (either for joining with window grain groups, or for same-grain window functions)
     if window_metrics:
         window_metrics_cte_alias = "base_metrics"
 
-        # Find non-window derived metrics to pre-compute in base_metrics CTE
-        for metric_name in ctx.metrics:
-            if metric_name in all_grain_group_metrics:
-                continue  # Base metric
-            if metric_name in window_metrics:
-                continue  # Window metric (handled separately)
-            all_derived_for_base_metrics.add(metric_name)  # pragma: no cover
+        # Walk the dependency graph once. Windows stay above the aggregation
+        # boundary; their non-window ancestors are computed in base_metrics.
+        visited: set[str] = set()
+        all_derived_for_base_metrics: set[str] = set()
 
-        # Also include parent derived metrics that window metrics depend on
-        # For example, if wow_aov_change depends on avg_order_value, we need to
-        # compute avg_order_value in base_metrics before applying the window function
-        #
-        # IMPORTANT: We must recursively collect ALL derived metric dependencies.
-        # For example, if efficiency_ratio = avg_order_value / pages_per_session,
-        # we need to collect avg_order_value and pages_per_session too.
-        def collect_derived_dependencies(metric_name: str, visited: set[str]) -> None:
-            """Recursively collect all derived metric dependencies."""
-            if metric_name in visited:
-                return  # pragma: no cover
-            visited.add(metric_name)
+        def collect_derived_dependencies(name: str) -> None:
+            if name in visited or name in all_grain_group_metrics:
+                return
+            visited.add(name)
+            if name not in window_metrics:
+                all_derived_for_base_metrics.add(name)
+            for parent in _metric_parent_refs(ctx, name):
+                collect_derived_dependencies(parent)
 
-            parent_names = ctx.parent_map.get(metric_name, [])
-            for parent_name in parent_names:
-                # Skip if it's a base metric (already in grain groups)
-                if parent_name in all_grain_group_metrics:
-                    continue
-                # Skip if it's another window metric
-                if parent_name in window_metrics:
-                    collect_derived_dependencies(parent_name, visited)
-                    continue
-                # Check if it's a derived metric
-                parent_node = ctx.nodes.get(parent_name)
-                if (
-                    parent_node and parent_node.type == NodeType.METRIC
-                ):  # pragma: no branch
-                    all_derived_for_base_metrics.add(parent_name)
-                    # Recursively collect this metric's dependencies
-                    collect_derived_dependencies(parent_name, visited)
+        for name in ctx.metrics:
+            collect_derived_dependencies(name)
 
-        for window_metric_name in window_metrics:
-            collect_derived_dependencies(window_metric_name, set())
-
-        # Build expressions for derived metrics in dependency order
-        # We need to process metrics that depend only on base metrics first,
-        # then metrics that depend on those, etc.
-        all_derived_exprs: dict[str, ast.Expression] = {}
-
-        # Create a combined dict of base metric expressions + already-built derived exprs
-        # This gets updated as we build each level
-        available_exprs: dict[str, MetricExprInfo] = dict(metric_expr_asts)
-
-        # Keep building until all derived metrics are processed
-        remaining = set(all_derived_for_base_metrics)
-        max_iterations = len(remaining) + 1  # Prevent infinite loops
-        iteration = 0
-
-        while remaining and iteration < max_iterations:
-            iteration += 1
-            built_this_round: set[str] = set()
-
-            for metric_name in list(remaining):
-                expr = build_intermediate_metric_expr(ctx, metric_name, available_exprs)
-                if expr:  # pragma: no branch
-                    all_derived_exprs[metric_name] = expr
-                    # Add to available_exprs for next level of derived metrics
-                    short_name = get_short_name(metric_name)
-                    available_exprs[metric_name] = MetricExprInfo(
-                        expr_ast=expr,
-                        short_name=short_name,
-                        cte_alias="",  # Not used for intermediate building
-                    )
-                    built_this_round.add(metric_name)
-
-            remaining -= built_this_round
-            if not built_this_round:
-                # No progress made - remaining metrics have unresolvable dependencies
-                break  # pragma: no cover
+        all_derived_exprs = resolve_metric_expressions(
+            ctx,
+            sorted(all_derived_for_base_metrics),
+            metric_expr_asts,
+        )
+        for expr in all_derived_exprs.values():
+            wrap_divisions_in_nullif(expr)
+        base_expressions = {
+            name: info.expr_ast for name, info in sorted(metric_expr_asts.items())
+        } | all_derived_exprs
 
         # Build and add the base_metrics CTE
         base_metrics_query = build_base_metrics_cte(
             dim_info,
             cte_aliases,
-            all_grain_group_metrics,
-            metric_expr_asts,
-            all_derived_for_base_metrics,
-            all_derived_exprs,
+            base_expressions,
         )
         base_metrics_query.to_cte(ast.Name(window_metrics_cte_alias), None)
         all_cte_asts.append(base_metrics_query)
 
-        # Rewrite base metric expressions to reference base_metrics CTE
-        for metric_name in all_grain_group_metrics:
-            if metric_name in metric_expr_asts:  # pragma: no branch
-                info = metric_expr_asts[metric_name]
-                simple_ref = make_column_ref(info.short_name, window_metrics_cte_alias)
-                metric_expr_asts[metric_name] = MetricExprInfo(
-                    expr_ast=simple_ref,
-                    short_name=info.short_name,
-                    cte_alias=window_metrics_cte_alias,
-                )
-
-        # Rewrite non-window derived metrics to reference base_metrics CTE
-        for metric_name in all_derived_for_base_metrics:
-            short_name = get_short_name(metric_name)
-            simple_ref = make_column_ref(short_name, window_metrics_cte_alias)
-            metric_expr_asts[metric_name] = MetricExprInfo(
-                expr_ast=simple_ref,
-                short_name=short_name,
+        # Crossing the stage boundary turns every computed value into a ref.
+        metric_expr_asts = {
+            name: MetricExprInfo(
+                expr_ast=make_column_ref(
+                    get_short_name(name),
+                    window_metrics_cte_alias,
+                ),
+                short_name=get_short_name(name),
                 cte_alias=window_metrics_cte_alias,
             )
+            for name in base_expressions
+        }
 
         # Rebuild projection for window metrics path
         projection, columns_metadata = rebuild_projection_for_window_metrics(
@@ -2387,53 +2055,30 @@ def generate_metrics_sql(
                 window_metrics=set(wgg.window_metrics_served),
             )
 
-    # Build ColumnResolver for derived metrics
-    dim_cte_alias = (
-        window_metrics_cte_alias if window_metrics_cte_alias else cte_aliases[0]
-    )
-    resolver = ColumnResolver.from_base_metrics(
-        base_metrics_result,
-        dimension_aliases,
-        dim_cte_alias,
-    )
-
-    # Process remaining derived metrics (not base metrics or window metrics)
-    metrics_to_skip = all_grain_group_metrics | all_derived_for_base_metrics
-    # Coarser-grain windows have already been computed. Derived formulas must
-    # read those values rather than reapply the window at the requested grain.
-    available_metric_exprs = dict(metric_expr_asts)
+    # Coarser windows are already computed at their own grain. They are
+    # ordinary leaves for formulas built at the requested grain.
     for metric_name, cte_alias in grain_window_ctes.items():
         short_name = get_short_name(metric_name)
-        available_metric_exprs[metric_name] = MetricExprInfo(
+        metric_expr_asts[metric_name] = MetricExprInfo(
             expr_ast=make_column_ref(short_name, cte_alias),
             short_name=short_name,
             cte_alias=cte_alias,
         )
-    derived_exprs = process_derived_metrics(
-        ctx,
-        decomposed_metrics,
-        metrics_to_skip,
-        resolver,
-        all_dim_aliases,
-        window_metrics_cte_alias,
-        available_metric_exprs,
-        set(),  # No intermediate derived metrics in new architecture
-        alias_to_dimension_node,
+
+    metric_expr_asts.update(
+        process_derived_metrics(
+            ctx,
+            decomposed_metrics,
+            metric_expr_asts,
+            qualify_dimension_refs(
+                dimension_aliases,
+                window_metrics_cte_alias or cte_aliases[0],
+            ),
+            all_dim_aliases,
+            window_metrics_cte_alias,
+            alias_to_dimension_node,
+        ),
     )
-
-    # Merge derived metrics into the main metric_expr_asts dict
-    metric_expr_asts.update(derived_exprs)
-
-    # For window metrics processed at grain level, create simple column references
-    # to the grain-level window CTEs (they've already computed the window functions)
-    for metric_name, window_cte_alias in grain_window_ctes.items():
-        short_name = get_short_name(metric_name)
-        simple_ref = make_column_ref(short_name, window_cte_alias)
-        metric_expr_asts[metric_name] = MetricExprInfo(
-            expr_ast=simple_ref,
-            short_name=short_name,
-            cte_alias=window_cte_alias,
-        )
 
     # Build metric projection in requested order
     metric_projection, metric_columns = build_metric_projection(ctx, metric_expr_asts)
@@ -2488,25 +2133,30 @@ def generate_metrics_sql(
                 nodes=ctx.nodes,
             )
 
-    # Build HAVING clause from metric filters
-    # Metric filters are applied after aggregation on computed metric values
-    # Use full aggregation expressions (not aliases) for SQL dialect portability.
+    # Metric predicates run after their values are computed: HAVING in the
+    # aggregation stage, or WHERE over output columns after the window stage.
     # Note: typo'd column refs in metric filters are caught upstream by
     # ``add_dimensions_from_filters`` + ``resolve_dimensions`` — by the time
     # we reach this block, every Column is either a known metric (replaced
     # below) or a known dimension (passes through to engine-side resolution).
-    having_clause: ast.Expression | None = None
+    metric_filter: ast.Expression | None = None
+    filtered_cte_alias = "__metric_filtered"
     if metric_filters_raw:
         parsed_metric_filters = []
         for f in metric_filters_raw:
             filter_ast = parse_filter(f)
 
-            # Replace metric column references with their full aggregation expressions
-            # so HAVING is portable across dialects that don't support aliases there.
+            # Bind to expressions within an aggregation SELECT, or to the
+            # projected values when filtering across a SELECT boundary.
             for col in filter_ast.find_all(ast.Column):
                 full_name = get_column_full_name(col)
                 if full_name and full_name in metric_expr_asts:  # pragma: no branch
-                    metric_expr = deepcopy(metric_expr_asts[full_name].expr_ast)
+                    info = metric_expr_asts[full_name]
+                    metric_expr = (
+                        make_column_ref(info.short_name, filtered_cte_alias)
+                        if window_metrics_cte_alias
+                        else deepcopy(info.expr_ast)
+                    )
                     filter_ast.replace(
                         from_=col,
                         to=parenthesize_if_needed(metric_expr, col),
@@ -2516,26 +2166,7 @@ def generate_metrics_sql(
             parsed_metric_filters.append(filter_ast)
 
         if parsed_metric_filters:  # pragma: no branch
-            having_clause = combine_filters(parsed_metric_filters)
-
-    window_filter: ast.Expression | None = None
-    if window_metrics_cte_alias and having_clause is not None:
-        # Aggregation has already happened in base_metrics. A HAVING here
-        # would introduce another grouping level around plain column refs.
-        # Predicates containing windows need an additional SELECT so they run
-        # after the window rather than removing rows from its input frame.
-        if any(has_window_function(expr) for expr in projection):
-            window_filter = having_clause
-            having_clause = None
-        else:
-            where_clause = combine_filters(
-                [
-                    clause
-                    for clause in (where_clause, having_clause)
-                    if clause is not None
-                ],
-            )
-            having_clause = None
+            metric_filter = combine_filters(parsed_metric_filters)
 
     # Build the final SELECT
     select_ast = ast.Select(
@@ -2543,18 +2174,12 @@ def generate_metrics_sql(
         from_=from_clause,
         where=where_clause,
         group_by=group_by,
-        having=having_clause,
+        having=metric_filter if not window_metrics_cte_alias else None,
     )
 
-    if window_filter is not None:
-        # Evaluate the predicate alongside the windows, then filter its value
-        # in an outer query. Even a filter on a base metric must run here to
-        # avoid changing the rows seen by a sibling rolling metric.
-        filter_alias = "__metric_filter"
-        aliased_filter = window_filter.set_alias(ast.Name(filter_alias))
-        aliased_filter.set_as(True)
-        select_ast.projection.append(aliased_filter)
-        filtered_cte_alias = "__metric_filtered"
+    if window_metrics_cte_alias and metric_filter is not None:
+        # This stage reads aggregated values and computes windows. Filter
+        # its output columns in the next SELECT, never the window's input rows.
         filtered_cte = ast.Query(select=select_ast)
         filtered_cte.to_cte(ast.Name(filtered_cte_alias), None)
         all_cte_asts.append(filtered_cte)
@@ -2568,7 +2193,7 @@ def generate_metrics_sql(
                     ast.Relation(primary=ast.Table(ast.Name(filtered_cte_alias))),
                 ],
             ),
-            where=make_column_ref(filter_alias, filtered_cte_alias),
+            where=metric_filter,
         )
 
     # Build the final Query with all CTEs

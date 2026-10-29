@@ -495,34 +495,17 @@ def detect_window_metrics_requiring_grain_groups(
     Returns:
         Dict mapping metric_name -> set of ORDER BY column refs (e.g., {"v3.date.week"})
     """
-    from datajunction_server.construction.build_v3.types import DecomposedMetricInfo
-
     window_metric_grains: dict[str, set[str]] = {}
-
     for metric_name in decomposed_metrics:
-        # Skip base metrics - they're already in grain groups
         if metric_name in base_grain_group_metrics:
             continue
-
-        decomposed = decomposed_metrics.get(metric_name)
-        if not decomposed:
-            continue  # pragma: no cover
-
-        # Check if this metric uses LAG/LEAD that needs grain-level aggregation
-        if (  # pragma: no branch
-            isinstance(decomposed, DecomposedMetricInfo) and decomposed.combiner_ast
-        ):
-            # Only the definition that owns a window gets a window grain.
-            # Scalar descendants read its result at their own requested grain.
-            definition = ctx.get_parsed_query(ctx.nodes[metric_name])
-            if needs_grain_level_aggregation(definition):
-                # Get the ORDER BY columns for this metric
-                grain_info = get_grain_level_window_info(definition)
-                order_by_cols: set[str] = set()
-                for _, cols in grain_info:
-                    order_by_cols.update(cols)
-                if order_by_cols:  # pragma: no branch
-                    window_metric_grains[metric_name] = order_by_cols
+        # A derived formula can inherit a window without owning its grain.
+        definition = ctx.get_parsed_query(ctx.nodes[metric_name])
+        order_by_cols = {
+            col for _, cols in get_grain_level_window_info(definition) for col in cols
+        }
+        if order_by_cols:
+            window_metric_grains[metric_name] = order_by_cols
 
     return window_metric_grains
 
@@ -2676,7 +2659,6 @@ def process_metric_combiner_expression(
     component, metric, and dimension references with qualified column refs.
 
     Used by:
-    - build_derived_metric_expr in generate_metrics_sql
     - cube materialization for storing metric_expression in config
 
     Transformations applied (in order):

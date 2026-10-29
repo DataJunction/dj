@@ -896,7 +896,10 @@ async def test_rolling_metric_filter_runs_after_window(
     assert list(windowed.find_all(exp.Window))
     assert windowed.args.get("having") is None
     assert windowed.args.get("where") is None
-    assert ctes["__windowed"].args["where"].this.name == "__metric_filter"
+    predicate = ctes["__windowed"].args["where"].find(exp.GT)
+    assert predicate.this.table == "__metric_filtered"
+    assert predicate.this.name == filter_metric.split(".")[-1]
+    assert not list(predicate.find_all(exp.Window))
     assert query.args["where"].find(exp.Between) is not None
     assert "__metric_filter" not in [c["name"] for c in result["columns"]]
 

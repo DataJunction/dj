@@ -76,7 +76,7 @@ Derived formulas now resolve nested definitions using the expressions chosen
 for their base metrics, preserving distinct-count passthroughs and coarser-grain
 window CTE references. Projection aliases and metric predicates use independent
 AST copies. Filters use WHERE once aggregation has moved to `base_metrics`;
-when the final SELECT computes windows, an outer query filters their results
+the window stage exposes its computed metric columns to an outer WHERE,
 so even base-metric predicates cannot remove rows from a rolling frame.
 
 Additional regressions vary parent selection and request order, cover nested
@@ -93,8 +93,18 @@ This changes existing SQL for the cross-fact `weekly_active_rate` regression:
 densification, with an unresolved semantic ORDER BY reference. It now runs in
 `__windowed` as `SUM(base_metrics.daily_active_users) OVER (...)`, after
 densification. The updated expectation records this intentional stage change.
-The internal `__metric_filter` predicate is projected only inside its CTE;
-the public SELECT and output metadata exclude it.
+Metric predicates reference the projected metric columns directly in an outer
+WHERE. There is no hidden predicate column or duplicated window expression.
+
+Expression construction uses one dependency resolver for base-stage derived
+formulas, window formulas, and scalar descendants of windows. Its inputs are
+the metric values available at that SQL stage. Crossing a CTE boundary replaces
+those expressions with column references; unresolved base metrics fail rather
+than being reconstructed from source expressions. SQL-stage transformations
+(partition injection, dimension binding, and division guards) happen after
+resolution. Projections receive independent AST copies before aliasing.
+`metric_expressions_test.py` checks the resolver's stage boundaries, request-order
+independence, and ownership of shared expression trees.
 
 ## Existing coverage and remaining expansion
 

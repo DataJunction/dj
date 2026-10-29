@@ -2438,7 +2438,14 @@ class Function(Named, Operation):
         return self.name, self.args
 
     def __deepcopy__(self, memodict):
-        return self
+        # Bypass __new__, whose required arguments include children with parent
+        # links back to this function. Register the clone before copying those
+        # cycles, and preserve all compiled state without rebinding parents.
+        copied = object.__new__(type(self))
+        memodict[id(self)] = copied
+        for name, value in self.__dict__.items():
+            object.__setattr__(copied, name, deepcopy(value, memodict))
+        return copied
 
     def __str__(self) -> str:
         if self.name.name.upper() in function_registry and self.is_runtime():
