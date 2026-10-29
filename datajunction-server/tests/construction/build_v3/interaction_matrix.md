@@ -134,16 +134,9 @@ until its pairs are covered, together with a SQL contract for that setting.
 
 ## Running
 
-From `datajunction-server`, using a Newt-managed environment with the project
-dependencies and the standard Postgres test fixtures:
+From `datajunction-server`, with the project test dependencies installed and
+the standard Postgres test fixtures available:
 
 ```sh
-newt exec pytest -- tests/construction/build_v3/interaction_matrix_test.py -q
-```
-
-For this checkout's existing virtual environment at the repository root, the
-equivalent explicit-interpreter command is:
-
-```sh
-newt exec -- ../.venv/bin/python -m pytest tests/construction/build_v3/interaction_matrix_test.py -q
+python -m pytest tests/construction/build_v3/interaction_matrix_test.py -q
 ```
