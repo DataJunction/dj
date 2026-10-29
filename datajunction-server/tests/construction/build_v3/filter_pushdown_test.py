@@ -2094,7 +2094,8 @@ class TestFilterPushdownRoleQualifiedSharedDim:
     ):
         """The role-qualified counterpart still works: filtering
         ``v3.date.date_id[planned_launch]`` binds to the ``v3.show`` role link
-        (``planned_launch_date``) and does NOT touch the fact's own date.
+        (``planned_launch_date``), including inside the ``v3_show`` CTE that owns
+        that link, and does NOT touch the fact's own date.
         """
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
@@ -2114,6 +2115,7 @@ class TestFilterPushdownRoleQualifiedSharedDim:
             v3_show AS (
               SELECT show_id, show_title, planned_launch_date
               FROM default.v3.shows
+              WHERE planned_launch_date BETWEEN 20240101 AND 20240201
             ),
             v3_show_activity AS (
               SELECT show_id, view_secs

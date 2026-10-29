@@ -12,9 +12,11 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 from datajunction_server.construction.build_v3.cte import (
+    _filter_touches_blocked_ref,
     _populate_scope_column_aliases,
     _rewrite_filter_for_scope,
 )
+from datajunction_server.construction.build_v3.filters import parse_filter
 from datajunction_server.database.node import NodeType
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 
@@ -76,3 +78,24 @@ def test_filter_without_a_role_still_resolves_through_a_linked_source():
     assert (
         pushed("ns.date.dateint = 20261019", scope) == "impressions.utc_date = 20261019"
     )
+
+
+def blocked(filter_str: str, blocked_refs: set[str]) -> bool:
+    return _filter_touches_blocked_ref(parse_filter(filter_str), blocked_refs)
+
+
+def test_blocking_one_role_does_not_block_a_filter_on_another_role():
+    assert blocked(
+        "ns.date.dateint[allocation_snapshot] = 1",
+        {"ns.date.dateint[allocation_snapshot]"},
+    )
+    assert not blocked(
+        "ns.date.dateint[measure] BETWEEN 1 AND 2",
+        {"ns.date.dateint[allocation_snapshot]"},
+    )
+
+
+def test_role_less_blocked_ref_still_blocks_every_role_and_plain_refs():
+    assert blocked("ns.date.dateint[measure] = 1", {"ns.date.dateint"})
+    assert blocked("ns.date.dateint = 1", {"ns.date.dateint"})
+    assert not blocked("ns.other.col = 1", {"ns.date.dateint"})
