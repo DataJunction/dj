@@ -499,7 +499,7 @@ def detect_window_metrics_requiring_grain_groups(
 
     window_metric_grains: dict[str, set[str]] = {}
 
-    for metric_name in ctx.metrics:
+    for metric_name in decomposed_metrics:
         # Skip base metrics - they're already in grain groups
         if metric_name in base_grain_group_metrics:
             continue
@@ -512,9 +512,12 @@ def detect_window_metrics_requiring_grain_groups(
         if (  # pragma: no branch
             isinstance(decomposed, DecomposedMetricInfo) and decomposed.combiner_ast
         ):
-            if needs_grain_level_aggregation(decomposed.combiner_ast):
+            # Only the definition that owns a window gets a window grain.
+            # Scalar descendants read its result at their own requested grain.
+            definition = ctx.get_parsed_query(ctx.nodes[metric_name])
+            if needs_grain_level_aggregation(definition):
                 # Get the ORDER BY columns for this metric
-                grain_info = get_grain_level_window_info(decomposed.combiner_ast)
+                grain_info = get_grain_level_window_info(definition)
                 order_by_cols: set[str] = set()
                 for _, cols in grain_info:
                     order_by_cols.update(cols)

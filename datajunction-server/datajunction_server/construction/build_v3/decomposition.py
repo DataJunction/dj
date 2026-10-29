@@ -135,6 +135,19 @@ async def decompose_and_group_metrics(
 
             parent_groups[parent_name].append(decomposed)
 
+    # Keep intermediate derived ancestors available to window planning too.
+    # A scalar formula over a window must not make that window disappear just
+    # because the parent wasn't separately requested in the output.
+    for name, node in ctx.nodes.items():
+        if node.type == NodeType.METRIC and name not in all_decomposed:
+            all_decomposed[name] = await decompose_metric(
+                ctx.session,
+                node,
+                nodes_cache=ctx.nodes,
+                parent_map=ctx.parent_map,
+                dialect=ctx.combiner_dialect or ctx.dialect,
+            )
+
     # Build MetricGroup objects
     metric_groups = [
         MetricGroup(parent_node=parent_nodes[name], decomposed_metrics=metrics)

@@ -36,25 +36,6 @@ class SQLExpressionMismatch(AssertionError):
     """A derived expression disagrees with its independently selected parents."""
 
 
-class RecountedDistinctFailure(SQLExpressionMismatch):
-    """COUNT DISTINCT was applied to a column already containing counts."""
-
-
-class OutputTypeResolutionFailure(AssertionError):
-    """Known fixed-grain/HAVING failure while resolving output metadata."""
-
-
-class UnresolvedWindowMetricFailure(AssertionError):
-    """A derived expression still names a semantic window metric in final SQL."""
-
-
-FIXED_GRAIN_HAVING = pytest.mark.xfail(
-    strict=True,
-    raises=OutputTypeResolutionFailure,
-    reason="Fixed-grain derived metrics with HAVING lose base_metrics output typing",
-)
-
-
 @dataclass(frozen=True)
 class Case:
     aggregation: str
@@ -186,15 +167,17 @@ async def build(
         assert response.status_code == 422, response.json()
         assert expected_error in response.json()["message"]
         return None
-    if response.status_code == 422 and response.json()["message"] == (
-        "Cannot resolve type of column `base_metrics.total_quantity AS total_quantity` that has no parent"
-    ):
-        raise OutputTypeResolutionFailure(response.json()["message"])
     assert response.status_code == 200, response.json()
     return response.json()
 
 
 def projections(query):
+    source = query.args["from_"].this.name if query.args.get("from_") else ""
+    if source == "__metric_filtered" or (
+        len(query.expressions) == 1 and isinstance(query.expressions[0], exp.Star)
+    ):
+        cte = next(cte for cte in query.ctes if cte.alias == source)
+        return projections(cte.this)
     return {p.alias_or_name: p.this for p in query.expressions}
 
 
@@ -268,15 +251,6 @@ def assert_ratio(query, name, numerator, denominator, *, nested=False):
         (divisor, outputs[denominator]),
     ):
         if canonical(actual) != canonical(expected):
-            if (
-                isinstance(actual, exp.Count)
-                and isinstance(actual.this, exp.Distinct)
-                and isinstance(expected, exp.Max)
-                and actual.this.expressions == [expected.this]
-            ):
-                raise RecountedDistinctFailure(
-                    f"actual: {actual}; expected: {expected}",
-                )
             raise SQLExpressionMismatch(
                 f"actual operand: {actual}\nexpected operand: {expected}",
             )
@@ -330,26 +304,20 @@ async def matrix_client(module__client_with_build_v3):
         "v3.matrix_trailing_ratio",
         "SELECT v3.trailing_7d_revenue / v3.total_revenue",
     )
+    await create_metric(
+        client,
+        "v3.matrix_trailing_nested",
+        "SELECT (v3.matrix_trailing_ratio + 1) * 2",
+    )
+    await create_metric(
+        client,
+        "v3.matrix_weekly_ratio",
+        "SELECT v3.wow_revenue_change / v3.total_revenue",
+    )
     return client
 
 
-@pytest.mark.parametrize(
-    "case",
-    [
-        pytest.param(
-            case,
-            id=case.id,
-            marks=pytest.mark.xfail(
-                strict=True,
-                raises=RecountedDistinctFailure,
-                reason="Nested cross-fact distinct metric counts pre-aggregated counts again",
-            )
-            if case.values == ("distinct", "nested", "cross", "having")
-            else (),
-        )
-        for case in CASES
-    ],
-)
+@pytest.mark.parametrize("case", [pytest.param(case, id=case.id) for case in CASES])
 async def test_core_sql_interactions(matrix_client, sql_binder, case):
     base = AGGREGATIONS[case.aggregation]
     denominator = "v3.total_quantity" if case.facts == "same" else "v3.page_view_count"
@@ -443,9 +411,6 @@ async def test_core_sql_interactions(matrix_client, sql_binder, case):
             filter_kind,
             keep_day,
             id=f"{modifier}-{filter_kind}-{'keep' if keep_day else 'collapse'}-day",
-            marks=FIXED_GRAIN_HAVING
-            if modifier in ("global", "partition") and filter_kind == "having"
-            else (),
         )
         for modifier, filter_kind, keep_day in product(
             ("global", "partition", "first_value", "last_value", "min", "max"),
@@ -510,7 +475,12 @@ async def test_grain_derived_filter_interactions(
         assert any(
             "date_id_order" in grouped_projection_names(cte.this) for cte in query.ctes
         )
-    assert bool(list(query.find_all(exp.Having))) == (filter_kind == "having")
+    assert bool(list(query.find_all(exp.Having))) == (
+        filter_kind == "having" and modifier not in ("global", "partition")
+    )
+    if filter_kind == "having" and modifier in ("global", "partition"):
+        assert query.args["where"].find(exp.GT) is not None
+        assert "total_quantity" in query.args["where"].sql()
 
 
 @pytest.mark.parametrize(
@@ -590,9 +560,6 @@ async def make_preagg(client, binder, metrics, dimensions, table):
             shape,
             filter_kind,
             id=f"{shape}-{filter_kind}",
-            marks=FIXED_GRAIN_HAVING
-            if shape in ("global", "partition") and filter_kind == "having"
-            else (),
         )
         for shape, filter_kind in product(
             ("global", "partition", "snapshot", "average", "distinct"),
@@ -685,7 +652,12 @@ async def test_grain_derived_preagg_interactions(
         assert not list(query.find_all(exp.Avg))
     else:
         assert any(isinstance(c.this, exp.Distinct) for c in query.find_all(exp.Count))
-    assert bool(list(query.find_all(exp.Having))) == (filter_kind == "having")
+    assert bool(list(query.find_all(exp.Having))) == (
+        filter_kind == "having" and shape not in ("global", "partition")
+    )
+    if filter_kind == "having" and shape in ("global", "partition"):
+        assert query.args["where"].find(exp.GT) is not None
+        assert "total_quantity" in query.args["where"].sql()
     assert [c["semantic_entity"] for c in result["columns"]] == [CATEGORY, *metrics]
 
 
@@ -759,18 +731,8 @@ async def test_grain_modifiers_fail_closed(matrix_client, modifier, other_metric
 )
 @pytest.mark.parametrize(
     "derived",
-    [
-        pytest.param(False, id="window"),
-        pytest.param(
-            True,
-            id="derived-over-window",
-            marks=pytest.mark.xfail(
-                strict=True,
-                raises=UnresolvedWindowMetricFailure,
-                reason="Derived arithmetic over a rolling metric leaves its semantic name unresolved",
-            ),
-        ),
-    ],
+    [False, True],
+    ids=["window", "derived-over-window"],
 )
 async def test_rolling_window_filter_interactions(
     matrix_client,
@@ -791,15 +753,6 @@ async def test_rolling_window_filter_interactions(
         [CATEGORY, DAY],
         filters,
     )
-    if derived:
-        parsed = sqlglot.parse_one(result["sql"], read="spark")
-        if any(
-            c.table == "v3" and c.name == "trailing_7d_revenue"
-            for c in parsed.find_all(exp.Column)
-        ):
-            raise UnresolvedWindowMetricFailure(
-                "v3.trailing_7d_revenue remains in executable SQL",
-            )
     query = assert_sql_contract(result["sql"], result["columns"], sql_binder)
     if derived:
         assert_ratio(
@@ -826,3 +779,97 @@ async def test_rolling_window_filter_interactions(
             j.side == "LEFT" and j.this.alias == "__agg"
             for j in query.find_all(exp.Join)
         )
+
+
+@pytest.mark.parametrize("select_parents", [False, True])
+async def test_nested_distinct_uses_planned_parents(
+    matrix_client,
+    sql_binder,
+    select_parents,
+):
+    """A nested cross-fact formula must consume counts without counting them again."""
+    metric = "v3.matrix_distinct_cross_nested"
+    metrics = [metric]
+    if select_parents:
+        # Request the intermediate after its child to exercise dependency order.
+        metrics += ["v3.order_count", "v3.page_view_count", "v3.matrix_distinct_cross"]
+    result = await build(matrix_client, metrics, [CATEGORY], [metric + " > 10"])
+    query = assert_sql_contract(result["sql"], result["columns"], sql_binder)
+    expression = projections(query)[metric.split(".")[-1]]
+    assert not list(expression.find_all(exp.Count))
+    assert {c.name for c in expression.find_all(exp.Column)} == {
+        "order_id",
+        "view_id_count_f41e2db4",
+    }
+    assert list(expression.find_all(exp.Max))
+    assert not list(query.args["having"].find_all(exp.Count))
+
+
+@pytest.mark.parametrize("nested", [False, True])
+@pytest.mark.parametrize("select_parents", [False, True])
+async def test_rolling_formula_parent_selection(
+    matrix_client,
+    sql_binder,
+    nested,
+    select_parents,
+):
+    """Unselected and shared derived dependencies resolve at the window stage."""
+    metric = "v3.matrix_trailing_nested" if nested else "v3.matrix_trailing_ratio"
+    metrics = [metric]
+    if select_parents:
+        metrics += ["v3.total_revenue", "v3.trailing_7d_revenue"]
+    result = await build(matrix_client, metrics, [CATEGORY, DAY])
+    query = assert_sql_contract(result["sql"], result["columns"], sql_binder)
+    expression = projections(query)[metric.split(".")[-1]]
+    assert len(list(expression.find_all(exp.Window))) == 1
+    assert all(c.table != "v3" for c in expression.find_all(exp.Column))
+    if select_parents:
+        assert_ratio(
+            query,
+            metric.split(".")[-1],
+            "trailing_7d_revenue",
+            "total_revenue",
+            nested=nested,
+        )
+
+
+@pytest.mark.parametrize(
+    "filter_metric",
+    ["v3.total_revenue", "v3.matrix_trailing_ratio"],
+)
+async def test_rolling_metric_filter_runs_after_window(
+    matrix_client,
+    sql_binder,
+    filter_metric,
+):
+    """Filtering a base or window value must preserve the rolling frame's input."""
+    result = await build(
+        matrix_client,
+        ["v3.matrix_trailing_ratio", "v3.total_revenue"],
+        [CATEGORY, DAY],
+        [filter_metric + " > 10", f"{DAY} BETWEEN 20240108 AND 20240110"],
+    )
+    query = assert_sql_contract(result["sql"], result["columns"], sql_binder)
+    ctes = {cte.alias: cte.this for cte in query.ctes}
+    windowed = ctes["__metric_filtered"]
+    assert list(windowed.find_all(exp.Window))
+    assert windowed.args.get("having") is None
+    assert windowed.args.get("where") is None
+    assert ctes["__windowed"].args["where"].this.name == "__metric_filter"
+    assert query.args["where"].find(exp.Between) is not None
+    assert "__metric_filter" not in [c["name"] for c in result["columns"]]
+
+
+async def test_formula_reads_coarser_window_cte(matrix_client, sql_binder):
+    """Weekly windows are computed at week grain before joining the daily formula."""
+    result = await build(
+        matrix_client,
+        ["v3.matrix_weekly_ratio", "v3.wow_revenue_change", "v3.total_revenue"],
+        [CATEGORY, DAY, WEEK],
+    )
+    query = assert_sql_contract(result["sql"], result["columns"], sql_binder)
+    assert_ratio(query, "matrix_weekly_ratio", "wow_revenue_change", "total_revenue")
+    formula = projections(query)["matrix_weekly_ratio"]
+    assert not list(formula.find_all(exp.Window))
+    wow = projections(query)["wow_revenue_change"]
+    assert isinstance(wow, exp.Column) and wow.table != "base_metrics"

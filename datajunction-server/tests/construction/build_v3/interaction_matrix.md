@@ -5,8 +5,8 @@ tests. It exercises the real v3 SQL builder through the SQL API, with the query
 service mocked by the existing fixtures. It does not execute metric queries or
 claim full semantic equivalence from parsing alone.
 
-The new suite contains 91 cases: 80 passing cases and 11 strict expected failures
-covering the three bugs documented below. Rejected combinations are passing
+The suite contains 100 cases, including passing regressions for the three bugs
+documented below. Rejected combinations are passing
 tests with explicit error assertions, not skips.
 
 ## Bounded core
@@ -62,10 +62,9 @@ result comparisons for their supported feature subset. Ratio assertions focus
 on operands and operator structure; engine-specific division-by-zero behavior
 remains in the existing dedicated tests.
 
-## Bugs exposed by the matrix
+## Bugs fixed after the matrix exposed them
 
-Strict xfails preserve expected successful behavior for these regressions. An
-unexpected pass fails the suite, so fixing a bug requires removing its mark.
+These cases now assert successful SQL generation and independent binding.
 
 | Failure | Regression |
 | --- | --- |
@@ -73,8 +72,16 @@ unexpected pass fails the suite, so fixing a bug requires removing its mark.
 | Fixed-grain derived metrics plus HAVING | Output metadata resolution fails for `base_metrics.total_quantity AS total_quantity`, reporting that the column has no parent. Both global and partitioned grains are affected. |
 | Derived arithmetic over a rolling metric | The generated SQL leaves `v3.trailing_7d_revenue` unresolved in the derived expression. It is a semantic metric name, not a table/column reference that an engine can bind. Both unfiltered and narrow date-range cases reproduce it. |
 
-The xfails are restricted to the particular failure classes. Fixture failures,
-SQL binding errors, and unrelated assertion failures remain failures.
+Derived formulas now resolve nested definitions using the expressions chosen
+for their base metrics, preserving distinct-count passthroughs and coarser-grain
+window CTE references. Projection aliases and metric predicates use independent
+AST copies. Filters use WHERE once aggregation has moved to `base_metrics`;
+when the final SELECT computes windows, an outer query filters their results
+so even base-metric predicates cannot remove rows from a rolling frame.
+
+Additional regressions vary parent selection and request order, cover nested
+rolling formulas and weekly window values consumed at daily grain, and combine
+base/derived metric filters with window lookback and output date restrictions.
 
 ## Existing coverage and remaining expansion
 
@@ -94,7 +101,7 @@ their full SQL expectations here.
 | Statistical aggregates, nulls, empty inputs | `decomposition_test.py`, `tests/property/metric_decomposition_test.py`, `tests/property/known_issues.py` | Extend independent numeric oracles; SQL binding alone cannot establish these properties. |
 
 No blanket skip excludes unsupported feature combinations. Known restrictions
-have rejection assertions; known bugs have strict xfails; uncovered interactions
+have rejection assertions; fixed bugs have passing regressions; uncovered interactions
 are recorded above. Adding another core-axis setting requires adding scenarios
 until its pairs are covered, together with a SQL contract for that setting.
 
