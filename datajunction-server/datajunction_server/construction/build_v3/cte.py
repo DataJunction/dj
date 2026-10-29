@@ -2097,6 +2097,42 @@ def _projection_output_name(proj: object) -> str | None:
     return None  # pragma: no cover
 
 
+def _ref_is_blocked(ref: str, blocked_refs: set[str]) -> bool:
+    """Whether a filter's dim ref is blocked.
+
+    A role-qualified ref is blocked by its own entry or a role-less one for the
+    dimension, not by another role's. A role-less ref is blocked by any role of
+    the dimension, since it can resolve through any of them.
+    """
+    if ref in blocked_refs:
+        return True
+    base = ref.split("[")[0]
+    if base != ref:
+        return base in blocked_refs
+    return any(blocked.startswith(f"{ref}[") for blocked in blocked_refs)
+
+
+def _filter_touches_blocked_ref(
+    filter_ast: ast.Expression,
+    blocked_refs: set[str],
+) -> bool:
+    """Whether any dim ref in the filter is blocked, keeping each ref's role."""
+    refs: list[str] = []
+    role_columns: set[int] = set()
+    for subscript in filter_ast.find_all(ast.Subscript):
+        if isinstance(subscript.expr, ast.Column):  # pragma: no branch
+            ref = dimension_ref_of_expression(subscript)
+            if ref:  # pragma: no branch
+                refs.append(ref)
+                role_columns.add(id(subscript.expr))
+    for col in filter_ast.find_all(ast.Column):
+        if id(col) not in role_columns:
+            ref = get_column_full_name(col)
+            if ref:  # pragma: no branch
+                refs.append(ref)
+    return any(_ref_is_blocked(ref, blocked_refs) for ref in refs)
+
+
 def _rewrite_filter_for_scope(
     filter_str: str,
     filter_column_aliases: dict[str, str],
@@ -2135,11 +2171,8 @@ def _rewrite_filter_for_scope(
     # (outer-only / FK-name collision) must never be retargeted into a scope —
     # it stays at the outer WHERE.  Checked up front so it holds regardless of
     # whether this scope's resolver map happens to be empty.
-    if blocked_refs:
-        for col in cols:
-            full = get_column_full_name(col)
-            if full and (full in blocked_refs or full.split("[")[0] in blocked_refs):
-                return None
+    if blocked_refs and _filter_touches_blocked_ref(filter_ast, blocked_refs):
+        return None
     if not column_to_alias:
         return None
     rewrites: list[tuple[ast.Expression, ast.Column]] = []
@@ -2306,13 +2339,10 @@ def _rewrite_filter_for_select(
     # column is the raw FK value, not the attribute.  If the filter touches
     # one, bail entirely so the predicate stays in the post-join outer WHERE;
     # a partial push would either bind to the wrong column or leave the rest
-    # of an OR-predicate dangling.  Role-qualified refs surface here as their
-    # role-stripped base column, which is what ``blocked_refs`` is keyed on.
-    if blocked_refs:
-        for col in filter_ast.find_all(ast.Column):
-            ref = get_column_full_name(col)
-            if ref and (ref in blocked_refs or ref.split("[")[0] in blocked_refs):
-                return None
+    # of an OR-predicate dangling.  Role-qualified refs are checked with their
+    # role, so a blocked role doesn't block a filter on another role.
+    if blocked_refs and _filter_touches_blocked_ref(filter_ast, blocked_refs):
+        return None
 
     # First pass: plan the rewrites by walking the AST.  Role-qualified refs
     # appear as Subscript(Column(base), Column/Lambda(role)) and are handled
