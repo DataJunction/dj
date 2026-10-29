@@ -1182,8 +1182,7 @@ def process_derived_metrics(
     expressions = resolve_metric_expressions(ctx, metric_names, available_exprs)
     for expr in expressions.values():
         # SQL-stage transformations are separate from dependency resolution.
-        if not window_cte_alias:
-            wrap_divisions_in_nullif(expr)
+        wrap_divisions_in_nullif(expr)
         replace_dimension_refs_in_ast(expr, dimension_refs)
         inject_partition_by_into_windows(
             expr,

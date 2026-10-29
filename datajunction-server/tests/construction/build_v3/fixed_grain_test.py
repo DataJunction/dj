@@ -593,7 +593,7 @@ async def test_ratio_broadcasts_both_metrics_fixed_to_the_same_grain(
             base_metrics.status AS status,
             base_metrics.order_id AS order_id,
             base_metrics.fixed_status_numerator
-                / base_metrics.fixed_status_denominator AS fixed_status_ratio
+                / NULLIF(base_metrics.fixed_status_denominator, 0) AS fixed_status_ratio
         FROM base_metrics
         """,
     )
@@ -1409,7 +1409,7 @@ async def test_window_beside_a_broadcast_divisor_is_allowed(client_with_build_v3
             SUM(base_metrics.total_revenue) OVER (
                 ORDER BY base_metrics.date_id_order
                 ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
-            ) / base_metrics.beside_global AS trailing_share
+            ) / NULLIF(base_metrics.beside_global, 0) AS trailing_share
         FROM base_metrics
         """,
     )

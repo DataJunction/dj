@@ -864,6 +864,10 @@ async def test_rolling_formula_parent_selection(
     expression = projections(query)[metric.split(".")[-1]]
     assert len(list(expression.find_all(exp.Window))) == 1
     assert all(c.table != "v3" for c in expression.find_all(exp.Column))
+    divisor = next(expression.find_all(exp.Div)).expression.unnest()
+    assert isinstance(divisor, exp.Nullif)
+    assert divisor.expression == exp.Literal.number(0)
+    assert not isinstance(divisor.this.unnest(), exp.Nullif)
     if select_parents:
         assert_ratio(
             query,
@@ -915,5 +919,23 @@ async def test_formula_reads_coarser_window_cte(matrix_client, sql_binder):
     assert_ratio(query, "matrix_weekly_ratio", "wow_revenue_change", "total_revenue")
     formula = projections(query)["matrix_weekly_ratio"]
     assert not list(formula.find_all(exp.Window))
+    divisor = formula.expression.unnest()
+    assert isinstance(divisor, exp.Nullif)
+    assert divisor.expression == exp.Literal.number(0)
+    assert not isinstance(divisor.this.unnest(), exp.Nullif)
+    # Evaluate the emitted scalar formula with concrete values from its CTEs.
+    # Binding alone cannot distinguish NULL from Infinity on division by zero.
+    for denominator, expected in [(0, None), (5, 2)]:
+        values = {"wow_revenue_change": 10, "total_revenue": denominator}
+        evaluated = formula.transform(
+            lambda node: (
+                exp.Literal.number(values[node.name])
+                if isinstance(node, exp.Column)
+                else node
+            ),
+        )
+        assert sql_binder.execute(
+            "SELECT " + evaluated.sql(dialect="duckdb"),
+        ).fetchone() == (expected,)
     wow = projections(query)["wow_revenue_change"]
     assert isinstance(wow, exp.Column) and wow.table != "base_metrics"

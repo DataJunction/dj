@@ -1,20 +1,53 @@
 """Tests for cte.py - CTE building and AST transformation utilities."""
 
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
 import pytest
 
 from datajunction_server.construction.build_v3.cte import (
     _build_cte_projection_map,
     _inject_filter_into_where,
     _rewrite_filter_for_cte,
+    detect_window_metrics_requiring_grain_groups,
     get_column_full_name,
     inject_partition_by_into_windows,
     process_metric_combiner_expression,
     replace_metric_refs_in_ast,
 )
+from datajunction_server.construction.build_v3.types import BuildContext
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 from . import assert_sql_equal
+
+
+def test_window_grain_detection_uses_each_metrics_own_definition():
+    """Unselected navigation parents own a grain; their scalar descendants do not."""
+    definitions = {
+        "v3.revenue": "SELECT SUM(amount) FROM fact",
+        "v3.weekly": "SELECT LAG(v3.revenue, 1) OVER (ORDER BY v3.date.week)",
+        "v3.scalar": "SELECT v3.weekly / v3.revenue",
+        "v3.rolling": (
+            "SELECT SUM(v3.revenue) OVER "
+            "(ORDER BY v3.date.date_id ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)"
+        ),
+    }
+    ctx = MagicMock(spec=BuildContext)
+    ctx.metrics = ["v3.scalar", "v3.rolling"]
+    ctx.nodes = {name: parse(query) for name, query in definitions.items()}
+    ctx.get_parsed_query.side_effect = lambda node: node
+    # Expanded combiners can inherit a parent's LAG. Grain detection must
+    # inspect the original definitions instead, including unselected parents.
+    decomposed = dict.fromkeys(
+        definitions,
+        SimpleNamespace(combiner_ast=ctx.nodes["v3.weekly"]),
+    )
+    assert detect_window_metrics_requiring_grain_groups(
+        ctx,
+        decomposed,
+        {"v3.revenue"},
+    ) == {"v3.weekly": {"v3.date.week"}}
 
 
 class TestGetColumnFullName:

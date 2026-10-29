@@ -103,6 +103,10 @@ those expressions with column references; unresolved base metrics fail rather
 than being reconstructed from source expressions. SQL-stage transformations
 (partition injection, dimension binding, and division guards) happen after
 resolution. Projections receive independent AST copies before aliasing.
+Division guards apply at every stage, including scalar formulas over window
+outputs and ratios with fixed-grain operands. Regressions assert the guards
+directly and evaluate a generated scalar formula with a zero denominator to
+check that it returns NULL.
 `metric_expressions_test.py` checks the resolver's stage boundaries, request-order
 independence, and ownership of shared expression trees.
 

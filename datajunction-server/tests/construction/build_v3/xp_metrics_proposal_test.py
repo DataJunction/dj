@@ -189,7 +189,7 @@ async def test_global_grain_ratio_builds_but_is_a_different_number(
         )
 
         SELECT base_metrics.month AS month,
-            base_metrics.xp_activity_global / base_metrics.visitor_count AS xp_avg_global
+            base_metrics.xp_activity_global / NULLIF(base_metrics.visitor_count, 0) AS xp_avg_global
         FROM base_metrics
         """,
         normalize_aliases=True,
