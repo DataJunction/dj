@@ -109,6 +109,21 @@ def test_snowflake_client_import_error():
         assert "snowflake-connector-python" in str(exc_info.value)
 
 
+def test_connection_database_override_does_not_change_client_default():
+    from datajunction_server.query_clients.snowflake import SnowflakeClient
+
+    with patch("datajunction_server.query_clients.snowflake.SNOWFLAKE_AVAILABLE", True):
+        client = SnowflakeClient(account="test", user="test", database="DEFAULT_DB")
+    connect = MagicMock()
+    snowflake_module = SimpleNamespace(connector=SimpleNamespace(connect=connect))
+    target = "datajunction_server.query_clients.snowflake.snowflake"
+    with patch(target, snowflake_module):
+        client._get_connection(database="QUERY_DB")
+
+    assert connect.call_args.kwargs["database"] == "QUERY_DB"
+    assert client.connection_params["database"] == "DEFAULT_DB"
+
+
 def test_get_database_from_engine_empty_database():
     """Test _get_database_from_engine when path parsing yields empty database name."""
     from datajunction_server.query_clients.snowflake import SnowflakeClient

@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.requests import Request
+from starlette.requests import ClientDisconnect, Request
 from starlette.responses import JSONResponse
 
 from datajunction_server.api import semantic_layer as semantic_layer_api
@@ -3289,3 +3289,292 @@ async def test_values_sql_generation_djexception_returns_problem(
         "status": 422,
         "detail": "values SQL blew up",
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [400, 401])
+async def test_semantic_http_exception_keeps_headers_and_clears_unauthorized_cookies(
+    client: AsyncClient,
+    monkeypatch,
+    status,
+):
+    from fastapi import HTTPException
+
+    error = HTTPException(status, "access failed", headers={"X-Test": "yes"})
+    monkeypatch.setattr(
+        semantic_layer_api,
+        "_can_read_view",
+        AsyncMock(side_effect=error),
+    )
+    resp = await client.post("/semantic/views/any_view/sql", json={"query": {}})
+
+    assert resp.status_code == status
+    assert resp.headers["content-type"] == "application/problem+json"
+    assert resp.headers["X-Test"] == "yes"
+    assert resp.json()["detail"] == "access failed"
+    assert ("__dj=" in resp.headers.get("set-cookie", "")) is (status == 401)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [401, 418, 503])
+async def test_semantic_route_formats_uncaught_djexception(
+    client: AsyncClient,
+    monkeypatch,
+    status,
+):
+    monkeypatch.setattr(
+        semantic_layer_api,
+        "_can_read_view",
+        AsyncMock(
+            side_effect=DJException(message="private failure", http_status_code=status),
+        ),
+    )
+    resp = await client.post("/semantic/views/any_view/sql", json={"query": {}})
+
+    assert resp.status_code == status
+    assert resp.headers["content-type"] == "application/problem+json"
+    assert resp.json()["detail"] == (
+        "Query execution failed." if status >= 500 else "private failure"
+    )
+    assert ("__dj=" in resp.headers.get("set-cookie", "")) is (status == 401)
+
+
+@pytest.mark.asyncio
+async def test_semantic_route_preserves_client_disconnect():
+    route = semantic_layer_api.SemanticAPIRoute(path="/test", endpoint=lambda: None)
+    with patch(
+        "fastapi.routing.APIRoute.get_route_handler",
+        return_value=AsyncMock(side_effect=ClientDisconnect()),
+    ):
+        handler = route.get_route_handler()
+    with pytest.raises(ClientDisconnect):
+        await handler(Request({"type": "http", "headers": []}))
+
+
+def test_problem_uses_generic_title_for_unknown_status():
+    response = semantic_layer_api._problem(599, "Unknown status")
+    assert json.loads(response.body)["title"] == "Error"
+
+
+@pytest.mark.asyncio
+async def test_prepare_execution_returns_catalog_error(monkeypatch):
+    generated = GeneratedSQLResponse(
+        sql="SELECT 1",
+        dialect="postgres",
+        columns=[],
+        cube_name=None,
+    )
+    error = semantic_layer_api._problem(400, "Wrong catalog")
+    monkeypatch.setattr(
+        semantic_layer_api,
+        "_generate_sql",
+        AsyncMock(return_value=(generated, {"other"}, SimpleNamespace())),
+    )
+    monkeypatch.setattr(semantic_layer_api, "_catalog_error", lambda *args: error)
+
+    result = await semantic_layer_api._prepare_execution(
+        SimpleNamespace(),
+        SimpleNamespace(),
+        QueryPayload(metrics=["m"]),
+    )
+    assert result is error
+
+
+def test_semantic_sql_replaces_flat_physical_catalog_name():
+    generated = V3GeneratedSQL(
+        query=parse("SELECT * FROM warehouse.sales.orders"),
+        columns=[],
+        dialect=Dialect.SNOWFLAKE,
+    )
+    table = next(generated.query.find_all(ast.Table))
+    table.name = ast.Name("warehouse.sales.orders")
+
+    executable = _executable_sql(generated, "warehouse", "REAL_DB")
+
+    assert "REAL_DB.sales.orders" in executable
+    assert "warehouse.sales.orders" in generated.sql
+
+
+def test_semantic_sql_keeps_flat_name_with_extra_qualifier():
+    generated = V3GeneratedSQL(
+        query=parse("SELECT * FROM t"),
+        columns=[],
+        dialect=Dialect.SNOWFLAKE,
+    )
+    table = next(generated.query.find_all(ast.Table))
+    table.name = ast.Name("warehouse.sales.orders.extra")
+
+    executable = _executable_sql(generated, "warehouse", "REAL_DB")
+
+    assert "warehouse.sales.orders.extra" in executable
+    assert "REAL_DB.sales.orders.extra" not in executable
+
+
+def test_result_value_handles_null_and_rejects_nonfinite_decimal():
+    assert _result_value(None, "floating") is None
+    with pytest.raises(ValueError, match="Non-finite decimal"):
+        _result_value(Decimal("NaN"), "decimal")
+
+
+@pytest.mark.asyncio
+async def test_generate_sql_rejects_negative_offset(client: AsyncClient):
+    resp = await client.post(
+        "/semantic/views/any_view/sql",
+        json={"query": {"metrics": ["m"], "offset": -1}},
+    )
+    assert resp.status_code == 400
+    assert "non-negative" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("query", "detail"),
+    [
+        ({"filters": [{"column": "d", "type": "INVALID"}]}, "Filter `type`"),
+        ({"order": [{"by": "d", "direction": "INVALID"}]}, "Order `direction`"),
+    ],
+)
+async def test_generate_sql_rejects_invalid_filter_and_order_types(
+    client: AsyncClient,
+    monkeypatch,
+    query,
+    detail,
+):
+    cube = SimpleNamespace(cube_node_metrics=["m"], cube_node_dimensions=["d"])
+    monkeypatch.setattr(
+        semantic_layer_api.Node,
+        "get_cube_by_name",
+        AsyncMock(return_value=SimpleNamespace(current=cube)),
+    )
+    resp = await client.post(
+        "/semantic/views/any_view/sql",
+        json={"query": {"metrics": ["m"], **query}},
+    )
+    assert resp.status_code == 400
+    assert detail in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_execute_sql_rejects_unexpected_statement_and_row_shapes():
+    generated = GeneratedSQLResponse(
+        sql="SELECT id FROM t",
+        dialect="trino",
+        columns=[ColumnInfo(name="id", type="int")],
+        cube_name=None,
+    )
+    context = SimpleNamespace(
+        engine=SimpleNamespace(name="trino", version="451", uri=None),
+        catalog_name="catalog",
+    )
+    request = Request({"type": "http", "headers": []})
+    result = SimpleNamespace(
+        state=QueryState.FINISHED,
+        errors=[],
+        results=SimpleNamespace(root=[]),
+    )
+    service = SimpleNamespace(submit_query=AsyncMock(return_value=result))
+    prepared = PreparedSemanticQuery(generated, context)
+
+    response = await _execute_sql(prepared, request, service)
+    assert response.status_code == 500
+    assert "number of statements" in json.loads(response.body)["detail"]
+
+    result.results.root = [SimpleNamespace(rows=[[1, 2]])]
+    response = await _execute_sql(prepared, request, service)
+    assert response.status_code == 500
+    assert "unexpected columns" in json.loads(response.body)["detail"]
+
+    service.submit_query.side_effect = DJException(
+        message="secret warehouse error",
+        http_status_code=500,
+    )
+    response = await _execute_sql(prepared, request, service)
+    assert response.status_code == 502
+    assert json.loads(response.body)["code"] == "QUERY_EXECUTION_FAILED"
+    assert b"secret warehouse error" not in response.body
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("endpoint", ["query", "row-count"])
+async def test_semantic_execution_routes_return_preparation_errors(
+    client: AsyncClient,
+    monkeypatch,
+    endpoint,
+):
+    can_read = AsyncMock(return_value=True)
+    monkeypatch.setattr(semantic_layer_api, "_can_read_view", can_read)
+    monkeypatch.setattr(
+        semantic_layer_api,
+        "_prepare_view_sql",
+        AsyncMock(return_value=semantic_layer_api._problem(400, "Invalid query")),
+    )
+    resp = await client.post(
+        f"/semantic/views/any_view/{endpoint}",
+        json={"query": {"metrics": ["m"]}},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Invalid query"
+
+
+@pytest.mark.asyncio
+async def test_values_rejects_having_filter(client: AsyncClient, monkeypatch):
+    cube = SimpleNamespace(cube_node_dimensions=["d"])
+    monkeypatch.setattr(
+        semantic_layer_api.Node,
+        "get_cube_by_name",
+        AsyncMock(return_value=SimpleNamespace(current=cube)),
+    )
+    resp = await client.post(
+        "/semantic/views/any_view/values",
+        json={"dimension": "d", "filters": [{"column": "d", "type": "HAVING"}]},
+    )
+    assert resp.status_code == 400
+    assert "WHERE dimensions" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_values_returns_catalog_error(client: AsyncClient, monkeypatch):
+    cube = SimpleNamespace(cube_node_dimensions=["d"])
+    monkeypatch.setattr(
+        semantic_layer_api.Node,
+        "get_cube_by_name",
+        AsyncMock(return_value=SimpleNamespace(current=cube)),
+    )
+    monkeypatch.setattr(
+        semantic_layer_api,
+        "_prepare_execution",
+        AsyncMock(return_value=semantic_layer_api._problem(400, "Wrong catalog")),
+    )
+    resp = await client.post(
+        "/semantic/views/any_view/values",
+        json={"dimension": "d"},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Wrong catalog"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("cube", "error"),
+    [
+        (None, None),
+        (None, DJException(message="lookup failed", http_status_code=418)),
+    ],
+)
+async def test_compatibility_handles_missing_or_failed_cube_lookup(
+    client: AsyncClient,
+    monkeypatch,
+    cube,
+    error,
+):
+    monkeypatch.setattr(
+        semantic_layer_api.Node,
+        "get_cube_by_name",
+        AsyncMock(return_value=cube, side_effect=error),
+    )
+    resp = await client.post(
+        "/semantic/views/any_view/compatible-metrics",
+        json={"selected_metrics": []},
+    )
+    assert resp.status_code == (418 if error else 404)
+    assert resp.headers["content-type"] == "application/problem+json"
