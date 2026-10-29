@@ -410,32 +410,6 @@ GRAIN_LEVEL_AGGREGATION_FUNCTIONS = frozenset(
 )
 
 
-def needs_grain_level_aggregation(expr_ast: ast.Node) -> bool:
-    """
-    Check if an expression uses LAG/LEAD window functions that need grain-level aggregation.
-
-    LAG/LEAD functions compare values across rows at a specific grain (e.g., week-over-week).
-    Unlike frame-based functions (SUM OVER ROWS BETWEEN), these need pre-aggregation to the
-    ORDER BY grain before the window function is applied.
-
-    Args:
-        expr_ast: The AST expression to check
-
-    Returns:
-        True if the expression contains LAG/LEAD window functions
-    """
-    for func in expr_ast.find_all(ast.Function):
-        if func.over and func.name:
-            func_name = (
-                str(func.name.name).upper()
-                if hasattr(func.name, "name")
-                else str(func.name).upper()
-            )
-            if func_name in GRAIN_LEVEL_AGGREGATION_FUNCTIONS:
-                return True
-    return False
-
-
 def get_grain_level_window_info(expr_ast: ast.Node) -> list[tuple[str, set[str]]]:
     """
     Get information about LAG/LEAD window functions that need grain-level aggregation.

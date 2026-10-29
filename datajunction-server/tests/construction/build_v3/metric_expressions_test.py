@@ -79,6 +79,22 @@ def test_planned_root_is_a_stage_boundary():
     assert_sql_equal(f"SELECT {result['v3.ratio']}", "SELECT weekly.ratio")
 
 
+@pytest.mark.parametrize("alias", ["", " AS revenue_alias"])
+def test_passthrough_metric_uses_its_parents_planned_value(alias):
+    ctx = expression_context()
+    ctx.nodes["v3.ratio"].current.query = "SELECT v3.revenue" + alias
+    result = resolve_metric_expressions(
+        ctx,
+        ["v3.ratio", "v3.nested"],
+        {"v3.revenue": planned_expression("SUM(fact.amount)")},
+    )
+    assert_sql_equal(f"SELECT {result['v3.ratio']}", "SELECT SUM(fact.amount)")
+    assert_sql_equal(
+        f"SELECT {result['v3.nested']}",
+        "SELECT (SUM(fact.amount) + 1) * 2",
+    )
+
+
 def test_unavailable_base_is_not_reconstructed_from_source_columns():
     ctx = expression_context()
     with pytest.raises(DJInvalidInputException, match="v3.orders.*at this SQL stage"):

@@ -7,7 +7,9 @@ import pytest
 
 from datajunction_server.construction.build_v3.cte import (
     _build_cte_projection_map,
+    _enclosing_selects,
     _inject_filter_into_where,
+    _populate_scope_column_aliases,
     _rewrite_filter_for_cte,
     detect_window_metrics_requiring_grain_groups,
     get_column_full_name,
@@ -368,6 +370,37 @@ class TestInjectPartitionByIntoWindows:
 class TestProcessMetricCombinerExpression:
     """Tests for process_metric_combiner_expression."""
 
+    @pytest.mark.parametrize("cte_alias", ["", "computed"])
+    def test_resolves_all_reference_types_without_mutating_definition(self, cte_alias):
+        definition = (
+            "SELECT (v3.revenue - LAG(v3.revenue, 1) OVER "
+            "(ORDER BY v3.date.week)) / revenue_count"
+        )
+        query = parse(definition)
+        result = process_metric_combiner_expression(
+            combiner_ast=query.select.projection[0],
+            metric_refs={"v3.revenue": (cte_alias, "revenue")},
+            component_refs={"revenue_count": (cte_alias, "count")},
+            dimension_refs={
+                "v3.date.week": (cte_alias, "week"),
+                "v3.product.category": (cte_alias, "category"),
+            },
+            partition_dimensions=["week", "date_id", "category"],
+            alias_to_dimension_node={
+                "week": "v3.date",
+                "date_id": "v3.date",
+                "category": "v3.product",
+            },
+        )
+        prefix = f"{cte_alias}." if cte_alias else ""
+        assert_sql_equal(
+            f"SELECT {result}",
+            f"SELECT ({prefix}revenue - LAG({prefix}revenue, 1) OVER "
+            f"(PARTITION BY {prefix}category ORDER BY {prefix}week)) "
+            f"/ NULLIF({prefix}count, 0)",
+        )
+        assert_sql_equal(str(query), definition)
+
     def test_no_partition_dimensions_skips_partition_by_injection(self):
         """
         When partition_dimensions is None the function skips the PARTITION BY
@@ -389,6 +422,39 @@ class TestProcessMetricCombinerExpression:
         # Function should return without error; no PARTITION BY injected
         result_sql = str(result)
         assert "PARTITION BY" not in result_sql
+
+
+def test_enclosing_selects_handles_detached_subqueries():
+    query = parse("SELECT a.id FROM a WHERE EXISTS (SELECT b.id FROM b)")
+    inner = next(
+        select
+        for select in query.find_all(ast.SelectExpression)
+        if select is not query.select
+    )
+    column = inner.projection[0]
+    assert _enclosing_selects(column, query.select) == [inner, query.select]
+
+    # During AST rewrites a subquery can be detached from its enclosing SELECT.
+    # Scope lookup must then stop at the available ancestors.
+    inner.parent = None
+    assert _enclosing_selects(column, query.select) == [inner]
+
+
+def test_table_function_does_not_supply_dimension_bindings():
+    """A table function has no node links through which to push a dim filter."""
+    function = ast.FunctionTable(
+        ast.Name("UNNEST"),
+        args=[ast.Column(ast.Name("items"))],
+    )
+    scope = {"v3.date.date_id": ("fact", "order_date")}
+    _populate_scope_column_aliases(
+        function,
+        scope,
+        MagicMock(spec=BuildContext),
+        {},
+        {},
+    )
+    assert scope == {"v3.date.date_id": ("fact", "order_date")}
 
 
 class TestBuildCteProjectionMap:
