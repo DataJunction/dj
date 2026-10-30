@@ -8,7 +8,9 @@ import time
 import uuid
 from abc import ABC, abstractmethod
 
-from fastapi import BackgroundTasks, Depends, Request, Response
+from datetime import UTC, datetime
+
+from fastapi import BackgroundTasks, Depends, HTTPException, Request, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,6 +33,11 @@ from datajunction_server.internal.access.authorization import (
 from datajunction_server.internal.caching.cachelib_cache import get_cache
 from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.internal.deployment.deployment import deploy
+from datajunction_server.internal.deployment.liveness import (
+    Heartbeat,
+    get_worker_id,
+    interrupt_deployments,
+)
 from datajunction_server.internal.deployment.utils import DeploymentContext
 from datajunction_server.internal.git.github_service import (
     GitHubService,
@@ -218,6 +225,25 @@ class DeploymentExecutor(ABC):
 class InProcessExecutor(DeploymentExecutor):
     def __init__(self):
         self.statuses: dict[str, DeploymentStatus] = {}
+        self.draining = False
+        self._tasks: set[asyncio.Task] = set()
+
+    async def drain(self, timeout: float) -> None:
+        """
+        Refuse new deployments and wait for running ones to finish.
+        Any still running after the timeout are marked interrupted.
+        """
+        self.draining = True
+        if self._tasks:
+            await asyncio.wait(self._tasks, timeout=timeout)
+        # Tasks started while waiting are covered by the same timeout.
+        unfinished = [task for task in self._tasks if not task.done()]
+        if unfinished:
+            await interrupt_deployments(
+                Deployment.uuid.in_([task.get_name() for task in unfinished]),
+            )
+            for task in unfinished:
+                task.cancel()
 
     async def submit(
         self,
@@ -225,6 +251,12 @@ class InProcessExecutor(DeploymentExecutor):
         context: DeploymentContext,
         dry_run: bool = False,
     ) -> str:
+        if self.draining:
+            raise HTTPException(
+                status_code=503,
+                detail="Server is shutting down, retry the deployment",
+                headers={"Retry-After": "30"},
+            )
         deployment_uuid = str(uuid.uuid4())
         async with session_context() as session:
             deployment = Deployment(
@@ -237,14 +269,17 @@ class InProcessExecutor(DeploymentExecutor):
             session.add(deployment)
             await session.commit()
 
-        asyncio.create_task(
+        task = asyncio.create_task(
             self._run_deployment(
                 deployment_id=deployment_uuid,
                 deployment_spec=spec,
                 context=context,
                 dry_run=dry_run,
             ),
+            name=deployment_uuid,
         )
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
         return deployment_uuid
 
     @staticmethod
@@ -255,13 +290,24 @@ class InProcessExecutor(DeploymentExecutor):
         downstream_impacts: list | None = None,
         warnings: list[DJError] | None = None,
         check_results: list | None = None,
-    ):
+        keep_failed: bool = False,
+    ) -> bool:
+        """
+        Record a deployment's status. With `keep_failed`, a deployment that
+        was already marked failed (interrupted) is left as is. Returns
+        True when the update was skipped for that reason.
+        """
         async with session_context() as session:
             deployment = await session.get(Deployment, deployment_uuid)
             if deployment is None:
                 # Deployment record doesn't exist (e.g., internal deployment)
-                return
+                return False
+            if keep_failed and deployment.status == DeploymentStatus.FAILED:
+                return True
             deployment.status = status
+            if status == DeploymentStatus.RUNNING:
+                deployment.worker_id = get_worker_id()
+                deployment.heartbeat_at = datetime.now(UTC)
             if results is not None:
                 deployment.results = [r.model_dump() for r in results]
             if warnings is not None:
@@ -273,6 +319,7 @@ class InProcessExecutor(DeploymentExecutor):
             if check_results is not None:
                 deployment.deployment_check_results = check_results
             await session.commit()
+            return False
 
     async def _run_deployment(
         self,
@@ -281,8 +328,16 @@ class InProcessExecutor(DeploymentExecutor):
         context: DeploymentContext,
         dry_run: bool = False,
     ):
-        await InProcessExecutor.update_status(deployment_id, DeploymentStatus.RUNNING)
+        if await InProcessExecutor.update_status(
+            deployment_id,
+            DeploymentStatus.RUNNING,
+            keep_failed=True,
+        ):
+            logger.warning("Deployment %s was interrupted before start", deployment_id)
+            return
 
+        heartbeat = Heartbeat(deployment_id, settings.deployment_heartbeat_interval)
+        heartbeat.start()
         try:
             async with session_context() as session:
                 execute_result = await deploy(
@@ -307,15 +362,21 @@ class InProcessExecutor(DeploymentExecutor):
                     )
                     else DeploymentStatus.FAILED
                 )
-                await InProcessExecutor.update_status(
+                skipped = await InProcessExecutor.update_status(
                     deployment_id,
                     final_status,
                     results,
                     downstream_impacts=execute_result.downstream_impacts,
                     warnings=execute_result.warnings,
                     check_results=execute_result.check_results,
+                    keep_failed=True,
                 )
-                if final_status == DeploymentStatus.SUCCESS and not dry_run:
+                if skipped:
+                    logger.warning(
+                        "Deployment %s finished after being interrupted",
+                        deployment_id,
+                    )
+                elif final_status == DeploymentStatus.SUCCESS and not dry_run:
                     await _maybe_autolock_git_namespace(deployment_spec)
         except Exception as exc:
             logger.error("Deployment %s failed: %s", deployment_id, exc, exc_info=True)
@@ -331,7 +392,10 @@ class InProcessExecutor(DeploymentExecutor):
                         operation=DeploymentResult.Operation.UNKNOWN,
                     ),
                 ],
+                keep_failed=True,
             )
+        finally:
+            heartbeat.stop()
 
 
 executor = InProcessExecutor()

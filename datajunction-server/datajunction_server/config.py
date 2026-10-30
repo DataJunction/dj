@@ -385,6 +385,20 @@ class Settings(BaseSettings):  # pragma: no cover
 
     seed_setup: SeedSetup = SeedSetup()
 
+    # Seconds a shutting-down server waits for running deployments to finish
+    # before marking them interrupted. Keep below the platform kill grace period.
+    deployment_drain_timeout: int = 600
+
+    # Seconds between heartbeats written by a running deployment.
+    deployment_heartbeat_interval: int = 10
+
+    # Seconds without a heartbeat before a deployment counts as interrupted.
+    # Also applies to pending deployments that no server ever started.
+    deployment_stale_after: int = 300
+
+    # Seconds between sweeps that mark stale deployments interrupted.
+    deployment_sweep_interval: int = 30
+
     @property
     def effective_reader_concurrency(self) -> int:
         return max(1, self.reader_db.pool_size // 2)

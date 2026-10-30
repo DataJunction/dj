@@ -47,6 +47,13 @@ class Deployment(Base):
     downstream_impacts: Mapped[list | None] = mapped_column(JSON, default=list)
     check_results: Mapped[list | None] = mapped_column(JSON, default=list)
 
+    # Process running this deployment, and its last sign of life.
+    worker_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    heartbeat_at: Mapped[UTCDatetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
     created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_by: Mapped[User] = relationship("User", lazy="selectin")
 
