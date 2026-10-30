@@ -29,6 +29,15 @@ from datajunction_server.construction.build_v3.cube_matcher import (
     resolve_dialect_and_engine_for_metrics,
     validate_pinned_cube_covers_filters,
 )
+from datajunction_server.construction.build_v3.filter_requirements import (
+    CheckedFilters,
+    apply_metric_filter_requirements,
+    check_filter_requirements,
+)
+from datajunction_server.construction.build_v3.prepare import (
+    PreparedMetricsQuery,
+    prepare_metrics_query,
+)
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
     ColumnMetadata,
@@ -42,6 +51,11 @@ __all__ = [
     # Main entry points
     "build_measures_sql",
     "build_metrics_sql",
+    "CheckedFilters",
+    "PreparedMetricsQuery",
+    "prepare_metrics_query",
+    "apply_metric_filter_requirements",
+    "check_filter_requirements",
     # Cube matching (Layer 1)
     "find_matching_cube",
     "build_sql_from_cube",

@@ -21,9 +21,7 @@ from datajunction_server.construction.build_v3.builder import (
     build_measures_sql,
     build_metrics_sql,
 )
-from datajunction_server.construction.build_v3.cube_matcher import (
-    resolve_dialect_and_engine_for_metrics,
-)
+from datajunction_server.construction.build_v3.prepare import prepare_metrics_query
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.internal.namespaces import get_git_info_for_namespace
@@ -207,6 +205,8 @@ async def get_node_details(name: str) -> str:
     # Augment with the richer fields format_node_details renders.
     if node.current:
         node_dict["current"]["query"] = node.current.query
+        node_dict["current"]["requiredFilters"] = node.current.required_filters
+        node_dict["current"]["recommendedFilters"] = node.current.recommended_filters
         node_dict["current"]["columns"] = [
             {
                 "name": (c.cube_element_name if node.type == NodeType.CUBE else c.name),
@@ -366,7 +366,20 @@ async def build_metric_sql(
     for col in result.columns:
         semantic = f" (semantic: {col.semantic_name})" if col.semantic_name else ""
         lines.append(f"  • {col.name}: {col.type}{semantic}")
+    lines.extend(_format_warnings(result.warnings or []))
     return "\n".join(lines)
+
+
+def _format_warnings(warnings: list[Any]) -> list[str]:
+    """Warning lines for tool output; empty when there are none."""
+    if not warnings:
+        return []
+    return [
+        "",
+        "Warnings:",
+        "-" * 60,
+        *(f"  • {warning.message}" for warning in warnings),
+    ]
 
 
 # Hard upper bound on ad-hoc scan size. Queries that would scan more than
@@ -414,19 +427,22 @@ async def _execute_metrics_query(
 
     session = get_mcp_session()
 
-    execution_ctx = await resolve_dialect_and_engine_for_metrics(
-        session=session,
-        metrics=metrics,
-        dimensions=dimensions or [],
+    prepared = await prepare_metrics_query(
+        session,
+        metrics,
+        dimensions or [],
+        filters,
         use_materialized=True,
-        filters=filters or None,
+        resolve_execution=True,
     )
+    execution_ctx = prepared.execution
+    assert execution_ctx is not None
 
     generated_sql = await build_metrics_sql(
         session=session,
         metrics=metrics,
         dimensions=dimensions or [],
-        filters=filters or None,
+        filters=prepared.filters,
         orderby=orderby or None,
         limit=limit,
         dialect=execution_ctx.dialect,
@@ -543,6 +559,7 @@ async def get_metric_data(
         for e in errors:
             lines.append(f"  • {e}")
 
+    lines.extend(_format_warnings(getattr(generated_sql, "warnings", None) or []))
     return "\n".join(lines)
 
 

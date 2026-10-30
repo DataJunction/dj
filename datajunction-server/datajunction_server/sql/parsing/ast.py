@@ -2165,16 +2165,29 @@ class BinaryOp(Operation):
         """
         Create a BinaryOp of kind BinaryOpKind.And rolling up all expressions.
         Tolerates 0/1 args so that callers may safely `.And(*conditions)` an empty list.
+
+        An OR operand is parenthesized, since AND binds tighter than OR.
         """
         if left is None:
             return None
         if right is None:
             return left
+
+        def group(expr: Expression) -> Expression:
+            if (
+                isinstance(expr, BinaryOp)
+                and expr.op == BinaryOpKind.Or
+                and not expr.parenthesized
+            ):
+                expr = deepcopy(expr)
+                expr.parenthesized = True
+            return expr
+
         return reduce(
             lambda left, right: BinaryOp(
                 BinaryOpKind.And,
-                left,
-                right,
+                group(left),
+                group(right),
             ),
             (left, right, *rest),
         )

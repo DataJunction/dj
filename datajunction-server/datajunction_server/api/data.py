@@ -20,9 +20,7 @@ from datajunction_server.api.helpers import (
     resolve_engine,
 )
 from datajunction_server.construction.build_v3.builder import build_metrics_sql
-from datajunction_server.construction.build_v3.cube_matcher import (
-    resolve_dialect_and_engine_for_metrics,
-)
+from datajunction_server.construction.build_v3.prepare import prepare_metrics_query
 from datajunction_server.construction.build_v3.types import GeneratedSQL
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.history import History
@@ -389,6 +387,7 @@ async def get_data(
     # Inject column info if there are results
     if result.results.root:  # pragma: no cover
         result.results.root[0].columns = generated_sql.columns  # type: ignore
+    result.warnings = generated_sql.warnings
     return result
 
 
@@ -467,6 +466,7 @@ async def get_data_stream_for_node(
             request_headers=request_headers,
             columns=translated_sql.columns,  # type: ignore
             request=request,
+            warnings=translated_sql.warnings,
         ),
     )
 
@@ -530,26 +530,30 @@ async def get_data_for_metrics(
     """
     request_headers = dict(request.headers)
 
-    # Resolve dialect and engine in a single lookup (avoids duplicate cube matching).
-    # dialect_override ensures both SQL generation and engine selection use the same
-    # dialect — without this, Trino SQL could be submitted to a Spark engine.
-    execution_ctx = await resolve_dialect_and_engine_for_metrics(
-        session=session,
-        metrics=metrics,
-        dimensions=dimensions,
+    # Check the filter requirements, then resolve dialect and engine in a single
+    # lookup (avoids duplicate cube matching). The dialect override makes SQL
+    # generation and engine selection use the same dialect — without it, Trino
+    # SQL could be submitted to a Spark engine.
+    prepared = await prepare_metrics_query(
+        session,
+        metrics,
+        dimensions,
+        filters,
         use_materialized=use_materialized,
+        dialect=dialect,
         engine_name=engine_name,
         engine_version=engine_version,
-        dialect_override=dialect,
-        filters=filters if filters else None,
+        resolve_execution=True,
     )
+    execution_ctx = prepared.execution
+    assert execution_ctx is not None
 
     # Build SQL with the resolved dialect
     generated_sql = await build_metrics_sql(
         session=session,
         metrics=metrics,
         dimensions=dimensions,
-        filters=filters if filters else None,
+        filters=prepared.filters,
         orderby=orderby if orderby else None,
         limit=limit,
         dialect=execution_ctx.dialect,
@@ -583,6 +587,7 @@ async def get_data_for_metrics(
     # Inject column info if there are results
     if result.results.root:  # pragma: no cover
         result.results.root[0].columns = generated_sql.columns or []  # type: ignore
+    result.warnings = generated_sql.warnings or []
     return result
 
 
@@ -615,23 +620,27 @@ async def get_data_stream_for_metrics(
     """
     request_headers = dict(request.headers)
 
-    # Resolve dialect and engine in a single lookup (avoids duplicate cube matching)
-    execution_ctx = await resolve_dialect_and_engine_for_metrics(
-        session=session,
-        metrics=metrics,
-        dimensions=dimensions,
+    # Check the filter requirements, then resolve dialect and engine in a single
+    # lookup (avoids duplicate cube matching)
+    prepared = await prepare_metrics_query(
+        session,
+        metrics,
+        dimensions,
+        filters,
         use_materialized=use_materialized,
         engine_name=engine_name,
         engine_version=engine_version,
-        filters=filters if filters else None,
+        resolve_execution=True,
     )
+    execution_ctx = prepared.execution
+    assert execution_ctx is not None
 
     # Build SQL with the resolved dialect
     generated_sql = await build_metrics_sql(
         session=session,
         metrics=metrics,
         dimensions=dimensions,
-        filters=filters if filters else None,
+        filters=prepared.filters,
         orderby=orderby if orderby else None,
         limit=limit,
         dialect=execution_ctx.dialect,
@@ -659,5 +668,6 @@ async def get_data_stream_for_metrics(
             if generated_sql.columns
             else [],
             request=request,
+            warnings=generated_sql.warnings or [],
         ),
     )

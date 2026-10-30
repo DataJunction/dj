@@ -13,10 +13,8 @@ from sse_starlette.sse import EventSourceResponse
 
 from datajunction_server.api.helpers import query_event_stream
 from datajunction_server.construction.build_v3.builder import build_metrics_sql
-from datajunction_server.construction.build_v3.cube_matcher import (
-    resolve_dialect_and_engine_for_metrics,
-)
-from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.construction.build_v3.prepare import prepare_metrics_query
+from datajunction_server.errors import DJInvalidInputException, DJWarning
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.query import QueryCreate, QueryWithResults
@@ -49,6 +47,7 @@ class TranslatedDJSQL(BaseModel):
     sql: str
     columns: list[DJSQLColumn]
     dialect: str
+    warnings: list[DJWarning] = []
 
 
 @dataclass(frozen=True)
@@ -243,6 +242,7 @@ async def get_sql_for_djsql(
             for col in result.columns
         ],
         dialect=result.dialect.value,
+        warnings=result.warnings,
     )
 
 
@@ -260,20 +260,23 @@ async def _build_djsql_query(
     the same metrics + dimensions.
     """
     parsed = parse_dj_sql(query)
-    execution_ctx = await resolve_dialect_and_engine_for_metrics(
-        session=session,
-        metrics=parsed.metrics,
-        dimensions=parsed.dimensions,
+    prepared = await prepare_metrics_query(
+        session,
+        parsed.metrics,
+        parsed.dimensions,
+        parsed.filters,
         use_materialized=use_materialized,
         engine_name=engine_name,
         engine_version=engine_version,
-        filters=parsed.filters or None,
+        resolve_execution=True,
     )
+    execution_ctx = prepared.execution
+    assert execution_ctx is not None
     generated_sql = await build_metrics_sql(
         session=session,
         metrics=parsed.metrics,
         dimensions=parsed.dimensions,
-        filters=parsed.filters or None,
+        filters=prepared.filters,
         orderby=parsed.orderby or None,
         limit=parsed.limit,
         dialect=execution_ctx.dialect,
@@ -335,6 +338,7 @@ async def get_data_for_djsql(
     # Inject column info if there are results
     if result.results.root:  # pragma: no cover
         result.results.root[0].columns = generated_sql.columns or []
+    result.warnings = generated_sql.warnings
     return result
 
 
@@ -393,5 +397,6 @@ async def get_data_stream_for_djsql(
             query_service_client=query_service_client,
             columns=generated_sql.columns,  # type: ignore
             request=request,
+            warnings=generated_sql.warnings,
         ),
     )

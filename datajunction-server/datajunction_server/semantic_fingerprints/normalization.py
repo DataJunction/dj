@@ -21,6 +21,7 @@ from datajunction_server.models.deployment import (
     NodeSpec,
     SourceSpec,
 )
+from datajunction_server.models.filter_requirements import parse_filter_requirements
 from datajunction_server.models.node import MetricDirection
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 
@@ -223,6 +224,14 @@ def normalize_field(
         )
     if field == "fixed_grain":
         return normalize_fixed_grain(value)
+    if field in ("required_filters", "recommended_filters"):
+        return sorted(
+            (
+                (sorted(entry.dimension), entry.default)
+                for entry in parse_filter_requirements(value) or []
+            ),
+            key=lambda pair: (pair[0], pair[1] or ""),
+        )
     if field == "unit_enum" and isinstance(spec, MetricSpec):
         return normalize_value(spec._normalized_unit())
     if field == "direction" and isinstance(spec, MetricSpec):

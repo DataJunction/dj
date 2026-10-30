@@ -631,6 +631,39 @@ class TestFilterHelpers:
         result = combine_filters([f1, f2])
         assert "AND" in str(result).upper()
 
+    def test_combine_filters_groups_an_or_on_the_left(self):
+        """AND binds tighter than OR, so an OR operand is parenthesized."""
+        either = parse_filter("country = 'US' OR country = 'CA'")
+        other = parse_filter("day = 1")
+        assert str(combine_filters([either, other])) == (
+            "(country = 'US' OR country = 'CA') AND day = 1"
+        )
+
+    def test_combine_filters_groups_an_or_on_the_right(self):
+        either = parse_filter("country = 'US' OR country = 'CA'")
+        other = parse_filter("day = 1")
+        assert str(combine_filters([other, either])) == (
+            "day = 1 AND (country = 'US' OR country = 'CA')"
+        )
+
+    def test_combine_filters_groups_every_or(self):
+        first = parse_filter("a = 1 OR a = 2")
+        middle = parse_filter("b = 3")
+        last = parse_filter("c = 4 OR c = 5")
+        assert str(combine_filters([first, middle, last])) == (
+            "(a = 1 OR a = 2) AND b = 3 AND (c = 4 OR c = 5)"
+        )
+
+    def test_combine_filters_keeps_an_or_that_is_already_grouped(self):
+        grouped = parse_filter("(a = 1 OR a = 2)")
+        other = parse_filter("b = 3")
+        assert str(combine_filters([grouped, other])) == "(a = 1 OR a = 2) AND b = 3"
+
+    def test_combine_filters_does_not_change_its_inputs(self):
+        either = parse_filter("country = 'US' OR country = 'CA'")
+        combine_filters([either, parse_filter("day = 1")])
+        assert str(either) == "country = 'US' OR country = 'CA'"
+
     def test_resolve_filter_references(self):
         """Test resolving dimension references in filters."""
         filter_ast = parse_filter("v3_product_category = 'Electronics'")

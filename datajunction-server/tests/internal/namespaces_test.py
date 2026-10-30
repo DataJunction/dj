@@ -25,6 +25,7 @@ from datajunction_server.internal.namespaces import (
     _node_spec_to_yaml_dict,
     create_or_reactivate_namespace,
     get_node_specs_for_export,
+    inject_prefixes_outside_strings,
     node_spec_to_yaml,
     provision_namespace_boundary,
 )
@@ -1313,3 +1314,26 @@ def test_merge_keeps_an_empty_fixed_grain_already_in_the_file():
 
     assert "fixed_grain" in result
     assert list(result["fixed_grain"]) == []
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        (
+            "sales.main.event.name = 'sales.main.created'",
+            "${prefix}event.name = 'sales.main.created'",
+        ),
+        (
+            "sales.main.event.name = 'it''s sales.main.x' OR sales.main.event.id = 1",
+            "${prefix}event.name = 'it''s sales.main.x' OR ${prefix}event.id = 1",
+        ),
+        (
+            "sales.main.event.name = '' AND sales.main.event.id = 1",
+            "${prefix}event.name = '' AND ${prefix}event.id = 1",
+        ),
+        ("sales.main.event.id = 1", "${prefix}event.id = 1"),
+    ],
+    ids=["literal", "escaped-quote", "empty-literal", "no-literal"],
+)
+def test_inject_prefixes_outside_strings(text, expected):
+    assert inject_prefixes_outside_strings(text, "sales.main") == expected

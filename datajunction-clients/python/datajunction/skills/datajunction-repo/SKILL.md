@@ -317,6 +317,7 @@ mode: published
 - ❌ **No WHERE clauses** in metric queries (use CASE WHEN instead)
 - ✅ **Include required_dimensions** for time-based metrics
 - ✅ **Add metric_metadata** for direction and unit
+- ✅ **Use `required_filters` and `recommended_filters`** to say which dimension attributes a query must or should filter. Give an entry a `default` filter if callers should not have to send one; without it, a query that omits the filter is rejected
 
 ### Transform Node YAML
 

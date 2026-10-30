@@ -11,9 +11,16 @@ from sqlalchemy.orm import selectinload
 
 from datajunction_server.api import helpers
 from datajunction_server.api.helpers import (
+    FilterGraph,
+    FilterLink,
     _resolve_required_dimensions,
+    attribute_nodes,
+    can_filter_on,
     dedupe_cube_elements,
     find_required_dimensions,
+    link_keys,
+    load_filter_graph,
+    nodes_upstream,
 )
 from datajunction_server.database.column import Column
 from datajunction_server.database.dimensionlink import DimensionLink
@@ -240,6 +247,24 @@ async def test_build_sql_for_multiple_metrics(
 
 
 @pytest.mark.asyncio
+async def test_find_required_dimensions_without_attributes_loads_no_graph():
+    """Nothing to check means no queries, even when parents are given."""
+    session = MagicMock()
+    with (
+        patch.object(helpers, "find_upstream_node_names", side_effect=AssertionError),
+        patch.object(helpers, "load_filter_graph", side_effect=AssertionError),
+    ):
+        result = await find_required_dimensions(
+            session,
+            [],
+            [],
+            parent_names={"v3.parent"},
+        )
+    assert result == (set(), [])
+    session.execute.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_find_required_dimensions_with_role_suffix(
     module__client_with_examples,
     module__session: AsyncSession,
@@ -378,3 +403,179 @@ def test_resolve_required_dimensions_bare_ref_with_dotted_role():
 
     assert invalid_dims == {"status[a.b]"}
     assert resolved == []
+
+
+@pytest.mark.asyncio
+async def test_find_required_dimensions_multi_hop_role(
+    module__client_with_examples,
+    module__session: AsyncSession,
+):
+    """A multi-hop role passes only when role chains are checked."""
+    link_result = await module__session.execute(
+        select(DimensionLink)
+        .join(NodeRevision, DimensionLink.node_revision_id == NodeRevision.id)
+        .join(Node, Node.id == NodeRevision.node_id)
+        .filter(NodeRevision.name == "v3.order_details")
+        .filter(NodeRevision.version == Node.current_version),
+    )
+    parent_dimension_links = list(link_result.scalars().unique().all())
+    attribute = "v3.location.country[customer->home]"
+
+    invalid, _ = await find_required_dimensions(
+        session=module__session,
+        required_dimensions=[attribute],
+        parent_columns=[],
+        parent_dimension_links=parent_dimension_links,
+    )
+    assert invalid == {attribute}
+
+    invalid, resolved = await find_required_dimensions(
+        session=module__session,
+        required_dimensions=[attribute],
+        parent_columns=[],
+        parent_dimension_links=parent_dimension_links,
+        parent_names={"v3.order_details"},
+    )
+    assert invalid == set()
+    assert [dimension.ref for dimension in resolved] == [attribute]
+
+
+def test_attribute_nodes():
+    assert attribute_nodes(
+        ["a.b.c", "a.d.e[role]", "bare", "a.b.f", "g.h[x->y]"],
+    ) == {"a.b", "a.d", "g"}
+
+
+def test_nodes_upstream():
+    """Every node upstream, each once, even when two paths reach it."""
+    parents = {"a": ["b", "c"], "b": ["d"], "c": ["d"]}
+    assert nodes_upstream("a", lambda name: parents.get(name, [])) == {"b", "c", "d"}
+
+
+# Links: fact->a[x], fact->c, a->b, a->a[self],
+# c->b[y], c->a, up->k. up is upstream of fact.
+# A fact column references ref.code.
+FILTER_GRAPH = FilterGraph(
+    upstream={"t.fact": {"t.up"}, "t.other": set()},
+    links={
+        "t.fact": {FilterLink("t.a", "x"), FilterLink("t.c", None)},
+        "t.a": {FilterLink("t.b", None), FilterLink("t.a", "self")},
+        "t.c": {FilterLink("t.b", "y"), FilterLink("t.a", None)},
+        "t.up": {
+            FilterLink("t.k", None, frozenset({"t.k.id"})),
+            FilterLink("t.k", "r", frozenset({"t.k.id"})),
+        },
+        "t.other": {FilterLink("t.a", "x")},
+    },
+    references={"t.fact": {("t.ref", "code")}},
+)
+
+
+@pytest.mark.parametrize(
+    "attribute,parents,expected",
+    [
+        ("t.fact.amount", {"t.fact"}, True),
+        ("t.fact.amount[x]", {"t.fact"}, False),
+        ("t.b.name", {"t.fact"}, True),
+        ("t.b.name[x]", {"t.fact"}, True),
+        ("t.b.name[y]", {"t.fact"}, True),
+        ("t.b.name[x->y]", {"t.fact"}, False),
+        ("t.b.name[z]", {"t.fact"}, False),
+        ("t.a.name[x->self]", {"t.fact"}, False),
+        ("t.ref.code", {"t.fact"}, True),
+        ("t.ref.code[any]", {"t.fact"}, True),
+        ("t.ref.other", {"t.fact"}, False),
+        ("t.k.id", {"t.fact"}, True),
+        ("t.k.id[r]", {"t.fact"}, False),
+        ("t.k.name", {"t.fact"}, False),
+        ("t.nowhere.id", {"t.fact"}, False),
+        ("t.a.name[x]", {"t.fact", "t.other"}, True),
+        ("t.b.name[y]", {"t.fact", "t.other"}, False),
+        ("t.fact.amount", set(), False),
+    ],
+    ids=[
+        "own-column",
+        "own-column-role",
+        "join-any-path",
+        "join-role",
+        "join-role-after-unroled-link",
+        "join-roles-not-on-one-path",
+        "join-unknown-role",
+        "join-revisits",
+        "reference",
+        "reference-any-role",
+        "reference-other-column",
+        "upstream-key",
+        "upstream-key-role",
+        "upstream-other-column",
+        "no-link",
+        "every-parent",
+        "one-parent-short",
+        "no-parents",
+    ],
+)
+def test_can_filter_on(attribute: str, parents: set[str], expected: bool):
+    assert can_filter_on(attribute, parents, FILTER_GRAPH) == expected
+
+
+def test_link_keys():
+    assert link_keys(
+        "t.fact",
+        "t.dim",
+        "t.fact.a = t.dim.x AND t.fact.b = t.dim.y",
+        None,
+    ) == frozenset({"t.dim.x", "t.dim.y"})
+
+
+@pytest.mark.asyncio
+async def test_load_filter_graph(
+    module__client_with_examples,
+    module__session: AsyncSession,
+):
+    """Saved links load hop by hop from the parents, merged with declared ones."""
+    graph = await load_filter_graph(
+        module__session,
+        # v3.customer stands in for a node upstream of x.fact.
+        {"v3.order_details": set(), "x.fact": {"v3.customer"}},
+        {"v3.date", "x.dim"},
+        FilterGraph(
+            links={"x.fact": {FilterLink("v3.customer", None)}},
+            references={"x.fact": {("x.dim", "code")}},
+        ),
+    )
+    order_links = {
+        FilterLink("v3.customer", "customer"),
+        FilterLink("v3.date", "order"),
+        FilterLink("v3.location", "from"),
+        FilterLink("v3.location", "to"),
+        FilterLink("v3.product", None),
+    }
+    assert graph == FilterGraph(
+        upstream={"v3.order_details": set(), "x.fact": {"v3.customer"}},
+        links={
+            "x.fact": {FilterLink("v3.customer", None)},
+            "v3.order_details": order_links,
+            # Join keys are read for upstream links to an attribute node.
+            "v3.customer": {
+                FilterLink("v3.date", "registration", frozenset({"v3.date.date_id"})),
+                FilterLink("v3.location", "home"),
+            },
+        },
+        references={"x.fact": {("x.dim", "code")}},
+    )
+
+
+@pytest.mark.asyncio
+async def test_load_filter_graph_reaches_loaded_node(
+    module__client_with_examples,
+    module__session: AsyncSession,
+):
+    """A link to a node already loaded walks on without another query."""
+    declared = FilterGraph(links={"x.fact": {FilterLink("x.up", None)}})
+    graph = await load_filter_graph(
+        module__session,
+        {"x.fact": {"x.up"}},
+        set(),
+        declared,
+    )
+    assert graph == FilterGraph(upstream={"x.fact": {"x.up"}}, links=declared.links)

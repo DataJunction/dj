@@ -42,6 +42,7 @@ from datajunction_server.construction.build_v3.loaders import (
     load_post_preload_chain,
     preload_join_paths,
 )
+from datajunction_server.construction.build_v3.prepare import prepare_metrics_query
 from datajunction_server.construction.build_v3.measures import (
     build_dimension_col_expr,
     build_dimension_joins,
@@ -315,11 +316,20 @@ async def build_node_sql_v3(
         )
         # Cube's stored filters apply unconditionally; user filters AND on top.
         merged_filters = list(cube_revision.cube_filters or []) + filter_list
+        prepared = await prepare_metrics_query(
+            session,
+            list(cube_revision.cube_node_metrics),
+            merged_dimensions,
+            merged_filters,
+            matched_cube=cube_revision,
+            use_materialized=use_materialized,
+            dialect=dialect,
+        )
         return await build_metrics_sql(
             session=session,
             metrics=list(cube_revision.cube_node_metrics),
             dimensions=merged_dimensions,
-            filters=merged_filters,
+            filters=prepared.filters,
             orderby=orderby_list or None,
             limit=limit,
             dialect=dialect,

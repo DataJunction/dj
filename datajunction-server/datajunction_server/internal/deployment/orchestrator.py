@@ -171,6 +171,7 @@ from datajunction_server.models.node import (
     NodeStatus,
     NodeType,
 )
+from datajunction_server.models.filter_requirements import dump_filter_requirements
 from datajunction_server.models.reaggregate import dump_reaggregate_spec
 from datajunction_server.models.unit import (
     AtomicUnit,
@@ -2673,8 +2674,10 @@ class DeploymentOrchestrator:
                 continue
             # A fixed grain names dimensions the same way, and needs them to
             # exist for the same reason.
-            ordering_dims = list(node_spec.rendered_required_dimensions or []) + list(
-                node_spec.rendered_fixed_grain or [],
+            ordering_dims = (
+                list(node_spec.rendered_required_dimensions or [])
+                + list(node_spec.rendered_fixed_grain or [])
+                + node_spec.filter_requirement_dimensions
             )
             for required_dim in ordering_dims:
                 if SEPARATOR not in required_dim:
@@ -5481,6 +5484,15 @@ class DeploymentOrchestrator:
                     )
         return roles
 
+    @cached_property
+    def _deployment_links(self) -> dict[str, list]:
+        """Map each linkable node to the link specs it declares."""
+        return {
+            node_spec.rendered_name: list(node_spec.dimension_links)
+            for node_spec in self.deployment_spec.nodes
+            if isinstance(node_spec, LinkableNodeSpec) and node_spec.dimension_links
+        }
+
     def _deployment_link_targets(self) -> dict[str, set[str]]:
         """Map each linkable node to the dimension nodes it links to, across the
         whole deployment (rendered names, to match node_graph).
@@ -5544,6 +5556,7 @@ class DeploymentOrchestrator:
                     deployment_namespace=self.deployment_spec.namespace,
                     deployment_link_targets=self._deployment_link_targets(),
                     deployment_link_roles=self._deployment_link_roles,
+                    deployment_links=self._deployment_links,
                 )
             p.append(f"{len(validation_results)} results")
 
@@ -6225,6 +6238,12 @@ class DeploymentOrchestrator:
                 metric_spec.rendered_reaggregate,
             )
             new_revision.fixed_grain = metric_spec.rendered_fixed_grain
+            new_revision.required_filters = dump_filter_requirements(
+                metric_spec.rendered_required_filters,
+            )
+            new_revision.recommended_filters = dump_filter_requirements(
+                metric_spec.rendered_recommended_filters,
+            )
         return new_revision
 
     def _resolve_metric_unit(

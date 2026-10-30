@@ -85,6 +85,7 @@ def test_msgpack() -> None:
         "previous": None,
         "errors": [],
         "links": None,
+        "warnings": [],
     }
 
 
