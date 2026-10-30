@@ -441,7 +441,7 @@ recommended_filters:
   - dimension: ${prefix}pricing.catalog_prices.effective_date
 ```
 
-A required filter has to be passed in with the query. If it is missing, DJ fails the query with an error that names the filter, unless the metric gives a `default`, in which case DJ applies the default instead. A recommended filter works the same way, except that a missing one only adds a warning to the response. A filter you pass on the attribute replaces the default.
+A required filter has to be passed in with the query. If it is missing, DJ fails the query with an error that names the filter, unless the metric gives a `default`, in which case DJ applies the default instead. A recommended filter works the same way, except that a missing one only adds a warning to the response.
 
 Each entry names an attribute as `node.column`, or as `node.column[role]` to match one role. A derived metric inherits the filters of the metrics it is built from. DJ checks when you save the metric that it can filter on each attribute. The applied defaults and any missing recommended filters appear in the `warnings` of the response.
 
