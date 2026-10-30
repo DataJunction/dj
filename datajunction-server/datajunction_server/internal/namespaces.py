@@ -42,7 +42,10 @@ from datajunction_server.internal.namespace_locks import (
     lock_namespace_boundary_lifecycle,
 )
 from datajunction_server.internal.nodes import get_single_cube_revision_metadata
-from datajunction_server.models.access import ResourceAction, ResourceType
+from datajunction_server.models.access import (
+    ResourceAction,
+    namespace_boundary_scope_targets,
+)
 from datajunction_server.models.deployment import (
     CubeSpec,
     DeploymentSourceType,
@@ -137,8 +140,9 @@ async def list_namespaces_in_hierarchy(
     """
     statement = select(NodeNamespace).where(
         or_(
-            NodeNamespace.namespace.like(
-                f"{namespace}.%",
+            NodeNamespace.namespace.startswith(
+                f"{namespace}.",
+                autoescape=True,
             ),
             NodeNamespace.namespace == namespace,
         ),
@@ -443,17 +447,6 @@ async def create_namespace(
         )
     await session.commit()
     return parents
-
-
-def namespace_boundary_scope_targets(
-    namespace: str,
-) -> list[tuple[ResourceType, str]]:
-    """Return every scope governed by a namespace boundary."""
-    return [
-        (ResourceType.NAMESPACE, namespace),
-        (ResourceType.NAMESPACE, f"{namespace}.*"),
-        (ResourceType.NODE, f"{namespace}.*"),
-    ]
 
 
 def _namespace_boundary_scopes(
@@ -1016,7 +1009,7 @@ async def hard_delete_namespace(
             select(Node.id, Node.name, Node.type)
             .where(
                 or_(
-                    Node.namespace.like(f"{namespace}.%"),
+                    Node.namespace.startswith(f"{namespace}.", autoescape=True),
                     Node.namespace == namespace,
                 ),
             )

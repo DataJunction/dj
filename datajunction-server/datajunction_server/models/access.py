@@ -30,6 +30,17 @@ class ResourceAction(StrEnum):
     MANAGE = "manage"  # Grant/revoke permissions (RBAC-specific)
 
 
+def namespace_boundary_scope_targets(
+    namespace: str,
+) -> tuple[tuple[ResourceType, str], ...]:
+    """Return every scope governed by a namespace boundary."""
+    return (
+        (ResourceType.NAMESPACE, namespace),
+        (ResourceType.NAMESPACE, f"{namespace}.*"),
+        (ResourceType.NODE, f"{namespace}.*"),
+    )
+
+
 @dataclass(frozen=True)
 class RestrictiveScopeRule:
     """A configured action and resource scope that requires an explicit grant."""
