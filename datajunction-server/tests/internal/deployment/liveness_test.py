@@ -150,7 +150,7 @@ async def test_heartbeat_thread_runs_until_stopped(
     with _patch_db_url(func__postgres_container):
         heartbeat = Heartbeat(deployment_id, 0.05)
         heartbeat.start()
-        for _ in range(100):
+        for _ in range(300):
             await asyncio.sleep(0.1)
             row = (await _reload(session))[deployment_id]
             if row.heartbeat_at != old:

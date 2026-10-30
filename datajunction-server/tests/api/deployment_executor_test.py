@@ -169,28 +169,45 @@ async def test_drain_waits_for_running_deployment(
 
 async def test_drain_timeout_marks_interrupted(
     session,
+    session_factory,
     patched_context,
     spec,
     deployment_context,
 ):
     executor = InProcessExecutor()
+    started = asyncio.Event()
 
     async def fake_run(**kwargs):
         await InProcessExecutor.update_status(
             kwargs["deployment_id"],
             DeploymentStatus.RUNNING,
         )
-        await asyncio.sleep(60)
+        started.set()
+        await asyncio.sleep(3600)
 
-    with patch.object(executor, "_run_deployment", side_effect=fake_run):
+    # The drain uses its own sessions, apart from the task's session.
+    @asynccontextmanager
+    async def drain_context():
+        drain_session = await session_factory()
+        try:
+            yield drain_session
+        finally:
+            await drain_session.close()
+
+    with (
+        patch.object(executor, "_run_deployment", side_effect=fake_run),
+        patch(f"{LIVENESS}.session_context", drain_context),
+    ):
         deployment_id = await executor.submit(spec, deployment_context)
-        await asyncio.sleep(0.05)
-        await executor.drain(0.05)
-        await asyncio.sleep(0.05)
+        task = next(iter(executor._tasks))
+        await started.wait()
+        await executor.drain(0.01)
+        await asyncio.gather(task, return_exceptions=True)
+        await asyncio.sleep(0)
 
     row = await _row(session, deployment_id)
     assert (row.status, row.results) == (DeploymentStatus.FAILED, INTERRUPTED_RESULTS)
-    assert executor._tasks == set()
+    assert (task.cancelled(), executor._tasks) == (True, set())
 
 
 async def test_run_records_worker_and_heartbeat(
