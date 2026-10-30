@@ -290,8 +290,10 @@ class NodeRevision:
     @strawberry.field
     def catalog(self, root: DBNodeRevision) -> Catalog | None:
         """
-        Catalog for the node
+        Catalog for the node, if it has one
         """
+        if root.catalog is None:
+            return None
         return Catalog.from_pydantic(root.catalog)  # type: ignore
 
     query: str | None = None
