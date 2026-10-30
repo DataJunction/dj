@@ -64,6 +64,7 @@ from datajunction_server.models.node import (
 from datajunction_server.database.user import PrincipalKind
 from datajunction_server.models.cube_materialization import PrincipalRef
 from datajunction_server.models.preaggregation import CubeBackfillInput
+from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import get_query_service_client
 from tests.authz import VALIDATOR_AUTH_SERVICE, deny
 from tests.construction.build_v3 import assert_sql_equal
@@ -4397,8 +4398,10 @@ class TestDeployments:
         assert mock_qs.run_cube_backfill.call_args_list == []
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("refused_with_status", [False, True])
     async def test_deploy_reports_a_rejected_materialization_push(
         self,
+        mocker,
         client,
         default_hard_hats,
         default_hard_hat,
@@ -4406,6 +4409,7 @@ class TestDeployments:
         default_us_state,
         default_avg_length_of_employment,
         mock_qs,
+        refused_with_status,
     ):
         """
         A query service that refuses to schedule the declared materialization fails
@@ -4421,7 +4425,23 @@ class TestDeployments:
             "User `dj` is not an owner of data project `analytics`, so Jenkins job "
             "`analytics-repairs_cube` cannot write `prodhive.analytics.repairs_cube`"
         )
-        mock_qs.materialize_cube.side_effect = Exception(rejection)
+        if refused_with_status:
+            # The real client turns a 403 from the query service into an error.
+            refusal = MagicMock(status_code=403, text=rejection)
+            mocker.patch(
+                "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
+                return_value=refusal,
+            )
+            mock_qs.materialize_cube.side_effect = QueryServiceClient(
+                uri="http://query-service:8001",
+            ).materialize_cube
+            reported = (
+                f"Query service rejected cube materialization for "
+                f"'{namespace}.default.repairs_cube' (status=403): {rejection}"
+            )
+        else:
+            mock_qs.materialize_cube.side_effect = Exception(rejection)
+            reported = rejection
         cube = CubeSpec(
             name="default.repairs_cube",
             display_name="Repairs Cube",
@@ -4476,7 +4496,7 @@ class TestDeployments:
                 "deploy_type": "materialization",
                 "message": (
                     f"Cube `{cube_name}`: the query service rejected the request to "
-                    f"schedule its materialization: {rejection}"
+                    f"schedule its materialization: {reported}"
                 ),
                 "name": cube_name,
                 "operation": "create",

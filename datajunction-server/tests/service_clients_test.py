@@ -987,6 +987,39 @@ class TestQueryServiceClient:
             output_tables=["common.a", "common.b"],
         )
 
+    def test_materialize_cube_rejected(self, mocker: MockerFixture) -> None:
+        """
+        A refused cube materialization push raises with the status and body.
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 403
+        mock_response.text = "Run `scheduler auth allow-jenkins-push-as-me` first"
+        mocker.patch(
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
+            return_value=mock_response,
+        )
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        materialization_input = DruidCubeMaterializationInput(
+            name="default",
+            strategy=MaterializationStrategy.INCREMENTAL_TIME,
+            schedule="@daily",
+            job="DruidCubeMaterialization",
+            cube=NodeNameVersion(name="default.repairs_cube", version="v1.0"),
+            dimensions=[],
+            metrics=[],
+            measures_materializations=[],
+            combiners=[],
+        )
+        with pytest.raises(DJQueryServiceClientException) as exc_info:
+            query_service_client.materialize_cube(materialization_input)
+        assert exc_info.value.message == (
+            "Query service rejected cube materialization for "
+            "'default.repairs_cube' (status=403): "
+            "Run `scheduler auth allow-jenkins-push-as-me` first"
+        )
+        assert exc_info.value.http_status_code == 502
+
     def test_materialize_preagg(self, mocker: MockerFixture) -> None:
         """
         Test materialize_preagg via query service client.
