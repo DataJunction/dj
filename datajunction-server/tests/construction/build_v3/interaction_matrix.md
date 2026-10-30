@@ -110,6 +110,12 @@ check that it returns NULL.
 `metric_expressions_test.py` checks the resolver's stage boundaries, request-order
 independence, and ownership of shared expression trees.
 
+Recursive extraction results are shared within each build, keyed by metric
+revision, dialect, and validation mode. Cached ASTs and components are copied
+before reuse. `metric_extraction_test.py` checks that chains and shared ancestors
+are extracted once per build, and that cache reuse preserves ownership,
+validation, and cycle detection.
+
 ## Existing coverage and remaining expansion
 
 These files already assert the following interactions; extend them or add a

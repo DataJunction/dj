@@ -30,7 +30,10 @@ from datajunction_server.models.decompose import Aggregability, MetricComponent
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.materialization import MaterializationTarget
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.sql.decompose import MetricComponentExtractor
+from datajunction_server.sql.decompose import (
+    MetricComponentExtractor,
+    MetricExtractionCache,
+)
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import cached_parse, parse
 from datajunction_server.utils import SEPARATOR
@@ -57,6 +60,7 @@ async def decompose_and_group_metrics(
     metric_nodes = {name: ctx.get_metric_node(name) for name in ctx.metrics} | {
         name: node for name, node in ctx.nodes.items() if node.type == NodeType.METRIC
     }
+    extraction_cache: MetricExtractionCache = {}
     all_decomposed = {
         name: await decompose_metric(
             ctx.session,
@@ -64,6 +68,7 @@ async def decompose_and_group_metrics(
             nodes_cache=ctx.nodes,
             parent_map=ctx.parent_map,
             dialect=ctx.combiner_dialect or ctx.dialect,
+            extraction_cache=extraction_cache,
         )
         for name, node in metric_nodes.items()
     }
@@ -93,6 +98,7 @@ async def decompose_metric(
     nodes_cache: dict[str, Node] | None = None,
     parent_map: dict[str, list[str]] | None = None,
     dialect: Dialect = Dialect.SPARK,
+    extraction_cache: MetricExtractionCache | None = None,
 ) -> DecomposedMetricInfo:
     """
     Decompose a metric into its constituent components.
@@ -112,6 +118,8 @@ async def decompose_metric(
         dialect: Dialect the combiner is rendered for. This may differ from
             the measures SQL dialect when Spark writes a Druid cube.
             Defaults to Spark for direct callers.
+        extraction_cache: Extraction results shared across this build's metric
+            roots and recursive dependencies. Never retained between builds.
 
     Returns:
         DecomposedMetricInfo with components, combiner expression, and aggregability
@@ -128,6 +136,7 @@ async def decompose_metric(
         nodes_cache=nodes_cache,
         parent_map=parent_map,
         metric_node=metric_node,
+        extraction_cache=extraction_cache,
     )
 
     # Extract combiner expression from the derived query AST
