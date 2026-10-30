@@ -333,18 +333,40 @@ execute DJ's SQL on DuckDB and compare it with a direct calculation or query:
 - ``sql_roundtrip_test.py``: parsing and printing SQL keeps its meaning.
 - ``ast_printing_test.py``: AST-built expressions with unambiguous operator precedence print as equivalent SQL.
 - ``random_graph_test.py``: SQL for a random graph and request matches a plain query over the raw tables.
-- ``materialization_test.py``: a request served from a pre-aggregation matches the same request computed from raw
-  tables. Both paths use DJ-generated SQL; ``random_graph_test.py`` supplies the independent raw-table comparison.
+- ``metric_dag_test.py``: nested arithmetic and shared dependencies match independent formula evaluation, including
+  metric filters, implicit parents, selected parents, and reversed request order.
+- ``extraction_cache_test.py``: cold and warm extraction agree across generated DAGs; callers own their results.
+- ``cross_fact_test.py``: facts aggregate independently before joining, including distinct counts, averages, missing
+  groups, partial materialization, and fallback from an incompatible grain.
+- ``grain_interaction_test.py``: global/partitioned fixed-grain broadcasts, derived shares, and snapshot rules
+  (first/last/min/max) preserve aggregation order. Ratios collapse their operands before division. Unsupported
+  fixed-grain averages and exact distinct counts must be rejected.
+- ``window_interaction_test.py``: partitioned LAG/LEAD, rolling SUM/AVG, share-of-total windows, scalar descendants,
+  metric filters, and bounded date filters match Python calculations over sparse series with lookback/densification.
+- ``dimension_graph_test.py`` and ``fanout_test.py``: roles, defaults, composite keys, multi-hop paths, required
+  dimensions, and aggregation-sensitive fanout warnings match explicit joins. A self-join role fallback bug has a
+  strict expected-failure repro.
+- ``ranked_groups_test.py``: top/bottom tuples (including NULL keys) and Others match independent Python ranking
+  and regrouping. Others recomputes distinct counts and ratios rather than combining final metric values.
+- ``materialization_test.py``: both materialized and live SQL match an independent raw-table query.
+- ``freshness_test.py``: freshness eligibility matches interval containment and staleness budgets at boundaries.
+- ``sketch_contract_test.py``: a test-owned sketch family preserves tuning arguments, state identity, quantile
+  sharing, dialect-specific combiners, and compatible/incompatible materialization routing. These are SQL contracts,
+  not native Spark/Trino/Druid numerical accuracy tests; OSS does not register an engine-specific sketch family.
 
 ``tests/property/scenario.py`` defines the immutable case, generated metric and filter specifications, and strategies.
 Each metric's raw-table reference expression is written separately from its DJ definition. ``graph.py`` installs a
 case through DJ's API and runs the direct DuckDB reference query. Add new case variants in ``scenario.py`` so the same
-specifications can be reused across properties.
+specifications can be reused across properties. ``interaction_scenarios.py`` adds bounded DAGs, grouped datasets,
+and sparse time series; ``interaction_graph.py`` supplies shared API and materialization helpers. Primary feature
+modes are pytest parameters so every mode runs; Hypothesis varies the data and secondary interactions within each.
+The fixed SQL interaction matrix remains in ``tests/construction/build_v3/interaction_matrix_test.py``.
 
 They run with the rest of the server suite. ``DJ_PBT_PROFILE`` selects ``dev`` (the default locally, random with
 shrinking), ``ci`` (the default when ``CI`` is set, a fixed sequence without shrinking), or ``nightly`` (ten times the
-examples, random with shrinking). CI runs only ``ci``, which replays the same examples every time, so it does not
-search for new bugs. ``nightly`` is not scheduled anywhere; run it by hand for a deeper search. The API-backed properties need the same Postgres test setup as the server suite;
+examples, random with shrinking). PR CI runs ``ci``, which replays the same examples every time. The
+``property-tests.yml`` workflow runs ``nightly`` daily and can also be dispatched manually. It caches the Hypothesis
+database and uploads failure examples and JUnit results when a run fails. The API-backed properties need the same Postgres test setup as the server suite;
 locally, the test fixtures start it through Docker.
 
 .. code-block:: sh

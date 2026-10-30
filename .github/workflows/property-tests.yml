@@ -1,0 +1,71 @@
+name: Randomized SQL properties
+
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: property-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  property-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_USER: dj
+          POSTGRES_PASSWORD: dj
+          POSTGRES_DB: dj
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dj"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    defaults:
+      run:
+        working-directory: datajunction-server
+    env:
+      DJ_TEST_POSTGRES_URL: postgresql+psycopg://dj:dj@localhost:5432/dj
+      DJ_PBT_PROFILE: nightly
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+      - run: uv python install 3.13
+      - run: uv sync --locked --group test --python 3.13
+      - uses: actions/cache@v4
+        with:
+          path: datajunction-server/.hypothesis
+          key: hypothesis-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: hypothesis-${{ runner.os }}-
+      - name: Populate test templates
+        run: |
+          PG="postgresql://dj:dj@localhost:5432"
+          PGX="postgresql+psycopg://dj:dj@localhost:5432"
+          psql "$PG/dj" -c "CREATE ROLE readonly_user WITH LOGIN PASSWORD 'readonly'"
+          psql "$PG/dj" -c "CREATE DATABASE template_all_examples"
+          uv run python tests/helpers/populate_template.py "$PGX/template_all_examples"
+          psql "$PG/dj" -c "CREATE DATABASE template_preaggs TEMPLATE template_all_examples"
+          uv run python tests/helpers/populate_preaggs_template.py "$PGX/template_preaggs"
+          psql "$PG/dj" -c "CREATE DATABASE template_dimension_links"
+          uv run python tests/helpers/populate_template.py "$PGX/template_dimension_links" COMPLEX_DIMENSION_LINK
+      - name: Search and shrink
+        run: uv run python -m pytest tests/property -n 4 --dist=loadscope --no-cov --junitxml=property-results.xml
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: hypothesis-failures
+          include-hidden-files: true
+          path: |
+            datajunction-server/.hypothesis
+            datajunction-server/property-results.xml

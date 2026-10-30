@@ -62,3 +62,7 @@ PREAGG_INNER_JOIN_DROPS_ORPHANS = KnownIssue(
     "no matching dimension row, so requests that don't use that dimension get "
     "a different answer when served from it",
 )
+SELF_JOIN_ROLE_FALLBACK = KnownIssue(
+    "a role on a self-linked dimension falls back to the direct unroled join, "
+    "returning the child's attributes instead of its parent's",
+)

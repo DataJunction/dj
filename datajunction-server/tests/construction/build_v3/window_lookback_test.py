@@ -313,6 +313,31 @@ def test_order_filter_bounds_reads_between():
     assert high.value == 10
 
 
+@pytest.mark.parametrize("column", ["date_id", "v3.date.date_id[order]"])
+@pytest.mark.parametrize(
+    "predicate, low, high",
+    [
+        ("{col} >= 2", "2", None),
+        ("2 <= {col}", "2", None),
+        ("{col} <= 5", None, "5"),
+        ("5 >= {col}", None, "5"),
+        ("{col} = 3", "3", "3"),
+    ],
+)
+def test_order_filter_bounds_recognizes_role_qualified_columns(
+    column,
+    predicate,
+    low,
+    high,
+):
+    actual_low, actual_high = _order_filter_bounds(
+        parse_filter(predicate.format(col=column)),
+        "date_id",
+    )
+    assert (str(actual_low) if actual_low is not None else None) == low
+    assert (str(actual_high) if actual_high is not None else None) == high
+
+
 def test_order_filter_bounds_none_for_unsupported_operator():
     # `!=` constrains the column but yields no range bound to expand against.
     assert _order_filter_bounds(parse_filter("date_id != 5"), "date_id") is None
@@ -419,6 +444,15 @@ def test_apply_skips_filters_not_on_order_column():
     assert apply_live_window_lookback(ctx) is None
 
 
+@pytest.mark.parametrize("column", ["v3.date.date_id[ship]", "other.date.date_id"])
+def test_apply_preserves_bounds_on_another_sequence_or_role(column):
+    filters = [f"{column} BETWEEN 1 AND 10"]
+    ctx = _ctx([_decomposed(_ROLE_WINDOW)], filters)
+    assert apply_live_window_lookback(ctx) is None
+    assert ctx.dimension_filters == filters
+    assert ctx.pushdown_consumed_filters == set()
+
+
 def test_apply_bails_on_non_comparable_low_bound():
     # A string low bound cannot be compared/interpolated -> bail, leave filters intact.
     ctx = _ctx([_decomposed(_ROLE_WINDOW)], ["v3.date.date_id >= 'a'"])
@@ -433,18 +467,20 @@ def test_apply_bails_on_non_comparable_high_bound():
     assert ctx.dimension_filters == ["v3.date.date_id <= 'z'"]
 
 
-def test_apply_noop_when_order_dim_unreachable_from_facts(monkeypatch):
+@pytest.mark.parametrize("column", ["v3.date.date_id", "v3.date.date_id[order]"])
+def test_apply_noop_when_order_dim_unreachable_from_facts(mocker, column):
     """Bounds resolve, but no fact links to the order dimension -> no expansion."""
-    monkeypatch.setattr(
+    physical_table = mocker.patch.object(
         wl_mod,
         "_dimension_physical_table",
-        lambda ctx, node: "cat.sch.dim_table",
+        return_value="cat.sch.dim_table",
     )
     ctx = _ctx(
         [_decomposed(_ROLE_WINDOW)],
-        ["v3.date.date_id BETWEEN 20240101 AND 20240131"],
+        [f"{column} BETWEEN 20240101 AND 20240131"],
         metric_groups=[],  # no facts -> injected_any stays False
     )
     assert apply_live_window_lookback(ctx) is None
+    physical_table.assert_called_once()
     # The original filter is left intact since nothing was expanded.
-    assert ctx.dimension_filters == ["v3.date.date_id BETWEEN 20240101 AND 20240131"]
+    assert ctx.dimension_filters == [f"{column} BETWEEN 20240101 AND 20240131"]

@@ -175,9 +175,22 @@ def test_dj_printing_preserves_meaning(conn, expression, data):
     )
 
 
-def without_negative_zero(sql: str) -> str:
+def normalize_numeric_literals(sql: str) -> str:
     # DJ reads the literal `-0` as 0; the value is the same either way.
+    # A parenthesized unary minus can become a negative Number on the next
+    # parse. Ignore parentheses around numeric literals, but retain function
+    # calls and grouping around expressions. The numerical property above
+    # independently checks that printing preserves their values.
+    sql = re.sub(r"(?<![\w.])\((-?\d+(?:\.\d+)?)\)", r"\1", sql)
     return re.sub(r"(?<![\w.])-0(?![\w.])", "0", sql)
+
+
+@pytest.mark.parametrize("expression", ["(- -0)", "(- (1))", "ABS((-1))"])
+def test_numeric_literal_normalization_is_stable(expression):
+    once = dj_roundtrip(expression)
+    assert normalize_numeric_literals(dj_roundtrip(once)) == normalize_numeric_literals(
+        once,
+    )
 
 
 @settings(max_examples=examples(1000))
@@ -185,4 +198,6 @@ def without_negative_zero(sql: str) -> str:
 def test_dj_printing_is_stable(expression):
     once = dj_roundtrip(expression)
     assume(KNOWN_DOUBLE_MINUS not in once)
-    assert without_negative_zero(dj_roundtrip(once)) == without_negative_zero(once)
+    assert normalize_numeric_literals(dj_roundtrip(once)) == normalize_numeric_literals(
+        once,
+    )

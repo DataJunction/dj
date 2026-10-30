@@ -150,12 +150,18 @@ async def build_graph(client, conn, scenario: Scenario) -> Graph:
     return graph
 
 
-async def create_metric(client, graph: Graph, name: str, query: str) -> str:
+async def create_metric(
+    client,
+    graph: Graph,
+    name: str,
+    query: str,
+    **declarations,
+) -> str:
     metric = graph.prefix + name
     await post(
         client,
         "/nodes/metric/",
-        {"name": metric, "query": query, "mode": "published"},
+        {"name": metric, "query": query, "mode": "published", **declarations},
     )
     return metric
 
