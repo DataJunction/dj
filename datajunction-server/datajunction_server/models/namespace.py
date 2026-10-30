@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.semantic_fingerprint import SemanticFingerprintValue
 from datajunction_server.typing import StrEnum
 
 
@@ -73,3 +75,20 @@ class NamespaceProvisionResponse(BaseModel):
     namespace: str
     owner_role: str
     deployer_role: str | None
+
+
+class NamespaceFingerprintNode(BaseModel):
+    """A node and its current semantic fingerprint."""
+
+    name: str
+    node_type: NodeType
+    owners: list[str] = Field(default_factory=list)
+    semantic_fingerprint: SemanticFingerprintValue
+
+
+class NamespaceFingerprintResponse(BaseModel):
+    """Current semantic fingerprints for a namespace tree."""
+
+    namespace: str
+    version: int
+    nodes: list[NamespaceFingerprintNode] = Field(default_factory=list)
