@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from functools import partial
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Index, String
+from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Index, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy_utils import UUIDType
 
@@ -32,6 +32,13 @@ class Deployment(Base):
         ),
         # For queries filtering by just namespace
         Index("ix_deployments_namespace", "namespace"),
+        # Keeps the periodic sweep off finished deployments
+        Index(
+            "ix_deployments_unfinished",
+            "status",
+            "created_at",
+            postgresql_where=text("status IN ('PENDING', 'RUNNING')"),
+        ),
     )
 
     uuid: Mapped[UUID] = mapped_column(UUIDType(), default=uuid4, primary_key=True)
@@ -87,10 +94,6 @@ class Deployment(Base):
     def deployment_check_results(self) -> list[NodeCheckResults]:
         return [NodeCheckResults(**item) for item in (self.check_results or [])]
 
-    @deployment_check_results.setter
-    def deployment_check_results(self, value: list[NodeCheckResults]):
-        self.check_results = [item.model_dump() for item in value]
-
     @property
     def deployment_warnings(self) -> list[DJError]:
         # ``code`` is stored as the symbolic ErrorCode name (see
@@ -99,10 +102,6 @@ class Deployment(Base):
             DJError(**{**warning, "code": ErrorCode[warning["code"]]})
             for warning in (self.warnings or [])
         ]
-
-    @deployment_warnings.setter
-    def deployment_warnings(self, value: list[DJError]):
-        self.warnings = [warning.model_dump() for warning in value]
 
     @property
     def deployment_downstream_impacts(self) -> list[DownstreamImpact]:

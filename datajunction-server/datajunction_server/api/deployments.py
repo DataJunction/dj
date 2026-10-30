@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 
 from fastapi import BackgroundTasks, Depends, HTTPException, Request, Response
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.deployment import Deployment
@@ -290,36 +290,43 @@ class InProcessExecutor(DeploymentExecutor):
         downstream_impacts: list | None = None,
         warnings: list[DJError] | None = None,
         check_results: list | None = None,
-        keep_failed: bool = False,
     ) -> bool:
         """
-        Record a deployment's status. With `keep_failed`, a deployment that
-        was already marked failed (interrupted) is left as is. Returns
-        True when the update was skipped for that reason.
+        Record a deployment's status in one conditional UPDATE. A deployment
+        already marked failed (interrupted) is left as is. Returns True
+        when the update was skipped for that reason.
         """
+        values: dict = {"status": status}
+        if status == DeploymentStatus.RUNNING:
+            values["worker_id"] = get_worker_id()
+            values["heartbeat_at"] = datetime.now(UTC)
+        if results is not None:
+            values["results"] = [r.model_dump() for r in results]
+        if warnings is not None:
+            values["warnings"] = [w.model_dump() for w in warnings]
+        if downstream_impacts is not None:
+            values["downstream_impacts"] = [d.model_dump() for d in downstream_impacts]
+        if check_results is not None:
+            values["check_results"] = [c.model_dump() for c in check_results]
         async with session_context() as session:
-            deployment = await session.get(Deployment, deployment_uuid)
-            if deployment is None:
-                # Deployment record doesn't exist (e.g., internal deployment)
+            updated = await session.execute(
+                update(Deployment)
+                .where(
+                    Deployment.uuid == deployment_uuid,
+                    Deployment.status != DeploymentStatus.FAILED,
+                )
+                .values(**values)
+                .returning(Deployment.uuid)
+                .execution_options(synchronize_session=False),
+            )
+            if updated.first() is not None:
+                await session.commit()
                 return False
-            if keep_failed and deployment.status == DeploymentStatus.FAILED:
-                return True
-            deployment.status = status
-            if status == DeploymentStatus.RUNNING:
-                deployment.worker_id = get_worker_id()
-                deployment.heartbeat_at = datetime.now(UTC)
-            if results is not None:
-                deployment.results = [r.model_dump() for r in results]
-            if warnings is not None:
-                deployment.deployment_warnings = warnings
-            if downstream_impacts is not None:
-                deployment.downstream_impacts = [
-                    d.model_dump() for d in downstream_impacts
-                ]
-            if check_results is not None:
-                deployment.deployment_check_results = check_results
-            await session.commit()
-            return False
+            # Skipped only if the row exists (internal deployments have none).
+            exists = await session.execute(
+                select(Deployment.uuid).where(Deployment.uuid == deployment_uuid),
+            )
+            return exists.first() is not None
 
     async def _run_deployment(
         self,
@@ -331,7 +338,6 @@ class InProcessExecutor(DeploymentExecutor):
         if await InProcessExecutor.update_status(
             deployment_id,
             DeploymentStatus.RUNNING,
-            keep_failed=True,
         ):
             logger.warning("Deployment %s was interrupted before start", deployment_id)
             return
@@ -369,7 +375,6 @@ class InProcessExecutor(DeploymentExecutor):
                     downstream_impacts=execute_result.downstream_impacts,
                     warnings=execute_result.warnings,
                     check_results=execute_result.check_results,
-                    keep_failed=True,
                 )
                 if skipped:
                     logger.warning(
@@ -392,7 +397,6 @@ class InProcessExecutor(DeploymentExecutor):
                         operation=DeploymentResult.Operation.UNKNOWN,
                     ),
                 ],
-                keep_failed=True,
             )
         finally:
             heartbeat.stop()

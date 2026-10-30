@@ -1,4 +1,4 @@
-"""Add worker_id and heartbeat_at to deployments
+"""Add heartbeat columns and unfinished index to deployments
 
 Revision ID: hb0001heartbeat
 Revises: rf0001reqfilters
@@ -24,8 +24,15 @@ def upgrade():
         "deployments",
         sa.Column("heartbeat_at", sa.DateTime(timezone=True), nullable=True),
     )
+    op.create_index(
+        "ix_deployments_unfinished",
+        "deployments",
+        ["status", "created_at"],
+        postgresql_where=sa.text("status IN ('PENDING', 'RUNNING')"),
+    )
 
 
 def downgrade():
+    op.drop_index("ix_deployments_unfinished", table_name="deployments")
     op.drop_column("deployments", "heartbeat_at")
     op.drop_column("deployments", "worker_id")

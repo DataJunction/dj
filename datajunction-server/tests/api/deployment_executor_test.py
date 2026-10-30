@@ -11,11 +11,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from datajunction_server.api.deployments import InProcessExecutor
 from datajunction_server.database.deployment import Deployment
-from datajunction_server.internal.deployment.liveness import get_worker_id
+from datajunction_server.internal.deployment.liveness import (
+    get_worker_id,
+    interrupt_deployments,
+)
+from datajunction_server.internal.deployment.orchestrator import DeploymentOrchestrator
 from datajunction_server.internal.deployment.utils import DeploymentContext
 from datajunction_server.models.deployment import (
     DeploymentResult,
@@ -323,18 +327,16 @@ async def test_interrupted_before_start_does_not_run(
     )
 
 
-async def test_update_status_keep_failed(session, current_user, patched_context):
+async def test_update_status_keeps_failed(session, current_user, patched_context):
     deployment_id = await _pending(session, current_user)
     skipped = await InProcessExecutor.update_status(
         deployment_id,
         DeploymentStatus.FAILED,
-        keep_failed=True,
     )
     assert skipped is False
     skipped = await InProcessExecutor.update_status(
         deployment_id,
         DeploymentStatus.SUCCESS,
-        keep_failed=True,
     )
     assert skipped is True
     assert (await _row(session, deployment_id)).status == DeploymentStatus.FAILED
@@ -342,7 +344,85 @@ async def test_update_status_keep_failed(session, current_user, patched_context)
         await InProcessExecutor.update_status(
             str(uuid.uuid4()),
             DeploymentStatus.RUNNING,
-            keep_failed=True,
         )
         is False
     )
+
+
+async def test_orchestrator_progress_keeps_interrupted(
+    session,
+    current_user,
+    patched_context,
+):
+    deployment_id = await _pending(
+        session,
+        current_user,
+        status=DeploymentStatus.FAILED,
+        results=INTERRUPTED_RESULTS,
+    )
+    fake_orchestrator = SimpleNamespace(
+        dry_run=False,
+        deployment_id=deployment_id,
+        deployed_results=[],
+    )
+    await DeploymentOrchestrator._update_deployment_status(fake_orchestrator)
+
+    row = await _row(session, deployment_id)
+    assert (row.status, row.results) == (DeploymentStatus.FAILED, INTERRUPTED_RESULTS)
+
+
+@pytest.mark.parametrize(
+    "start, write",
+    [
+        (DeploymentStatus.PENDING, DeploymentStatus.RUNNING),
+        (DeploymentStatus.RUNNING, DeploymentStatus.SUCCESS),
+        (DeploymentStatus.RUNNING, DeploymentStatus.RUNNING),
+    ],
+)
+async def test_sweep_between_read_and_write(
+    session,
+    session_factory,
+    current_user,
+    start,
+    write,
+):
+    deployment_id = await _pending(session, current_user, status=start)
+    # A session that already read the row as unfinished.
+    stale_session = await session_factory()
+    seen = await stale_session.get(Deployment, deployment_id)
+    assert seen.status == start
+
+    @asynccontextmanager
+    async def fresh_context():
+        other = await session_factory()
+        try:
+            yield other
+        finally:
+            await other.close()
+
+    with patch(f"{LIVENESS}.session_context", fresh_context):
+        interrupted = await interrupt_deployments(Deployment.uuid == deployment_id)
+    assert interrupted == [deployment_id]
+
+    with patch(f"{DEPLOYMENTS}.session_context", _context(stale_session)):
+        skipped = await InProcessExecutor.update_status(deployment_id, write)
+    await stale_session.close()
+
+    row = await _row(session, deployment_id)
+    assert (skipped, row.status, row.results) == (
+        True,
+        DeploymentStatus.FAILED,
+        INTERRUPTED_RESULTS,
+    )
+
+
+async def test_sweep_can_use_unfinished_index(session):
+    await session.execute(text("SET enable_seqscan = off"))
+    plan = await session.execute(
+        text(
+            "EXPLAIN SELECT uuid FROM deployments "
+            "WHERE status IN ('PENDING', 'RUNNING') AND created_at < now()",
+        ),
+    )
+    uses_index = any("ix_deployments_unfinished" in row[0] for row in plan)
+    assert uses_index is True
