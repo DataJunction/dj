@@ -6,8 +6,7 @@ Each example plans a pre-aggregation at a grain covering the request's
 dimensions and filters, materializes DJ's planned SQL on DuckDB, reports it
 available, then asks for SQL with and without `use_materialized`.
 
-Both answers come from DJ, so a bug that affects both paths the same way is
-invisible here; `random_graph_test` compares against a reference query instead.
+Both answers also have to agree with an independently written raw-table query.
 """
 
 import duckdb
@@ -25,6 +24,8 @@ from tests.property.graph import (
     has_orphan_facts,
     metrics_sql,
     post,
+    reference,
+    accepts_missing_dimension,
 )
 from tests.property.known_issues import (
     EMPTY_PREAGG_COUNT_IS_NULL,
@@ -125,6 +126,18 @@ async def check_preaggregated(
             f"SQL from raw tables:\n{raw_sql}",
         ),
     )
+    reference_sql, expected = reference(
+        conn,
+        graph,
+        scenario,
+        ", ".join(metric.reference for metric in scenario.metrics),
+    )
+    assert_same_results(raw, expected, describe(scenario, reference_sql, raw_sql))
+    assert_same_results(
+        preaggregated,
+        expected,
+        describe(scenario, reference_sql, preagg_sql),
+    )
 
 
 @pytest.mark.asyncio
@@ -135,6 +148,13 @@ async def test_preaggregated_matches_raw(
     duckdb_conn: duckdb.DuckDBPyConnection,
     scenario: Scenario,
 ):
+    assume(
+        not (
+            scenario.join_type == "left"
+            and scenario.filters
+            and accepts_missing_dimension(duckdb_conn, scenario.filters)
+        ),
+    )
     assume(
         not (
             scenario.join_type == "inner"
