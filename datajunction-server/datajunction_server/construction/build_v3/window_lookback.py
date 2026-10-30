@@ -251,6 +251,13 @@ def _order_filter_bounds(
     as two separate filter strings (``col >= A`` and ``col <= B``) into a single
     ``[A, B]`` extent. The caller is responsible for combining them.
     """
+    from datajunction_server.construction.build_v3.dimension_refs import (
+        split_dimension_ref,
+    )
+    from datajunction_server.construction.build_v3.filters import (
+        dimension_ref_of_expression,
+    )
+
     cols = [c for c in filter_ast.find_all(ast.Column) if c.name.name == order_col_name]
     if not cols:
         return None
@@ -259,9 +266,10 @@ def _order_filter_bounds(
         return filter_ast.low, filter_ast.high
 
     if isinstance(filter_ast, ast.BinaryOp):
+        left_ref = dimension_ref_of_expression(filter_ast.left)
         left_is_col = (
-            isinstance(filter_ast.left, ast.Column)
-            and filter_ast.left.name.name == order_col_name
+            left_ref is not None
+            and split_dimension_ref(left_ref)[0].rsplit(".", 1)[-1] == order_col_name
         )
         # The value sits on whichever side is not the order column.
         value = filter_ast.right if left_is_col else filter_ast.left
@@ -409,7 +417,10 @@ def apply_live_window_lookback(ctx: BuildContext) -> WindowLookbackPlan | None:
     from datajunction_server.construction.build_v3.cte import has_window_function
     from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
     from datajunction_server.construction.build_v3.filters import parse_filter
-    from datajunction_server.construction.build_v3.utils import make_column_ref
+    from datajunction_server.construction.build_v3.utils import (
+        extract_filter_dimension_refs,
+        make_column_ref,
+    )
 
     # Collect window-frame lookbacks across all decomposed metrics, keyed by the
     # order dimension ref. Multiple frames on the same order column collapse to
@@ -473,9 +484,9 @@ def apply_live_window_lookback(ctx: BuildContext) -> WindowLookbackPlan | None:
         )
         validate_window_lookback(wl, order_is_sequence_dim)
 
-        # Find the dimension filter(s) constraining the order column. We match
-        # on the *column* name since the user expresses the filter on the
-        # dimension ref (e.g. "v3.date.date_id = 20240131"). A range may be
+        # Find dimension filters constraining this sequence. Unroled references
+        # retain the default-path behavior; explicitly different roles stay
+        # separate. A range may be
         # expressed as TWO separate filter strings (``col >= A`` and
         # ``col <= B``); we collect partial bounds across all matching filters
         # and stitch them into a single ``[low, high]`` extent.
@@ -492,6 +503,13 @@ def apply_live_window_lookback(ctx: BuildContext) -> WindowLookbackPlan | None:
         high_expr: ast.Expression | None = None
         bail = False
         for idx, filter_str in enumerate(ctx.dimension_filters):
+            # The same date column can be reached through several roles. Only
+            # consume bounds on the sequence this window actually orders by.
+            filter_refs = extract_filter_dimension_refs([filter_str])
+            if not {order_ref, f"{order_node_name}.{order_col_name}"}.intersection(
+                filter_refs,
+            ):
+                continue
             filter_ast = parse_filter(filter_str)
             found = _order_filter_bounds(filter_ast, order_col_name)
             if found is None:
