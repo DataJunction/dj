@@ -429,7 +429,7 @@ A rule picks one value along the collapsed dimension; it does not combine values
 
 ## Required / Recommended Filters {#required-recommended-filters}
 
-You can set required or recommended filters on a metric to indicate which dimension attributes must (or should) be filtered by when querying for the metric, such as the current version of a price list or a date on a very large table.
+You can set required or recommended filters on a metric to indicate which dimension attributes must (or should) be filtered by when querying for the metric. Examples are the current version of a price list or a date on a very large table.
 
 ```yaml
 description: Total catalog value
