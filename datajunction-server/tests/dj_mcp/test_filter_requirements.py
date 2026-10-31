@@ -135,7 +135,8 @@ async def test_node_details_list_filter_requirements(mcp_client_with_metric):
     start = lines.index("Required Filters:")
     assert lines[start : start + 3] == [
         "Required Filters:",
-        "  • v3.date.date_id (default: v3.date.date_id = 20250101)",
+        "  • v3.date.date_id (default: v3.date.date_id = 20250101)"
+        " (from metric v3.mcp_default)",
         "",
     ]
     assert "Recommended Filters:" not in lines
@@ -148,10 +149,38 @@ async def test_node_details_list_recommended_filters(mcp_client_with_metric):
     start = lines.index("Recommended Filters:")
     assert lines[start : start + 3] == [
         "Recommended Filters:",
-        "  • v3.location.country",
+        "  • v3.location.country (from metric v3.mcp_recommended)",
         "",
     ]
     assert "Required Filters:" not in lines
+
+
+@pytest.mark.asyncio
+async def test_node_details_list_inherited_filters(mcp_client_with_metric):
+    await _make_metric(
+        mcp_client_with_metric,
+        "v3.mcp_derived",
+        required_filters=[{"dimension": "v3.date.date_id"}],
+    )
+    response = await mcp_client_with_metric.post(
+        "/nodes/metric/",
+        json={
+            "name": "v3.mcp_top",
+            "description": "d",
+            "query": "SELECT v3.mcp_derived / v3.mcp_recommended",
+            "mode": "published",
+        },
+    )
+    assert response.status_code == 201, response.text
+    text = await tools.get_node_details("v3.mcp_top")
+    assert _tail(text, "Required Filters:")[:6] == [
+        "Required Filters:",
+        "  • v3.date.date_id (from metric v3.mcp_derived)",
+        "",
+        "Recommended Filters:",
+        "  • v3.location.country (from metric v3.mcp_recommended)",
+        "",
+    ]
 
 
 @pytest.mark.asyncio

@@ -18,7 +18,10 @@ from datajunction_server.errors import (
     DJWarning,
     ErrorCode,
 )
-from datajunction_server.models.filter_requirements import parse_filter_requirements
+from datajunction_server.models.filter_requirements import (
+    EffectiveFilterRequirement,
+    parse_filter_requirements,
+)
 from datajunction_server.models.node_type import NodeType
 
 
@@ -166,16 +169,13 @@ def apply_requirements(
     return effective, warnings
 
 
-async def load_requirement_entries(
+async def load_declared_entries(
     session: AsyncSession,
-    metrics: list[str],
-) -> list[RequirementEntry]:
+    names: set[str],
+) -> dict[str, list[RequirementEntry]]:
     """
-    Entries declared on the requested metrics and on every metric upstream.
+    Entries each metric among the named nodes declares itself.
     """
-    if not metrics:
-        return []
-    names, _ = await find_upstream_node_names(session, metrics)
     nodes = await Node.get_by_names(
         session,
         sorted(names),
@@ -193,24 +193,103 @@ async def load_requirement_entries(
             ),
         ],
     )
-    entries: list[RequirementEntry] = []
+    declared: dict[str, list[RequirementEntry]] = {}
     for node in nodes:
         if node.type != NodeType.METRIC or node.current is None:
             continue
-        for required, declared in (
-            (True, node.current.required_filters),
-            (False, node.current.recommended_filters),
-        ):
-            for item in parse_filter_requirements(declared) or []:
-                entries.append(
-                    RequirementEntry(
-                        attributes=item.dimension,
-                        default=item.default,
-                        required=required,
-                        metrics=frozenset({node.name}),
-                    ),
-                )
-    return entries
+        declared[node.name] = [
+            RequirementEntry(
+                attributes=item.dimension,
+                default=item.default,
+                required=required,
+                metrics=frozenset({node.name}),
+            )
+            for required, entries in (
+                (True, node.current.required_filters),
+                (False, node.current.recommended_filters),
+            )
+            for item in parse_filter_requirements(entries) or []
+        ]
+    return declared
+
+
+async def load_requirement_entries(
+    session: AsyncSession,
+    metrics: list[str],
+) -> list[RequirementEntry]:
+    """
+    Entries declared on the requested metrics and on every metric upstream.
+    """
+    if not metrics:
+        return []
+    names, _ = await find_upstream_node_names(session, metrics)
+    declared = await load_declared_entries(session, names)
+    return [entry for entries in declared.values() for entry in entries]
+
+
+async def load_effective_entries(
+    session: AsyncSession,
+    metrics: list[str],
+) -> dict[str, list[RequirementEntry]]:
+    """
+    Entries for each metric: its own plus those of every metric upstream.
+
+    Looks up the upstream nodes once for all the metrics.
+    """
+    if not metrics:
+        return {}
+    names, parent_map = await find_upstream_node_names(session, metrics)
+    declared = await load_declared_entries(session, names)
+    result: dict[str, list[RequirementEntry]] = {}
+    for metric in metrics:
+        seen: set[str] = set()
+        pending = [metric]
+        while pending:
+            name = pending.pop()
+            if name not in seen:
+                seen.add(name)
+                pending.extend(parent_map.get(name, []))
+        result[metric] = [
+            entry for name in sorted(seen) for entry in declared.get(name, [])
+        ]
+    return result
+
+
+def split_effective_entries(
+    entries: list[RequirementEntry],
+) -> tuple[list[EffectiveFilterRequirement], list[EffectiveFilterRequirement]]:
+    """
+    Merge the entries into (required, recommended) lists without checking
+    them, so conflicting defaults are all kept.
+    """
+    required: list[EffectiveFilterRequirement] = []
+    recommended: list[EffectiveFilterRequirement] = []
+    for item in _merge(entries):
+        (required if item.required else recommended).append(
+            EffectiveFilterRequirement(
+                dimension=item.attributes,
+                default=item.default,
+                declared_by=tuple(sorted(item.metrics)),
+            ),
+        )
+    return required, recommended
+
+
+async def load_effective_filters(
+    session: AsyncSession,
+    metrics: list[str],
+) -> dict[
+    str,
+    tuple[list[EffectiveFilterRequirement], list[EffectiveFilterRequirement]],
+]:
+    """
+    The (required, recommended) filters each metric has, declared or inherited.
+    """
+    by_metric = await load_effective_entries(session, metrics)
+    return {
+        metric: split_effective_entries(entries)
+        for metric, entries in by_metric.items()
+    }
 
 
 async def apply_metric_filter_requirements(

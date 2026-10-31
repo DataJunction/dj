@@ -443,7 +443,7 @@ recommended_filters:
 
 A required filter has to be passed in with the query. If it is missing, DJ fails the query with an error that names the filter, unless the metric gives a `default`, in which case DJ applies the default instead. A recommended filter works the same way, except that a missing one only adds a warning to the response.
 
-A derived metric inherits the filters of the metrics it is built from. The applied defaults and any missing recommended filters appear in the `warnings` of the generated SQL response.
+A derived metric inherits the filters of the metrics it is built from, and its effective filters (`effectiveRequiredFilters` and `effectiveRecommendedFilters` in GraphQL) list those along with its own. The applied defaults and any missing recommended filters appear in the `warnings` of the generated SQL response.
 
 ## Metric Metadata
 

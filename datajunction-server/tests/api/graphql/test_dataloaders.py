@@ -9,10 +9,12 @@ from sqlalchemy.orm import load_only as sqlalchemy_load_only
 
 from datajunction_server.api.graphql.dataloaders import (
     InstrumentedDataLoader,
+    batch_load_effective_filters,
     batch_load_extracted_measures,
     batch_load_git_info,
     batch_load_nodes,
     batch_load_nodes_by_name_only,
+    create_effective_filters_loader,
     create_git_info_loader,
     create_node_by_name_loader,
 )
@@ -715,3 +717,27 @@ async def test_fixed_grain_extraction_survives_a_cold_session(
     assert result[0] is not None, "extraction was swallowed into None"
     components, _ = result[0]
     assert components
+
+
+@pytest.mark.asyncio
+async def test_batch_load_effective_filters_unknown_metric(
+    client_with_roads,
+    session_factory,
+):
+    """A name that is not a metric gets empty lists."""
+    with patch(
+        "datajunction_server.api.graphql.dataloaders.session_context",
+        lambda request=None, session_label=None: _cold_session_context(
+            session_factory,
+        ),
+    ):
+        results = await batch_load_effective_filters(
+            ["default.num_repair_orders", "does.not.exist"],
+            MagicMock(),
+        )
+    assert results == [([], []), ([], [])]
+
+
+def test_create_effective_filters_loader():
+    loader = create_effective_filters_loader(MagicMock())
+    assert loader._loader_name == "effective_filters"

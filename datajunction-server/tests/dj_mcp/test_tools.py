@@ -577,7 +577,12 @@ async def test_get_node_details_with_metric_metadata_unit(
 
     monkeypatch.setattr(tools.Node, "get_by_name", fake_get_by_name)
     monkeypatch.setattr(tools, "get_dimensions", fake_get_dims)
+
+    async def fake_effective(session, metrics):
+        return {"n.revenue": ([], [])}
+
     monkeypatch.setattr(tools, "get_git_info_for_namespace", fake_get_git)
+    monkeypatch.setattr(tools, "load_effective_filters", fake_effective)
 
     out = await tools.get_node_details("n.revenue")
     assert "Direction: higher_is_better" in out

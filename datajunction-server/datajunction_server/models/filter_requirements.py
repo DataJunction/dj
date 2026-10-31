@@ -33,6 +33,18 @@ class FilterRequirement(BaseModel):
         return value
 
 
+class EffectiveFilterRequirement(BaseModel):
+    """
+    A required or recommended filter, with the metrics that declared it.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    dimension: tuple[str, ...]
+    default: str | None = None
+    declared_by: tuple[str, ...]
+
+
 def parse_filter_requirements(
     value: "Sequence[FilterRequirement | dict] | None",
 ) -> list[FilterRequirement] | None:

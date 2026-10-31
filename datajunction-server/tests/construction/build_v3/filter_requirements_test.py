@@ -9,7 +9,10 @@ from datajunction_server.construction.build_v3.filter_requirements import (
     apply_metric_filter_requirements,
     apply_node_filter_requirements,
     apply_requirements,
+    load_effective_filters,
+    split_effective_entries,
 )
+from datajunction_server.models.filter_requirements import EffectiveFilterRequirement
 from datajunction_server.database.queryrequest import QueryBuildType
 from datajunction_server.errors import DJInvalidInputException, DJWarning, ErrorCode
 from datajunction_server.internal.caching.cachelib_cache import CachelibCache
@@ -420,3 +423,91 @@ async def test_node_cache_key_unchanged_without_entries(client_with_build_v3, se
         checked,
         session,
     ) == await manager.build_cache_key(request, params, session)
+
+
+def effective(dimension, default=None, declared_by=("m",)):
+    return EffectiveFilterRequirement(
+        dimension=tuple(dimension),
+        default=default,
+        declared_by=tuple(declared_by),
+    )
+
+
+def test_split_effective_entries_empty():
+    assert split_effective_entries([]) == ([], [])
+
+
+def test_split_effective_entries_required_beats_recommended():
+    assert split_effective_entries(
+        [
+            entry(["a.x"], required=False, metrics=("m",)),
+            entry(["a.x"], required=True, metrics=("n",)),
+            entry(["a.y"], required=False, metrics=("n",)),
+        ],
+    ) == (
+        [effective(["a.x"], declared_by=("m", "n"))],
+        [effective(["a.y"], declared_by=("n",))],
+    )
+
+
+def test_split_effective_entries_lists_conflicting_defaults():
+    assert split_effective_entries(
+        [
+            entry(["a.x"], default="a.x = 1", metrics=("n",)),
+            entry(["a.x"], default="a.x = 2", metrics=("m",)),
+        ],
+    ) == (
+        [
+            effective(["a.x"], default="a.x = 1", declared_by=("n",)),
+            effective(["a.x"], default="a.x = 2", declared_by=("m",)),
+        ],
+        [],
+    )
+
+
+@pytest.mark.asyncio
+async def test_effective_filters_follow_upstream_metrics(client_with_build_v3, session):
+    query = (await client_with_build_v3.get("/nodes/v3.total_revenue/")).json()["query"]
+    await _create_metric(
+        client_with_build_v3,
+        "v3.rf_a",
+        query,
+        required_filters=[{"dimension": "v3.date.date_id"}],
+        recommended_filters=[{"dimension": "v3.location.country"}],
+    )
+    await _create_metric(
+        client_with_build_v3,
+        "v3.rf_b",
+        query,
+        recommended_filters=[{"dimension": "v3.date.date_id"}],
+    )
+    await _create_metric(client_with_build_v3, "v3.rf_mid", "SELECT v3.rf_a / 2")
+    await _create_metric(
+        client_with_build_v3,
+        "v3.rf_top",
+        "SELECT v3.rf_mid / v3.rf_b",
+        recommended_filters=[{"dimension": "v3.location.city"}],
+    )
+    assert await load_effective_filters(session, []) == {}
+    assert await load_effective_filters(
+        session,
+        ["v3.rf_a", "v3.rf_mid", "v3.rf_top", "v3.total_revenue", "v3.order_details"],
+    ) == {
+        "v3.rf_a": (
+            [effective(["v3.date.date_id"], declared_by=("v3.rf_a",))],
+            [effective(["v3.location.country"], declared_by=("v3.rf_a",))],
+        ),
+        "v3.rf_mid": (
+            [effective(["v3.date.date_id"], declared_by=("v3.rf_a",))],
+            [effective(["v3.location.country"], declared_by=("v3.rf_a",))],
+        ),
+        "v3.rf_top": (
+            [effective(["v3.date.date_id"], declared_by=("v3.rf_a", "v3.rf_b"))],
+            [
+                effective(["v3.location.country"], declared_by=("v3.rf_a",)),
+                effective(["v3.location.city"], declared_by=("v3.rf_top",)),
+            ],
+        ),
+        "v3.total_revenue": ([], []),
+        "v3.order_details": ([], []),
+    }

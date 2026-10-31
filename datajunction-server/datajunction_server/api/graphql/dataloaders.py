@@ -14,6 +14,9 @@ from strawberry.dataloader import DataLoader
 
 from datajunction_server.api.graphql.resolvers.nodes import load_node_options
 from datajunction_server.api.graphql.utils import _merge_fields
+from datajunction_server.construction.build_v3.filter_requirements import (
+    load_effective_filters,
+)
 from datajunction_server.construction.build_v3.loaders import find_upstream_node_names
 from datajunction_server.database.collection import Collection as DBCollection
 from datajunction_server.database.namespace import NodeNamespace
@@ -28,6 +31,7 @@ from datajunction_server.internal.namespaces import (
     get_parent_namespaces,
     resolve_git_info_from_map,
 )
+from datajunction_server.models.filter_requirements import EffectiveFilterRequirement
 from datajunction_server.sql.decompose import (
     MetricComponent,
     MetricComponentExtractor,
@@ -486,4 +490,37 @@ def create_extracted_measures_loader(
     return InstrumentedDataLoader(
         "extracted_measures",
         load_fn=lambda keys: batch_load_extracted_measures(keys, request),
+    )
+
+
+EffectiveFilters = tuple[
+    list[EffectiveFilterRequirement],
+    list[EffectiveFilterRequirement],
+]
+
+
+async def batch_load_effective_filters(
+    metric_names: list[str],
+    request: Request,
+) -> list[EffectiveFilters]:
+    """
+    Load the (required, recommended) filters of many metrics in one batch.
+    """
+    async with session_context(
+        request,
+        session_label="graphql effective_filters batch",
+    ) as session:
+        found = await load_effective_filters(session, metric_names)
+    return [found.get(name, ([], [])) for name in metric_names]
+
+
+def create_effective_filters_loader(
+    request: Request,
+) -> DataLoader[str, EffectiveFilters]:
+    """
+    Create a DataLoader that batches effective filter lookups by metric name.
+    """
+    return InstrumentedDataLoader(
+        "effective_filters",
+        load_fn=lambda keys: batch_load_effective_filters(keys, request),
     )
