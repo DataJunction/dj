@@ -2,6 +2,7 @@
 
 import hashlib
 from abc import ABC, abstractmethod
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -1202,6 +1203,12 @@ def validate_fixed_grain_shape(query: str, fixed_grain: list[str]) -> None:
         )
 
 
+MetricExtractionCache = dict[
+    tuple[int, Dialect, bool],
+    tuple[list[MetricComponent], ast.Query],
+]
+
+
 class MetricComponentExtractor:
     """
     Extracts metric components from a metric definition and generates SQL derived
@@ -1273,6 +1280,7 @@ class MetricComponentExtractor:
         metric_node: "Node | None" = None,
         _visited: set[str] | None = None,
         validate_fixed_grain_windows: bool = True,
+        extraction_cache: MetricExtractionCache | None = None,
     ) -> tuple[list[MetricComponent], ast.Query]:
         """
         Extract metric components from the query.
@@ -1293,7 +1301,33 @@ class MetricComponentExtractor:
                 accumulate broadcast values. Frozen-measure derivation disables
                 this query-shape check because it extracts metric-independent
                 components rather than executable query SQL.
+            extraction_cache: Results shared by recursive calls and, optionally,
+                other roots in the same build. Keys include revision, dialect,
+                and validation mode. Cached trees and components are copied so
+                callers can safely mutate their results.
         """
+        # Check the active path even on cache hits. Only successful, complete
+        # extractions are cached; partial results cannot hide a reference cycle.
+        if _visited is None:
+            _visited = set()
+        current_metric_name = metric_node.name if metric_node else None
+        if current_metric_name:
+            if current_metric_name in _visited:
+                raise ValueError(
+                    f"Circular metric reference detected: {current_metric_name}",
+                )
+            _visited.add(current_metric_name)
+
+        if extraction_cache is None:
+            extraction_cache = {}
+        cache_key = (
+            self._node_revision_id,
+            self._dialect,
+            validate_fixed_grain_windows,
+        )
+        if cache_key in extraction_cache:
+            return deepcopy(extraction_cache[cache_key])
+
         # Use cache if available, otherwise query DB
         if (
             nodes_cache is not None
@@ -1310,19 +1344,6 @@ class MetricComponentExtractor:
 
         query_ast = parse(metric_data.query)
 
-        # Initialize visited set for cycle detection
-        if _visited is None:
-            _visited = set()
-
-        # Add current metric to visited (use metric_node name if available)
-        current_metric_name = metric_node.name if metric_node else None
-        if current_metric_name:
-            if current_metric_name in _visited:
-                raise ValueError(
-                    f"Circular metric reference detected: {current_metric_name}",
-                )
-            _visited.add(current_metric_name)
-
         # Extract components from each parent metric
         all_components = []
         components_tracker = set()
@@ -1332,20 +1353,17 @@ class MetricComponentExtractor:
         )
 
         for base_metric in metric_data.base_metrics:
-            # Check if this parent metric is itself a derived metric
-            is_parent_derived = False
             parent_node = None
             parent_revision_id = None
 
-            if nodes_cache and parent_map:
-                # Cache path: check parent_map for metric parents
-                parent_metric_parents = [
-                    name
-                    for name in parent_map.get(base_metric.name, [])
-                    if name in nodes_cache and nodes_cache[name].type == NodeType.METRIC
-                ]
-                is_parent_derived = len(parent_metric_parents) > 0
-                if is_parent_derived:
+            if (
+                nodes_cache is not None
+                and parent_map is not None
+                and metric_node is not None
+            ):
+                # Every parent, including a base metric, goes through the same
+                # cache. A base metric's self-entry is extracted locally below.
+                if metric_data.is_derived:
                     parent_node = nodes_cache[base_metric.name]
                     parent_revision_id = parent_node.current.id
             else:
@@ -1378,11 +1396,10 @@ class MetricComponentExtractor:
                 parent_check_result = await session.execute(parent_check_stmt)
                 parent_row = parent_check_result.first()
                 if parent_row:
-                    is_parent_derived = True
                     parent_revision_id = parent_row.revision_id
 
-            if is_parent_derived and parent_revision_id:
-                # Recursively extract the derived metric (inline expansion)
+            if parent_revision_id:
+                # Recursively extract the parent (inline expansion).
                 parent_extractor = MetricComponentExtractor(
                     parent_revision_id,
                     dialect=self._dialect,
@@ -1394,6 +1411,7 @@ class MetricComponentExtractor:
                     metric_node=parent_node,
                     _visited=set(_visited),
                     validate_fixed_grain_windows=validate_fixed_grain_windows,
+                    extraction_cache=extraction_cache,
                 )
             else:
                 # True base metric - decompose aggregations
@@ -1493,6 +1511,7 @@ class MetricComponentExtractor:
             # Base metric - use the decomposed AST directly
             query_ast = derived_ast
 
+        extraction_cache[cache_key] = deepcopy((all_components, query_ast))
         return all_components, query_ast
 
     def _build_metric_data_from_cache(

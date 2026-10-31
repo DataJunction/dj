@@ -30,7 +30,10 @@ from datajunction_server.models.decompose import Aggregability, MetricComponent
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.materialization import MaterializationTarget
 from datajunction_server.models.node_type import NodeType
-from datajunction_server.sql.decompose import MetricComponentExtractor
+from datajunction_server.sql.decompose import (
+    MetricComponentExtractor,
+    MetricExtractionCache,
+)
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import cached_parse, parse
 from datajunction_server.utils import SEPARATOR
@@ -53,96 +56,39 @@ async def decompose_and_group_metrics(
         - List of MetricGroup, one per unique parent node, with decomposed metrics.
         - Dict of metric_name -> DecomposedMetricInfo for reuse by callers.
     """
-    # Map parent node name -> list of DecomposedMetricInfo
-    parent_groups: dict[str, list[DecomposedMetricInfo]] = {}
-    parent_nodes: dict[str, Node] = {}
-    # Cache of all decomposed metrics to avoid redundant work
-    all_decomposed: dict[str, DecomposedMetricInfo] = {}
-
-    for metric_name in ctx.metrics:
-        metric_node = ctx.get_metric_node(metric_name)
-
-        if is_derived_metric(ctx, metric_node):
-            # Derived metric - get base metrics and decompose each
-            base_metric_nodes = get_base_metrics_for_derived(ctx, metric_node)
-
-            for base_metric in base_metric_nodes:
-                # Get the fact/transform parent of the base metric
-                parent_node = ctx.get_parent_node(base_metric)
-                parent_name = parent_node.name
-
-                # Check if already decomposed (e.g., shared base metric)
-                if base_metric.name in all_decomposed:
-                    decomposed = all_decomposed[base_metric.name]
-                else:
-                    # Decompose the BASE metric (not the derived one) - use cache!
-                    decomposed = await decompose_metric(
-                        ctx.session,
-                        base_metric,
-                        nodes_cache=ctx.nodes,
-                        parent_map=ctx.parent_map,
-                        dialect=ctx.combiner_dialect or ctx.dialect,
-                    )
-                    all_decomposed[base_metric.name] = decomposed
-
-                # Always ensure parent group exists and add if not already present
-                if parent_name not in parent_groups:
-                    parent_groups[parent_name] = []
-                    parent_nodes[parent_name] = parent_node
-
-                # Only add to parent group if not already there
-                if decomposed not in parent_groups[parent_name]:
-                    parent_groups[parent_name].append(decomposed)
-
-            # Also decompose the derived metric itself and cache it
-            if metric_name not in all_decomposed:  # pragma: no branch
-                derived_decomposed = await decompose_metric(
-                    ctx.session,
-                    metric_node,
-                    nodes_cache=ctx.nodes,
-                    parent_map=ctx.parent_map,
-                    dialect=ctx.combiner_dialect or ctx.dialect,
-                )
-                all_decomposed[metric_name] = derived_decomposed
-        else:
-            # Base metric - use direct parent
-            parent_node = ctx.get_parent_node(metric_node)
-            parent_name = parent_node.name
-
-            if metric_name in all_decomposed:
-                # Already decomposed - just ensure it's in the parent group
-                decomposed = all_decomposed[metric_name]  # pragma: no branch
-                if parent_name not in parent_groups:  # pragma: no cover
-                    parent_groups[parent_name] = []
-                    parent_nodes[parent_name] = parent_node
-                if decomposed not in parent_groups[parent_name]:
-                    parent_groups[parent_name].append(decomposed)  # pragma: no cover
+    # Load once for the whole dependency graph, including unselected parents.
+    metric_nodes = {name: ctx.get_metric_node(name) for name in ctx.metrics} | {
+        name: node for name, node in ctx.nodes.items() if node.type == NodeType.METRIC
+    }
+    extraction_cache: MetricExtractionCache = {}
+    all_decomposed = {
+        name: await decompose_metric(
+            ctx.session,
+            node,
+            nodes_cache=ctx.nodes,
+            parent_map=ctx.parent_map,
+            dialect=ctx.combiner_dialect or ctx.dialect,
+            extraction_cache=extraction_cache,
+        )
+        for name, node in metric_nodes.items()
+    }
+    parent_groups: dict[str, MetricGroup] = {}
+    grouped: set[str] = set()
+    for name in ctx.metrics:
+        for base in get_base_metrics_for_derived(ctx, ctx.get_metric_node(name)):
+            if base.name in grouped:
                 continue
-
-            # Use cache to avoid DB queries!
-            decomposed = await decompose_metric(
-                ctx.session,
-                metric_node,
-                nodes_cache=ctx.nodes,
-                parent_map=ctx.parent_map,
-                dialect=ctx.combiner_dialect or ctx.dialect,
+            grouped.add(base.name)
+            parent = ctx.get_parent_node(base)
+            group = parent_groups.setdefault(
+                parent.name,
+                MetricGroup(parent_node=parent, decomposed_metrics=[]),
             )
-            all_decomposed[metric_node.name] = decomposed
-
-            if parent_name not in parent_groups:
-                parent_groups[parent_name] = []
-                parent_nodes[parent_name] = parent_node
-
-            parent_groups[parent_name].append(decomposed)
-
-    # Build MetricGroup objects
-    metric_groups = [
-        MetricGroup(parent_node=parent_nodes[name], decomposed_metrics=metrics)
-        for name, metrics in parent_groups.items()
-    ]
-    # Sort by parent node name for deterministic ordering in generated SQL
-    metric_groups.sort(key=lambda g: g.parent_node.name)
-    return metric_groups, all_decomposed
+            group.decomposed_metrics.append(all_decomposed[base.name])
+    return sorted(
+        parent_groups.values(),
+        key=lambda group: group.parent_node.name,
+    ), all_decomposed
 
 
 async def decompose_metric(
@@ -152,6 +98,7 @@ async def decompose_metric(
     nodes_cache: dict[str, Node] | None = None,
     parent_map: dict[str, list[str]] | None = None,
     dialect: Dialect = Dialect.SPARK,
+    extraction_cache: MetricExtractionCache | None = None,
 ) -> DecomposedMetricInfo:
     """
     Decompose a metric into its constituent components.
@@ -171,6 +118,8 @@ async def decompose_metric(
         dialect: Dialect the combiner is rendered for. This may differ from
             the measures SQL dialect when Spark writes a Druid cube.
             Defaults to Spark for direct callers.
+        extraction_cache: Extraction results shared across this build's metric
+            roots and recursive dependencies. Never retained between builds.
 
     Returns:
         DecomposedMetricInfo with components, combiner expression, and aggregability
@@ -187,6 +136,7 @@ async def decompose_metric(
         nodes_cache=nodes_cache,
         parent_map=parent_map,
         metric_node=metric_node,
+        extraction_cache=extraction_cache,
     )
 
     # Extract combiner expression from the derived query AST

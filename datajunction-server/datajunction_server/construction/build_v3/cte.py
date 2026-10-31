@@ -410,32 +410,6 @@ GRAIN_LEVEL_AGGREGATION_FUNCTIONS = frozenset(
 )
 
 
-def needs_grain_level_aggregation(expr_ast: ast.Node) -> bool:
-    """
-    Check if an expression uses LAG/LEAD window functions that need grain-level aggregation.
-
-    LAG/LEAD functions compare values across rows at a specific grain (e.g., week-over-week).
-    Unlike frame-based functions (SUM OVER ROWS BETWEEN), these need pre-aggregation to the
-    ORDER BY grain before the window function is applied.
-
-    Args:
-        expr_ast: The AST expression to check
-
-    Returns:
-        True if the expression contains LAG/LEAD window functions
-    """
-    for func in expr_ast.find_all(ast.Function):
-        if func.over and func.name:
-            func_name = (
-                str(func.name.name).upper()
-                if hasattr(func.name, "name")
-                else str(func.name).upper()
-            )
-            if func_name in GRAIN_LEVEL_AGGREGATION_FUNCTIONS:
-                return True
-    return False
-
-
 def get_grain_level_window_info(expr_ast: ast.Node) -> list[tuple[str, set[str]]]:
     """
     Get information about LAG/LEAD window functions that need grain-level aggregation.
@@ -495,31 +469,17 @@ def detect_window_metrics_requiring_grain_groups(
     Returns:
         Dict mapping metric_name -> set of ORDER BY column refs (e.g., {"v3.date.week"})
     """
-    from datajunction_server.construction.build_v3.types import DecomposedMetricInfo
-
     window_metric_grains: dict[str, set[str]] = {}
-
-    for metric_name in ctx.metrics:
-        # Skip base metrics - they're already in grain groups
+    for metric_name in decomposed_metrics:
         if metric_name in base_grain_group_metrics:
             continue
-
-        decomposed = decomposed_metrics.get(metric_name)
-        if not decomposed:
-            continue  # pragma: no cover
-
-        # Check if this metric uses LAG/LEAD that needs grain-level aggregation
-        if (  # pragma: no branch
-            isinstance(decomposed, DecomposedMetricInfo) and decomposed.combiner_ast
-        ):
-            if needs_grain_level_aggregation(decomposed.combiner_ast):
-                # Get the ORDER BY columns for this metric
-                grain_info = get_grain_level_window_info(decomposed.combiner_ast)
-                order_by_cols: set[str] = set()
-                for _, cols in grain_info:
-                    order_by_cols.update(cols)
-                if order_by_cols:  # pragma: no branch
-                    window_metric_grains[metric_name] = order_by_cols
+        # A derived formula can inherit a window without owning its grain.
+        definition = ctx.get_parsed_query(ctx.nodes[metric_name])
+        order_by_cols = {
+            col for _, cols in get_grain_level_window_info(definition) for col in cols
+        }
+        if order_by_cols:
+            window_metric_grains[metric_name] = order_by_cols
 
     return window_metric_grains
 
@@ -2673,7 +2633,6 @@ def process_metric_combiner_expression(
     component, metric, and dimension references with qualified column refs.
 
     Used by:
-    - build_derived_metric_expr in generate_metrics_sql
     - cube materialization for storing metric_expression in config
 
     Transformations applied (in order):
