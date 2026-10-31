@@ -3,6 +3,8 @@ Tests for resolving branch node names through the default branch.
 """
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
@@ -10,6 +12,10 @@ from sqlalchemy import event
 from sqlalchemy.orm import load_only
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.database.attributetype import AttributeType, ColumnAttribute
+from datajunction_server.database.catalog import Catalog
+from datajunction_server.database.column import Column
+from datajunction_server.database.engine import Engine
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import Node, NodeRevision, NodeType
 from datajunction_server.database.user import OAuthProvider, User
@@ -18,8 +24,19 @@ from datajunction_server.internal.branch_scope import (
     inherited_names,
     parent_node_names,
 )
+from datajunction_server.errors import DJNodeNotFound
+from datajunction_server.internal.client import (
+    python_client_code_for_setting_column_attributes,
+)
 from datajunction_server.internal.cube_materializations import _display_names
 from datajunction_server.internal.namespaces import get_git_info_for_namespace
+from datajunction_server.internal.sql import (
+    build_node_sql,
+    generate_dimensions_sql,
+    generate_metrics_sql,
+)
+from datajunction_server.models.dialect import Dialect
+from datajunction_server.sql.parsing.types import StringType
 
 
 @pytest_asyncio.fixture
@@ -662,3 +679,457 @@ class TestGitInfoActiveOnly:
         info = await get_git_info_for_namespace(session, "team.work")
         assert info is not None
         assert info["default_branch"] == "trunk"
+
+
+async def add_full_node(
+    session: AsyncSession,
+    user: User,
+    name: str,
+    node_type: NodeType,
+    deactivated: bool = False,
+    **revision_fields,
+) -> None:
+    """
+    Persists a node with a current revision carrying the given fields.
+    """
+    node = Node(
+        name=name,
+        type=node_type,
+        current_version="v1",
+        created_by_id=user.id,
+        deactivated_at=datetime.now(UTC) if deactivated else None,
+    )
+    session.add(node)
+    await session.flush()
+    session.add(
+        NodeRevision(
+            node_id=node.id,
+            name=name,
+            type=node_type,
+            version="v1",
+            created_by_id=user.id,
+            **revision_fields,
+        ),
+    )
+    await session.commit()
+
+
+async def add_catalog(session: AsyncSession, name: str, dialect: Dialect) -> Catalog:
+    """
+    Persists a catalog with one engine of the given dialect.
+    """
+    catalog = Catalog(
+        name=name,
+        engines=[Engine(name=name, version="1", uri="x://", dialect=dialect)],
+    )
+    session.add(catalog)
+    await session.commit()
+    return catalog
+
+
+@pytest.mark.asyncio
+class TestClientCodeInherits:
+    """
+    Tests for column attribute client code on a branch node.
+    """
+
+    async def add_orders(
+        self,
+        session: AsyncSession,
+        user: User,
+        name: str,
+        attribute: AttributeType,
+        deactivated: bool = False,
+    ) -> None:
+        """
+        Persists a node with one column carrying the attribute.
+        """
+        await add_full_node(
+            session,
+            user,
+            name,
+            NodeType.TRANSFORM,
+            deactivated=deactivated,
+            columns=[
+                Column(
+                    name="c",
+                    type=StringType(),
+                    order=0,
+                    attributes=[ColumnAttribute(attribute_type=attribute)],
+                ),
+            ],
+        )
+
+    @pytest_asyncio.fixture
+    async def attributes(self, session: AsyncSession) -> dict[str, AttributeType]:
+        """
+        Two attribute types, one for main and one for the branch.
+        """
+        types = {
+            name: AttributeType(namespace="system", name=name, description=name)
+            for name in ("from_main", "from_branch")
+        }
+        session.add_all(types.values())
+        await session.commit()
+        return types
+
+    @staticmethod
+    def code(attribute: str) -> str:
+        """
+        The expected client code for a column with one attribute.
+        """
+        return (
+            "orders.set_column_attributes(\n"
+            '    "c",\n'
+            "    [\n"
+            f'        ColumnAttribute(namespace="system", name="{attribute}"),\n'
+            "    ],\n"
+            ")"
+        )
+
+    async def test_falls_back_on_miss(
+        self,
+        session: AsyncSession,
+        user: User,
+        namespaces: None,
+        attributes: dict[str, AttributeType],
+    ):
+        """
+        A node absent from the branch uses main's attributes.
+        """
+        await self.add_orders(
+            session,
+            user,
+            "shared.main.orders",
+            attributes["from_main"],
+        )
+        assert await python_client_code_for_setting_column_attributes(
+            session,
+            "shared.feat_x.orders",
+        ) == self.code("from_main")
+
+    async def test_hit_is_unchanged(
+        self,
+        session: AsyncSession,
+        user: User,
+        namespaces: None,
+        attributes: dict[str, AttributeType],
+    ):
+        """
+        A node the branch holds keeps its own attributes.
+        """
+        await self.add_orders(
+            session,
+            user,
+            "shared.main.orders",
+            attributes["from_main"],
+        )
+        await self.add_orders(
+            session,
+            user,
+            "shared.feat_x.orders",
+            attributes["from_branch"],
+        )
+        assert await python_client_code_for_setting_column_attributes(
+            session,
+            "shared.feat_x.orders",
+        ) == self.code("from_branch")
+
+    async def test_deactivated_row_blocks_fallback(
+        self,
+        session: AsyncSession,
+        user: User,
+        namespaces: None,
+        attributes: dict[str, AttributeType],
+    ):
+        """
+        A node deleted in the branch stays missing.
+        """
+        await self.add_orders(
+            session,
+            user,
+            "shared.main.orders",
+            attributes["from_main"],
+        )
+        await self.add_orders(
+            session,
+            user,
+            "shared.feat_x.orders",
+            attributes["from_branch"],
+            deactivated=True,
+        )
+        with pytest.raises(DJNodeNotFound) as exc_info:
+            await python_client_code_for_setting_column_attributes(
+                session,
+                "shared.feat_x.orders",
+            )
+        assert exc_info.value.message == (
+            "A node with name `shared.feat_x.orders` does not exist."
+        )
+
+
+@pytest.mark.asyncio
+class TestSqlInherits:
+    """
+    Tests for the SQL builders on branch nodes and cubes.
+    """
+
+    @staticmethod
+    async def node_sql_dialect(session: AsyncSession) -> Dialect | None:
+        """
+        The dialect ``build_node_sql`` built with for the branch node.
+        """
+        build = AsyncMock(
+            return_value=SimpleNamespace(sql="SELECT 1", columns=[], warnings=[]),
+        )
+        with patch(
+            "datajunction_server.construction.build_v3.node_query.build_node_sql_v3",
+            build,
+        ):
+            translated = await build_node_sql(
+                session,
+                "shared.feat_x.orders",
+                access_checker=None,  # type: ignore[arg-type]
+            )
+        assert build.call_args.kwargs["dialect"] == translated.dialect
+        return translated.dialect
+
+    async def test_node_sql_uses_catalog_of_inherited_node(
+        self,
+        session: AsyncSession,
+        user: User,
+        namespaces: None,
+    ):
+        """
+        A node absent from the branch builds with main's engine.
+        """
+        spark = await add_catalog(session, "spark_catalog", Dialect.SPARK)
+        await add_full_node(
+            session,
+            user,
+            "shared.main.orders",
+            NodeType.TRANSFORM,
+            catalog_id=spark.id,
+        )
+        assert await self.node_sql_dialect(session) == Dialect.SPARK
+
+    async def test_node_sql_hit_is_unchanged(
+        self,
+        session: AsyncSession,
+        user: User,
+        namespaces: None,
+    ):
+        """
+        A node the branch holds builds with its own engine.
+        """
+        spark = await add_catalog(session, "spark_catalog", Dialect.SPARK)
+        trino = await add_catalog(session, "trino_catalog", Dialect.TRINO)
+        await add_full_node(
+            session,
+            user,
+            "shared.main.orders",
+            NodeType.TRANSFORM,
+            catalog_id=spark.id,
+        )
+        await add_full_node(
+            session,
+            user,
+            "shared.feat_x.orders",
+            NodeType.TRANSFORM,
+            catalog_id=trino.id,
+        )
+        assert await self.node_sql_dialect(session) == Dialect.TRINO
+
+    async def test_node_sql_deactivated_row_blocks_fallback(
+        self,
+        session: AsyncSession,
+        user: User,
+        namespaces: None,
+    ):
+        """
+        A node deleted in the branch stays missing.
+        """
+        spark = await add_catalog(session, "spark_catalog", Dialect.SPARK)
+        await add_full_node(
+            session,
+            user,
+            "shared.main.orders",
+            NodeType.TRANSFORM,
+            catalog_id=spark.id,
+        )
+        await add_nodes(session, user, ["shared.feat_x.orders"], deactivated=True)
+        with pytest.raises(DJNodeNotFound) as exc_info:
+            await build_node_sql(
+                session,
+                "shared.feat_x.orders",
+                access_checker=None,  # type: ignore[arg-type]
+            )
+        assert exc_info.value.message == (
+            "A node with name `shared.feat_x.orders` does not exist."
+        )
+
+    @staticmethod
+    async def metrics_filters(session: AsyncSession) -> list[str]:
+        """
+        The filters ``generate_metrics_sql`` merged for the cube it found.
+        """
+        prepare = AsyncMock(
+            return_value=SimpleNamespace(
+                dialect=Dialect.SPARK,
+                filters=SimpleNamespace(filters=[]),
+                execution=None,
+            ),
+        )
+        build = AsyncMock(return_value=SimpleNamespace(warnings=[]))
+        with (
+            patch(
+                "datajunction_server.construction.build_v3.prepare_metrics_query",
+                prepare,
+            ),
+            patch("datajunction_server.construction.build_v3.build_metrics_sql", build),
+        ):
+            await generate_metrics_sql(
+                session,
+                metrics=["m"],
+                dimensions=[],
+                cube="shared.feat_x.cube",
+            )
+        return prepare.call_args.args[3]
+
+    async def test_metrics_sql_falls_back_to_main_cube(
+        self,
+        session: AsyncSession,
+        user: User,
+        namespaces: None,
+    ):
+        """
+        A cube absent from the branch contributes main's cube filters.
+        """
+        await add_full_node(
+            session,
+            user,
+            "shared.main.cube",
+            NodeType.CUBE,
+            cube_filters=["main_filter"],
+        )
+        assert await self.metrics_filters(session) == ["main_filter"]
+
+    async def test_metrics_sql_cube_hit_is_unchanged(
+        self,
+        session: AsyncSession,
+        user: User,
+        namespaces: None,
+    ):
+        """
+        A cube the branch holds contributes its own filters.
+        """
+        await add_full_node(
+            session,
+            user,
+            "shared.main.cube",
+            NodeType.CUBE,
+            cube_filters=["main_filter"],
+        )
+        await add_full_node(
+            session,
+            user,
+            "shared.feat_x.cube",
+            NodeType.CUBE,
+            cube_filters=["branch_filter"],
+        )
+        assert await self.metrics_filters(session) == ["branch_filter"]
+
+    async def test_metrics_sql_deactivated_cube_blocks_fallback(
+        self,
+        session: AsyncSession,
+        user: User,
+        namespaces: None,
+    ):
+        """
+        A cube deleted in the branch is still the one found, never main's.
+        """
+        await add_full_node(
+            session,
+            user,
+            "shared.main.cube",
+            NodeType.CUBE,
+            cube_filters=["main_filter"],
+        )
+        await add_full_node(
+            session,
+            user,
+            "shared.feat_x.cube",
+            NodeType.CUBE,
+            deactivated=True,
+            cube_filters=["branch_filter"],
+        )
+        assert await self.metrics_filters(session) == ["branch_filter"]
+
+    @staticmethod
+    async def pinned_cube(session: AsyncSession) -> str | None:
+        """
+        The name of the cube revision ``generate_dimensions_sql`` pinned.
+        """
+        generate = AsyncMock(return_value="generated")
+        with (
+            patch("datajunction_server.internal.sql.generate_metrics_sql", generate),
+            patch(
+                "datajunction_server.construction.build_v3.node_query."
+                "project_dimension_values_sql",
+                lambda generated, dimensions, orderby, limit: generated,
+            ),
+        ):
+            assert (
+                await generate_dimensions_sql(
+                    session,
+                    dimensions=[],
+                    cube="shared.feat_x.cube",
+                )
+                == "generated"
+            )
+        matched = generate.call_args.kwargs["matched_cube"]
+        return matched.name if matched else None
+
+    async def test_dimensions_sql_falls_back_to_main_cube(
+        self,
+        session: AsyncSession,
+        user: User,
+        namespaces: None,
+    ):
+        """
+        A cube absent from the branch is pinned from main.
+        """
+        await add_full_node(session, user, "shared.main.cube", NodeType.CUBE)
+        assert await self.pinned_cube(session) == "shared.main.cube"
+
+    async def test_dimensions_sql_cube_hit_is_unchanged(
+        self,
+        session: AsyncSession,
+        user: User,
+        namespaces: None,
+    ):
+        """
+        A cube the branch holds is the one pinned.
+        """
+        await add_full_node(session, user, "shared.main.cube", NodeType.CUBE)
+        await add_full_node(session, user, "shared.feat_x.cube", NodeType.CUBE)
+        assert await self.pinned_cube(session) == "shared.feat_x.cube"
+
+    async def test_dimensions_sql_deactivated_cube_blocks_fallback(
+        self,
+        session: AsyncSession,
+        user: User,
+        namespaces: None,
+    ):
+        """
+        A cube deleted in the branch is still the one pinned, never main's.
+        """
+        await add_full_node(session, user, "shared.main.cube", NodeType.CUBE)
+        await add_full_node(
+            session,
+            user,
+            "shared.feat_x.cube",
+            NodeType.CUBE,
+            deactivated=True,
+        )
+        assert await self.pinned_cube(session) == "shared.feat_x.cube"
