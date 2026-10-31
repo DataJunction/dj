@@ -363,34 +363,58 @@ async def get_git_info_for_namespace(
     3. Take ``default_branch`` from the first row that has one, in the same
        order — branch namespaces carry the repo path but not the default branch.
     """
-    ancestor_names = get_parent_namespaces(namespace) + [namespace]
-    stmt = select(NodeNamespace).where(NodeNamespace.namespace.in_(ancestor_names))
+    git_info = await get_git_info_for_namespaces(
+        session,
+        [namespace],
+        active_only=active_only,
+    )
+    return git_info[namespace]
+
+
+async def get_git_info_for_namespaces(
+    session: AsyncSession,
+    namespaces: list[str],
+    *,
+    active_only: bool = False,
+) -> dict[str, dict | None]:
+    """
+    Return git repository info for many namespaces in at most two queries.
+
+    Loads every ancestor in one query, then the git roots that branch
+    namespaces link to outside their own hierarchy in a second.
+    """
+    ancestors = {
+        namespace: get_parent_namespaces(namespace) + [namespace]
+        for namespace in namespaces
+    }
+    all_names = {name for names in ancestors.values() for name in names}
+    stmt = select(NodeNamespace).where(NodeNamespace.namespace.in_(all_names))
     if active_only:
         stmt = stmt.where(NodeNamespace.deactivated_at.is_(None))
     rows = (await session.execute(stmt)).scalars().all()
     ns_map = {ns.namespace: ns for ns in rows}
 
-    # Handle FK hop: if the branch ns points outside the string hierarchy, load it
-    reversed_names = list(reversed(ancestor_names))
-    branch_ns = next(
-        (ns_map[n] for n in reversed_names if ns_map.get(n) and ns_map[n].git_branch),
-        None,
-    )
-    if (
-        branch_ns
-        and branch_ns.parent_namespace
-        and branch_ns.parent_namespace not in ns_map
-    ):
+    missing_parents: set[str] = set()
+    for names in ancestors.values():
+        for name in reversed(names):
+            row = ns_map.get(name)
+            if row and row.git_branch:
+                if row.parent_namespace and row.parent_namespace not in ns_map:
+                    missing_parents.add(row.parent_namespace)
+                break
+    if missing_parents:
         parent_stmt = select(NodeNamespace).where(
-            NodeNamespace.namespace == branch_ns.parent_namespace,
+            NodeNamespace.namespace.in_(missing_parents),
         )
         if active_only:
             parent_stmt = parent_stmt.where(NodeNamespace.deactivated_at.is_(None))
-        fk_parent = (await session.execute(parent_stmt)).scalar_one_or_none()
-        if fk_parent:  # pragma: no branch
-            ns_map[fk_parent.namespace] = fk_parent
+        parent_rows = (await session.execute(parent_stmt)).scalars().all()
+        ns_map.update({ns.namespace: ns for ns in parent_rows})
 
-    return resolve_git_info_from_map(namespace, ns_map)
+    return {
+        namespace: resolve_git_info_from_map(namespace, ns_map)
+        for namespace in namespaces
+    }
 
 
 async def create_namespace(
