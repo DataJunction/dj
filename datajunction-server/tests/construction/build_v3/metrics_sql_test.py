@@ -5459,22 +5459,23 @@ SELECT  t1.dateint date_id_order,
 base_metrics AS (
 SELECT  __spine.date_id AS date_id_order,
 	COALESCE(__agg.daily_active_users, 0) AS daily_active_users,
-	COALESCE(__agg.subscribed_users, 0) AS subscribed_users,
-	COALESCE(__agg.trailing_7d_active_users, 0) AS trailing_7d_active_users
+	COALESCE(__agg.subscribed_users, 0) AS subscribed_users
  FROM (SELECT  DISTINCT
  date_id
  FROM default.v3.dates
  WHERE  date_id BETWEEN (SELECT  low_val
  FROM __wl_low_date_id) AND 20240107) AS __spine LEFT JOIN (SELECT  COALESCE(user_active_daily_0.date_id_order, user_subscription_daily_0.date_id_order) AS date_id_order,
 	SUM(user_active_daily_0.is_active_sum_458017e8) AS daily_active_users,
-	SUM(user_subscription_daily_0.is_subscribed_sum_1185023b) AS subscribed_users,
-	SUM(SUM(user_active_daily_0.is_active_sum_458017e8)) OVER ( ORDER BY v3.date.date_id[order] ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_active_users
+	SUM(user_subscription_daily_0.is_subscribed_sum_1185023b) AS subscribed_users
  FROM user_active_daily_0 FULL OUTER JOIN user_subscription_daily_0 ON user_active_daily_0.date_id_order = user_subscription_daily_0.date_id_order
  GROUP BY  1) AS __agg ON __spine.date_id = __agg.date_id_order
 ),
 __windowed AS (
 SELECT  base_metrics.date_id_order AS date_id_order,
-	base_metrics.trailing_7d_active_users / NULLIF(base_metrics.subscribed_users, 0) AS weekly_active_rate
+	SUM(base_metrics.daily_active_users) OVER (
+        ORDER BY base_metrics.date_id_order
+        ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+    ) / NULLIF(base_metrics.subscribed_users, 0) AS weekly_active_rate
  FROM base_metrics
 )
 

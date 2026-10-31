@@ -2,6 +2,7 @@
 testing ast Nodes and their methods
 """
 
+from copy import deepcopy
 from typing import cast
 
 import pytest
@@ -15,6 +16,27 @@ from datajunction_server.sql.parsing import ast, types
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from tests.sql.utils import compare_query_strings
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT SUM(t.amount) AS revenue FROM t",
+        "SELECT ABS(SUM(t.amount)) FROM t",
+        "SELECT SUM(t.amount) OVER (ORDER BY t.day) FROM t",
+    ],
+)
+def test_deepcopy_owns_function_subtrees(sql):
+    original = parse(sql)
+    original_sql = str(original)
+    copied = deepcopy(original)
+    assert {id(fn) for fn in original.find_all(ast.Function)}.isdisjoint(
+        {id(fn) for fn in copied.find_all(ast.Function)},
+    )
+    for fn in copied.find_all(ast.Function):
+        assert all(arg.parent is fn for arg in fn.args)
+    next(copied.find_all(ast.Column)).name = ast.Name("changed")
+    assert str(original) == original_sql
 
 
 @pytest.mark.asyncio

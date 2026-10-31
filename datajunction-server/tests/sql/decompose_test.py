@@ -2617,6 +2617,14 @@ def test_wrap_divisions_in_nullif_walks_nested():
         f"SELECT {expr}",
         "SELECT SUM(a) / NULLIF(SUM(b), 0) - SUM(c) / NULLIF(SUM(d), 0)",
     )
+    # Recursive metric inlining revisits child divisions at each ancestor.
+    # Repeating the complete walk must preserve the exact expression.
+    wrap_divisions_in_nullif(expr)
+    wrap_divisions_in_nullif(expr)
+    assert_sql_equal(
+        f"SELECT {expr}",
+        "SELECT SUM(a) / NULLIF(SUM(b), 0) - SUM(c) / NULLIF(SUM(d), 0)",
+    )
 
 
 @pytest.mark.asyncio
