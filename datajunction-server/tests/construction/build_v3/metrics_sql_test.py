@@ -1588,6 +1588,43 @@ class TestMetricsSQLDerived:
         ]
 
     @pytest.mark.asyncio
+    async def test_window_metric_ordered_by_role_free_dimension(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        A window ordered by a role-free dimension column stays valid when the
+        request also groups by another column of that dimension: the window
+        reads only the aggregated CTE, so it must not keep the dimension's name.
+        """
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.category_revenue_lag",
+                "description": "Revenue change against the previous category",
+                "query": (
+                    "SELECT v3.total_revenue - LAG(v3.total_revenue, 1) "
+                    "OVER (ORDER BY v3.product.category)"
+                ),
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.category_revenue_lag"],
+                "dimensions": ["v3.product.category", "v3.product.subcategory"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        sql = response.json()["sql"]
+        assert "OVER ( ORDER BY order_details_category_agg.category)" in sql
+        assert "ORDER BY v3.product" not in sql
+
+    @pytest.mark.asyncio
     async def test_mom_without_order_role(self, client_with_build_v3):
         """
         A MoM metric ordered by v3.date.month[order] needs the role in the request.
