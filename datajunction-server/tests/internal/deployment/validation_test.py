@@ -1494,9 +1494,15 @@ class TestRequiredDimensions:
                 ["test.external_dim.region"],
             ),
             (
-                {"dimension": "test.external_dim.region"},
+                {"dimension": "test.external_dim.region[home]"},
                 {"test.parent": {("test.external_dim", "home")}},
                 [],
+            ),
+            # No role matches only a role-free link.
+            (
+                {"dimension": "test.external_dim.region"},
+                {"test.parent": {("test.external_dim", "home")}},
+                ["test.external_dim.region"],
             ),
             (
                 {"dimension": "test.external_dim.region"},
@@ -1508,7 +1514,14 @@ class TestRequiredDimensions:
             ),
             ({"dimension": "test.parent.value"}, {}, []),
         ],
-        ids=["unlinked", "unlinked-default", "one-hop", "two-hops", "own-table"],
+        ids=[
+            "unlinked",
+            "unlinked-default",
+            "one-hop",
+            "one-hop-no-role",
+            "two-hops",
+            "own-table",
+        ],
     )
     async def test_filter_attribute_must_be_reachable(
         self,

@@ -21,20 +21,23 @@ async def test_create_metric_with_filter_requirements(client_with_build_v3):
             "mode": "published",
             "required_filters": [
                 {
-                    "dimension": "v3.date.date_id",
-                    "default": "v3.date.date_id = 20250101",
+                    "dimension": "v3.date.date_id[order]",
+                    "default": "v3.date.date_id[order] = 20250101",
                 },
             ],
-            "recommended_filters": [{"dimension": ["v3.location.country"]}],
+            "recommended_filters": [{"dimension": ["v3.location.country[from]"]}],
         },
     )
     assert response.status_code == 201, response.text
     node = (await client.get("/nodes/v3.rf_metric/")).json()
     assert node["required_filters"] == [
-        {"dimension": ["v3.date.date_id"], "default": "v3.date.date_id = 20250101"},
+        {
+            "dimension": ["v3.date.date_id[order]"],
+            "default": "v3.date.date_id[order] = 20250101",
+        },
     ]
     assert node["recommended_filters"] == [
-        {"dimension": ["v3.location.country"], "default": None},
+        {"dimension": ["v3.location.country[from]"], "default": None},
     ]
     metric = (await client.get("/metrics/v3.rf_metric/")).json()
     assert metric["required_filters"] == node["required_filters"]
@@ -57,24 +60,24 @@ async def test_update_creates_major_revision_only_when_changed(client_with_build
             "description": "d",
             "query": await _revenue_query(client),
             "mode": "published",
-            "required_filters": [{"dimension": "v3.date.date_id"}],
+            "required_filters": [{"dimension": "v3.date.date_id[order]"}],
         },
     )
     first = (await client.get("/nodes/v3.rf_update/")).json()["version"]
 
     same = await client.patch(
         "/nodes/v3.rf_update/",
-        json={"required_filters": [{"dimension": ["v3.date.date_id"]}]},
+        json={"required_filters": [{"dimension": ["v3.date.date_id[order]"]}]},
     )
     assert same.json()["version"] == first
 
     changed = await client.patch(
         "/nodes/v3.rf_update/",
-        json={"required_filters": [{"dimension": "v3.location.country"}]},
+        json={"required_filters": [{"dimension": "v3.location.country[from]"}]},
     )
     assert changed.json()["version"] == "v2.0"
     assert changed.json()["required_filters"] == [
-        {"dimension": ["v3.location.country"], "default": None},
+        {"dimension": ["v3.location.country[from]"], "default": None},
     ]
 
     carried = await client.patch("/nodes/v3.rf_update/", json={"description": "x"})

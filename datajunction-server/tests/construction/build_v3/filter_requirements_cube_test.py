@@ -239,32 +239,28 @@ async def test_cube_node_sql_with_stored_filter_skips_default(client_with_build_
 
 
 @pytest.mark.asyncio
-async def test_pinned_cube_rejects_roleless_default(client_with_build_v3):
-    await _make_metric(
-        client_with_build_v3,
-        "v3.cube_default",
-        required_filters=[
-            {
-                "dimension": "v3.date.date_id",
-                "default": "v3.date.date_id = 20250101",
-            },
-        ],
-    )
-    await _make_cube(
-        client_with_build_v3,
-        "v3.cube_with_date",
-        "v3.cube_default",
-        ["v3.date.date_id[order]", "v3.product.category"],
-    )
-    response = await client_with_build_v3.get(
-        "/sql/metrics/v3/",
-        params={**QUERY, "cube": "v3.cube_with_date"},
+async def test_roleless_default_rejected_at_save(client_with_build_v3):
+    """No role matches only a role-free link, and v3.date has none."""
+    query = (await client_with_build_v3.get("/nodes/v3.total_revenue/")).json()["query"]
+    response = await client_with_build_v3.post(
+        "/nodes/metric/",
+        json={
+            "name": "v3.cube_default",
+            "description": "d",
+            "query": query,
+            "mode": "published",
+            "required_filters": [
+                {
+                    "dimension": "v3.date.date_id",
+                    "default": "v3.date.date_id = 20250101",
+                },
+            ],
+        },
     )
     assert response.status_code == 422
     assert response.json()["message"] == (
-        "Pinned cube `v3.cube_with_date` does not cover dimension(s) "
-        "['v3.date.date_id'] referenced by the query. "
-        "Remove the filter/dimension, or pick a cube that materializes it."
+        "Metric `v3.cube_default` has filter requirements that name "
+        "attributes that could not be resolved."
     )
 
 
