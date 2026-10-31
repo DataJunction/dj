@@ -4,8 +4,10 @@ Names a branch inherits from its parent.
 
 from collections import defaultdict
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.database.node import Node, _name_in
 from datajunction_server.internal.namespaces import get_git_info_for_namespaces
 from datajunction_server.utils import SEPARATOR
 
@@ -44,3 +46,23 @@ async def parent_node_names(
         for name in namespace_names:
             parents[name] = default_namespace + name[len(branch) :]
     return parents
+
+
+async def inherited_names(
+    session: AsyncSession,
+    names: list[str],
+) -> dict[str, str]:
+    """
+    Maps missing branch node names to the default branch's names.
+
+    A name the branch holds a row for, even a deactivated one, is left out.
+    """
+    parents = await parent_node_names(session, names)
+    if not parents:
+        return {}
+    held = set(
+        (await session.execute(select(Node.name).where(_name_in(list(parents)))))
+        .scalars()
+        .all(),
+    )
+    return {name: parent for name, parent in parents.items() if name not in held}

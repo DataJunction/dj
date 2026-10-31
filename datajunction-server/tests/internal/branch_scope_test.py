@@ -12,7 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import Node, NodeType
 from datajunction_server.database.user import OAuthProvider, User
-from datajunction_server.internal.branch_scope import parent_node_names
+from datajunction_server.internal.branch_scope import (
+    inherited_names,
+    parent_node_names,
+)
 from datajunction_server.internal.namespaces import get_git_info_for_namespace
 
 
@@ -189,6 +192,40 @@ class TestParentNodeNames:
             )
             == {}
         )
+
+
+@pytest.mark.asyncio
+class TestInheritedNames:
+    """
+    Tests for ``inherited_names``.
+    """
+
+    async def test_leaves_out_names_the_branch_holds(
+        self,
+        session: AsyncSession,
+        user: User,
+        namespaces: None,
+    ):
+        """
+        Active and deactivated branch rows both keep their name from falling back.
+        """
+        await add_nodes(session, user, ["shared.feat_x.kept"])
+        await add_nodes(session, user, ["shared.feat_x.deleted"], deactivated=True)
+        assert await inherited_names(
+            session,
+            [
+                "shared.feat_x.kept",
+                "shared.feat_x.deleted",
+                "shared.feat_x.absent",
+                "plain.absent",
+            ],
+        ) == {"shared.feat_x.absent": "shared.main.absent"}
+
+    async def test_no_branch_names(self, session: AsyncSession, namespaces: None):
+        """
+        Names outside a branch have nothing to inherit.
+        """
+        assert await inherited_names(session, ["plain.orders"]) == {}
 
 
 @pytest.mark.asyncio
