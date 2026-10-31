@@ -1157,9 +1157,9 @@ async def test_only_accumulating_frames_over_a_broadcast_are_refused(
     ("window_fn", "partition_col", "expected"),
     [
         ("AVG", "v3.product.category", 200),
-        ("AVG", "v3.customer.name", 422),
-        ("MAX", "v3.customer.name", 200),
-        ("FIRST_VALUE", "v3.customer.name", 200),
+        ("AVG", "v3.customer.name[customer]", 422),
+        ("MAX", "v3.customer.name[customer]", 200),
+        ("FIRST_VALUE", "v3.customer.name[customer]", 200),
     ],
     ids=[
         "avg-matching-partition-allowed",

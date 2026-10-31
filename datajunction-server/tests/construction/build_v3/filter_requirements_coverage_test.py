@@ -42,10 +42,10 @@ async def test_plain_filters_get_defaults_and_warnings(client_with_build_v3, ses
     result = await build_metrics_sql(
         session=session,
         metrics=["v3.cov_default"],
-        dimensions=["v3.location.country"],
+        dimensions=["v3.location.country[from]"],
     )
     assert [warning.message for warning in result.warnings] == [
-        "Applied default filter v3.date.date_id = 20250101 "
+        "Applied default filter v3.date.date_id[order] = 20250101 "
         "(from metric v3.cov_default)",
     ]
 
@@ -61,12 +61,12 @@ async def test_checked_filters_are_not_checked_again(client_with_build_v3, sessi
     result = await build_metrics_sql(
         session=session,
         metrics=["v3.cov_checked"],
-        dimensions=["v3.location.country"],
+        dimensions=["v3.location.country[from]"],
         filters=checked,
     )
     # The default was applied once, by the first check.
     assert [warning.message for warning in result.warnings] == [
-        "Applied default filter v3.date.date_id = 20250101 "
+        "Applied default filter v3.date.date_id[order] = 20250101 "
         "(from metric v3.cov_checked)",
     ]
     assert result.sql.count("20250101") == 1
@@ -82,7 +82,7 @@ async def test_unchecked_filters_skip_the_check(client_with_build_v3, session):
     result = await build_metrics_sql(
         session=session,
         metrics=["v3.cov_skipped"],
-        dimensions=["v3.location.country"],
+        dimensions=["v3.location.country[from]"],
         filters=CheckedFilters([]),
     )
     assert result.warnings == []
