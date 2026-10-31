@@ -306,12 +306,7 @@ def replace_dimension_refs_in_ast(
             continue
 
         # Look up in dimension_refs
-        ref_tuple = None
-        if dim_ref_with_role in dimension_refs:
-            ref_tuple = dimension_refs[dim_ref_with_role]  # pragma: no cover
-        elif base_col_name in dimension_refs:  # pragma: no branch
-            # Also try just the base name (if user requested v3.date.week without role)
-            ref_tuple = dimension_refs[base_col_name]
+        ref_tuple = dimension_refs.get(dim_ref_with_role)
 
         if ref_tuple:  # pragma: no branch
             cte_alias, col_name = ref_tuple
