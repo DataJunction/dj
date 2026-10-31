@@ -17,7 +17,7 @@ async def test_plain_filters_are_checked(client_with_build_v3, session):
     await _make_metric(
         client_with_build_v3,
         "v3.cov_required",
-        required_filters=[{"dimension": "v3.date.date_id"}],
+        required_filters=[{"dimension": "v3.date.date_id[order]"}],
     )
     with pytest.raises(DJInvalidInputException) as exc:
         await build_metrics_sql(
@@ -27,7 +27,7 @@ async def test_plain_filters_are_checked(client_with_build_v3, session):
             filters=[],
         )
     assert [error.message for error in exc.value.errors] == [
-        "Missing required filter: one of v3.date.date_id "
+        "Missing required filter: one of v3.date.date_id[order] "
         "(required by metric v3.cov_required)",
     ]
 
@@ -77,7 +77,7 @@ async def test_unchecked_filters_skip_the_check(client_with_build_v3, session):
     await _make_metric(
         client_with_build_v3,
         "v3.cov_skipped",
-        required_filters=[{"dimension": "v3.date.date_id"}],
+        required_filters=[{"dimension": "v3.date.date_id[order]"}],
     )
     result = await build_metrics_sql(
         session=session,

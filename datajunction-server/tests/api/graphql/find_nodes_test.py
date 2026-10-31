@@ -4577,11 +4577,11 @@ async def test_find_nodes_filter_requirements(client_with_build_v3: AsyncClient)
             "description": "d",
             "query": query,
             "mode": "published",
-            "required_filters": [{"dimension": "v3.date.date_id"}],
+            "required_filters": [{"dimension": "v3.date.date_id[order]"}],
             "recommended_filters": [
                 {
-                    "dimension": "v3.location.country",
-                    "default": "v3.location.country = 'US'",
+                    "dimension": "v3.location.country[from]",
+                    "default": "v3.location.country[from] = 'US'",
                 },
             ],
         },
@@ -4607,11 +4607,13 @@ async def test_find_nodes_filter_requirements(client_with_build_v3: AsyncClient)
     assert body.get("errors") is None
     assert {node["name"]: node["current"] for node in body["data"]["findNodes"]} == {
         "v3.gql_filtered": {
-            "requiredFilters": [{"dimension": ["v3.date.date_id"], "default": None}],
+            "requiredFilters": [
+                {"dimension": ["v3.date.date_id[order]"], "default": None},
+            ],
             "recommendedFilters": [
                 {
-                    "dimension": ["v3.location.country"],
-                    "default": "v3.location.country = 'US'",
+                    "dimension": ["v3.location.country[from]"],
+                    "default": "v3.location.country[from] = 'US'",
                 },
             ],
         },
@@ -4635,14 +4637,17 @@ async def test_find_nodes_effective_filter_requirements(
     query = (await client.get("/nodes/v3.total_revenue/")).json()["query"]
     for name, fields in {
         "v3.gql_base": {
-            "required_filters": [{"dimension": "v3.date.date_id"}],
-            "recommended_filters": [{"dimension": "v3.location.country"}],
+            "required_filters": [{"dimension": "v3.date.date_id[order]"}],
+            "recommended_filters": [{"dimension": "v3.location.country[from]"}],
         },
         "v3.gql_other": {
             "required_filters": [
-                {"dimension": "v3.date.date_id", "default": "v3.date.date_id = 1"},
+                {
+                    "dimension": "v3.date.date_id[order]",
+                    "default": "v3.date.date_id[order] = 1",
+                },
             ],
-            "recommended_filters": [{"dimension": "v3.location.country"}],
+            "recommended_filters": [{"dimension": "v3.location.country[from]"}],
         },
     }.items():
         created = await client.post(
@@ -4700,7 +4705,7 @@ async def test_find_nodes_effective_filter_requirements(
     body = response.json()
     assert body.get("errors") is None
     country = {
-        "dimension": ["v3.location.country"],
+        "dimension": ["v3.location.country[from]"],
         "default": None,
         "declaredBy": ["v3.gql_base", "v3.gql_other"],
     }
@@ -4709,13 +4714,13 @@ async def test_find_nodes_effective_filter_requirements(
             "requiredFilters": None,
             "effectiveRequiredFilters": [
                 {
-                    "dimension": ["v3.date.date_id"],
+                    "dimension": ["v3.date.date_id[order]"],
                     "default": None,
                     "declaredBy": ["v3.gql_base"],
                 },
                 {
-                    "dimension": ["v3.date.date_id"],
-                    "default": "v3.date.date_id = 1",
+                    "dimension": ["v3.date.date_id[order]"],
+                    "default": "v3.date.date_id[order] = 1",
                     "declaredBy": ["v3.gql_other"],
                 },
             ],
@@ -4725,7 +4730,7 @@ async def test_find_nodes_effective_filter_requirements(
             "requiredFilters": None,
             "effectiveRequiredFilters": [
                 {
-                    "dimension": ["v3.date.date_id"],
+                    "dimension": ["v3.date.date_id[order]"],
                     "default": None,
                     "declaredBy": ["v3.gql_base"],
                 },
@@ -4735,10 +4740,12 @@ async def test_find_nodes_effective_filter_requirements(
             ],
         },
         "v3.gql_base": {
-            "requiredFilters": [{"dimension": ["v3.date.date_id"], "default": None}],
+            "requiredFilters": [
+                {"dimension": ["v3.date.date_id[order]"], "default": None},
+            ],
             "effectiveRequiredFilters": [
                 {
-                    "dimension": ["v3.date.date_id"],
+                    "dimension": ["v3.date.date_id[order]"],
                     "default": None,
                     "declaredBy": ["v3.gql_base"],
                 },
@@ -4774,13 +4781,13 @@ async def test_effective_filters_follow_each_revision(
             "description": "d",
             "query": query,
             "mode": "published",
-            "required_filters": [{"dimension": "v3.location.country"}],
+            "required_filters": [{"dimension": "v3.location.country[from]"}],
         },
     )
     assert created.status_code == 201, created.text
     patched = await client.patch(
         "/nodes/v3.gql_rev/",
-        json={"required_filters": [{"dimension": "v3.date.date_id"}]},
+        json={"required_filters": [{"dimension": "v3.date.date_id[order]"}]},
     )
     assert patched.status_code == 200, patched.text
     response = await client.post(
@@ -4806,11 +4813,11 @@ async def test_effective_filters_follow_each_revision(
         "v1.0": {
             "version": "v1.0",
             "requiredFilters": [
-                {"dimension": ["v3.location.country"], "default": None},
+                {"dimension": ["v3.location.country[from]"], "default": None},
             ],
             "effectiveRequiredFilters": [
                 {
-                    "dimension": ["v3.location.country"],
+                    "dimension": ["v3.location.country[from]"],
                     "default": None,
                     "declaredBy": ["v3.gql_rev"],
                 },
@@ -4818,10 +4825,12 @@ async def test_effective_filters_follow_each_revision(
         },
         "v2.0": {
             "version": "v2.0",
-            "requiredFilters": [{"dimension": ["v3.date.date_id"], "default": None}],
+            "requiredFilters": [
+                {"dimension": ["v3.date.date_id[order]"], "default": None},
+            ],
             "effectiveRequiredFilters": [
                 {
-                    "dimension": ["v3.date.date_id"],
+                    "dimension": ["v3.date.date_id[order]"],
                     "default": None,
                     "declaredBy": ["v3.gql_rev"],
                 },
