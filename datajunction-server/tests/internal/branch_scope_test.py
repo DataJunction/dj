@@ -13,6 +13,7 @@ from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import Node, NodeType
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.internal.branch_scope import parent_node_names
+from datajunction_server.internal.namespaces import get_git_info_for_namespace
 
 
 @pytest_asyncio.fixture
@@ -449,3 +450,43 @@ class TestInheritedLookup:
         finally:
             event.remove(engine, "before_cursor_execute", record)
         assert exact == inherited
+
+
+@pytest.mark.asyncio
+class TestGitInfoActiveOnly:
+    """
+    Tests for hiding deactivated namespaces when resolving git info.
+    """
+
+    async def test_deactivated_root_is_hidden(self, session: AsyncSession):
+        """
+        A deactivated git root outside the branch's hierarchy gives no git info.
+        """
+        session.add(
+            NodeNamespace(
+                namespace="elsewhere",
+                github_repo_path="org/elsewhere",
+                default_branch="trunk",
+                deactivated_at=datetime.now(UTC),
+            ),
+        )
+        await session.flush()
+        session.add(
+            NodeNamespace(
+                namespace="team.work",
+                git_branch="work",
+                parent_namespace="elsewhere",
+            ),
+        )
+        await session.commit()
+        assert (
+            await get_git_info_for_namespace(
+                session,
+                "team.work",
+                active_only=True,
+            )
+            is None
+        )
+        info = await get_git_info_for_namespace(session, "team.work")
+        assert info is not None
+        assert info["default_branch"] == "trunk"
