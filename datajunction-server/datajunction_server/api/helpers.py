@@ -212,6 +212,27 @@ async def get_node_by_name(
     return node
 
 
+async def nodes_by_asked_name(
+    session: AsyncSession,
+    names: list[str],
+    nodes: list[Node],
+) -> dict[str, Node]:
+    """
+    Maps each asked name to its node, which may come from the default branch.
+    """
+    from datajunction_server.internal.branch_scope import inherited_names
+
+    by_name = {node.name: node for node in nodes}
+    missing = [name for name in names if name not in by_name]
+    inherited = await inherited_names(session, missing) if missing else {}
+    resolved: dict[str, Node] = {}
+    for name in names:
+        node = by_name.get(name) or by_name.get(inherited.get(name, ""))
+        if node:
+            resolved[name] = node
+    return resolved
+
+
 async def raise_if_node_exists(session: AsyncSession, name: str) -> None:
     """
     Raise an error if the node with the given name already exists.

@@ -25,6 +25,7 @@ from datajunction_server.database.user import User
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.sql.parsing.backends.antlr4 import report_parse_cache_stats
+from datajunction_server.api.helpers import nodes_by_asked_name
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.caching.cachelib_cache import get_cache
 from datajunction_server.internal.caching.interface import Cache
@@ -260,6 +261,7 @@ async def get_measures_sql_v3(
             session,
             cube,
             for_measures_sql=True,
+            inherit=True,
         )
         if cube_node:
             if cube_node.current.cube_filters:
@@ -779,11 +781,12 @@ async def get_sql_for_metrics(
         session,
         metrics,
         options=[lazyload(Node.created_by), lazyload(Node.tags)],
+        inherit=True,
     )
 
     # Check if all requested nodes exist
-    found_names = {node.name for node in nodes}
-    missing_nodes = set(metrics) - found_names
+    found = await nodes_by_asked_name(session, metrics, nodes)
+    missing_nodes = set(metrics) - set(found)
     if missing_nodes:
         raise DJInvalidInputException(
             message=f"The following nodes do not exist: {', '.join(missing_nodes)}",
@@ -810,7 +813,7 @@ async def get_sql_for_metrics(
             background_tasks,
             request,
             QueryRequestParams(
-                nodes=metrics,
+                nodes=[found[name].name for name in metrics],
                 dimensions=dimensions,
                 filters=filters,
                 limit=limit,
