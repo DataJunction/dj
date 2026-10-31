@@ -159,7 +159,7 @@ async def build_node_sql(
 
     v3_result = await build_node_sql_v3(
         session=session,
-        node_name=node_name,
+        node_name=node.name,
         dimensions=dimensions or [],
         filters=filters or [],
         orderby=orderby or [],
