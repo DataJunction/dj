@@ -107,7 +107,10 @@ def _roled_metric(attribute: str) -> MetricSpec:
         query="SELECT SUM(line_total) FROM v3.order_details",
         owners=["dj"],
         required_filters=[
-            {"dimension": "v3.date.date_id", "default": f"{attribute} = 20250101"},
+            {
+                "dimension": "v3.date.date_id[order]",
+                "default": f"v3.date.date_id[order] = 20250101 AND {attribute} = 1",
+            },
         ],
     )
 
@@ -430,7 +433,7 @@ async def test_export_keeps_namespace_text_in_default_literals(client):
         ({"dimension": "v3.rf_plan.plan_label"}, "success"),
         (
             {
-                "dimension": ["v3.date.date_id", "v3.rf_plan.plan_label"],
+                "dimension": ["v3.date.date_id[order]", "v3.rf_plan.plan_label"],
                 "default": "v3.rf_plan.plan_label = 'checkout'",
             },
             "success",
@@ -540,7 +543,7 @@ async def test_declared_reference_link_counts(client):
             },
             "success",
         ),
-        ({"dimension": "v3.date.date_id"}, "invalid"),
+        ({"dimension": "v3.date.date_id[order]"}, "invalid"),
     ],
     ids=["entry", "default", "not-in-lineage"],
 )

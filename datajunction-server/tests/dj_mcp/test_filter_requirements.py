@@ -36,7 +36,7 @@ async def mcp_client_with_metric(client_with_build_v3, session):
         "v3.mcp_default",
         required_filters=[
             {
-                "dimension": "v3.date.date_id",
+                "dimension": "v3.date.date_id[order]",
                 "default": "v3.date.date_id[order] = 20250101",
             },
         ],
@@ -44,12 +44,12 @@ async def mcp_client_with_metric(client_with_build_v3, session):
     await _make_metric(
         client_with_build_v3,
         "v3.mcp_required",
-        required_filters=[{"dimension": "v3.date.date_id"}],
+        required_filters=[{"dimension": "v3.date.date_id[order]"}],
     )
     await _make_metric(
         client_with_build_v3,
         "v3.mcp_recommended",
-        recommended_filters=[{"dimension": "v3.location.country"}],
+        recommended_filters=[{"dimension": "v3.location.country[from]"}],
     )
     token = context._session_var.set(session)
     try:
@@ -93,7 +93,7 @@ async def test_build_metric_sql_prints_recommended_warning(mcp_client_with_metri
     assert _tail(text, "Warnings:") == [
         "Warnings:",
         RULE,
-        "  • Missing recommended filter: one of v3.location.country "
+        "  • Missing recommended filter: one of v3.location.country[from] "
         "(recommended by metric v3.mcp_recommended)",
     ]
 
@@ -125,9 +125,9 @@ async def test_build_metric_sql_surfaces_required_filter_error(
     )
     assert [item.text for item in result] == [
         "Error executing build_metric_sql: Missing required filter: one of "
-        "v3.date.date_id (required by metric v3.mcp_required)\n"
+        "v3.date.date_id[order] (required by metric v3.mcp_required)\n"
         "The following error happened:\n"
-        "- Missing required filter: one of v3.date.date_id "
+        "- Missing required filter: one of v3.date.date_id[order] "
         "(required by metric v3.mcp_required) (error code: 210)",
     ]
 
@@ -139,7 +139,7 @@ async def test_node_details_list_filter_requirements(mcp_client_with_metric):
     start = lines.index("Required Filters:")
     assert lines[start : start + 3] == [
         "Required Filters:",
-        "  • v3.date.date_id (default: v3.date.date_id[order] = 20250101)"
+        "  • v3.date.date_id[order] (default: v3.date.date_id[order] = 20250101)"
         " (from metric v3.mcp_default)",
         "",
     ]
@@ -153,7 +153,7 @@ async def test_node_details_list_recommended_filters(mcp_client_with_metric):
     start = lines.index("Recommended Filters:")
     assert lines[start : start + 3] == [
         "Recommended Filters:",
-        "  • v3.location.country (from metric v3.mcp_recommended)",
+        "  • v3.location.country[from] (from metric v3.mcp_recommended)",
         "",
     ]
     assert "Required Filters:" not in lines
@@ -164,7 +164,7 @@ async def test_node_details_list_inherited_filters(mcp_client_with_metric):
     await _make_metric(
         mcp_client_with_metric,
         "v3.mcp_derived",
-        required_filters=[{"dimension": "v3.date.date_id"}],
+        required_filters=[{"dimension": "v3.date.date_id[order]"}],
     )
     response = await mcp_client_with_metric.post(
         "/nodes/metric/",
@@ -179,10 +179,10 @@ async def test_node_details_list_inherited_filters(mcp_client_with_metric):
     text = await tools.get_node_details("v3.mcp_top")
     assert _tail(text, "Required Filters:")[:6] == [
         "Required Filters:",
-        "  • v3.date.date_id (from metric v3.mcp_derived)",
+        "  • v3.date.date_id[order] (from metric v3.mcp_derived)",
         "",
         "Recommended Filters:",
-        "  • v3.location.country (from metric v3.mcp_recommended)",
+        "  • v3.location.country[from] (from metric v3.mcp_recommended)",
         "",
     ]
 
@@ -264,8 +264,8 @@ async def test_get_metric_data_rejects_missing_required_filter(
     )
     assert [item.text for item in result] == [
         "Error executing get_metric_data: Missing required filter: one of "
-        "v3.date.date_id (required by metric v3.mcp_required)\n"
+        "v3.date.date_id[order] (required by metric v3.mcp_required)\n"
         "The following error happened:\n"
-        "- Missing required filter: one of v3.date.date_id "
+        "- Missing required filter: one of v3.date.date_id[order] "
         "(required by metric v3.mcp_required) (error code: 210)",
     ]

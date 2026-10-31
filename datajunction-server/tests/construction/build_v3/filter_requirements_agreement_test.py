@@ -5,8 +5,10 @@ can serve.
 Each scenario names an attribute. The test saves a metric with a required
 filter on it, then builds SQL for the same metric without requirements and a
 caller filter on the attribute. A saved attribute must build, and a rejected
-one must not. When the build falls back to another role, the attribute is
-rejected and the build is checked to give the fallback role's SQL.
+one must not. A role-less attribute only matches a role-free link, so on a
+dimension reached only through roles it is rejected and the build fails too.
+When the build falls back to another role, the attribute is rejected and the
+build is checked to give the fallback role's SQL.
 """
 
 from dataclasses import dataclass
@@ -57,7 +59,7 @@ DIMENSIONS = {
 
 SCENARIOS = [
     Scenario("own-column", "base", "ag_sales.region_code", True),
-    Scenario("join", "base", "ag_employee.country", True),
+    Scenario("join", "base", "ag_employee.country", False),
     Scenario("join-role", "base", "ag_employee.country[staff]", True),
     Scenario("reference", "base", "ag_plan.plan_code", True),
     Scenario("reference-any-role", "base", "ag_plan.plan_code[any]", True),
@@ -84,7 +86,7 @@ SCENARIOS = [
     ),
     Scenario("no-link", "base", "ag_island.month", False),
     Scenario("chain", "base", "ag_office.city[staff->work]", True),
-    Scenario("chain-no-role", "base", "ag_office.city", True),
+    Scenario("chain-no-role", "base", "ag_office.city", False),
     Scenario(
         "chain-revisits",
         "base",
@@ -106,10 +108,10 @@ SCENARIOS = [
         False,
         fallback="ag_office.city[staff->work]",
     ),
-    Scenario("derived-join", "derived", "ag_employee.country", True),
+    Scenario("derived-join", "derived", "ag_employee.country", False),
     Scenario("derived-upstream-key", "derived", "ag_date.dateint", True),
     Scenario("derived-reference-other-column", "derived", "ag_plan.tier", False),
-    Scenario("two-facts-shared", "two_facts", "ag_employee.country", True),
+    Scenario("two-facts-shared", "two_facts", "ag_employee.country", False),
     Scenario("two-facts-one-side", "two_facts", "ag_plan.plan_code", False),
 ]
 

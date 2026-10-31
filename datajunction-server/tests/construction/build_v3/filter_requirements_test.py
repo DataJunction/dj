@@ -321,7 +321,10 @@ async def test_loader_applies_default_for_requested_metric(
         "v3.rf_default",
         query,
         required_filters=[
-            {"dimension": "v3.date.date_id", "default": "v3.date.date_id = 20250101"},
+            {
+                "dimension": "v3.date.date_id[order]",
+                "default": "v3.date.date_id[order] = 20250101",
+            },
         ],
     )
     filters, warnings = await apply_metric_filter_requirements(
@@ -329,11 +332,11 @@ async def test_loader_applies_default_for_requested_metric(
         ["v3.rf_default"],
         [],
     )
-    assert filters == ["v3.date.date_id = 20250101"]
+    assert filters == ["v3.date.date_id[order] = 20250101"]
     assert [(w.code, w.message) for w in warnings] == [
         (
             ErrorCode.DEFAULT_FILTER_APPLIED,
-            "Applied default filter v3.date.date_id = 20250101 "
+            "Applied default filter v3.date.date_id[order] = 20250101 "
             "(from metric v3.rf_default)",
         ),
     ]
@@ -346,7 +349,7 @@ async def test_derived_metric_inherits_base_requirements(client_with_build_v3, s
         client_with_build_v3,
         "v3.rf_base",
         query,
-        required_filters=[{"dimension": "v3.date.date_id"}],
+        required_filters=[{"dimension": "v3.date.date_id[order]"}],
     )
     await _create_metric(
         client_with_build_v3,
@@ -356,7 +359,7 @@ async def test_derived_metric_inherits_base_requirements(client_with_build_v3, s
     with pytest.raises(DJInvalidInputException) as exc:
         await apply_metric_filter_requirements(session, ["v3.rf_derived"], [])
     assert [error.message for error in exc.value.errors] == [
-        "Missing required filter: one of v3.date.date_id (required by metric v3.rf_base)",
+        "Missing required filter: one of v3.date.date_id[order] (required by metric v3.rf_base)",
     ]
 
 
@@ -475,21 +478,21 @@ async def test_effective_filters_follow_upstream_metrics(client_with_build_v3, s
         client_with_build_v3,
         "v3.rf_a",
         query,
-        required_filters=[{"dimension": "v3.date.date_id"}],
-        recommended_filters=[{"dimension": "v3.location.country"}],
+        required_filters=[{"dimension": "v3.date.date_id[order]"}],
+        recommended_filters=[{"dimension": "v3.location.country[from]"}],
     )
     await _create_metric(
         client_with_build_v3,
         "v3.rf_b",
         query,
-        recommended_filters=[{"dimension": "v3.date.date_id"}],
+        recommended_filters=[{"dimension": "v3.date.date_id[order]"}],
     )
     await _create_metric(client_with_build_v3, "v3.rf_mid", "SELECT v3.rf_a / 2")
     await _create_metric(
         client_with_build_v3,
         "v3.rf_top",
         "SELECT v3.rf_mid / v3.rf_b",
-        recommended_filters=[{"dimension": "v3.location.city"}],
+        recommended_filters=[{"dimension": "v3.location.city[from]"}],
     )
     names = [
         "v3.rf_a",
@@ -507,18 +510,18 @@ async def test_effective_filters_follow_upstream_metrics(client_with_build_v3, s
     found = await load_revision_filters(session, list(ids.values()))
     assert {name: found[rev_id] for name, rev_id in ids.items()} == {
         "v3.rf_a": (
-            [effective(["v3.date.date_id"], declared_by=("v3.rf_a",))],
-            [effective(["v3.location.country"], declared_by=("v3.rf_a",))],
+            [effective(["v3.date.date_id[order]"], declared_by=("v3.rf_a",))],
+            [effective(["v3.location.country[from]"], declared_by=("v3.rf_a",))],
         ),
         "v3.rf_mid": (
-            [effective(["v3.date.date_id"], declared_by=("v3.rf_a",))],
-            [effective(["v3.location.country"], declared_by=("v3.rf_a",))],
+            [effective(["v3.date.date_id[order]"], declared_by=("v3.rf_a",))],
+            [effective(["v3.location.country[from]"], declared_by=("v3.rf_a",))],
         ),
         "v3.rf_top": (
-            [effective(["v3.date.date_id"], declared_by=("v3.rf_a", "v3.rf_b"))],
+            [effective(["v3.date.date_id[order]"], declared_by=("v3.rf_a", "v3.rf_b"))],
             [
-                effective(["v3.location.city"], declared_by=("v3.rf_top",)),
-                effective(["v3.location.country"], declared_by=("v3.rf_a",)),
+                effective(["v3.location.city[from]"], declared_by=("v3.rf_top",)),
+                effective(["v3.location.country[from]"], declared_by=("v3.rf_a",)),
             ],
         ),
         "v3.total_revenue": ([], []),
@@ -540,7 +543,7 @@ async def test_revision_filters_ignore_stale_session_objects(
         client_with_build_v3,
         "v3.rf_stale_base",
         query,
-        required_filters=[{"dimension": "v3.date.date_id"}],
+        required_filters=[{"dimension": "v3.date.date_id[order]"}],
     )
     await _create_metric(
         client_with_build_v3,
@@ -558,7 +561,7 @@ async def test_revision_filters_ignore_stale_session_objects(
     assert revision.parents == []
     assert await load_revision_filters(session, [revision.id]) == {
         revision.id: (
-            [effective(["v3.date.date_id"], declared_by=("v3.rf_stale_base",))],
+            [effective(["v3.date.date_id[order]"], declared_by=("v3.rf_stale_base",))],
             [],
         ),
     }
