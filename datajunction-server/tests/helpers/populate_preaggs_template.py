@@ -67,7 +67,7 @@ PREAGG_SPECS: list[dict] = [
     },
     {
         "metrics": ["v3.total_revenue"],
-        "dimensions": ["v3.customer.customer_id"],
+        "dimensions": ["v3.customer.customer_id[customer]"],
     },
     {
         "metrics": ["v3.page_view_count"],
