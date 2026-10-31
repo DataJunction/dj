@@ -336,6 +336,15 @@ async def get_data(
     Gets data for a node
     """
     request_headers = dict(request.headers)
+    node = cast(
+        Node,
+        await Node.get_by_name(
+            session,
+            node_name,
+            raise_if_not_exists=True,
+            inherit=True,
+        ),
+    )
     query_cache_manager = QueryCacheManager(
         cache=cache,
         query_type=QueryBuildType.NODE,
@@ -346,7 +355,7 @@ async def get_data(
             background_tasks,
             request,
             QueryRequestParams(
-                nodes=[node_name],
+                nodes=[node.name],
                 dimensions=dimensions,
                 filters=filters,
                 orderby=orderby,
@@ -360,10 +369,6 @@ async def get_data(
         ),
     )
 
-    node = cast(
-        Node,
-        await Node.get_by_name(session, node_name, raise_if_not_exists=True),
-    )
     engine = await resolve_engine(
         session=session,
         node=node,
@@ -417,7 +422,12 @@ async def get_data_stream_for_node(
     request_headers = dict(request.headers)
     node = cast(
         Node,
-        await Node.get_by_name(session, node_name, raise_if_not_exists=True),
+        await Node.get_by_name(
+            session,
+            node_name,
+            raise_if_not_exists=True,
+            inherit=True,
+        ),
     )
     engine = await resolve_engine(
         session=session,
@@ -435,7 +445,7 @@ async def get_data_stream_for_node(
             background_tasks,
             request,
             QueryRequestParams(
-                nodes=[node_name],
+                nodes=[node.name],
                 dimensions=dimensions,
                 filters=filters,
                 orderby=orderby,

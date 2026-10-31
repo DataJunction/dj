@@ -418,6 +418,7 @@ async def get_node_by_name(
         session,
         name=name,
         options=options,
+        inherit=True,
     )
 
 
@@ -761,7 +762,11 @@ async def resolve_metrics_and_dimensions(
     dimensions = cube_def.dimensions or []
 
     if cube_def.cube:
-        cube_node = await DBNode.get_cube_by_name(session, cube_def.cube)
+        cube_node = await DBNode.get_cube_by_name(
+            session,
+            cube_def.cube,
+            inherit=True,
+        )
         if not cube_node:
             raise DJNodeNotFound(f"Cube '{cube_def.cube}' not found.")
         metrics = dedupe_append(cube_node.current.cube_node_metrics, metrics)
@@ -786,4 +791,5 @@ async def get_metrics(
             ),
         ],
         include_inactive=False,
+        inherit=True,
     )

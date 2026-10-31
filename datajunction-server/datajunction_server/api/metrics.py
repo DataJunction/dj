@@ -13,6 +13,7 @@ from sqlalchemy.sql.operators import is_
 from datajunction_server.api.nodes import list_nodes
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.errors import DJError, DJInvalidInputException, ErrorCode
+from datajunction_server.internal.branch_scope import inherited_names
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
@@ -52,6 +53,7 @@ async def get_metric(session: AsyncSession, name: str) -> Node:
             ),
         ],
         raise_if_not_exists=True,
+        inherit=True,
     )
     if node.type != NodeType.METRIC:  # type: ignore
         raise HTTPException(
@@ -133,7 +135,17 @@ async def get_common_dimensions(
         .where(Node.name.in_(metric))  # type: ignore
         .where(is_(Node.deactivated_at, None))
     )
-    metric_nodes = (await session.execute(statement)).scalars().all()
+    metric_nodes = list((await session.execute(statement)).scalars().all())
+    found = {node.name for node in metric_nodes}
+    missing = [name for name in metric if name not in found]
+    parents = await inherited_names(session, missing) if missing else {}
+    if parents:
+        statement = (
+            select(Node)
+            .where(Node.name.in_(list(parents.values())))  # type: ignore
+            .where(is_(Node.deactivated_at, None))
+        )
+        metric_nodes += (await session.execute(statement)).scalars().all()
     for node in metric_nodes:
         if node.type != NodeType.METRIC:
             input_errors.append(

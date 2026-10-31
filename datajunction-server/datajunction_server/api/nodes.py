@@ -383,6 +383,7 @@ async def get_node(
         name,
         options=NodeOutput.load_options(),
         raise_if_not_exists=True,
+        inherit=True,
     )
     assert node is not None  # raise_if_not_exists=True ensures this
     output = NodeOutput.model_validate(node)
@@ -414,6 +415,7 @@ async def get_node_checks(
             selectinload(Node.owners),
         ],
         raise_if_not_exists=True,
+        inherit=True,
     )
     assert node is not None  # raise_if_not_exists=True ensures this
     return await check_node(session, node)
@@ -567,6 +569,7 @@ async def list_node_revisions(
             ),
         ],
         raise_if_not_exists=True,
+        inherit=True,
     )
     return node.revisions  # type: ignore
 
@@ -1324,12 +1327,14 @@ async def calculate_node_similarity(
         node1_name,
         options=[joinedload(Node.current)],
         raise_if_not_exists=True,
+        inherit=True,
     )
     node2 = await Node.get_by_name(
         session,
         node2_name,
         options=[joinedload(Node.current)],
         raise_if_not_exists=True,
+        inherit=True,
     )
     if NodeType.SOURCE in (node1.type, node2.type):  # type: ignore
         raise DJInvalidInputException(
@@ -1403,12 +1408,13 @@ async def list_upstream_nodes(
             name,
             options=[load_only(Node.name, Node.current_version)],
             raise_if_not_exists=True,
+            inherit=True,
         ),
     )
     upstream_cache_key = node.upstream_cache_key()
     results = cache.get(upstream_cache_key)
     if results is None:
-        results = await get_upstream_nodes(session, name, node_type)
+        results = await get_upstream_nodes(session, node.name, node_type)
         background_tasks.add_task(
             cache.set,
             upstream_cache_key,
@@ -1444,7 +1450,9 @@ async def list_node_dag(
         name,
         options=_node_output_options(),
         raise_if_not_exists=True,
+        inherit=True,
     )
+    assert node is not None  # raise_if_not_exists=True ensures this
     dimension_nodes = await get_dimensions(
         session,
         node.current.parents[0] if node.type == NodeType.METRIC else node,  # type: ignore
@@ -1455,11 +1463,15 @@ async def list_node_dag(
     dimension_nodes += [node]  # type: ignore
     downstreams = await get_downstream_nodes(
         session,
-        name,
+        node.name,
         include_deactivated=False,
         include_cubes=False,
     )
-    upstreams = await get_upstream_nodes(session, name, include_deactivated=False)
+    upstreams = await get_upstream_nodes(
+        session,
+        node.name,
+        include_deactivated=False,
+    )
     dag_nodes = set(dimension_nodes + downstreams + upstreams)
     return list(dag_nodes)
 
@@ -1518,6 +1530,7 @@ async def get_dimension_dag(
                 ),
             ],
             raise_if_not_exists=True,
+            inherit=True,
         ),
     )
     access_checker.add_node(dimension_node, access.ResourceAction.READ)
@@ -1631,6 +1644,8 @@ async def column_lineage(
                 ),
             ),
         ],
+        raise_if_not_exists=True,
+        inherit=True,
     )
     if node.current.lineage:  # type: ignore
         return node.current.lineage  # type: ignore  # pragma: no cover
