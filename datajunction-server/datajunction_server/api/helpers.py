@@ -536,9 +536,9 @@ def can_filter_on(attribute: str, parents: set[str], graph: FilterGraph) -> bool
     2. Join links from the parent to the node, then between dimension
        nodes, never returning to a node already on the path. Paths are found
        with advance_join_paths, the step the builder's path loader uses.
-       Without a role any path counts. With a role, the roles along one path,
-       joined by `->`, must equal it; links without a role are skipped.
-       Otherwise SQL builds use another path.
+       The roles along one path, joined by `->`, must equal the role. No role
+       is the null role, which only a path with no roles satisfies; SQL builds
+       reject it when every path has roles.
     3. A parent column that references the attribute, under any role.
     4. A join link on a node upstream of the parent whose keys include the
        attribute, without a role. SQL builds then filter on the key column
@@ -562,8 +562,8 @@ def _parent_can_filter(
     if node == parent and role is None:
         return True
     roles = join_role_paths(graph.links, parent, node)
-    if roles:
-        return role is None or role in roles
+    if (role or "") in roles:
+        return True
     if (node, column) in graph.references.get(parent, set()):
         return True
     return role is None and any(

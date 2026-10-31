@@ -1559,7 +1559,7 @@ class TestCombinedMeasuresSQLEndpoint:
             "/sql/measures/v3/combined",
             params={
                 "metrics": ["v3.total_revenue"],
-                "dimensions": ["v3.order_details.status", "v3.customer.name"],
+                "dimensions": ["v3.order_details.status", "v3.customer.name[customer]"],
             },
         )
 
@@ -1572,7 +1572,7 @@ class TestCombinedMeasuresSQLEndpoint:
         # Both dimension columns should be in output
         column_names = [col["name"] for col in data["columns"]]
         assert "status" in column_names
-        assert "name" in column_names
+        assert "name_customer" in column_names
 
     @pytest.mark.asyncio
     async def test_no_dimensions_global_aggregation(self, client_with_build_v3):

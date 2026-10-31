@@ -88,6 +88,7 @@ def find_join_path(
     from_node: Node,
     target_dim_name: str,
     role: str | None = None,
+    any_role: bool = False,
 ) -> JoinPath | None:
     """
     Find the join path from a node to a target dimension.
@@ -101,9 +102,8 @@ def find_join_path(
     For multi-hop joins (role like "customer->home"):
         fact -> customer -> location
 
-    If no role is specified, will find ANY path to the dimension (first match).
-    This handles cases where the dimension link has a role but the user
-    doesn't specify one.
+    No role means the null role: it matches only a role-free link, never a link
+    that has a role. Pass ``any_role`` to take the best path whatever its role.
 
     Returns None if no path found.
     """
@@ -125,10 +125,11 @@ def find_join_path(
             role=role,
         )
 
-    # Fallback: if exact role not found, try to find any path to this dimension
-    # This handles cases where:
-    # 1. User didn't specify a role, but link has one
-    # 2. User specified a role that doesn't match, so we use the actual link's role
+    if not role and not any_role:
+        return None
+
+    # Fallback: a role was given that no link has, so use the actual link's role
+    # (or, for ``any_role``, the best path whatever its role).
     # We prefer empty role (null) over named roles when falling back
     fallback_paths = []
     for (src_id, dim_name, stored_role), path_links in ctx.join_paths.items():
@@ -618,6 +619,7 @@ def resolve_dimensions(
     """
     resolved = []
     column_errors: list[str] = []
+    role_errors: list[str] = []
 
     for dim in ctx.dimensions:
         dim_ref = parse_dimension_ref(dim)
@@ -721,6 +723,28 @@ def resolve_dimensions(
                         continue
                     if dim in ctx.pushdown_resolved_dims:
                         continue
+                # No role means the null role, which only a role-free link
+                # satisfies. Say which roles would, instead of calling the
+                # dimension unlinked.
+                roles = (
+                    roles_reaching_dimension(
+                        ctx,
+                        parent_node.current.id,
+                        dim_ref.node_name,
+                    )
+                    if parent_node.current and not dim_ref.role
+                    else set()
+                )
+                if roles:
+                    role_errors.append(
+                        f"{dim} has no role, but {dim_ref.node_name} is reachable "
+                        f"from {parent_node.name} only through roles: "
+                        f"{', '.join(sorted(roles))}. "
+                        f"Specify one, e.g. "
+                        f"{dim_ref.node_name}.{dim_ref.column_name}"
+                        f"[{sorted(roles)[0]}].",
+                    )
+                    continue
                 raise DJException(
                     http_status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
                     message=f"Cannot find join path from {parent_node.name} to dimension {dim_ref.node_name}. "
@@ -794,11 +818,15 @@ def resolve_dimensions(
                     ),
                 )
 
-    if column_errors:
+    if column_errors or role_errors:
         raise DJInvalidInputException(
             errors=[
                 DJError(code=ErrorCode.INVALID_COLUMN, message=msg)
                 for msg in column_errors
+            ]
+            + [
+                DJError(code=ErrorCode.INVALID_DIMENSION, message=msg)
+                for msg in role_errors
             ],
         )
 
@@ -852,7 +880,7 @@ def resolve_metric_expression_dimensions(
 
             # The referenced column itself is validated against the dimension
             # node at metric-creation time, so we only need the join path here.
-            join_path = find_join_path(ctx, parent_node, nc.node, None)
+            join_path = find_join_path(ctx, parent_node, nc.node, None, any_role=True)
             if not join_path:
                 raise DJException(
                     http_status_code=HTTPStatus.UNPROCESSABLE_ENTITY,

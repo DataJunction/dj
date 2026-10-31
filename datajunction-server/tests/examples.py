@@ -3251,14 +3251,16 @@ BUILD_V3 = (  # type: ignore
             "role": "customer",
         },
     ),
-    # page_views -> date (via page_date) - role: page
+    # page_views -> date (via page_date) - role: order. Same role as order_details,
+    # so cross-fact queries share one date axis: a ref names a role, and facts that
+    # play different roles of a dimension have none in common.
     (
         "/nodes/v3.page_views_enriched/link",
         {
             "dimension_node": "v3.date",
             "join_type": "left",
             "join_on": "v3.page_views_enriched.page_date = v3.date.date_id",
-            "role": "page",
+            "role": "order",
         },
     ),
     # page_views -> product (for product page views)
@@ -3580,11 +3582,11 @@ BUILD_V3 = (  # type: ignore
             "description": "Month-over-month revenue change (%) - requires month dimension",
             "query": """
                 SELECT
-                    (v3.total_revenue - LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.month))
-                    / NULLIF(LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.month), 0) * 100
+                    (v3.total_revenue - LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.month[order]))
+                    / NULLIF(LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.month[order]), 0) * 100
             """,
             "mode": "published",
-            "required_dimensions": ["v3.date.month"],
+            "required_dimensions": ["v3.date.month[order]"],
         },
     ),
     # =========================================================================
