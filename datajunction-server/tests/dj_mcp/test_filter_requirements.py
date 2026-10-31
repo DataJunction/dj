@@ -11,9 +11,7 @@ from datajunction_server.models.query import QueryWithResults
 from datajunction_server.typing import QueryState
 
 RULE = "-" * 60
-DEFAULT_WARNING = (
-    "  • Applied default filter v3.date.date_id = 20250101 (from metric v3.mcp_default)"
-)
+DEFAULT_WARNING = "  • Applied default filter v3.date.date_id[order] = 20250101 (from metric v3.mcp_default)"
 
 
 async def _make_metric(client, name, **fields):
@@ -37,7 +35,10 @@ async def mcp_client_with_metric(client_with_build_v3, session):
         client_with_build_v3,
         "v3.mcp_default",
         required_filters=[
-            {"dimension": "v3.date.date_id", "default": "v3.date.date_id = 20250101"},
+            {
+                "dimension": "v3.date.date_id",
+                "default": "v3.date.date_id[order] = 20250101",
+            },
         ],
     )
     await _make_metric(
@@ -64,11 +65,13 @@ def _tail(text, marker):
 
 @pytest.mark.asyncio
 async def test_build_metric_sql_prints_applied_default(mcp_client_with_metric):
-    text = await tools.build_metric_sql(["v3.mcp_default"], ["v3.location.country"])
+    text = await tools.build_metric_sql(
+        ["v3.mcp_default"], ["v3.location.country[from]"]
+    )
     assert _tail(text, "Output Columns:") == [
         "Output Columns:",
         RULE,
-        "  • country: string (semantic: v3.location.country)",
+        "  • country_from: string (semantic: v3.location.country[from])",
         "  • mcp_default: double (semantic: v3.mcp_default)",
         "",
         "Warnings:",
@@ -84,7 +87,7 @@ async def test_build_metric_sql_prints_applied_default(mcp_client_with_metric):
 async def test_build_metric_sql_prints_recommended_warning(mcp_client_with_metric):
     text = await tools.build_metric_sql(
         ["v3.mcp_recommended"],
-        ["v3.location.country"],
+        ["v3.location.country[from]"],
     )
     assert _tail(text, "Warnings:") == [
         "Warnings:",
@@ -100,13 +103,13 @@ async def test_build_metric_sql_without_requirements_has_no_warnings(
 ):
     text = await tools.build_metric_sql(
         ["v3.total_revenue"],
-        ["v3.location.country"],
-        ["v3.date.date_id = 20240101"],
+        ["v3.location.country[from]"],
+        ["v3.date.date_id[order] = 20240101"],
     )
     assert _tail(text, "Output Columns:") == [
         "Output Columns:",
         RULE,
-        "  • country: string (semantic: v3.location.country)",
+        "  • country_from: string (semantic: v3.location.country[from])",
         "  • total_revenue: double (semantic: v3.total_revenue)",
     ]
 
@@ -117,7 +120,7 @@ async def test_build_metric_sql_surfaces_required_filter_error(
 ):
     result = await server.call_tool(
         "build_metric_sql",
-        {"metrics": ["v3.mcp_required"], "dimensions": ["v3.location.country"]},
+        {"metrics": ["v3.mcp_required"], "dimensions": ["v3.location.country[from]"]},
     )
     assert [item.text for item in result] == [
         "Error executing build_metric_sql: Missing required filter: one of "
@@ -135,7 +138,7 @@ async def test_node_details_list_filter_requirements(mcp_client_with_metric):
     start = lines.index("Required Filters:")
     assert lines[start : start + 3] == [
         "Required Filters:",
-        "  • v3.date.date_id (default: v3.date.date_id = 20250101)"
+        "  • v3.date.date_id (default: v3.date.date_id[order] = 20250101)"
         " (from metric v3.mcp_default)",
         "",
     ]
@@ -220,7 +223,9 @@ async def test_get_metric_data_applies_default_and_prints_warning(
 ):
     service = _FakeQueryService()
     monkeypatch.setattr(tools, "get_query_service_client", lambda settings: service)
-    text = await tools.get_metric_data(["v3.mcp_default"], ["v3.location.country"])
+    text = await tools.get_metric_data(
+        ["v3.mcp_default"], ["v3.location.country[from]"]
+    )
     assert _tail(text, "Warnings:") == ["Warnings:", RULE, DEFAULT_WARNING]
     assert len(service.submitted) == 1
     submitted_sql = service.submitted[0].submitted_query
@@ -241,8 +246,8 @@ async def test_get_metric_data_uses_effective_filters_for_engine_choice(
         raise ValueError("stop here")
 
     monkeypatch.setattr(prepare, "resolve_dialect_and_engine_for_metrics", fake_resolve)
-    await tools.get_metric_data(["v3.mcp_default"], ["v3.location.country"])
-    assert seen == {"filters": ["v3.date.date_id = 20250101"]}
+    await tools.get_metric_data(["v3.mcp_default"], ["v3.location.country[from]"])
+    assert seen == {"filters": ["v3.date.date_id[order] = 20250101"]}
 
 
 @pytest.mark.asyncio
@@ -253,7 +258,7 @@ async def test_get_metric_data_rejects_missing_required_filter(
     monkeypatch.setattr(tools, "get_query_service_client", lambda settings: MagicMock())
     result = await server.call_tool(
         "get_metric_data",
-        {"metrics": ["v3.mcp_required"], "dimensions": ["v3.location.country"]},
+        {"metrics": ["v3.mcp_required"], "dimensions": ["v3.location.country[from]"]},
     )
     assert [item.text for item in result] == [
         "Error executing get_metric_data: Missing required filter: one of "
