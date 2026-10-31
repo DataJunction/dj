@@ -156,6 +156,12 @@ type DimensionReaggregateRule {
   fn: ReaggregationFunction!
 }
 
+type EffectiveFilterRequirement {
+  dimension: [String!]!
+  default: String
+  declaredBy: [String!]!
+}
+
 type Engine {
   name: String!
   version: String!
@@ -426,6 +432,8 @@ type NodeRevision {
   requiredDimensionRefs: [String!]
   requiredFilters: [FilterRequirement!]
   recommendedFilters: [FilterRequirement!]
+  effectiveRequiredFilters: [EffectiveFilterRequirement!]
+  effectiveRecommendedFilters: [EffectiveFilterRequirement!]
   fixedGrain: [String!]
   reaggregate: ReaggregateSpec
   primaryKey: [String!]!

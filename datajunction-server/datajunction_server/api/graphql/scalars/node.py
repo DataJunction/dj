@@ -260,6 +260,18 @@ def _required_dimension_name(ref: str) -> str:
     return base.rsplit(SEPARATOR, 1)[-1]
 
 
+def _effective_filters(entries: list) -> list[EffectiveFilterRequirement]:
+    """Convert loaded entries to the GraphQL type."""
+    return [
+        EffectiveFilterRequirement(  # type: ignore
+            dimension=list(entry.dimension),
+            default=entry.default,
+            declared_by=list(entry.declared_by),
+        )
+        for entry in entries
+    ]
+
+
 @strawberry.type
 class FilterRequirement:
     """
@@ -268,6 +280,17 @@ class FilterRequirement:
 
     dimension: list[str]
     default: str | None = None
+
+
+@strawberry.type
+class EffectiveFilterRequirement:
+    """
+    A filter a metric requires or recommends, with the metrics declaring it.
+    """
+
+    dimension: list[str]
+    default: str | None = None
+    declared_by: list[str]
 
 
 @strawberry.type
@@ -497,6 +520,34 @@ class NodeRevision:
             )
             for entry in root.recommended_filters
         ]
+
+    @strawberry.field
+    async def effective_required_filters(
+        self,
+        root: DBNodeRevision,
+        info: Info,
+    ) -> list[EffectiveFilterRequirement] | None:
+        """
+        Required filters of this metric and of the metrics it is built from.
+        """
+        if root.type != NodeType.METRIC:
+            return None
+        required, _ = await info.context["effective_filters_loader"].load(root.id)
+        return _effective_filters(required)
+
+    @strawberry.field
+    async def effective_recommended_filters(
+        self,
+        root: DBNodeRevision,
+        info: Info,
+    ) -> list[EffectiveFilterRequirement] | None:
+        """
+        Recommended filters of this metric and of the metrics it is built from.
+        """
+        if root.type != NodeType.METRIC:
+            return None
+        _, recommended = await info.context["effective_filters_loader"].load(root.id)
+        return _effective_filters(recommended)
 
     @strawberry.field
     def fixed_grain(self, root: DBNodeRevision) -> list[str] | None:

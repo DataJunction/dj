@@ -2,23 +2,25 @@
 
 from dataclasses import dataclass, field
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, load_only, noload
 
 from datajunction_server.construction.build_v3.filters import parse_filter
 from datajunction_server.construction.build_v3.loaders import find_upstream_node_names
 from datajunction_server.construction.build_v3.utils import (
     extract_filter_dimension_refs,
 )
-from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
 from datajunction_server.errors import (
     DJError,
     DJInvalidInputException,
     DJWarning,
     ErrorCode,
 )
-from datajunction_server.models.filter_requirements import parse_filter_requirements
+from datajunction_server.models.filter_requirements import (
+    EffectiveFilterRequirement,
+    parse_filter_requirements,
+)
 from datajunction_server.models.node_type import NodeType
 
 
@@ -166,6 +168,57 @@ def apply_requirements(
     return effective, warnings
 
 
+async def load_declared_entries(
+    session: AsyncSession,
+    names: set[str],
+) -> dict[str, list[RequirementEntry]]:
+    """
+    Entries each metric among the named nodes declares itself.
+    """
+    rows = await session.execute(
+        select(
+            Node.name,
+            NodeRevision.required_filters,
+            NodeRevision.recommended_filters,
+        )
+        .join(
+            NodeRevision,
+            and_(
+                NodeRevision.node_id == Node.id,
+                NodeRevision.version == Node.current_version,
+            ),
+        )
+        .where(Node.name.in_(sorted(names)))
+        .where(Node.type == NodeType.METRIC)
+        .where(Node.deactivated_at.is_(None))
+        .order_by(Node.name),
+    )
+    return {
+        name: _revision_entries(name, required, recommended)
+        for name, required, recommended in rows
+    }
+
+
+def _revision_entries(
+    name: str,
+    required_filters: list[dict] | None,
+    recommended_filters: list[dict] | None,
+) -> list[RequirementEntry]:
+    return [
+        RequirementEntry(
+            attributes=item.dimension,
+            default=item.default,
+            required=required,
+            metrics=frozenset({name}),
+        )
+        for required, entries in (
+            (True, required_filters),
+            (False, recommended_filters),
+        )
+        for item in parse_filter_requirements(entries) or []
+    ]
+
+
 async def load_requirement_entries(
     session: AsyncSession,
     metrics: list[str],
@@ -176,41 +229,84 @@ async def load_requirement_entries(
     if not metrics:
         return []
     names, _ = await find_upstream_node_names(session, metrics)
-    nodes = await Node.get_by_names(
-        session,
-        sorted(names),
-        options=[
-            load_only(Node.name, Node.type, Node.current_version),
-            noload(Node.created_by),
-            noload(Node.tags),
-            joinedload(Node.current).options(
-                noload(NodeRevision.created_by),
-                load_only(
-                    NodeRevision.name,
-                    NodeRevision.required_filters,
-                    NodeRevision.recommended_filters,
-                ),
+    declared = await load_declared_entries(session, names)
+    return [entry for entries in declared.values() for entry in entries]
+
+
+def split_effective_entries(
+    entries: list[RequirementEntry],
+) -> tuple[list[EffectiveFilterRequirement], list[EffectiveFilterRequirement]]:
+    """
+    Merge the entries into (required, recommended) lists without checking
+    them, so conflicting defaults are all kept.
+    """
+    required: list[EffectiveFilterRequirement] = []
+    recommended: list[EffectiveFilterRequirement] = []
+    for item in _merge(entries):
+        (required if item.required else recommended).append(
+            EffectiveFilterRequirement(
+                dimension=item.attributes,
+                default=item.default,
+                declared_by=tuple(sorted(item.metrics)),
             ),
-        ],
-    )
-    entries: list[RequirementEntry] = []
-    for node in nodes:
-        if node.type != NodeType.METRIC or node.current is None:
-            continue
-        for required, declared in (
-            (True, node.current.required_filters),
-            (False, node.current.recommended_filters),
-        ):
-            for item in parse_filter_requirements(declared) or []:
-                entries.append(
-                    RequirementEntry(
-                        attributes=item.dimension,
-                        default=item.default,
-                        required=required,
-                        metrics=frozenset({node.name}),
-                    ),
-                )
-    return entries
+        )
+    return required, recommended
+
+
+async def load_revision_filters(
+    session: AsyncSession,
+    revision_ids: list[int],
+) -> dict[
+    int,
+    tuple[list[EffectiveFilterRequirement], list[EffectiveFilterRequirement]],
+]:
+    """
+    The (required, recommended) filters each metric revision has, declared
+    or inherited from the metrics upstream of its parents.
+    """
+    if not revision_ids:
+        return {}
+    revisions = (
+        await session.execute(
+            select(
+                NodeRevision.id,
+                NodeRevision.name,
+                NodeRevision.required_filters,
+                NodeRevision.recommended_filters,
+            ).where(NodeRevision.id.in_(revision_ids)),
+        )
+    ).all()
+    parents: dict[int, list[str]] = {row.id: [] for row in revisions}
+    for child_id, parent_name in await session.execute(
+        select(NodeRelationship.child_id, Node.name)
+        .join(Node, Node.id == NodeRelationship.parent_id)
+        .where(NodeRelationship.child_id.in_(revision_ids))
+        .order_by(NodeRelationship.child_id, Node.name),
+    ):
+        parents[child_id].append(parent_name)
+    parent_names = sorted({name for names in parents.values() for name in names})
+    parent_map: dict[str, list[str]] = {}
+    declared: dict[str, list[RequirementEntry]] = {}
+    if parent_names:
+        names, parent_map = await find_upstream_node_names(session, parent_names)
+        declared = await load_declared_entries(session, names)
+    result: dict[int, tuple[list, list]] = {}
+    for rev in revisions:
+        seen: set[str] = set()
+        pending = list(parents[rev.id])
+        while pending:
+            name = pending.pop()
+            if name not in seen:
+                seen.add(name)
+                pending.extend(parent_map.get(name, []))
+        entries = _revision_entries(
+            rev.name,
+            rev.required_filters,
+            rev.recommended_filters,
+        )
+        entries += [e for name in sorted(seen) for e in declared.get(name, [])]
+        result[rev.id] = split_effective_entries(entries)
+    return result
 
 
 async def apply_metric_filter_requirements(

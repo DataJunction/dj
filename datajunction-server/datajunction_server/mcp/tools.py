@@ -21,6 +21,9 @@ from datajunction_server.construction.build_v3.builder import (
     build_measures_sql,
     build_metrics_sql,
 )
+from datajunction_server.construction.build_v3.filter_requirements import (
+    load_revision_filters,
+)
 from datajunction_server.construction.build_v3.prepare import prepare_metrics_query
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import Node, NodeRevision
@@ -207,6 +210,22 @@ async def get_node_details(name: str) -> str:
         node_dict["current"]["query"] = node.current.query
         node_dict["current"]["requiredFilters"] = node.current.required_filters
         node_dict["current"]["recommendedFilters"] = node.current.recommended_filters
+        if node.type == NodeType.METRIC:
+            effective = (await load_revision_filters(session, [node.current.id]))[
+                node.current.id
+            ]
+            for key, entries in zip(
+                ("effectiveRequiredFilters", "effectiveRecommendedFilters"),
+                effective,
+            ):
+                node_dict["current"][key] = [
+                    {
+                        "dimension": list(entry.dimension),
+                        "default": entry.default,
+                        "declaredBy": list(entry.declared_by),
+                    }
+                    for entry in entries
+                ]
         node_dict["current"]["columns"] = [
             {
                 "name": (c.cube_element_name if node.type == NodeType.CUBE else c.name),

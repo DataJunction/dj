@@ -124,17 +124,25 @@ def format_node_details(
             result.append(f"  Unit: {unit.get('label', unit.get('name', 'unknown'))}")
         result.append("")
 
-    for title, key in (
-        ("Required Filters:", "requiredFilters"),
-        ("Recommended Filters:", "recommendedFilters"),
+    for title, key, effective_key in (
+        ("Required Filters:", "requiredFilters", "effectiveRequiredFilters"),
+        (
+            "Recommended Filters:",
+            "recommendedFilters",
+            "effectiveRecommendedFilters",
+        ),
     ):
-        entries = current.get(key) or []
+        entries = current.get(effective_key)
+        if entries is None:
+            entries = current.get(key) or []
         if not entries:
             continue
         result.append(title)
         for entry in entries:
             attributes = ", ".join(entry["dimension"])
             suffix = f" (default: {entry['default']})" if entry.get("default") else ""
+            if entry.get("declaredBy"):
+                suffix += f" (from metric {', '.join(entry['declaredBy'])})"
             result.append(f"  • {attributes}{suffix}")
         result.append("")
 

@@ -28,6 +28,7 @@ from strawberry.types.unset import UNSET
 
 from datajunction_server.api.graphql.dataloaders import (
     create_collection_nodes_loader,
+    create_effective_filters_loader,
     create_extracted_measures_loader,
     create_git_info_loader,
     create_node_by_name_loader,
@@ -257,6 +258,7 @@ async def get_context(
         "collection_nodes_loader": create_collection_nodes_loader(request),
         "git_info_loader": create_git_info_loader(request),
         "extracted_measures_loader": create_extracted_measures_loader(request),
+        "effective_filters_loader": create_effective_filters_loader(request),
         "settings": get_settings(),
         "request": request,
         "background_tasks": background_tasks,

@@ -10,6 +10,7 @@ import sqlalchemy as sa
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.construction.build_v3.loaders import find_upstream_node_names
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
@@ -4607,6 +4608,210 @@ async def test_find_nodes_filter_requirements(client_with_build_v3: AsyncClient)
         "v3.order_details": {
             "requiredFilters": None,
             "recommendedFilters": None,
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_effective_filter_requirements(
+    client_with_build_v3: AsyncClient,
+):
+    """Derived metrics list the filters of the metrics they are built from."""
+    client = client_with_build_v3
+    query = (await client.get("/nodes/v3.total_revenue/")).json()["query"]
+    for name, fields in {
+        "v3.gql_base": {
+            "required_filters": [{"dimension": "v3.date.date_id"}],
+            "recommended_filters": [{"dimension": "v3.location.country"}],
+        },
+        "v3.gql_other": {
+            "required_filters": [
+                {"dimension": "v3.date.date_id", "default": "v3.date.date_id = 1"},
+            ],
+            "recommended_filters": [{"dimension": "v3.location.country"}],
+        },
+    }.items():
+        created = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": name,
+                "description": "d",
+                "query": query,
+                "mode": "published",
+                **fields,
+            },
+        )
+        assert created.status_code == 201, created.text
+    for name, derived_query in {
+        "v3.gql_mid": "SELECT v3.gql_base / 2",
+        "v3.gql_top": "SELECT v3.gql_mid / v3.gql_other",
+    }.items():
+        created = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": name,
+                "description": "d",
+                "query": derived_query,
+                "mode": "published",
+            },
+        )
+        assert created.status_code == 201, created.text
+
+    with mock.patch(
+        "datajunction_server.construction.build_v3.filter_requirements."
+        "find_upstream_node_names",
+        wraps=find_upstream_node_names,
+    ) as upstream:
+        response = await client.post(
+            "/graphql",
+            json={
+                "query": """
+                {
+                  findNodes(names: [
+                    "v3.gql_top", "v3.gql_mid", "v3.gql_base",
+                    "v3.total_revenue", "v3.order_details"
+                  ]) {
+                    name
+                    current {
+                      requiredFilters { dimension default }
+                      effectiveRequiredFilters { dimension default declaredBy }
+                      effectiveRecommendedFilters { dimension default declaredBy }
+                    }
+                  }
+                }
+                """,
+            },
+        )
+    assert upstream.call_count == 1
+    body = response.json()
+    assert body.get("errors") is None
+    country = {
+        "dimension": ["v3.location.country"],
+        "default": None,
+        "declaredBy": ["v3.gql_base", "v3.gql_other"],
+    }
+    assert {node["name"]: node["current"] for node in body["data"]["findNodes"]} == {
+        "v3.gql_top": {
+            "requiredFilters": None,
+            "effectiveRequiredFilters": [
+                {
+                    "dimension": ["v3.date.date_id"],
+                    "default": None,
+                    "declaredBy": ["v3.gql_base"],
+                },
+                {
+                    "dimension": ["v3.date.date_id"],
+                    "default": "v3.date.date_id = 1",
+                    "declaredBy": ["v3.gql_other"],
+                },
+            ],
+            "effectiveRecommendedFilters": [country],
+        },
+        "v3.gql_mid": {
+            "requiredFilters": None,
+            "effectiveRequiredFilters": [
+                {
+                    "dimension": ["v3.date.date_id"],
+                    "default": None,
+                    "declaredBy": ["v3.gql_base"],
+                },
+            ],
+            "effectiveRecommendedFilters": [
+                {**country, "declaredBy": ["v3.gql_base"]},
+            ],
+        },
+        "v3.gql_base": {
+            "requiredFilters": [{"dimension": ["v3.date.date_id"], "default": None}],
+            "effectiveRequiredFilters": [
+                {
+                    "dimension": ["v3.date.date_id"],
+                    "default": None,
+                    "declaredBy": ["v3.gql_base"],
+                },
+            ],
+            "effectiveRecommendedFilters": [
+                {**country, "declaredBy": ["v3.gql_base"]},
+            ],
+        },
+        "v3.total_revenue": {
+            "requiredFilters": None,
+            "effectiveRequiredFilters": [],
+            "effectiveRecommendedFilters": [],
+        },
+        "v3.order_details": {
+            "requiredFilters": None,
+            "effectiveRequiredFilters": None,
+            "effectiveRecommendedFilters": None,
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_effective_filters_follow_each_revision(
+    client_with_build_v3: AsyncClient,
+):
+    """Each revision lists its own filters, not the current revision's."""
+    client = client_with_build_v3
+    query = (await client.get("/nodes/v3.total_revenue/")).json()["query"]
+    created = await client.post(
+        "/nodes/metric/",
+        json={
+            "name": "v3.gql_rev",
+            "description": "d",
+            "query": query,
+            "mode": "published",
+            "required_filters": [{"dimension": "v3.location.country"}],
+        },
+    )
+    assert created.status_code == 201, created.text
+    patched = await client.patch(
+        "/nodes/v3.gql_rev/",
+        json={"required_filters": [{"dimension": "v3.date.date_id"}]},
+    )
+    assert patched.status_code == 200, patched.text
+    response = await client.post(
+        "/graphql",
+        json={
+            "query": """
+            {
+              findNodes(names: ["v3.gql_rev"]) {
+                revisions {
+                  version
+                  requiredFilters { dimension default }
+                  effectiveRequiredFilters { dimension default declaredBy }
+                }
+              }
+            }
+            """,
+        },
+    )
+    body = response.json()
+    assert body.get("errors") is None
+    revisions = body["data"]["findNodes"][0]["revisions"]
+    assert {rev["version"]: rev for rev in revisions} == {
+        "v1.0": {
+            "version": "v1.0",
+            "requiredFilters": [
+                {"dimension": ["v3.location.country"], "default": None},
+            ],
+            "effectiveRequiredFilters": [
+                {
+                    "dimension": ["v3.location.country"],
+                    "default": None,
+                    "declaredBy": ["v3.gql_rev"],
+                },
+            ],
+        },
+        "v2.0": {
+            "version": "v2.0",
+            "requiredFilters": [{"dimension": ["v3.date.date_id"], "default": None}],
+            "effectiveRequiredFilters": [
+                {
+                    "dimension": ["v3.date.date_id"],
+                    "default": None,
+                    "declaredBy": ["v3.gql_rev"],
+                },
+            ],
         },
     }
 
