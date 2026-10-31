@@ -1870,6 +1870,20 @@ def build_window_cte_from_grain_group(
                 col_node.name = ast.Name(short_name)
                 col_node._table = ast.Table(ast.Name(source_cte_alias))
 
+        # Point role-free dimension refs at the grain group's own columns
+        for col_node in expr_ast.find_all(ast.Column):
+            col_full_name = (
+                col_node.identifier() if hasattr(col_node, "identifier") else ""
+            )
+            for gg_col in window_grain_group.columns:
+                if (
+                    gg_col.semantic_type == "dimension"
+                    and col_full_name == gg_col.semantic_name
+                ):
+                    col_node.name = ast.Name(gg_col.name)
+                    col_node._table = ast.Table(ast.Name(source_cte_alias))
+                    break
+
         # Unwrap Subscript expressions in ORDER BY clauses (role suffix handling)
         for func in expr_ast.find_all(ast.Function):
             if func.over and func.over.order_by:
