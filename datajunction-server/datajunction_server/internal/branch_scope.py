@@ -6,7 +6,7 @@ from collections import defaultdict
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datajunction_server.internal.namespaces import get_git_info_for_namespace
+from datajunction_server.internal.namespaces import get_git_info_for_namespaces
 from datajunction_server.utils import SEPARATOR
 
 
@@ -25,9 +25,12 @@ async def parent_node_names(
         if namespace:
             by_namespace[namespace].append(name)
 
+    if not by_namespace:
+        return {}
+    git_infos = await get_git_info_for_namespaces(session, list(by_namespace))
     parents: dict[str, str] = {}
     for namespace, namespace_names in by_namespace.items():
-        git_info = await get_git_info_for_namespace(session, namespace)
+        git_info = git_infos[namespace]
         if not git_info or git_info["is_default_branch"]:
             continue
         branch = git_info["branch_namespace"]

@@ -19,7 +19,6 @@ from datajunction_server.construction.build_v3.filter_requirements import (
 )
 from datajunction_server.construction.build_v3.loaders import find_upstream_node_names
 from datajunction_server.database.collection import Collection as DBCollection
-from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import (
     Node as DBNode,
 )
@@ -28,8 +27,7 @@ from datajunction_server.database.node import (
 )
 from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.internal.namespaces import (
-    get_parent_namespaces,
-    resolve_git_info_from_map,
+    get_git_info_for_namespaces,
 )
 from datajunction_server.models.filter_requirements import EffectiveFilterRequirement
 from datajunction_server.sql.decompose import (
@@ -293,47 +291,11 @@ async def batch_load_git_info(
     """
     Batch load git info for multiple namespaces in a single query.
 
-    Collects all ancestor namespaces across all requested namespaces,
-    loads them in one query, then resolves git info for each from the
-    shared map.
+    Resolves every requested namespace from one shared set of rows.
     """
-    # Collect all unique namespace names we need to look up
-    all_ancestor_names: set[str] = set()
-    for ns in namespaces:
-        ancestors = get_parent_namespaces(ns) + [ns]
-        all_ancestor_names.update(ancestors)
-
     async with session_context(request) as session:
-        # Single query to load all namespace rows
-        stmt = select(NodeNamespace).where(
-            NodeNamespace.namespace.in_(all_ancestor_names),
-        )
-        rows = (await session.execute(stmt)).scalars().all()
-        ns_map = {ns.namespace: ns for ns in rows}
-
-        # Handle FK hops: some branch namespaces point to a parent outside
-        # the string hierarchy. Collect missing parent_namespace values and
-        # load them in one extra query.
-        missing_fk_parents: set[str] = set()
-        for ns in namespaces:
-            ancestors = get_parent_namespaces(ns) + [ns]
-            for name in reversed(ancestors):
-                row = ns_map.get(name)
-                if row and row.git_branch:
-                    if row.parent_namespace and row.parent_namespace not in ns_map:
-                        missing_fk_parents.add(row.parent_namespace)
-                    break
-
-        if missing_fk_parents:
-            fk_stmt = select(NodeNamespace).where(
-                NodeNamespace.namespace.in_(missing_fk_parents),
-            )
-            fk_rows = (await session.execute(fk_stmt)).scalars().all()
-            for fk_row in fk_rows:
-                ns_map[fk_row.namespace] = fk_row
-
-    # Resolve git info for each requested namespace using the shared map
-    return [resolve_git_info_from_map(ns, ns_map) for ns in namespaces]
+        git_info = await get_git_info_for_namespaces(session, namespaces)
+    return [git_info[ns] for ns in namespaces]
 
 
 def create_git_info_loader(

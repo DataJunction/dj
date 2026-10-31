@@ -106,6 +106,67 @@ class TestParentNodeNames:
             "shared.feat_x.member.metrics.orders": "shared.main.member.metrics.orders",
         }
 
+    async def test_names_without_namespace_need_no_query(
+        self,
+        session: AsyncSession,
+    ):
+        """
+        Bare names have no namespace to resolve.
+        """
+        assert await parent_node_names(session, ["orphan"]) == {}
+
+    async def test_many_namespaces_use_one_query(
+        self,
+        session: AsyncSession,
+        namespaces: None,
+    ):
+        """
+        Names across many namespaces share one query, not one each.
+        """
+        names = [f"shared.feat_x.team_{i}.orders" for i in range(20)]
+        statements: list[str] = []
+
+        def record(conn, cursor, statement, parameters, context, executemany):
+            statements.append(statement)
+
+        engine = session.get_bind()
+        event.listen(engine, "before_cursor_execute", record)
+        try:
+            parents = await parent_node_names(session, names)
+        finally:
+            event.remove(engine, "before_cursor_execute", record)
+        assert parents == {
+            name: name.replace("shared.feat_x", "shared.main") for name in names
+        }
+        assert len(statements) == 1
+
+    async def test_loads_root_outside_branch_hierarchy(
+        self,
+        session: AsyncSession,
+    ):
+        """
+        A branch can link to a git root that is not one of its ancestors.
+        """
+        session.add(
+            NodeNamespace(
+                namespace="elsewhere",
+                github_repo_path="org/elsewhere",
+                default_branch="trunk",
+            ),
+        )
+        await session.flush()
+        session.add(
+            NodeNamespace(
+                namespace="team.work",
+                git_branch="work",
+                parent_namespace="elsewhere",
+            ),
+        )
+        await session.commit()
+        assert await parent_node_names(session, ["team.work.orders"]) == {
+            "team.work.orders": "elsewhere.trunk.orders",
+        }
+
     async def test_skips_default_branch_and_plain_namespaces(
         self,
         session: AsyncSession,

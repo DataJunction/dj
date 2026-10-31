@@ -393,6 +393,60 @@ async def get_git_info_for_namespace(
     return resolve_git_info_from_map(namespace, ns_map)
 
 
+async def get_git_info_for_namespaces(
+    session: AsyncSession,
+    namespaces: list[str],
+) -> dict[str, dict | None]:
+    """
+    Return git repository info for many namespaces in at most two queries.
+
+    Loads every ancestor in one query, then the git roots that branch
+    namespaces link to outside their own hierarchy in a second.
+    """
+    ancestors = {
+        namespace: get_parent_namespaces(namespace) + [namespace]
+        for namespace in namespaces
+    }
+    all_names = {name for names in ancestors.values() for name in names}
+    rows = (
+        (
+            await session.execute(
+                select(NodeNamespace).where(NodeNamespace.namespace.in_(all_names)),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    ns_map = {ns.namespace: ns for ns in rows}
+
+    missing_parents: set[str] = set()
+    for names in ancestors.values():
+        for name in reversed(names):
+            row = ns_map.get(name)
+            if row and row.git_branch:
+                if row.parent_namespace and row.parent_namespace not in ns_map:
+                    missing_parents.add(row.parent_namespace)
+                break
+    if missing_parents:
+        parent_rows = (
+            (
+                await session.execute(
+                    select(NodeNamespace).where(
+                        NodeNamespace.namespace.in_(missing_parents),
+                    ),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        ns_map.update({ns.namespace: ns for ns in parent_rows})
+
+    return {
+        namespace: resolve_git_info_from_map(namespace, ns_map)
+        for namespace in namespaces
+    }
+
+
 async def create_namespace(
     session: AsyncSession,
     namespace: str,
