@@ -329,7 +329,7 @@ def _resolve_filter_only_dim(
         up_node = ctx.nodes.get(up_name)
         if up_node and up_node.current:  # pragma: no branch
             for link in up_node.current.dimension_links:
-                if link.dimension.name != dim_ref.node_name:
+                if link.dimension.name != dim_ref.node_name or link.role:
                     continue
                 fk_fqn = link.foreign_keys_reversed.get(target_fqn)
                 if fk_fqn is None:  # pragma: no cover

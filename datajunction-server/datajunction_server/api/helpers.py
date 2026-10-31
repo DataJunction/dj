@@ -567,7 +567,9 @@ def _parent_can_filter(
     if (node, column) in graph.references.get(parent, set()):
         return True
     return role is None and any(
-        link.dimension == node and f"{node}{SEPARATOR}{column}" in link.keys
+        link.dimension == node
+        and not link.role
+        and f"{node}{SEPARATOR}{column}" in link.keys
         for name in graph.upstream.get(parent, set())
         for link in graph.links.get(name, set())
     )
