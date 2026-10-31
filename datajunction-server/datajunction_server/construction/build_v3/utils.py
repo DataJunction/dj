@@ -205,6 +205,13 @@ def _try_add_dim_to_ctx(
     existing_dims.add(full_name)
 
 
+def _with_role(col: ast.Column, full_name: str) -> str:
+    """``full_name`` plus the ``[role]`` of the subscript the column sits in."""
+    if isinstance(col.parent, ast.Subscript):
+        return dimension_ref_of_expression(col.parent) or full_name
+    return full_name
+
+
 def add_dimensions_from_metric_expressions(
     ctx: BuildContext,
     decomposed_metrics: dict[str, DecomposedMetricInfo],
@@ -240,7 +247,7 @@ def add_dimensions_from_metric_expressions(
             for dimension in component.rule.fixed_grain or []
         }
         for col in combiner_ast.find_all(ast.Column):
-            full_name = get_column_full_name(col)
+            full_name = _with_role(col, get_column_full_name(col))
             if full_name in partition_dims:
                 continue
             _try_add_dim_to_ctx(full_name, ctx, existing_dims, "metric expression")
@@ -257,7 +264,7 @@ def add_dimensions_from_metric_expressions(
                     continue
                 for sort_item in func.over.order_by:
                     for col in sort_item.find_all(ast.Column):
-                        full_name = get_column_full_name(col)
+                        full_name = _with_role(col, get_column_full_name(col))
                         _try_add_dim_to_ctx(
                             full_name,
                             ctx,
