@@ -10,12 +10,14 @@ from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.namespace import NodeNamespace
-from datajunction_server.database.node import Node, NodeType
+from datajunction_server.database.node import Node, NodeRevision, NodeType
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.internal.branch_scope import (
+    fetch_with_inherited,
     inherited_names,
     parent_node_names,
 )
+from datajunction_server.internal.cube_materializations import _display_names
 from datajunction_server.internal.namespaces import get_git_info_for_namespace
 
 
@@ -487,6 +489,119 @@ class TestInheritedLookup:
         finally:
             event.remove(engine, "before_cursor_execute", record)
         assert exact == inherited
+
+
+async def add_revised_nodes(
+    session: AsyncSession,
+    user: User,
+    display_names: dict[str, str],
+    deactivated: bool = False,
+) -> None:
+    """
+    Persists nodes with a current revision carrying the given display names.
+    """
+    for name, display_name in display_names.items():
+        node = Node(
+            name=name,
+            type=NodeType.METRIC,
+            current_version="v1",
+            created_by_id=user.id,
+            deactivated_at=datetime.now(UTC) if deactivated else None,
+        )
+        session.add(node)
+        await session.flush()
+        session.add(
+            NodeRevision(
+                node_id=node.id,
+                name=name,
+                display_name=display_name,
+                type=NodeType.METRIC,
+                version="v1",
+                created_by_id=user.id,
+            ),
+        )
+    await session.commit()
+
+
+@pytest.mark.asyncio
+class TestFetchWithInherited:
+    """
+    Tests for ``fetch_with_inherited`` through the cube display name lookup.
+    """
+
+    async def fetch(self, session: AsyncSession, names: list[str]) -> dict[str, str]:
+        """
+        Looks up display names, falling back to the default branch.
+        """
+        return await fetch_with_inherited(
+            session,
+            names,
+            lambda asked: _display_names(session, asked),
+        )
+
+    async def test_hit_is_unchanged(
+        self,
+        session: AsyncSession,
+        user: User,
+        namespaces: None,
+    ):
+        """
+        A metric the branch holds keeps its own display name.
+        """
+        await add_revised_nodes(
+            session,
+            user,
+            {"shared.main.m": "Main M", "shared.feat_x.m": "Branch M"},
+        )
+        assert await self.fetch(session, ["shared.feat_x.m"]) == {
+            "shared.feat_x.m": "Branch M",
+        }
+
+    async def test_falls_back_on_miss(
+        self,
+        session: AsyncSession,
+        user: User,
+        namespaces: None,
+    ):
+        """
+        A metric absent from the branch takes main's display name.
+        """
+        await add_revised_nodes(
+            session,
+            user,
+            {"shared.main.m": "Main M", "shared.feat_x.n": "Branch N", "plain.p": "P"},
+        )
+        assert await self.fetch(
+            session,
+            ["shared.feat_x.m", "shared.feat_x.n", "plain.p", "plain.q"],
+        ) == {
+            "shared.feat_x.m": "Main M",
+            "shared.feat_x.n": "Branch N",
+            "plain.p": "P",
+        }
+
+    async def test_deactivated_row_blocks_fallback(
+        self,
+        session: AsyncSession,
+        user: User,
+        namespaces: None,
+    ):
+        """
+        A metric deleted in the branch does not fall back to main.
+        """
+        await add_revised_nodes(session, user, {"shared.main.m": "Main M"})
+        await add_nodes(session, user, ["shared.feat_x.m"], deactivated=True)
+        assert await self.fetch(session, ["shared.feat_x.m"]) == {}
+
+    async def test_missing_in_main_too(
+        self,
+        session: AsyncSession,
+        namespaces: None,
+    ):
+        """
+        A name main lacks as well stays missing.
+        """
+        assert await self.fetch(session, ["shared.feat_x.m"]) == {}
 
 
 @pytest.mark.asyncio
