@@ -82,6 +82,11 @@ def _stub_dataset(rows: list[list[Any]], col_names: list[str]) -> Any:
 async def bound_session_for_tools(monkeypatch):
     """Bind a contextvar session value (any object — tools we test here
     only call internals we stub out)."""
+
+    async def no_node(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(tools.Node, "get_by_name", no_node)
     token = context._session_var.set(MagicMock())  # type: ignore[arg-type]
     try:
         yield
@@ -522,7 +527,7 @@ async def test_get_node_details_node_not_found(
     bound_session_for_tools,
     monkeypatch,
 ) -> None:
-    async def fake_get_by_name(session, name, options=None):
+    async def fake_get_by_name(session, name, options=None, inherit=False):
         return None
 
     monkeypatch.setattr(tools.Node, "get_by_name", fake_get_by_name)
@@ -566,7 +571,7 @@ async def test_get_node_details_with_metric_metadata_unit(
     node.tags = []
     node.owners = []
 
-    async def fake_get_by_name(session, name, options=None):
+    async def fake_get_by_name(session, name, options=None, inherit=False):
         return node
 
     async def fake_get_dims(session, node, with_attributes=True):
@@ -627,7 +632,7 @@ async def test_get_node_details_cube_skips_dimension_lookup(
 
     get_dims_called = []
 
-    async def fake_get_by_name(session, name, options=None):
+    async def fake_get_by_name(session, name, options=None, inherit=False):
         return node
 
     async def fake_get_dims(session, node, with_attributes=True):
@@ -665,7 +670,7 @@ async def test_get_common_metric_lookup_finds_nothing(
 ) -> None:
     """Every metric name fails to resolve → friendly message, not a crash."""
 
-    async def fake_get_by_name(session, name, options=None):
+    async def fake_get_by_name(session, name, options=None, inherit=False):
         return None
 
     monkeypatch.setattr(tools.Node, "get_by_name", fake_get_by_name)
@@ -685,7 +690,7 @@ async def test_get_common_by_dimensions_branch(
     metric_node = MagicMock()
     metric_node.name = "x.revenue"
 
-    async def fake_get_by_name(session, name, options=None):
+    async def fake_get_by_name(session, name, options=None, inherit=False):
         return dim_node
 
     async def fake_get_nodes_with_common(session, dim_nodes, node_types=None):
@@ -717,7 +722,7 @@ async def test_get_common_by_dimensions_no_compatible_metrics(
 ) -> None:
     dim_node = MagicMock()
 
-    async def fake_get_by_name(session, name, options=None):
+    async def fake_get_by_name(session, name, options=None, inherit=False):
         return dim_node
 
     async def fake_get_nodes_with_common(session, dim_nodes, node_types=None):
@@ -741,7 +746,7 @@ async def test_get_common_by_dimensions_when_dim_lookup_finds_nothing(
 ) -> None:
     """Dim names that don't resolve → friendly message."""
 
-    async def fake_get_by_name(session, name, options=None):
+    async def fake_get_by_name(session, name, options=None, inherit=False):
         return None
 
     monkeypatch.setattr(tools.Node, "get_by_name", fake_get_by_name)
@@ -1071,7 +1076,7 @@ async def test_get_node_dimensions_node_not_found(
     bound_session_for_tools,
     monkeypatch,
 ) -> None:
-    async def fake_get_by_name(session, name, options=None):
+    async def fake_get_by_name(session, name, options=None, inherit=False):
         return None
 
     monkeypatch.setattr(tools.Node, "get_by_name", fake_get_by_name)
@@ -1087,7 +1092,7 @@ async def test_get_node_dimensions_no_dims(
     node = MagicMock()
     node.name = "n.foo"
 
-    async def fake_get_by_name(session, name, options=None):
+    async def fake_get_by_name(session, name, options=None, inherit=False):
         return node
 
     async def fake_get_dims(session, node, with_attributes=True):
@@ -1113,7 +1118,7 @@ async def test_get_node_dimensions_with_type_and_path(
     dim.type = "string"
     dim.path = ["fact", "customer", "region"]
 
-    async def fake_get_by_name(session, name, options=None):
+    async def fake_get_by_name(session, name, options=None, inherit=False):
         return node
 
     async def fake_get_dims(session, node, with_attributes=True):
@@ -1208,7 +1213,7 @@ async def test_get_node_details_node_with_no_current_revision(
     node.tags = []
     node.owners = []
 
-    async def fake_get_by_name(session, name, options=None):
+    async def fake_get_by_name(session, name, options=None, inherit=False):
         return node
 
     async def fake_get_dims(session, node, with_attributes=True):
@@ -1239,7 +1244,7 @@ async def test_get_node_dimensions_with_type_only(
     dim.type = "string"
     dim.path = None  # path branch off
 
-    async def fake_get_by_name(session, name, options=None):
+    async def fake_get_by_name(session, name, options=None, inherit=False):
         return node
 
     async def fake_get_dims(session, node, with_attributes=True):
@@ -1267,7 +1272,7 @@ async def test_get_node_dimensions_with_path_only(
     dim.type = None
     dim.path = ["fact", "customer", "country"]
 
-    async def fake_get_by_name(session, name, options=None):
+    async def fake_get_by_name(session, name, options=None, inherit=False):
         return node
 
     async def fake_get_dims(session, node, with_attributes=True):
