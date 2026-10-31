@@ -562,8 +562,8 @@ def _parent_can_filter(
     if node == parent and role is None:
         return True
     roles = join_role_paths(graph.links, parent, node)
-    if roles:
-        return (role or "") in roles
+    if (role or "") in roles:
+        return True
     if (node, column) in graph.references.get(parent, set()):
         return True
     return role is None and any(
