@@ -22,7 +22,7 @@ from datajunction_server.construction.build_v3.builder import (
     build_metrics_sql,
 )
 from datajunction_server.construction.build_v3.filter_requirements import (
-    load_effective_filters,
+    load_revision_filters,
 )
 from datajunction_server.construction.build_v3.prepare import prepare_metrics_query
 from datajunction_server.database.namespace import NodeNamespace
@@ -211,7 +211,9 @@ async def get_node_details(name: str) -> str:
         node_dict["current"]["requiredFilters"] = node.current.required_filters
         node_dict["current"]["recommendedFilters"] = node.current.recommended_filters
         if node.type == NodeType.METRIC:
-            effective = (await load_effective_filters(session, [name]))[name]
+            effective = (await load_revision_filters(session, [node.current.id]))[
+                node.current.id
+            ]
             for key, entries in zip(
                 ("effectiveRequiredFilters", "effectiveRecommendedFilters"),
                 effective,

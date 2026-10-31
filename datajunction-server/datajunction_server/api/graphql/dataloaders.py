@@ -15,7 +15,7 @@ from strawberry.dataloader import DataLoader
 from datajunction_server.api.graphql.resolvers.nodes import load_node_options
 from datajunction_server.api.graphql.utils import _merge_fields
 from datajunction_server.construction.build_v3.filter_requirements import (
-    load_effective_filters,
+    load_revision_filters,
 )
 from datajunction_server.construction.build_v3.loaders import find_upstream_node_names
 from datajunction_server.database.collection import Collection as DBCollection
@@ -500,25 +500,25 @@ EffectiveFilters = tuple[
 
 
 async def batch_load_effective_filters(
-    metric_names: list[str],
+    revision_ids: list[int],
     request: Request,
 ) -> list[EffectiveFilters]:
     """
-    Load the (required, recommended) filters of many metrics in one batch.
+    Load the (required, recommended) filters of many revisions in one batch.
     """
     async with session_context(
         request,
         session_label="graphql effective_filters batch",
     ) as session:
-        found = await load_effective_filters(session, metric_names)
-    return [found.get(name, ([], [])) for name in metric_names]
+        found = await load_revision_filters(session, revision_ids)
+    return [found.get(rev_id, ([], [])) for rev_id in revision_ids]
 
 
 def create_effective_filters_loader(
     request: Request,
-) -> DataLoader[str, EffectiveFilters]:
+) -> DataLoader[int, EffectiveFilters]:
     """
-    Create a DataLoader that batches effective filter lookups by metric name.
+    Create a DataLoader that batches effective filter lookups by revision id.
     """
     return InstrumentedDataLoader(
         "effective_filters",

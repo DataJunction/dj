@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, load_only, noload
+from sqlalchemy.orm import joinedload, load_only, noload, selectinload
 
 from datajunction_server.construction.build_v3.filters import parse_filter
 from datajunction_server.construction.build_v3.loaders import find_upstream_node_names
@@ -193,24 +193,27 @@ async def load_declared_entries(
             ),
         ],
     )
-    declared: dict[str, list[RequirementEntry]] = {}
-    for node in nodes:
-        if node.type != NodeType.METRIC or node.current is None:
-            continue
-        declared[node.name] = [
-            RequirementEntry(
-                attributes=item.dimension,
-                default=item.default,
-                required=required,
-                metrics=frozenset({node.name}),
-            )
-            for required, entries in (
-                (True, node.current.required_filters),
-                (False, node.current.recommended_filters),
-            )
-            for item in parse_filter_requirements(entries) or []
-        ]
-    return declared
+    return {
+        node.name: _revision_entries(node.name, node.current)
+        for node in nodes
+        if node.type == NodeType.METRIC and node.current is not None
+    }
+
+
+def _revision_entries(name: str, revision: NodeRevision) -> list[RequirementEntry]:
+    return [
+        RequirementEntry(
+            attributes=item.dimension,
+            default=item.default,
+            required=required,
+            metrics=frozenset({name}),
+        )
+        for required, entries in (
+            (True, revision.required_filters),
+            (False, revision.recommended_filters),
+        )
+        for item in parse_filter_requirements(entries) or []
+    ]
 
 
 async def load_requirement_entries(
@@ -225,34 +228,6 @@ async def load_requirement_entries(
     names, _ = await find_upstream_node_names(session, metrics)
     declared = await load_declared_entries(session, names)
     return [entry for entries in declared.values() for entry in entries]
-
-
-async def load_effective_entries(
-    session: AsyncSession,
-    metrics: list[str],
-) -> dict[str, list[RequirementEntry]]:
-    """
-    Entries for each metric: its own plus those of every metric upstream.
-
-    Looks up the upstream nodes once for all the metrics.
-    """
-    if not metrics:
-        return {}
-    names, parent_map = await find_upstream_node_names(session, metrics)
-    declared = await load_declared_entries(session, names)
-    result: dict[str, list[RequirementEntry]] = {}
-    for metric in metrics:
-        seen: set[str] = set()
-        pending = [metric]
-        while pending:
-            name = pending.pop()
-            if name not in seen:
-                seen.add(name)
-                pending.extend(parent_map.get(name, []))
-        result[metric] = [
-            entry for name in sorted(seen) for entry in declared.get(name, [])
-        ]
-    return result
 
 
 def split_effective_entries(
@@ -275,21 +250,63 @@ def split_effective_entries(
     return required, recommended
 
 
-async def load_effective_filters(
+async def load_revision_filters(
     session: AsyncSession,
-    metrics: list[str],
+    revision_ids: list[int],
 ) -> dict[
-    str,
+    int,
     tuple[list[EffectiveFilterRequirement], list[EffectiveFilterRequirement]],
 ]:
     """
-    The (required, recommended) filters each metric has, declared or inherited.
+    The (required, recommended) filters each metric revision has, declared
+    or inherited from the metrics upstream of its parents.
     """
-    by_metric = await load_effective_entries(session, metrics)
-    return {
-        metric: split_effective_entries(entries)
-        for metric, entries in by_metric.items()
-    }
+    if not revision_ids:
+        return {}
+    revisions = (
+        (
+            await session.execute(
+                select(NodeRevision)
+                .where(NodeRevision.id.in_(revision_ids))
+                .options(
+                    load_only(
+                        NodeRevision.id,
+                        NodeRevision.name,
+                        NodeRevision.required_filters,
+                        NodeRevision.recommended_filters,
+                    ),
+                    noload(NodeRevision.created_by),
+                    selectinload(NodeRevision.parents).options(
+                        load_only(Node.name),
+                        noload(Node.created_by),
+                        noload(Node.tags),
+                    ),
+                ),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    parents = {rev.id: [node.name for node in rev.parents] for rev in revisions}
+    parent_names = sorted({name for names in parents.values() for name in names})
+    parent_map: dict[str, list[str]] = {}
+    declared: dict[str, list[RequirementEntry]] = {}
+    if parent_names:
+        names, parent_map = await find_upstream_node_names(session, parent_names)
+        declared = await load_declared_entries(session, names)
+    result: dict[int, tuple[list, list]] = {}
+    for rev in revisions:
+        seen: set[str] = set()
+        pending = list(parents[rev.id])
+        while pending:
+            name = pending.pop()
+            if name not in seen:
+                seen.add(name)
+                pending.extend(parent_map.get(name, []))
+        entries = _revision_entries(rev.name, rev)
+        entries += [e for name in sorted(seen) for e in declared.get(name, [])]
+        result[rev.id] = split_effective_entries(entries)
+    return result
 
 
 async def apply_metric_filter_requirements(

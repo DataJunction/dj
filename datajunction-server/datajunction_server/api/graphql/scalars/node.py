@@ -532,7 +532,7 @@ class NodeRevision:
         """
         if root.type != NodeType.METRIC:
             return None
-        required, _ = await info.context["effective_filters_loader"].load(root.name)
+        required, _ = await info.context["effective_filters_loader"].load(root.id)
         return _effective_filters(required)
 
     @strawberry.field
@@ -546,7 +546,7 @@ class NodeRevision:
         """
         if root.type != NodeType.METRIC:
             return None
-        _, recommended = await info.context["effective_filters_loader"].load(root.name)
+        _, recommended = await info.context["effective_filters_loader"].load(root.id)
         return _effective_filters(recommended)
 
     @strawberry.field

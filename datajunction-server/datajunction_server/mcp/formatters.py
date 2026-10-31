@@ -132,7 +132,9 @@ def format_node_details(
             "effectiveRecommendedFilters",
         ),
     ):
-        entries = current.get(effective_key) or current.get(key) or []
+        entries = current.get(effective_key)
+        if entries is None:
+            entries = current.get(key) or []
         if not entries:
             continue
         result.append(title)

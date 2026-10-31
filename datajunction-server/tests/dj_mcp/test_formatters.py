@@ -467,3 +467,25 @@ def test_format_node_details_filters_without_declaring_metrics() -> None:
         + "\n\nRequired Filters:\n  • n.d.a, n.d.b\n\n"
         "Recommended Filters:\n  • n.d.c (default: n.d.c = 1)\n"
     )
+
+
+def test_format_node_details_empty_effective_list_hides_declared() -> None:
+    out = format_node_details(
+        {
+            "name": "n.foo",
+            "type": "metric",
+            "current": {
+                "requiredFilters": [],
+                "recommendedFilters": [{"dimension": ["n.d.c"], "default": None}],
+                "effectiveRequiredFilters": [
+                    {"dimension": ["n.d.c"], "default": None, "declaredBy": ["n.up"]},
+                ],
+                "effectiveRecommendedFilters": [],
+            },
+        },
+    )
+    assert out == (
+        "Node: n.foo\nType: metric\n"
+        + "=" * 60
+        + "\n\nRequired Filters:\n  • n.d.c (from metric n.up)\n"
+    )

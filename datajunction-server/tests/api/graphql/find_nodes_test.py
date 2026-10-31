@@ -4747,6 +4747,76 @@ async def test_find_nodes_effective_filter_requirements(
 
 
 @pytest.mark.asyncio
+async def test_effective_filters_follow_each_revision(
+    client_with_build_v3: AsyncClient,
+):
+    """Each revision lists its own filters, not the current revision's."""
+    client = client_with_build_v3
+    query = (await client.get("/nodes/v3.total_revenue/")).json()["query"]
+    created = await client.post(
+        "/nodes/metric/",
+        json={
+            "name": "v3.gql_rev",
+            "description": "d",
+            "query": query,
+            "mode": "published",
+            "required_filters": [{"dimension": "v3.location.country"}],
+        },
+    )
+    assert created.status_code == 201, created.text
+    patched = await client.patch(
+        "/nodes/v3.gql_rev/",
+        json={"required_filters": [{"dimension": "v3.date.date_id"}]},
+    )
+    assert patched.status_code == 200, patched.text
+    response = await client.post(
+        "/graphql",
+        json={
+            "query": """
+            {
+              findNodes(names: ["v3.gql_rev"]) {
+                revisions {
+                  version
+                  requiredFilters { dimension default }
+                  effectiveRequiredFilters { dimension default declaredBy }
+                }
+              }
+            }
+            """,
+        },
+    )
+    body = response.json()
+    assert body.get("errors") is None
+    revisions = body["data"]["findNodes"][0]["revisions"]
+    assert {rev["version"]: rev for rev in revisions} == {
+        "v1.0": {
+            "version": "v1.0",
+            "requiredFilters": [
+                {"dimension": ["v3.location.country"], "default": None},
+            ],
+            "effectiveRequiredFilters": [
+                {
+                    "dimension": ["v3.location.country"],
+                    "default": None,
+                    "declaredBy": ["v3.gql_rev"],
+                },
+            ],
+        },
+        "v2.0": {
+            "version": "v2.0",
+            "requiredFilters": [{"dimension": ["v3.date.date_id"], "default": None}],
+            "effectiveRequiredFilters": [
+                {
+                    "dimension": ["v3.date.date_id"],
+                    "default": None,
+                    "declaredBy": ["v3.gql_rev"],
+                },
+            ],
+        },
+    }
+
+
+@pytest.mark.asyncio
 async def test_required_dimensions_null_for_non_metric(
     client_with_roads: AsyncClient,
 ) -> None:

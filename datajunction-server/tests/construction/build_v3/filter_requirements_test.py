@@ -9,10 +9,11 @@ from datajunction_server.construction.build_v3.filter_requirements import (
     apply_metric_filter_requirements,
     apply_node_filter_requirements,
     apply_requirements,
-    load_effective_filters,
+    load_revision_filters,
     split_effective_entries,
 )
 from datajunction_server.models.filter_requirements import EffectiveFilterRequirement
+from datajunction_server.database.node import Node
 from datajunction_server.database.queryrequest import QueryBuildType
 from datajunction_server.errors import DJInvalidInputException, DJWarning, ErrorCode
 from datajunction_server.internal.caching.cachelib_cache import CachelibCache
@@ -488,11 +489,21 @@ async def test_effective_filters_follow_upstream_metrics(client_with_build_v3, s
         "SELECT v3.rf_mid / v3.rf_b",
         recommended_filters=[{"dimension": "v3.location.city"}],
     )
-    assert await load_effective_filters(session, []) == {}
-    assert await load_effective_filters(
-        session,
-        ["v3.rf_a", "v3.rf_mid", "v3.rf_top", "v3.total_revenue", "v3.order_details"],
-    ) == {
+    names = [
+        "v3.rf_a",
+        "v3.rf_mid",
+        "v3.rf_top",
+        "v3.total_revenue",
+        "v3.order_details",
+        "v3.src_orders",
+    ]
+    ids = {}
+    for name in names:
+        node = await Node.get_by_name(session, name)
+        ids[name] = node.current.id
+    assert await load_revision_filters(session, []) == {}
+    found = await load_revision_filters(session, list(ids.values()))
+    assert {name: found[rev_id] for name, rev_id in ids.items()} == {
         "v3.rf_a": (
             [effective(["v3.date.date_id"], declared_by=("v3.rf_a",))],
             [effective(["v3.location.country"], declared_by=("v3.rf_a",))],
@@ -504,10 +515,14 @@ async def test_effective_filters_follow_upstream_metrics(client_with_build_v3, s
         "v3.rf_top": (
             [effective(["v3.date.date_id"], declared_by=("v3.rf_a", "v3.rf_b"))],
             [
-                effective(["v3.location.country"], declared_by=("v3.rf_a",)),
                 effective(["v3.location.city"], declared_by=("v3.rf_top",)),
+                effective(["v3.location.country"], declared_by=("v3.rf_a",)),
             ],
         ),
         "v3.total_revenue": ([], []),
         "v3.order_details": ([], []),
+        "v3.src_orders": ([], []),
+    }
+    assert await load_revision_filters(session, [ids["v3.src_orders"]]) == {
+        ids["v3.src_orders"]: ([], []),
     }

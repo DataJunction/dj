@@ -720,11 +720,12 @@ async def test_fixed_grain_extraction_survives_a_cold_session(
 
 
 @pytest.mark.asyncio
-async def test_batch_load_effective_filters_unknown_metric(
+async def test_batch_load_effective_filters_unknown_revision(
     client_with_roads,
     session_factory,
 ):
-    """A name that is not a metric gets empty lists."""
+    """A revision without filters, or an unknown id, gets empty lists."""
+    nr_id = await _regional_repair_efficiency_nr_id(client_with_roads)
     with patch(
         "datajunction_server.api.graphql.dataloaders.session_context",
         lambda request=None, session_label=None: _cold_session_context(
@@ -732,7 +733,7 @@ async def test_batch_load_effective_filters_unknown_metric(
         ),
     ):
         results = await batch_load_effective_filters(
-            ["default.num_repair_orders", "does.not.exist"],
+            [nr_id, -1],
             MagicMock(),
         )
     assert results == [([], []), ([], [])]
