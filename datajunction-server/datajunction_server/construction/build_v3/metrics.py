@@ -1870,25 +1870,11 @@ def build_window_cte_from_grain_group(
                 col_node.name = ast.Name(short_name)
                 col_node._table = ast.Table(ast.Name(source_cte_alias))
 
-        # Replace dimension references
-        for col_node in expr_ast.find_all(ast.Column):
-            col_full_name = (
-                col_node.identifier() if hasattr(col_node, "identifier") else ""
-            )
-            for gg_col in window_grain_group.columns:
-                if gg_col.semantic_type == "dimension":
-                    if col_full_name == gg_col.semantic_name or col_full_name.endswith(
-                        "." + gg_col.name,
-                    ):
-                        col_node.name = ast.Name(gg_col.name)
-                        col_node._table = ast.Table(ast.Name(source_cte_alias))
-                        break
-
         # Unwrap Subscript expressions in ORDER BY clauses (role suffix handling)
         for func in expr_ast.find_all(ast.Function):
             if func.over and func.over.order_by:
                 for sort_item in func.over.order_by:
-                    if isinstance(sort_item.expr, ast.Subscript):
+                    if isinstance(sort_item.expr, ast.Subscript):  # pragma: no branch
                         sort_item.expr = sort_item.expr.expr
 
         # Inject PARTITION BY
