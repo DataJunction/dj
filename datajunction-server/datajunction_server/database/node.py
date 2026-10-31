@@ -42,6 +42,7 @@ from sqlalchemy.orm import (
     noload,
     relationship,
     selectinload,
+    undefer,
 )
 from sqlalchemy.sql.base import ExecutableOption
 from sqlalchemy.sql.operators import is_, or_
@@ -920,7 +921,9 @@ class Node(Base):
         if not wanted:
             return {}
         statement = (
-            select(Node).where(_name_in(list(wanted.values()))).options(*options)
+            select(Node)
+            .where(_name_in(list(wanted.values())))
+            .options(*options, undefer(Node.name))
         )
         if not include_inactive:
             statement = statement.where(is_(Node.deactivated_at, None))

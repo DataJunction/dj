@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 import pytest
 import pytest_asyncio
 from sqlalchemy import event
+from sqlalchemy.orm import load_only
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.namespace import NodeNamespace
@@ -335,6 +336,25 @@ class TestInheritedLookup:
             session,
             "shared.feat_x.orders",
             include_inactive=True,
+            inherit=True,
+        )
+        assert node is not None
+        assert node.name == "shared.main.orders"
+
+    async def test_get_by_name_loads_name_with_narrow_options(
+        self,
+        session: AsyncSession,
+        user: User,
+        namespaces: None,
+    ):
+        """
+        An inherited node has its name loaded even when the caller loads only ids.
+        """
+        await add_nodes(session, user, ["shared.main.orders"])
+        node = await Node.get_by_name(
+            session,
+            "shared.feat_x.orders",
+            options=[load_only(Node.id)],
             inherit=True,
         )
         assert node is not None
