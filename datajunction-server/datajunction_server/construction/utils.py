@@ -3,6 +3,7 @@ Utilities used around construction
 """
 
 import decimal
+from collections.abc import Iterable
 import time
 from typing import TYPE_CHECKING
 
@@ -109,28 +110,34 @@ async def get_dj_node(
     current: bool = True,
 ) -> NodeRevision:
     """Return the DJ Node with a given name from a set of node types"""
+    from datajunction_server.internal.branch_scope import inherited_names
+
     start = time.monotonic()
-    query = select(Node).filter(Node.name == node_name)
-    if kinds:
-        query = query.filter(Node.type.in_(kinds))  # type: ignore
+    options = joinedload(Node.current).options(
+        # Load the back-reference to Node so .node is available
+        # without triggering lazy loading (avoids MissingGreenlet errors)
+        joinedload(NodeRevision.node),
+        *NodeRevision.default_load_options(),
+    )
+
+    async def find(name: str) -> Node | None:
+        query = select(Node).filter(Node.name == name)
+        if kinds:
+            query = query.filter(Node.type.in_(kinds))  # type: ignore
+        return (
+            (await session.execute(query.options(options)))
+            .unique()
+            .scalar_one_or_none()
+        )
+
     match = None
     try:
-        match = (
-            (
-                await session.execute(
-                    query.options(
-                        joinedload(Node.current).options(
-                            # Load the back-reference to Node so .node is available
-                            # without triggering lazy loading (avoids MissingGreenlet errors)
-                            joinedload(NodeRevision.node),
-                            *NodeRevision.default_load_options(),
-                        ),
-                    ),
-                )
-            )
-            .unique()
-            .scalar_one()
-        )
+        match = await find(node_name)
+        if match is None:
+            parent = (await inherited_names(session, [node_name])).get(node_name)
+            match = await find(parent) if parent else None
+        if match is None:
+            raise NoResultFound
     except NoResultFound as no_result_exc:
         kind_msg = " or ".join(str(k) for k in kinds) if kinds else ""
         raise DJErrorException(
@@ -170,3 +177,18 @@ def to_namespaced_name(name: str) -> "Name":
             current_name.namespace = Name(chunk)
             current_name = current_name.namespace
     return full_name  # type: ignore
+
+
+async def missing_to_parent(
+    session: AsyncSession,
+    requested: Iterable[str],
+    found: Iterable[str],
+) -> dict[str, str]:
+    """
+    Maps requested names with no result to default-branch names.
+    """
+    from datajunction_server.internal.branch_scope import inherited_names
+
+    found_names = set(found)
+    missing = [name for name in requested if name not in found_names]
+    return await inherited_names(session, missing) if missing else {}

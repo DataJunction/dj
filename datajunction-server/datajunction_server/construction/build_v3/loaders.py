@@ -17,6 +17,7 @@ from datajunction_server.construction.build_v3.dimensions import parse_dimension
 from datajunction_server.construction.build_v3.preagg_freshness import preagg_is_fresh
 from datajunction_server.construction.build_v3.types import BuildContext
 from datajunction_server.construction.build_v3.utils import iter_namespaced_columns
+from datajunction_server.construction.utils import missing_to_parent
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import Column, Node, NodeRevision
 from datajunction_server.database.preaggregation import PreAggregation
@@ -126,7 +127,7 @@ def _collect_metric_expression_dim_nodes(ctx: BuildContext) -> set[str]:
 async def batch_load_nodes_with_dependencies(
     session: AsyncSession,
     node_names: set[str] | list[str],
-) -> list[Node]:
+) -> dict[str, Node]:
     """
     Batch-load a set of nodes with the eager-load tree the v3 SQL builders
     rely on (current revision, columns, catalog, availability, required
@@ -135,6 +136,29 @@ async def batch_load_nodes_with_dependencies(
     Used both by ``load_nodes`` (for metric-driven SQL building) and by
     single-node entrypoints like ``build_node_sql_v3`` that want the same
     eager-load shape without the metric-required scaffolding around it.
+
+    Returns nodes keyed by requested name. A branch name with no node falls
+    back to the default branch's node, which is also keyed by its own name.
+    """
+    found = {node.name: node for node in await _load_nodes_by_name(session, node_names)}
+    parents = await missing_to_parent(session, node_names, found)
+    to_load = set(parents.values()) - set(found)
+    if to_load:
+        found.update(
+            {node.name: node for node in await _load_nodes_by_name(session, to_load)},
+        )
+    for name, parent in parents.items():
+        if parent in found:
+            found[name] = found[parent]
+    return found
+
+
+async def _load_nodes_by_name(
+    session: AsyncSession,
+    node_names: set[str] | list[str],
+) -> list[Node]:
+    """
+    Loads the active nodes with these exact names.
     """
     stmt = (
         select(Node)
@@ -194,6 +218,33 @@ async def batch_load_nodes_with_dependencies(
 
 
 async def find_upstream_node_names(
+    session: AsyncSession,
+    starting_node_names: list[str],
+) -> tuple[set[str], dict[str, list[str]]]:
+    """
+    Find upstream node names, including those of inherited starting nodes.
+
+    A branch name with no node is traced through the default branch's node,
+    and appears under both names.
+    """
+    all_names, parent_map = await _find_upstream(session, starting_node_names)
+    parents = await missing_to_parent(session, starting_node_names, all_names)
+    if not parents:
+        return all_names, parent_map
+    extra_names, extra_map = await _find_upstream(
+        session,
+        sorted(set(parents.values())),
+    )
+    all_names |= extra_names
+    parent_map.update(extra_map)
+    for name, parent in parents.items():
+        if parent in extra_names:
+            all_names.add(name)
+            parent_map[name] = extra_map.get(parent, [])
+    return all_names, parent_map
+
+
+async def _find_upstream(
     session: AsyncSession,
     starting_node_names: list[str],
 ) -> tuple[set[str], dict[str, list[str]]]:
@@ -496,8 +547,7 @@ async def load_nodes(ctx: BuildContext) -> None:
     nodes = await batch_load_nodes_with_dependencies(ctx.session, all_node_names)
 
     # Cache all loaded nodes
-    for node in nodes:
-        ctx.nodes[node.name] = node
+    ctx.nodes.update(nodes)
 
     # Map column-level reference-dimension ids -> dimension node names. The
     # Column.dimension relationship doesn't reliably eager-load in this build,
@@ -676,9 +726,9 @@ async def load_post_preload_chain(
     if not nodes_to_load:  # pragma: no cover
         return
 
-    nodes = await batch_load_nodes_with_dependencies(ctx.session, nodes_to_load)
-    for node in nodes:
-        ctx.nodes[node.name] = node
+    ctx.nodes.update(
+        await batch_load_nodes_with_dependencies(ctx.session, nodes_to_load),
+    )
 
 
 async def load_available_preaggs(ctx: BuildContext) -> None:

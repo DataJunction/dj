@@ -41,6 +41,7 @@ from datajunction_server.construction.build_v3.types import (
 from datajunction_server.construction.build_v3.utils import (
     extract_filter_dimension_refs,
 )
+from datajunction_server.construction.utils import missing_to_parent
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
@@ -127,11 +128,7 @@ async def _metric_graph_has_reaggregate(
     pending = set(metrics)
     ParentNode = aliased(Node)
 
-    while pending:
-        batch = sorted(pending - seen)
-        if not batch:
-            break
-        seen.update(batch)
+    async def fetch(names: list[str]) -> list:
         result = await session.execute(
             select(
                 Node.name,
@@ -154,10 +151,21 @@ async def _metric_graph_has_reaggregate(
                     ParentNode.type == NodeType.METRIC,
                 ),
             )
-            .where(Node.name.in_(batch))
+            .where(Node.name.in_(names))
             .where(Node.type == NodeType.METRIC),
         )
-        for _, reaggregate, parent_name in result.all():
+        return list(result.all())
+
+    while pending:
+        batch = sorted(pending - seen)
+        if not batch:
+            break
+        seen.update(batch)
+        rows = await fetch(batch)
+        parents = await missing_to_parent(session, batch, [row[0] for row in rows])
+        if parents:
+            rows += await fetch(sorted(set(parents.values())))
+        for _, reaggregate, parent_name in rows:
             if reaggregate:
                 return True
             if parent_name and parent_name not in seen:

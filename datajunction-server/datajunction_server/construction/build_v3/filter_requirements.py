@@ -10,6 +10,7 @@ from datajunction_server.construction.build_v3.loaders import find_upstream_node
 from datajunction_server.construction.build_v3.utils import (
     extract_filter_dimension_refs,
 )
+from datajunction_server.construction.utils import missing_to_parent
 from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
 from datajunction_server.errors import (
     DJError,
@@ -175,6 +176,26 @@ async def load_declared_entries(
     """
     Entries each metric among the named nodes declares itself.
     """
+    rows = await _declared_rows(session, sorted(names))
+    parents = await missing_to_parent(session, names, rows)
+    if parents:
+        parent_rows = await _declared_rows(session, sorted(set(parents.values())))
+        for name, parent in parents.items():
+            if parent in parent_rows:
+                rows[name] = parent_rows[parent]
+    return {
+        name: _revision_entries(name, required, recommended)
+        for name, (required, recommended) in sorted(rows.items())
+    }
+
+
+async def _declared_rows(
+    session: AsyncSession,
+    names: list[str],
+) -> dict[str, tuple[list[dict] | None, list[dict] | None]]:
+    """
+    The (required, recommended) filters of each active metric named.
+    """
     rows = await session.execute(
         select(
             Node.name,
@@ -188,15 +209,12 @@ async def load_declared_entries(
                 NodeRevision.version == Node.current_version,
             ),
         )
-        .where(Node.name.in_(sorted(names)))
+        .where(Node.name.in_(names))
         .where(Node.type == NodeType.METRIC)
         .where(Node.deactivated_at.is_(None))
         .order_by(Node.name),
     )
-    return {
-        name: _revision_entries(name, required, recommended)
-        for name, required, recommended in rows
-    }
+    return {name: (required, recommended) for name, required, recommended in rows}
 
 
 def _revision_entries(
@@ -378,10 +396,20 @@ async def apply_node_filter_requirements(
             .where(Node.deactivated_at.is_(None)),
         )
     ).scalar_one_or_none()
+    if node_type is None:
+        parent = (await missing_to_parent(session, [node_name], [])).get(node_name)
+        if parent:
+            node_type = (
+                await session.execute(
+                    select(Node.type)
+                    .where(Node.name == parent)
+                    .where(Node.deactivated_at.is_(None)),
+                )
+            ).scalar_one_or_none()
     if node_type == NodeType.METRIC:
         return await apply_metric_filter_requirements(session, [node_name], filters)
     if node_type == NodeType.CUBE:
-        cube = await Node.get_cube_by_name(session, node_name)
+        cube = await Node.get_cube_by_name(session, node_name, inherit=True)
         revision = cube.current  # type: ignore[union-attr]
         stored = list(revision.cube_filters or [])
         effective, warnings = await apply_metric_filter_requirements(
