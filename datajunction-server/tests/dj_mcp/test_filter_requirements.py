@@ -66,7 +66,8 @@ def _tail(text, marker):
 @pytest.mark.asyncio
 async def test_build_metric_sql_prints_applied_default(mcp_client_with_metric):
     text = await tools.build_metric_sql(
-        ["v3.mcp_default"], ["v3.location.country[from]"]
+        ["v3.mcp_default"],
+        ["v3.location.country[from]"],
     )
     assert _tail(text, "Output Columns:") == [
         "Output Columns:",
@@ -224,7 +225,8 @@ async def test_get_metric_data_applies_default_and_prints_warning(
     service = _FakeQueryService()
     monkeypatch.setattr(tools, "get_query_service_client", lambda settings: service)
     text = await tools.get_metric_data(
-        ["v3.mcp_default"], ["v3.location.country[from]"]
+        ["v3.mcp_default"],
+        ["v3.location.country[from]"],
     )
     assert _tail(text, "Warnings:") == ["Warnings:", RULE, DEFAULT_WARNING]
     assert len(service.submitted) == 1
