@@ -63,6 +63,7 @@ SCENARIOS = [
     Scenario("join-role", "base", "ag_employee.country[staff]", True),
     Scenario("reference", "base", "ag_plan.plan_code", True),
     Scenario("reference-any-role", "base", "ag_plan.plan_code[any]", True),
+    Scenario("reference-beside-join-role", "base", "ag_plan.plan_code[billing]", True),
     Scenario("reference-other-column", "base", "ag_plan.tier", False),
     Scenario("join-then-reference", "base", "ag_country.name", False),
     Scenario("upstream-key", "base", "ag_date.dateint", True),
@@ -153,9 +154,9 @@ def graph_calls(ns: str) -> list[tuple[str, dict | None, dict | None]]:
 
     The metric reads the transform ag_sales. Its upstream source links to
     ag_date. ag_sales links to ag_employee as `staff`, ag_employee links to
-    itself as `manager` and to ag_office as `work`. ag_sales.plan_code
-    references ag_plan.plan_code, and ag_employee.country references
-    ag_country.name. Nothing links to ag_island. A second fact, the source
+    itself as `manager` and to ag_office as `work`. ag_sales also links to
+    ag_plan as `billing`, and ag_sales.plan_code references ag_plan.plan_code.
+    ag_employee.country references ag_country.name. Nothing links to ag_island. A second fact, the source
     ag_src_visits, links to ag_employee as `staff`.
     """
     calls: list[tuple[str, dict | None, dict | None]] = []
@@ -265,6 +266,12 @@ def graph_calls(ns: str) -> list[tuple[str, dict | None, dict | None]]:
             "ag_employee",
             f"{ns}.ag_sales.staff_id = {ns}.ag_employee.employee_id",
             "staff",
+        ),
+        (
+            "ag_sales",
+            "ag_plan",
+            f"{ns}.ag_sales.plan_code = {ns}.ag_plan.plan_code",
+            "billing",
         ),
         (
             "ag_employee",
