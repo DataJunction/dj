@@ -600,7 +600,7 @@ class TestFanoutGuardAllows:
             "/sql/measures/v3/",
             params={
                 "metrics": ["v3.total_revenue"],
-                "dimensions": ["v3.customer.name"],
+                "dimensions": ["v3.customer.name[customer]"],
             },
         )
         assert response.status_code == 200, response.json()
