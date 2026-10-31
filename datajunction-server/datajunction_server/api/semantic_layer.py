@@ -4,24 +4,41 @@ cubes (each cube = a "view").
 
 Spec: https://github.com/betodealmeida/sl-db-engine-spec/blob/main/server/SPEC.md
 
-DJ generates SQL; the client executes it. This router does NOT run queries —
-``/views/{view}/sql`` returns physical SQL + dialect for the client to run;
-``/views/list`` and ``/views/{view}`` are metadata. Mounted at ``/semantic``.
+``/views/{view}/sql`` returns physical SQL + dialect for external clients;
+the spec's data endpoints execute that SQL through the configured query client.
+Mounted at ``/semantic``.
 """
 
 import logging
+import math
+from copy import deepcopy
+from dataclasses import dataclass
+from decimal import Decimal
+from http import HTTPStatus
 from typing import Any
 
-from fastapi import Body, Depends
+from fastapi import Body, Depends, Request, Response
+from fastapi.exceptions import RequestValidationError
+from fastapi.routing import APIRoute
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field  # pylint: disable=no-name-in-module
+from pydantic import BaseModel, ConfigDict, Field  # pylint: disable=no-name-in-module
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.exceptions import HTTPException
+from starlette.requests import ClientDisconnect
 
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.user import User
+from datajunction_server.construction.build_v3.cube_matcher import (
+    ResolvedExecutionContext,
+    resolve_dialect_and_engine_for_metrics,
+)
 from datajunction_server.errors import DJException, DJInvalidMetricQueryException
+from datajunction_server.constants import (
+    AUTH_COOKIE,
+    LOGGED_IN_FLAG_COOKIE,
+)
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
@@ -55,16 +72,85 @@ from datajunction_server.construction.build_v3.utils import (
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.access import ResourceAction, ResourceType
+from datajunction_server.models.query import QueryCreate, QueryWithResults
+from datajunction_server.service_clients import QueryServiceClient
+from datajunction_server.query_clients.catalog import catalog_from_engine_uri
 from datajunction_server.sql.parsing import ast
-from datajunction_server.utils import get_current_user, get_session
+from datajunction_server.sql.parsing.ast import to_sql
+from datajunction_server.typing import QueryState
+from datajunction_server.utils import (
+    get_current_user,
+    get_query_service_client,
+    get_session,
+)
 
 logger = logging.getLogger(__name__)
+
 
 # SecureAPIRouter (vs a plain APIRouter) attaches the DJHTTPBearer dependency,
 # which validates the JWT/cookie and populates ``request.state.user`` so that
 # ``get_current_user`` resolves — matching every other secured router
 # (cubes, nodes, …).
-router = SecureAPIRouter(prefix="/semantic", tags=["semantic-layer"])
+class SemanticAPIRoute(APIRoute):
+    """Format semantic route request validation as problem details."""
+
+    def get_route_handler(self):
+        handler = super().get_route_handler()
+
+        async def with_problem_details(request: Request):
+            try:
+                return await handler(request)
+            except RequestValidationError as exc:
+                invalid_params = []
+                for error in exc.errors():
+                    location = error["loc"]
+                    parts = (
+                        location[1:] if location and location[0] == "body" else location
+                    )
+                    pointer = "/" + "/".join(
+                        str(part).replace("~", "~0").replace("/", "~1")
+                        for part in parts
+                    )
+                    invalid_params.append({"name": pointer, "reason": error["msg"]})
+                return _problem(
+                    422,
+                    "Request failed schema validation.",
+                    invalid_params=invalid_params,
+                    code="VALIDATION_ERROR",
+                )
+            except ClientDisconnect:
+                raise
+            except HTTPException as exc:
+                response = _problem(exc.status_code, str(exc.detail))
+                response.headers.update(exc.headers or {})
+                if exc.status_code == HTTPStatus.UNAUTHORIZED:
+                    response.delete_cookie(AUTH_COOKIE, httponly=True)
+                    response.delete_cookie(LOGGED_IN_FLAG_COOKIE)
+                return response
+            except DJException as exc:
+                logger.exception("Semantic API request failed")
+                response = _problem(
+                    exc.http_status_code or 500,
+                    "Query execution failed."
+                    if (exc.http_status_code or 500) >= 500
+                    else exc.message,
+                )
+                if exc.http_status_code == HTTPStatus.UNAUTHORIZED:
+                    response.delete_cookie(AUTH_COOKIE, httponly=True)
+                    response.delete_cookie(LOGGED_IN_FLAG_COOKIE)
+                return response
+            except Exception:
+                logger.exception("Unhandled semantic API error")
+                return _problem(500, "Internal server error.")
+
+        return with_problem_details
+
+
+router = SecureAPIRouter(
+    prefix="/semantic",
+    tags=["semantic-layer"],
+    route_class=SemanticAPIRoute,
+)
 
 # Default row limit applied when the caller doesn't specify one, to bound result size.
 DEFAULT_ROW_LIMIT = 10000
@@ -106,12 +192,41 @@ DJ_TO_ARROW_TYPE_NAMES = {
 # ---------------------------------------------------------------------------
 
 
-def _problem(status_code: int, detail: str) -> JSONResponse:
-    """Build an error response matching the spec's ``{status_code, detail}`` shape."""
+def _problem(
+    status_code: int,
+    detail: str,
+    *,
+    invalid_params: list[dict[str, str]] | None = None,
+    code: str | None = None,
+) -> JSONResponse:
+    """Build an RFC 9457 problem response for this adapter."""
+    try:
+        title = HTTPStatus(status_code).phrase
+    except ValueError:
+        title = "Error"
+    # Python 3.13 renamed this phrase to "Unprocessable Content". Keep the
+    # public problem title stable across supported Python versions.
+    if status_code == 422:
+        title = "Unprocessable Entity"
+    content: dict[str, Any] = {
+        "type": "about:blank",
+        "title": title,
+        "status": status_code,
+        "detail": detail,
+    }
+    if invalid_params is not None:
+        content["invalid_params"] = invalid_params
+    if code is not None:
+        content["code"] = code
     return JSONResponse(
         status_code=status_code,
-        content={"status_code": status_code, "detail": detail},
+        media_type="application/problem+json",
+        content=content,
     )
+
+
+def _view_not_found(view_name: str) -> JSONResponse:
+    return _problem(404, f"View `{view_name}` does not exist.", code="VIEW_NOT_FOUND")
 
 
 def _arrow_type_name(dj_type: Any) -> str | None:
@@ -290,14 +405,20 @@ def _filter_to_sql(flt: "FilterPayload") -> str:
 # ---------------------------------------------------------------------------
 
 
-class OrderPayload(BaseModel):
+class RequestModel(BaseModel):
+    """Reject unknown spec fields instead of silently dropping them."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class OrderPayload(RequestModel):
     """A single ORDER BY clause."""
 
     by: str
     direction: str = "ASC"
 
 
-class FilterPayload(BaseModel):
+class FilterPayload(RequestModel):
     """A WHERE/HAVING filter."""
 
     type: str = "WHERE"
@@ -306,7 +427,7 @@ class FilterPayload(BaseModel):
     value: Any = None
 
 
-class GroupLimitPayload(BaseModel):
+class GroupLimitPayload(RequestModel):
     """Top or bottom groups selected independently of the displayed rows.
 
     GROUP_OTHERS currently uses the fixed label ``Others``. A real ranked value
@@ -322,7 +443,7 @@ class GroupLimitPayload(BaseModel):
     filters: list[FilterPayload] | None = None
 
 
-class QueryPayload(BaseModel):
+class QueryPayload(RequestModel):
     """The query specification."""
 
     metrics: list[str] = Field(default_factory=list)
@@ -330,13 +451,11 @@ class QueryPayload(BaseModel):
     filters: list[FilterPayload] = Field(default_factory=list)
     order: list[OrderPayload] = Field(default_factory=list)
     limit: int | None = None
-    # Accepted so we can explicitly reject it (DJ SQL generation has no offset);
-    # silently ignoring it would return page 1 for every page.
     offset: int | None = None
     group_limit: GroupLimitPayload | None = None
 
 
-class QueryRequest(BaseModel):
+class QueryRequest(RequestModel):
     """Body for POST /views/{view_name}/sql (backs the spec's /query)."""
 
     additional_configuration: dict[str, Any] = Field(default_factory=dict)
@@ -360,12 +479,20 @@ class ViewHierarchy(BaseModel):
     values: list[str | None] | None = None
 
 
-class ValuesRequest(BaseModel):
+class ValuesRequest(RequestModel):
     """Body for POST /views/{view_name}/values."""
 
     additional_configuration: dict[str, Any] = Field(default_factory=dict)
     dimension: str
     filters: list[FilterPayload] = Field(default_factory=list)
+
+
+class CompatibilityRequest(RequestModel):
+    """Selected semantic element ids from the current view."""
+
+    additional_configuration: dict[str, Any] = Field(default_factory=dict)
+    selected_metrics: list[str] = Field(default_factory=list)
+    selected_dimensions: list[str] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -446,6 +573,35 @@ class GeneratedSQLResponse(BaseModel):
     dialect: str
     columns: list[ColumnInfo]
     cube_name: str | None
+
+
+@dataclass
+class PreparedSemanticQuery:
+    """SQL and the exact execution target selected for this request."""
+
+    generated: GeneratedSQLResponse
+    execution: ResolvedExecutionContext
+
+
+class RequestInfo(BaseModel):
+    """A backend request made to produce a semantic result."""
+
+    type: str
+    definition: str
+
+
+class TableResult(BaseModel):
+    """Tabular output using the spec's Arrow JSON type names."""
+
+    schema_: list[ColumnInfo] = Field(alias="schema")
+    rows: list[dict[str, Any]]
+
+
+class SemanticResult(BaseModel):
+    """Executed SQL and its tabular result."""
+
+    requests: list[RequestInfo]
+    results: TableResult
 
 
 # ---------------------------------------------------------------------------
@@ -738,6 +894,7 @@ async def _list_semantic_branches(
     "/views/list",
     response_model=list[ViewSummary] | BrowseViewsResponse,
     response_model_exclude_unset=True,
+    deprecated=True,
 )
 async def list_views(
     request: ListViewsRequest | None = Body(default=None),
@@ -746,8 +903,8 @@ async def list_views(
 ) -> list[ViewSummary] | BrowseViewsResponse | JSONResponse:
     """List the semantic views (DJ cubes) available to the caller.
 
-    The spec's ``/views`` returns summaries only;
-    full metrics/dimensions are fetched per-view via ``/views/{view}``.
+    ``/views/list`` remains as a deprecated alias. Full metrics and dimensions
+    are fetched per-view via ``/views/{view}``.
     """
     try:
         configuration = request.runtime_configuration if request else {}
@@ -917,8 +1074,11 @@ async def get_view(
     view_name: str,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> ViewDetail | JSONResponse:
     """Describe a single semantic view: its metrics and dimensions."""
+    if not await _can_read_view(view_name, access_checker):
+        return _view_not_found(view_name)
     try:
         cube_node = await Node.get_cube_by_name(
             session,
@@ -928,8 +1088,15 @@ async def get_view(
     except DJException as exc:
         return _problem(exc.http_status_code or 404, exc.message)
     if cube_node is None or cube_node.current is None:
-        return _problem(404, f"View `{view_name}` does not exist.")
+        return _view_not_found(view_name)
     return _view_payload(cube_node.current)
+
+
+async def _can_read_view(view_name: str, access_checker: AccessChecker) -> bool:
+    """Apply the same cube READ decision used by view discovery."""
+    access_checker.add_request_by_node_name(view_name, ResourceAction.READ)
+    approved = await access_checker.approved_resource_keys()
+    return (ResourceType.NODE, view_name) in approved
 
 
 def _limit_to_ranked_groups(
@@ -937,7 +1104,7 @@ def _limit_to_ranked_groups(
     ranked: V3GeneratedSQL,
     dimensions: list[str],
     orderby: list[str] | None,
-    limit: int,
+    limit: int | None,
 ) -> V3GeneratedSQL:
     """Keep main-query rows whose dimension tuple occurs in the top-N query."""
     main_columns = {column.semantic_name: column.name for column in main.columns}
@@ -1039,7 +1206,7 @@ async def _generate_sql(
     payload: QueryPayload,
     cube_rev: NodeRevision,
     row_count: bool = False,
-) -> GeneratedSQLResponse:
+) -> tuple[GeneratedSQLResponse, set[str], ResolvedExecutionContext]:
     """Generate physical SQL pinned to this cube (``matched_cube=cube_rev``), so
     we don't let ``find_matching_cube`` pick a different/differently-filtered
     materialization.
@@ -1049,24 +1216,23 @@ async def _generate_sql(
         if payload.order
         else None
     )
-    limit = payload.limit if payload.limit is not None else DEFAULT_ROW_LIMIT
+    # An unpaginated row count must include every matching row.
+    limit = payload.limit
+    if limit is None and not row_count:
+        limit = DEFAULT_ROW_LIMIT
 
     request_filters = [_filter_to_sql(f) for f in payload.filters]
     group_limit = payload.group_limit
+    execution = await resolve_dialect_and_engine_for_metrics(
+        session=session,
+        metrics=payload.metrics or cube_rev.cube_node_metrics,
+        dimensions=payload.dimensions,
+        filters=request_filters,
+        matched_cube=cube_rev,
+        use_materialized=group_limit is None,
+    )
     ranked_sql: V3GeneratedSQL | None = None
     if group_limit and group_limit.group_others and payload.metrics:
-        from datajunction_server.construction.build_v3.cube_matcher import (
-            resolve_dialect_and_engine_for_metrics,
-        )
-
-        execution = await resolve_dialect_and_engine_for_metrics(
-            session=session,
-            metrics=payload.metrics,
-            dimensions=payload.dimensions,
-            filters=request_filters,
-            matched_cube=cube_rev,
-            use_materialized=False,
-        )
         ranked_sql = await _build_ranked_groups_sql(
             session,
             cube_rev,
@@ -1086,7 +1252,7 @@ async def _generate_sql(
             # Build both sides from live sources so an available Druid cube
             # cannot route this SQL to Druid's restricted join planner.
             use_materialized=payload.group_limit is None,
-            dialect=ranked_sql.dialect if ranked_sql else None,
+            dialect=execution.dialect,
             orderby=None if payload.group_limit else orderby,
             limit=None if payload.group_limit else limit,
             group_others=(
@@ -1103,6 +1269,7 @@ async def _generate_sql(
             filters=request_filters,
             matched_cube=cube_rev,
             use_materialized=payload.group_limit is None,
+            dialect=execution.dialect,
             orderby=None if payload.group_limit else orderby,
             limit=None if payload.group_limit else limit,
             endpoint="/semantic-layer/views/sql",
@@ -1132,36 +1299,153 @@ async def _generate_sql(
                 orderby,
                 limit,
             )
+    if (
+        row_count
+        and payload.offset
+        and payload.limit is None
+        and execution.dialect == Dialect.BIGQUERY
+    ):
+        # BigQuery requires LIMIT with OFFSET. INT64's maximum preserves the
+        # unbounded page-count behavior for any representable row count.
+        generated_sql.query.select.limit = ast.Number(2**63 - 1)
+    if payload.offset:
+        generated_sql.query.select.offset = ast.Number(payload.offset)
     if row_count:
         generated_sql = build_row_count_sql(generated_sql)
-    # ``generated_sql.sql`` renders via ``to_sql(query, dialect)``, which already
-    # applies DJ's dialect rules and transpiles to the resolved dialect, so it is
-    # execution-ready for the caller (which runs it directly). We return the
-    # dialect so the caller knows which engine to run it on.
+    # Render with DJ's dialect rules and remove catalog qualifiers when the
+    # target is PostgreSQL. Return the dialect so callers know which engine to run.
     columns = generated_sql.columns or []
-    return GeneratedSQLResponse(
-        sql=generated_sql.sql,
-        dialect=generated_sql.dialect.value,
-        columns=[
-            ColumnInfo(name=col.name, type=_generated_column_arrow_type_name(col))
-            for col in columns
-        ],
-        cube_name=generated_sql.cube_name,
+    physical_catalogs = _physical_catalogs(generated_sql)
+    return (
+        GeneratedSQLResponse(
+            sql=_executable_sql(
+                generated_sql,
+                execution.catalog_name,
+                catalog_from_engine_uri(execution.engine.uri, execution.dialect),
+            ),
+            dialect=generated_sql.dialect.value,
+            columns=[
+                ColumnInfo(name=col.name, type=_generated_column_arrow_type_name(col))
+                for col in columns
+            ],
+            cube_name=generated_sql.cube_name,
+        ),
+        physical_catalogs,
+        execution,
     )
 
 
-async def _generate_view_sql(
+def _physical_catalogs(generated_sql: V3GeneratedSQL) -> set[str]:
+    """Catalog qualifiers on physical tables, excluding local CTE references."""
+    return {
+        identifier.split(".", 1)[0]
+        for table in generated_sql.query.find_all(ast.Table)
+        if (identifier := table.identifier(quotes=False)).count(".") == 2
+    }
+
+
+def _catalog_error(
+    generated: GeneratedSQLResponse,
+    physical_catalogs: set[str],
+    execution: ResolvedExecutionContext,
+) -> JSONResponse | None:
+    if generated.dialect == Dialect.POSTGRES.value and physical_catalogs - {
+        execution.catalog_name,
+    }:
+        return _problem(
+            400,
+            "PostgreSQL query references a catalog outside its execution database: "
+            + ", ".join(sorted(physical_catalogs - {execution.catalog_name})),
+        )
+    return None
+
+
+async def _prepare_execution(
+    session: AsyncSession,
+    cube_rev: NodeRevision,
+    payload: QueryPayload,
+    *,
+    row_count: bool = False,
+) -> PreparedSemanticQuery | JSONResponse:
+    """Generate SQL, choose its execution target, and validate catalog scope."""
+    generated, physical_catalogs, execution = await _generate_sql(
+        session,
+        payload,
+        cube_rev,
+        row_count=row_count,
+    )
+    if error := _catalog_error(generated, physical_catalogs, execution):
+        return error
+    return PreparedSemanticQuery(generated, execution)
+
+
+def _executable_sql(
+    generated_sql: V3GeneratedSQL,
+    catalog_name: str | None = None,
+    physical_catalog: str | None = None,
+) -> str:
+    """Render physical SQL with the execution engine's catalog name."""
+    query = deepcopy(generated_sql.query)
+    if generated_sql.dialect == Dialect.POSTGRES:
+        for table in query.find_all(ast.Table):
+            parts = table.name.names
+            if len(parts) == 3:
+                # PostgreSQL connects to one database at a time. DJ catalogs
+                # describe that connection, but cannot prefix its table names.
+                parts[1].namespace = None
+            elif len(parts) == 1 and parts[0].name.count(".") == 2:
+                # The v3 builder also stores physical names as one dotted Name.
+                parts[0].name = parts[0].name.split(".", 1)[1]
+    elif catalog_name and physical_catalog and catalog_name != physical_catalog:
+        for table in query.find_all(ast.Table):
+            parts = table.name.names
+            if len(parts) == 3 and parts[0].name == catalog_name:
+                parts[0].name = physical_catalog
+            elif len(parts) == 1 and parts[0].name.startswith(f"{catalog_name}."):
+                suffix = parts[0].name[len(catalog_name) + 1 :]
+                if suffix.count(".") == 1:
+                    parts[0].name = f"{physical_catalog}.{suffix}"
+    return to_sql(query, generated_sql.dialect)
+
+
+def _result_value(value: Any, arrow_type: str) -> Any:
+    """Keep JSON values consistent with the declared Arrow type."""
+    if value is None:
+        return None
+    if arrow_type == "floating":
+        number = float(value)
+        if not math.isfinite(number):
+            raise ValueError("Non-finite floating result")
+        return number
+    if arrow_type == "decimal":
+        if isinstance(value, Decimal) and not value.is_finite():
+            raise ValueError("Non-finite decimal result")
+        return str(value)
+    if arrow_type == "int":
+        decimal_value = Decimal(str(value))
+        if (
+            not decimal_value.is_finite()
+            or decimal_value != decimal_value.to_integral_value()
+        ):
+            raise ValueError("Non-integral integer result")
+        return int(decimal_value)
+    return value
+
+
+async def _prepare_view_sql(
     view_name: str,
     payload: QueryPayload,
     session: AsyncSession,
     row_count: bool = False,
-) -> GeneratedSQLResponse | JSONResponse:
+) -> PreparedSemanticQuery | JSONResponse:
     """Validate and generate SQL for a semantic view query."""
-    if payload.offset:
+    if payload.offset is not None and payload.offset < 0:
         return _problem(
             400,
-            "Pagination via `offset` is not supported yet.",
+            "`offset` must be non-negative.",
         )
+    if payload.offset and not payload.order:
+        return _problem(400, "Positive `offset` requires an explicit `order`.")
     if payload.limit is not None and payload.limit < 0:
         return _problem(400, "`limit` must be non-negative.")
     if payload.limit is not None and payload.limit > MAX_ROW_LIMIT:
@@ -1174,24 +1458,39 @@ async def _generate_view_sql(
     try:
         cube_node = await Node.get_cube_by_name(session, view_name)
         if cube_node is None or cube_node.current is None:
-            return _problem(404, f"View `{view_name}` does not exist.")
+            return _view_not_found(view_name)
         cube_rev = cube_node.current
         # Everything referenced must belong to this cube (full refs incl. role
         # suffixes), else one view could compute another's metrics.
         allowed_metrics = set(cube_rev.cube_node_metrics)
         allowed_dims = set(cube_rev.cube_node_dimensions)
-        allowed = allowed_metrics | allowed_dims
         bad_metrics = [m for m in payload.metrics if m not in allowed_metrics]
         bad_dims = [d for d in payload.dimensions if d not in allowed_dims]
         bad_filters = [
-            f.column for f in payload.filters if f.column and f.column not in allowed
+            f.column
+            for f in payload.filters
+            if f.column
+            and f.column
+            not in (allowed_metrics if f.type.upper() == "HAVING" else allowed_dims)
         ]
-        if bad_metrics or bad_dims or bad_filters:
+        bad_order = [
+            item.by
+            for item in payload.order
+            if item.by not in allowed_metrics | allowed_dims
+        ]
+        if bad_metrics or bad_dims or bad_filters or bad_order:
             return _problem(
                 400,
                 f"View `{view_name}` does not contain: "
                 f"metrics={bad_metrics} dimensions={bad_dims} "
-                f"filter_columns={bad_filters}",
+                f"filter_columns={bad_filters} order_columns={bad_order}",
+                code=(
+                    "UNKNOWN_METRIC"
+                    if bad_metrics
+                    else "UNKNOWN_DIMENSION"
+                    if bad_dims
+                    else "UNKNOWN_COLUMN"
+                ),
             )
         if group_limit := payload.group_limit:
             if not payload.metrics and not group_limit.metric:
@@ -1218,7 +1517,9 @@ async def _generate_view_sql(
             if group_limit.direction.upper() not in {"ASC", "DESC"}:
                 return _problem(400, "`group_limit.direction` must be ASC or DESC.")
             bad_group_filters = [
-                f.column for f in group_limit.filters or [] if f.column not in allowed
+                f.column
+                for f in group_limit.filters or []
+                if f.column not in allowed_metrics | allowed_dims
             ]
             if bad_group_filters:
                 return _problem(
@@ -1242,10 +1543,99 @@ async def _generate_view_sql(
                         f"`group_limit.filters` {filter_type} columns must be "
                         f"{'dimensions' if filter_type == 'WHERE' else 'metrics'}.",
                     )
-        result = await _generate_sql(session, payload, cube_rev, row_count=row_count)
+        if any(f.type.upper() not in {"WHERE", "HAVING"} for f in payload.filters):
+            return _problem(400, "Filter `type` must be WHERE or HAVING.")
+        if any(o.direction.upper() not in {"ASC", "DESC"} for o in payload.order):
+            return _problem(400, "Order `direction` must be ASC or DESC.")
+        return await _prepare_execution(
+            session,
+            cube_rev,
+            payload,
+            row_count=row_count,
+        )
     except DJException as exc:
         return _problem(exc.http_status_code or 400, exc.message)
-    return result
+
+
+async def _generate_view_sql(
+    view_name: str,
+    payload: QueryPayload,
+    session: AsyncSession,
+    row_count: bool = False,
+) -> GeneratedSQLResponse | JSONResponse:
+    """Expose the prepared SQL for the DJ-specific /sql endpoint."""
+    prepared = await _prepare_view_sql(view_name, payload, session, row_count)
+    return prepared if isinstance(prepared, JSONResponse) else prepared.generated
+
+
+async def _execute_sql(
+    prepared: PreparedSemanticQuery,
+    request: Request,
+    query_service_client: QueryServiceClient,
+) -> SemanticResult | JSONResponse:
+    """Execute prepared SQL on its resolved engine and convert result rows."""
+    if query_service_client is None:
+        return _problem(503, "No query service is configured.")
+    generated = prepared.generated
+    context = prepared.execution
+    try:
+        query = QueryCreate(
+            engine_name=context.engine.name,
+            engine_version=context.engine.version,
+            catalog_name=context.catalog_name,
+            submitted_query=generated.sql,
+            async_=False,
+            engine_uri=context.engine.uri,
+        )
+        request_headers = (
+            {"cache-control": request.headers["cache-control"]}
+            if "cache-control" in request.headers
+            else None
+        )
+        result: QueryWithResults = await query_service_client.submit_query(
+            query,
+            request_headers=request_headers,
+        )
+    except DJException:
+        logger.exception("Semantic query execution failed")
+        return _problem(502, "Query execution failed.", code="QUERY_EXECUTION_FAILED")
+    except NotImplementedError:
+        return _problem(501, "The configured query client cannot execute queries.")
+    except Exception:
+        logger.exception("Unexpected semantic query execution failure")
+        return _problem(502, "Query execution failed.", code="QUERY_EXECUTION_FAILED")
+
+    if result.state != QueryState.FINISHED or result.errors:
+        logger.error("Semantic query did not finish: %s", result.errors)
+        return _problem(502, "Query execution failed.", code="QUERY_EXECUTION_FAILED")
+    if len(result.results.root) != 1:
+        return _problem(500, "Query returned an unexpected number of statements.")
+    statement = result.results.root[0]
+    names = [column.name for column in generated.columns]
+    if any(len(row) != len(names) for row in statement.rows):
+        return _problem(500, "Query returned a row with unexpected columns.")
+    try:
+        rows = [
+            {
+                column.name: _result_value(value, column.type)
+                for column, value in zip(generated.columns, row)
+            }
+            for row in statement.rows
+        ]
+    except (ValueError, TypeError, OverflowError, ArithmeticError):
+        logger.exception("Query returned invalid typed values")
+        return _problem(
+            502,
+            "Query returned invalid values.",
+            code="INVALID_QUERY_RESULT",
+        )
+    return SemanticResult(
+        requests=[RequestInfo(type="sql", definition=generated.sql)],
+        results=TableResult(
+            schema=generated.columns,
+            rows=rows,
+        ),
+    )
 
 
 @router.post("/views/{view_name}/sql", response_model=GeneratedSQLResponse)
@@ -1254,42 +1644,96 @@ async def generate_query_sql(
     body: QueryRequest,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    access_checker: AccessChecker = Depends(get_access_checker),
 ) -> GeneratedSQLResponse | JSONResponse:
     """Generate physical SQL for a view query."""
+    if not await _can_read_view(view_name, access_checker):
+        return _view_not_found(view_name)
     return await _generate_view_sql(view_name, body.query, session)
 
 
-@router.post("/views/{view_name}/row-count", response_model=GeneratedSQLResponse)
-async def generate_row_count_sql(
+@router.post("/views/{view_name}/query", response_model=SemanticResult)
+async def execute_query(
     view_name: str,
     body: QueryRequest,
+    request: Request,
+    response: Response,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
-) -> GeneratedSQLResponse | JSONResponse:
-    """Generate SQL that counts the rows returned by a semantic query."""
-    return await _generate_view_sql(view_name, body.query, session, row_count=True)
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    access_checker: AccessChecker = Depends(get_access_checker),
+) -> SemanticResult | JSONResponse:
+    """Run a semantic query and return its data.
+
+    ``X-SL-Result-Truncated`` is a DJ extension to the spec for implicit limits.
+    """
+    if not await _can_read_view(view_name, access_checker):
+        return _view_not_found(view_name)
+    probe = body.query.limit is None
+    payload = (
+        body.query.model_copy(update={"limit": DEFAULT_ROW_LIMIT + 1})
+        if probe
+        else body.query
+    )
+    prepared = await _prepare_view_sql(view_name, payload, session)
+    if isinstance(prepared, JSONResponse):
+        return prepared
+    result = await _execute_sql(prepared, request, query_service_client)
+    if (
+        probe
+        and isinstance(result, SemanticResult)
+        and len(result.results.rows) > DEFAULT_ROW_LIMIT
+    ):
+        result.results.rows = result.results.rows[:DEFAULT_ROW_LIMIT]
+        response.headers["X-SL-Result-Truncated"] = "true"
+    return result
 
 
-@router.post("/views/{view_name}/values", response_model=GeneratedSQLResponse)
-async def generate_values_sql(
+@router.post("/views/{view_name}/row-count", response_model=SemanticResult)
+async def get_row_count(
+    view_name: str,
+    body: QueryRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    access_checker: AccessChecker = Depends(get_access_checker),
+) -> SemanticResult | JSONResponse:
+    """Count rows in the semantic query's result."""
+    if not await _can_read_view(view_name, access_checker):
+        return _view_not_found(view_name)
+    prepared = await _prepare_view_sql(view_name, body.query, session, row_count=True)
+    if isinstance(prepared, JSONResponse):
+        return prepared
+    return await _execute_sql(prepared, request, query_service_client)
+
+
+@router.post("/views/{view_name}/values", response_model=SemanticResult)
+async def get_values(
     view_name: str,
     body: ValuesRequest,
+    request: Request,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
-) -> GeneratedSQLResponse | JSONResponse:
-    """Generate SQL for a dimension's distinct values, optionally filtered."""
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    access_checker: AccessChecker = Depends(get_access_checker),
+) -> SemanticResult | JSONResponse:
+    """Return a dimension's distinct values, optionally filtered."""
+    if not await _can_read_view(view_name, access_checker):
+        return _view_not_found(view_name)
     try:
         cube_node = await Node.get_cube_by_name(session, view_name)
     except DJException as exc:
         return _problem(exc.http_status_code or 400, exc.message)
     if cube_node is None or cube_node.current is None:
-        return _problem(404, f"View `{view_name}` does not exist.")
+        return _view_not_found(view_name)
 
     cube_rev = cube_node.current
     if body.dimension not in cube_rev.cube_node_dimensions:
         return _problem(
             400,
             f"View `{view_name}` does not contain dimension `{body.dimension}`.",
+            code="UNKNOWN_DIMENSION",
         )
 
     bad_filters = [
@@ -1302,12 +1746,95 @@ async def generate_values_sql(
             400,
             f"View `{view_name}` does not contain filter dimensions: {bad_filters}",
         )
+    if any(flt.type.upper() != "WHERE" for flt in body.filters):
+        return _problem(400, "Values filters must use WHERE dimensions.")
 
     query = QueryPayload(
         dimensions=[body.dimension],
         filters=body.filters,
+        order=[OrderPayload(by=body.dimension)],
+        limit=DEFAULT_ROW_LIMIT + 1,
     )
     try:
-        return await _generate_sql(session, query, cube_rev)
+        prepared = await _prepare_execution(session, cube_rev, query)
     except DJException as exc:
         return _problem(exc.http_status_code or 400, exc.message)
+    if isinstance(prepared, JSONResponse):
+        return prepared
+    result = await _execute_sql(prepared, request, query_service_client)
+    if (
+        isinstance(result, SemanticResult)
+        and len(result.results.rows) > DEFAULT_ROW_LIMIT
+    ):
+        return _problem(
+            413,
+            "Dimension has more than 10000 values.",
+            code="TOO_MANY_VALUES",
+        )
+    return result
+
+
+async def _compatible_elements(
+    view_name: str,
+    body: CompatibilityRequest,
+    session: AsyncSession,
+    *,
+    metrics: bool,
+) -> list[MetricInfo] | list[DimensionInfo] | JSONResponse:
+    """DJ considers all elements on a cube mutually compatible."""
+    try:
+        cube_node = await Node.get_cube_by_name(
+            session,
+            view_name,
+            for_measures_sql=True,
+        )
+    except DJException as exc:
+        return _problem(exc.http_status_code or 400, exc.message)
+    if cube_node is None or cube_node.current is None:
+        return _view_not_found(view_name)
+    cube_rev = cube_node.current
+    unknown_metrics = sorted(
+        set(body.selected_metrics) - set(cube_rev.cube_node_metrics),
+    )
+    unknown_dims = sorted(
+        set(body.selected_dimensions) - set(cube_rev.cube_node_dimensions),
+    )
+    if unknown_metrics or unknown_dims:
+        return _problem(
+            400,
+            f"View `{view_name}` does not contain: "
+            f"metrics={unknown_metrics} dimensions={unknown_dims}",
+            code="UNKNOWN_METRIC" if unknown_metrics else "UNKNOWN_DIMENSION",
+        )
+    return _metrics_payload(cube_rev) if metrics else _dimensions_payload(cube_rev)
+
+
+@router.post("/views/{view_name}/compatible-metrics", response_model=list[MetricInfo])
+async def compatible_metrics(
+    view_name: str,
+    body: CompatibilityRequest,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    access_checker: AccessChecker = Depends(get_access_checker),
+) -> list[MetricInfo] | JSONResponse:
+    """Return every metric exposed by this cube."""
+    if not await _can_read_view(view_name, access_checker):
+        return _view_not_found(view_name)
+    return await _compatible_elements(view_name, body, session, metrics=True)
+
+
+@router.post(
+    "/views/{view_name}/compatible-dimensions",
+    response_model=list[DimensionInfo],
+)
+async def compatible_dimensions(
+    view_name: str,
+    body: CompatibilityRequest,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    access_checker: AccessChecker = Depends(get_access_checker),
+) -> list[DimensionInfo] | JSONResponse:
+    """Return every dimension exposed by this cube."""
+    if not await _can_read_view(view_name, access_checker):
+        return _view_not_found(view_name)
+    return await _compatible_elements(view_name, body, session, metrics=False)

@@ -1304,6 +1304,7 @@ async def test_execute_metrics_query_full_round_trip(
         engine_stub = MagicMock()
         engine_stub.name = "spark"
         engine_stub.version = "3.5"
+        engine_stub.uri = None
         ctx.engine = engine_stub
         ctx.catalog_name = "default"
         return ctx
@@ -1392,6 +1393,7 @@ async def test_execute_metrics_query_empty_results_skips_column_inject(
         engine_stub = MagicMock()
         engine_stub.name = "spark"
         engine_stub.version = "3.5"
+        engine_stub.uri = None
         ctx.engine = engine_stub
         ctx.catalog_name = "default"
         return ctx
@@ -1483,6 +1485,7 @@ async def test_execute_metrics_query_prefers_bound_provider(monkeypatch) -> None
     fake_ctx.dialect = Dialect.SPARK
     fake_ctx.engine.name = "spark"
     fake_ctx.engine.version = "3.5"
+    fake_ctx.engine.uri = None
     fake_ctx.catalog_name = "prod"
 
     async def fake_prepare(*_args, **_kwargs):
@@ -1538,6 +1541,7 @@ async def test_execute_metrics_query_falls_back_when_no_provider(monkeypatch) ->
     fake_ctx.dialect = Dialect.SPARK
     fake_ctx.engine.name = "spark"
     fake_ctx.engine.version = "3.5"
+    fake_ctx.engine.uri = None
     fake_ctx.catalog_name = "prod"
 
     async def fake_prepare(*_args, **_kwargs):

@@ -7,6 +7,7 @@ import logging
 import os
 from dataclasses import asdict
 from datetime import date, datetime, timezone
+from decimal import Decimal
 
 import duckdb
 import snowflake.connector
@@ -209,14 +210,18 @@ def run_bigquery_query(
 
 def serialize_for_json(obj):
     """
-    Handle serialization of date/datetimes for JSON output.
+    Handle serialization of query values for JSON output.
     """
-    if isinstance(obj, list):
+    if isinstance(obj, (list, tuple)):
         return [serialize_for_json(x) for x in obj]
     if isinstance(obj, dict):
         return {k: serialize_for_json(v) for k, v in obj.items()}
     if isinstance(obj, (date, datetime)):
         return obj.isoformat()
+    if isinstance(obj, Decimal):
+        # JSON has no decimal type. Keep fractional values exact as strings;
+        # integral aggregates remain numeric for count-like metrics.
+        return int(obj) if obj == obj.to_integral_value() else str(obj)
     return obj
 
 
@@ -243,7 +248,16 @@ async def process_query(
             query=query,
             headers=headers,
         ):
-            rows = list(stream)
+            # PostgreSQL returns SUM(bigint) as Decimal. Normalize it before
+            # constructing results so JSON, MessagePack, and the result cache
+            # all expose the same numeric value.
+            rows = [
+                tuple(
+                    serialize_for_json(value) if isinstance(value, Decimal) else value
+                    for value in row
+                )
+                for row in stream
+            ]
             results.append(
                 StatementResults(
                     sql=sql,
