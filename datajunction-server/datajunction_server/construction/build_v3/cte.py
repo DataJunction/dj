@@ -436,13 +436,16 @@ def get_grain_level_window_info(expr_ast: ast.Node) -> list[tuple[str, set[str]]
                 if func.over.order_by:  # pragma: no branch
                     for sort_item in func.over.order_by:
                         col_expr = sort_item.expr
-                        # Handle Subscript expressions (role suffix like [order])
+                        # A role suffix like [order] is part of the ref: without it
+                        # the grain column names the null role.
+                        role_ref = None
                         if isinstance(col_expr, ast.Subscript):
+                            role_ref = dimension_ref_of_expression(col_expr)
                             col_expr = col_expr.expr
                         if (
                             isinstance(col_expr, ast.Column) and col_expr.name
                         ):  # pragma: no branch
-                            col_name = get_column_full_name(col_expr)
+                            col_name = role_ref or get_column_full_name(col_expr)
                             if col_name:  # pragma: no branch
                                 order_by_cols.add(col_name)
                 results.append((func_name, order_by_cols))
