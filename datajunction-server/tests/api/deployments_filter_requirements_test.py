@@ -571,7 +571,7 @@ async def test_saved_upstream_link_counts(client_with_build_v3, entry, status):
         assert data["results"] == [_invalid_result("rf_upstream.event_total")]
 
 
-def _declared_upstream_nodes(attribute: str) -> list:
+def _declared_upstream_nodes(attribute: str, link_role: str | None) -> list:
     return [
         SourceSpec(
             name="audit_dates",
@@ -601,7 +601,7 @@ def _declared_upstream_nodes(attribute: str) -> list:
                     join_on=(
                         "${prefix}audit_log.audit_date = ${prefix}audit_date.dateint"
                     ),
-                    role="audit",
+                    role=link_role,
                 ),
             ],
         ),
@@ -623,20 +623,31 @@ def _declared_upstream_nodes(attribute: str) -> list:
 
 
 @pytest.mark.parametrize(
-    "namespace,attribute,valid",
+    "namespace,attribute,link_role,valid",
     [
-        ("rf_up_entry", "${prefix}audit_date.dateint", True),
+        ("rf_up_entry", "${prefix}audit_date.dateint", None, True),
+        # No role is the null role, which a named upstream link doesn't satisfy.
+        ("rf_up_named_link", "${prefix}audit_date.dateint", "audit", False),
         # A pushed down role breaks the SQL.
-        ("rf_up_role", "${prefix}audit_date.dateint[audit]", False),
-        ("rf_up_bad_role", "${prefix}audit_date.dateint[nope]", False),
+        ("rf_up_role", "${prefix}audit_date.dateint[audit]", "audit", False),
+        ("rf_up_bad_role", "${prefix}audit_date.dateint[nope]", "audit", False),
     ],
-    ids=["entry", "upstream-role", "unknown-role"],
+    ids=["entry", "named-link", "upstream-role", "unknown-role"],
 )
 @pytest.mark.asyncio
-async def test_declared_upstream_link_counts(client, namespace, attribute, valid):
+async def test_declared_upstream_link_counts(
+    client,
+    namespace,
+    attribute,
+    link_role,
+    valid,
+):
     data = await deploy_and_wait(
         client,
-        DeploymentSpec(namespace=namespace, nodes=_declared_upstream_nodes(attribute)),
+        DeploymentSpec(
+            namespace=namespace,
+            nodes=_declared_upstream_nodes(attribute, link_role),
+        ),
     )
     metric = next(r for r in data["results"] if r["name"].endswith("event_total"))
     if valid:
