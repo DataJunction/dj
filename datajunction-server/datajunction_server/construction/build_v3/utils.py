@@ -181,31 +181,21 @@ def _try_add_dim_to_ctx(
     log_source: str,
 ) -> None:
     """
-    Add a fully-qualified dimension ref to ctx.dimensions if not already covered.
+    Add a fully-qualified dimension ref to ctx.dimensions if not already there.
+    A ref with a different role is a different dimension.
 
     Helper used by add_dimensions_from_metric_expressions to deduplicate logic.
     """
-    # Import here to avoid circular imports
-    from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
-
     if not full_name or SEPARATOR not in full_name or full_name in existing_dims:
         return
     if full_name in ctx.metrics:  # pragma: no cover
         return
-    dim_ref = parse_dimension_ref(full_name)
-    for existing_dim in ctx.dimensions:
-        existing_ref = parse_dimension_ref(existing_dim)
-        if (
-            existing_ref.node_name == dim_ref.node_name
-            and existing_ref.column_name == dim_ref.column_name
-        ):
-            return
     logger.info("[BuildV3] Auto-adding dimension %s from %s", full_name, log_source)
     ctx.dimensions.append(full_name)
     existing_dims.add(full_name)
 
 
-def _with_role(col: ast.Column, full_name: str) -> str:
+def with_role(col: ast.Column, full_name: str) -> str:
     """``full_name`` plus the ``[role]`` of the subscript the column sits in."""
     if isinstance(col.parent, ast.Subscript):
         return dimension_ref_of_expression(col.parent) or full_name
@@ -247,7 +237,7 @@ def add_dimensions_from_metric_expressions(
             for dimension in component.rule.fixed_grain or []
         }
         for col in combiner_ast.find_all(ast.Column):
-            full_name = _with_role(col, get_column_full_name(col))
+            full_name = with_role(col, get_column_full_name(col))
             if full_name in partition_dims:
                 continue
             _try_add_dim_to_ctx(full_name, ctx, existing_dims, "metric expression")
@@ -264,7 +254,7 @@ def add_dimensions_from_metric_expressions(
                     continue
                 for sort_item in func.over.order_by:
                     for col in sort_item.find_all(ast.Column):
-                        full_name = _with_role(col, get_column_full_name(col))
+                        full_name = with_role(col, get_column_full_name(col))
                         _try_add_dim_to_ctx(
                             full_name,
                             ctx,

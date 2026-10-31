@@ -1082,3 +1082,31 @@ class TestGetGrainLevelWindowInfo:
 
     def test_role_less_column_has_no_role(self):
         assert self.order_by_columns("v3.date.week") == {"v3.date.week"}
+
+
+class TestAutoAddedDimensionRoles:
+    """A dimension the metric expression needs is only covered by the same role."""
+
+    @staticmethod
+    def _ctx(dimensions: list[str]):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(metrics=[], dimensions=list(dimensions))
+
+    def test_named_role_is_not_covered_by_the_bare_ref(self):
+        from datajunction_server.construction.build_v3.utils import (
+            _try_add_dim_to_ctx,
+        )
+
+        ctx = self._ctx(["v3.date.week"])
+        _try_add_dim_to_ctx("v3.date.week[order]", ctx, set(ctx.dimensions), "test")
+        assert ctx.dimensions == ["v3.date.week", "v3.date.week[order]"]
+
+    def test_same_role_is_covered(self):
+        from datajunction_server.construction.build_v3.utils import (
+            _try_add_dim_to_ctx,
+        )
+
+        ctx = self._ctx(["v3.date.week[order]"])
+        _try_add_dim_to_ctx("v3.date.week[order]", ctx, set(ctx.dimensions), "test")
+        assert ctx.dimensions == ["v3.date.week[order]"]

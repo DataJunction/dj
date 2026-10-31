@@ -1711,14 +1711,6 @@ class TestMetricsSQLDerived:
         ]
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(
-        reason=(
-            "Pre-existing CTE dimension_refs alias-resolution bug for roled "
-            "window ORDER BY columns -- see test_period_over_period_metrics "
-            "above for the full explanation."
-        ),
-        strict=False,
-    )
     async def test_wow_and_mom_with_order_role(self, client_with_build_v3):
         """
         Test WoW and MoM metrics ordered by roled dimensions.
