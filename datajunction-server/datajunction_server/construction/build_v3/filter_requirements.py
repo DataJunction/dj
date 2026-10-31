@@ -2,16 +2,15 @@
 
 from dataclasses import dataclass, field
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, load_only, noload, selectinload
 
 from datajunction_server.construction.build_v3.filters import parse_filter
 from datajunction_server.construction.build_v3.loaders import find_upstream_node_names
 from datajunction_server.construction.build_v3.utils import (
     extract_filter_dimension_refs,
 )
-from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
 from datajunction_server.errors import (
     DJError,
     DJInvalidInputException,
@@ -176,31 +175,35 @@ async def load_declared_entries(
     """
     Entries each metric among the named nodes declares itself.
     """
-    nodes = await Node.get_by_names(
-        session,
-        sorted(names),
-        options=[
-            load_only(Node.name, Node.type, Node.current_version),
-            noload(Node.created_by),
-            noload(Node.tags),
-            joinedload(Node.current).options(
-                noload(NodeRevision.created_by),
-                load_only(
-                    NodeRevision.name,
-                    NodeRevision.required_filters,
-                    NodeRevision.recommended_filters,
-                ),
+    rows = await session.execute(
+        select(
+            Node.name,
+            NodeRevision.required_filters,
+            NodeRevision.recommended_filters,
+        )
+        .join(
+            NodeRevision,
+            and_(
+                NodeRevision.node_id == Node.id,
+                NodeRevision.version == Node.current_version,
             ),
-        ],
+        )
+        .where(Node.name.in_(sorted(names)))
+        .where(Node.type == NodeType.METRIC)
+        .where(Node.deactivated_at.is_(None))
+        .order_by(Node.name),
     )
     return {
-        node.name: _revision_entries(node.name, node.current)
-        for node in nodes
-        if node.type == NodeType.METRIC and node.current is not None
+        name: _revision_entries(name, required, recommended)
+        for name, required, recommended in rows
     }
 
 
-def _revision_entries(name: str, revision: NodeRevision) -> list[RequirementEntry]:
+def _revision_entries(
+    name: str,
+    required_filters: list[dict] | None,
+    recommended_filters: list[dict] | None,
+) -> list[RequirementEntry]:
     return [
         RequirementEntry(
             attributes=item.dimension,
@@ -209,8 +212,8 @@ def _revision_entries(name: str, revision: NodeRevision) -> list[RequirementEntr
             metrics=frozenset({name}),
         )
         for required, entries in (
-            (True, revision.required_filters),
-            (False, revision.recommended_filters),
+            (True, required_filters),
+            (False, recommended_filters),
         )
         for item in parse_filter_requirements(entries) or []
     ]
@@ -264,30 +267,23 @@ async def load_revision_filters(
     if not revision_ids:
         return {}
     revisions = (
-        (
-            await session.execute(
-                select(NodeRevision)
-                .where(NodeRevision.id.in_(revision_ids))
-                .options(
-                    load_only(
-                        NodeRevision.id,
-                        NodeRevision.name,
-                        NodeRevision.required_filters,
-                        NodeRevision.recommended_filters,
-                    ),
-                    noload(NodeRevision.created_by),
-                    selectinload(NodeRevision.parents).options(
-                        load_only(Node.name),
-                        noload(Node.created_by),
-                        noload(Node.tags),
-                    ),
-                ),
-            )
+        await session.execute(
+            select(
+                NodeRevision.id,
+                NodeRevision.name,
+                NodeRevision.required_filters,
+                NodeRevision.recommended_filters,
+            ).where(NodeRevision.id.in_(revision_ids)),
         )
-        .scalars()
-        .all()
-    )
-    parents = {rev.id: [node.name for node in rev.parents] for rev in revisions}
+    ).all()
+    parents: dict[int, list[str]] = {row.id: [] for row in revisions}
+    for child_id, parent_name in await session.execute(
+        select(NodeRelationship.child_id, Node.name)
+        .join(Node, Node.id == NodeRelationship.parent_id)
+        .where(NodeRelationship.child_id.in_(revision_ids))
+        .order_by(NodeRelationship.child_id, Node.name),
+    ):
+        parents[child_id].append(parent_name)
     parent_names = sorted({name for names in parents.values() for name in names})
     parent_map: dict[str, list[str]] = {}
     declared: dict[str, list[RequirementEntry]] = {}
@@ -303,7 +299,11 @@ async def load_revision_filters(
             if name not in seen:
                 seen.add(name)
                 pending.extend(parent_map.get(name, []))
-        entries = _revision_entries(rev.name, rev)
+        entries = _revision_entries(
+            rev.name,
+            rev.required_filters,
+            rev.recommended_filters,
+        )
         entries += [e for name in sorted(seen) for e in declared.get(name, [])]
         result[rev.id] = split_effective_entries(entries)
     return result

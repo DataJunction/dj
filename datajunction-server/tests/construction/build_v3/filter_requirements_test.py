@@ -3,6 +3,8 @@
 from unittest.mock import MagicMock
 
 import pytest
+from sqlalchemy import select
+from sqlalchemy.orm import noload
 
 from datajunction_server.construction.build_v3.filter_requirements import (
     RequirementEntry,
@@ -13,7 +15,7 @@ from datajunction_server.construction.build_v3.filter_requirements import (
     split_effective_entries,
 )
 from datajunction_server.models.filter_requirements import EffectiveFilterRequirement
-from datajunction_server.database.node import Node
+from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.queryrequest import QueryBuildType
 from datajunction_server.errors import DJInvalidInputException, DJWarning, ErrorCode
 from datajunction_server.internal.caching.cachelib_cache import CachelibCache
@@ -525,4 +527,38 @@ async def test_effective_filters_follow_upstream_metrics(client_with_build_v3, s
     }
     assert await load_revision_filters(session, [ids["v3.src_orders"]]) == {
         ids["v3.src_orders"]: ([], []),
+    }
+
+
+@pytest.mark.asyncio
+async def test_revision_filters_ignore_stale_session_objects(
+    client_with_build_v3,
+    session,
+):
+    query = (await client_with_build_v3.get("/nodes/v3.total_revenue/")).json()["query"]
+    await _create_metric(
+        client_with_build_v3,
+        "v3.rf_stale_base",
+        query,
+        required_filters=[{"dimension": "v3.date.date_id"}],
+    )
+    await _create_metric(
+        client_with_build_v3,
+        "v3.rf_stale_top",
+        "SELECT v3.rf_stale_base / 2",
+    )
+    revision = (
+        await session.execute(
+            select(NodeRevision)
+            .where(NodeRevision.name == "v3.rf_stale_top")
+            .options(noload(NodeRevision.parents))
+            .execution_options(populate_existing=True),
+        )
+    ).scalar_one()
+    assert revision.parents == []
+    assert await load_revision_filters(session, [revision.id]) == {
+        revision.id: (
+            [effective(["v3.date.date_id"], declared_by=("v3.rf_stale_base",))],
+            [],
+        ),
     }
