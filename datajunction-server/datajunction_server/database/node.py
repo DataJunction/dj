@@ -860,10 +860,16 @@ class Node(Base):
         raise_if_not_exists: bool = False,
         include_inactive: bool = False,
         for_update: bool = False,
+        inherit: bool = False,
     ) -> Node | None:
         """
-        Get a node by name
+        Get a node by name.
+
+        With ``inherit``, a name missing from its branch resolves to the
+        default branch's node. The node keeps the default branch's name.
         """
+        if inherit and for_update:
+            raise ValueError("An inherited node cannot be locked for update.")
         statement = select(Node).where(Node.name == name)
         options = options or [
             joinedload(Node.current).options(
@@ -879,6 +885,14 @@ class Node(Base):
             )
         result = await session.execute(statement)
         node = result.unique().scalar_one_or_none()
+        if not node and inherit:
+            inherited = await cls._inherited_nodes(
+                session,
+                [name],
+                options,
+                include_inactive,
+            )
+            node = inherited.get(name)
         if not node and raise_if_not_exists:
             raise DJNodeNotFound(
                 message=(f"A node with name `{name}` does not exist."),
@@ -887,15 +901,63 @@ class Node(Base):
         return node
 
     @classmethod
+    async def _inherited_nodes(
+        cls,
+        session: AsyncSession,
+        names: list[str],
+        options: list[ExecutableOption],
+        include_inactive: bool,
+        populate_existing: bool = False,
+    ) -> dict[str, Node]:
+        """
+        Default branch nodes for names missing from their own branch.
+
+        A deactivated row in the branch hides the default branch's node.
+        """
+        from datajunction_server.internal.branch_scope import parent_node_names
+
+        parents = await parent_node_names(session, names)
+        if not parents:
+            return {}
+        hidden = set(
+            (await session.execute(select(Node.name).where(_name_in(list(parents)))))
+            .scalars()
+            .all(),
+        )
+        wanted = {
+            name: parent for name, parent in parents.items() if name not in hidden
+        }
+        if not wanted:
+            return {}
+        statement = (
+            select(Node).where(_name_in(list(wanted.values()))).options(*options)
+        )
+        if not include_inactive:
+            statement = statement.where(is_(Node.deactivated_at, None))
+        if populate_existing:
+            statement = statement.execution_options(populate_existing=True)
+        found = {
+            node.name: node
+            for node in (await session.execute(statement)).unique().scalars().all()
+        }
+        return {
+            name: found[parent] for name, parent in wanted.items() if parent in found
+        }
+
+    @classmethod
     async def get_by_names(
         cls,
         session: AsyncSession,
         names: list[str],
         options: list[ExecutableOption] | None = None,
         include_inactive: bool = False,
+        inherit: bool = False,
     ) -> list[Node]:
         """
-        Get nodes by names
+        Get nodes by names.
+
+        With ``inherit``, names missing from their branch resolve to the
+        default branch's nodes, which keep the default branch's names.
         """
         # Early return if no names provided to avoid useless query
         if not names:
@@ -915,6 +977,11 @@ class Node(Base):
         result = await session.execute(statement)
         nodes = result.unique().scalars().all()
         nodes_by_name = {node.name: node for node in nodes}
+        if inherit:
+            missing = [name for name in names if name not in nodes_by_name]
+            nodes_by_name.update(
+                await cls._inherited_nodes(session, missing, options, include_inactive),
+            )
         ordered_nodes = [nodes_by_name[name] for name in names if name in nodes_by_name]
         return ordered_nodes
 
@@ -925,6 +992,7 @@ class Node(Base):
         name: str,
         for_measures_sql: bool = False,
         with_metric_current: bool = False,
+        inherit: bool = False,
     ) -> Node | None:
         """
         Get a cube by name.
@@ -932,6 +1000,8 @@ class Node(Base):
         Args:
             session: DB session
             name: cube node name
+            inherit: If True, a name missing from its branch resolves to the
+                default branch's cube, which keeps the default branch's name.
             for_measures_sql: If True, load only what the build_v3 measures/metrics
                 SQL pipeline needs (cube_filters, cube_elements for metric/dimension
                 names, columns with their joined partitions) and suppress selectin
@@ -1017,6 +1087,15 @@ class Node(Base):
         )
         result = await session.execute(statement)
         node = result.unique().scalar_one_or_none()
+        if not node and inherit:
+            inherited = await cls._inherited_nodes(
+                session,
+                [name],
+                options,
+                include_inactive=True,
+                populate_existing=True,
+            )
+            node = inherited.get(name)
         return node
 
     @classmethod
