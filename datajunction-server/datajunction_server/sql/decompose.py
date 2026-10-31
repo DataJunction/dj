@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from sqlalchemy import select
+from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -1244,7 +1245,7 @@ class MetricComponentExtractor:
         self._dialect = dialect
 
     @classmethod
-    async def from_node_name(  # pragma: no cover
+    async def from_node_name(
         cls,
         node_name: str,
         session: AsyncSession,
@@ -1259,16 +1260,25 @@ class MetricComponentExtractor:
         Returns:
             MetricComponentExtractor for the current revision
         """
-        stmt = (
-            select(NodeRevision.id)
-            .join(Node, Node.id == NodeRevision.node_id)
-            .where(
-                Node.name == node_name,
-                Node.current_version == NodeRevision.version,
+        from datajunction_server.internal.branch_scope import inherited_names
+
+        async def find(name: str) -> int | None:
+            stmt = (
+                select(NodeRevision.id)
+                .join(Node, Node.id == NodeRevision.node_id)
+                .where(
+                    Node.name == name,
+                    Node.current_version == NodeRevision.version,
+                )
             )
-        )
-        result = await session.execute(stmt)
-        revision_id = result.scalar_one()
+            return (await session.execute(stmt)).scalar_one_or_none()
+
+        revision_id = await find(node_name)
+        if revision_id is None:
+            parent = (await inherited_names(session, [node_name])).get(node_name)
+            revision_id = await find(parent) if parent else None
+        if revision_id is None:
+            raise NoResultFound
         return cls(revision_id)
 
     async def extract(
