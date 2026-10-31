@@ -993,7 +993,7 @@ class TestPlanPreaggregations:
             "/preaggs/plan",
             json={
                 "metrics": ["v3.avg_unit_price"],
-                "dimensions": ["v3.customer.customer_id"],
+                "dimensions": ["v3.customer.customer_id[customer]"],
             },
         )
         assert response1.status_code == 201
@@ -1005,7 +1005,7 @@ class TestPlanPreaggregations:
             "/preaggs/plan",
             json={
                 "metrics": ["v3.avg_unit_price"],
-                "dimensions": ["v3.customer.customer_id"],
+                "dimensions": ["v3.customer.customer_id[customer]"],
             },
         )
         assert response2.status_code == 201
