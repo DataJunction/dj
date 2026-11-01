@@ -123,7 +123,9 @@ async def link(
         await create_cube(client, f"{BRANCH}.{short}")
     for name in (NAMES["metric"]["deleted"], NAMES["dimension"]["deleted"]):
         assert (await client.delete(f"/nodes/{name}/")).status_code == 200
-    assert (await client.delete(f"/nodes/{NAMES['cube']['deleted']}/")).status_code == 200
+    assert (
+        await client.delete(f"/nodes/{NAMES['cube']['deleted']}/")
+    ).status_code == 200
 
     async def link_branch() -> None:
         session.add(
@@ -345,7 +347,9 @@ async def test_graphql_loaders_and_resolvers(
         names(await dataloaders.batch_load_nodes_by_name_only(asked, None)) == expected
     )
     assert (
-        names(await dataloaders.batch_load_nodes([(name, None) for name in asked], None))
+        names(
+            await dataloaders.batch_load_nodes([(name, None) for name in asked], None),
+        )
         == expected
     )
     fields = json.dumps({"name": None})
@@ -360,12 +364,13 @@ async def test_graphql_loaders_and_resolvers(
     )
 
     node = await get_node_by_name(session, {"type": None}, metrics["fallback"])
+    assert node is not None
     assert node.name == "foo.bar.total_repair_cost"
     assert names(await get_metrics(session, asked)) == expected[:2]
 
     resolved = await resolve_metrics_and_dimensions(
         session,
-        CubeDefinition(cube=NAMES["cube"]["fallback"]),
+        CubeDefinition(cube=NAMES["cube"]["fallback"]),  # type: ignore[call-arg]
     )
     assert resolved == (["foo.bar.num_repair_orders"], ["foo.bar.hard_hat.city"])
 
@@ -449,9 +454,12 @@ async def test_similarity_and_view_and_measures(
     main_cube = "foo.bar.cube_main"
     similarity = "/nodes/similarity/{}/{}"
     hit_before = await client.get(similarity.format(metric["hit"], metric["hit"]))
-    assert await client.get(
-        similarity.format(metric["fallback"], metric["hit"]),
-    ) != hit_before
+    assert (
+        await client.get(
+            similarity.format(metric["fallback"], metric["hit"]),
+        )
+        != hit_before
+    )
 
     await link()
 
@@ -459,9 +467,10 @@ async def test_similarity_and_view_and_measures(
         similarity.format("foo.bar.total_repair_cost", metric["hit"]),
     )
     assert main_similarity.status_code == 200
-    assert hit_before.json() == (
-        await client.get(similarity.format(metric["hit"], metric["hit"]))
-    ).json()
+    assert (
+        hit_before.json()
+        == (await client.get(similarity.format(metric["hit"], metric["hit"]))).json()
+    )
     fallback_similarity = await client.get(
         similarity.format(metric["fallback"], metric["hit"]),
     )
