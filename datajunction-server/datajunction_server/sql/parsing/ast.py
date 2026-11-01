@@ -335,6 +335,8 @@ class CompileContext:
     # columns instead of loading from DB — enabling dry-run/impact-preview validation
     # against a proposed (not-yet-committed) upstream column state.
     column_overrides: dict[str, list] = field(default_factory=dict)
+    # Resolve missing branch nodes through the default branch.
+    inherit: bool = False
 
 
 # typevar used for node methods that return self
@@ -1442,6 +1444,7 @@ class Column(Aliasable, Named, Expression):
                             ctx.session,
                             node_name,
                             {DJNodeType.METRIC},
+                            inherit=ctx.inherit,
                         )
                         if dj_node:
                             # Found a metric - get its output type
@@ -1472,6 +1475,7 @@ class Column(Aliasable, Named, Expression):
                                 ctx.session,
                                 potential_dim_name,
                                 {DJNodeType.DIMENSION},
+                                inherit=ctx.inherit,
                             )
                             if dim_node:
                                 # Found a dimension - get the column type
@@ -1988,6 +1992,7 @@ class Table(TableExpression, Named):
                             DJNodeType.DIMENSION,
                             DJNodeType.METRIC,
                         },
+                        inherit=ctx.inherit,
                     )
                     # Cache successful lookups in context
                     ctx.dependencies_cache[table_name] = dj_node
@@ -3980,6 +3985,7 @@ class Query(TableExpression, UnNamed):
                             context.session,
                             node_name,
                             {DJNodeType.METRIC},
+                            inherit=context.inherit,
                         )
                         if dj_node:
                             deps[dj_node] = deps.get(dj_node, [])
@@ -3999,6 +4005,7 @@ class Query(TableExpression, UnNamed):
                                 context.session,
                                 potential_dim_name,
                                 {DJNodeType.DIMENSION},
+                                inherit=context.inherit,
                             )
                             if dim_node:
                                 # Dimension attribute reference is valid, but don't add

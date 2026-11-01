@@ -43,6 +43,7 @@ async def prepare_metrics_query(
     engine_version: str | None = None,
     resolve_execution: bool = False,
     enforce_filter_requirements: bool = True,
+    inherit: bool = False,
 ) -> PreparedMetricsQuery:
     """
     The steps every metrics query takes before it is built:
@@ -59,7 +60,7 @@ async def prepare_metrics_query(
     cube adds. Pass the result's ``filters`` and ``dialect`` to build_metrics_sql.
     """
     checked = (
-        await check_filter_requirements(session, metrics, filters)
+        await check_filter_requirements(session, metrics, filters, inherit)
         if enforce_filter_requirements
         else CheckedFilters(list(filters or []))
     )

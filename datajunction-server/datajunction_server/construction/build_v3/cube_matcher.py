@@ -120,6 +120,7 @@ def _missing_reaggregate_requirements(
 async def _metric_graph_has_reaggregate(
     session: AsyncSession,
     metrics: list[str],
+    inherit: bool = False,
 ) -> bool:
     """
     Cheaply test whether requested metrics or metric ancestors use reaggregate.
@@ -162,7 +163,11 @@ async def _metric_graph_has_reaggregate(
             break
         seen.update(batch)
         rows = await fetch(batch)
-        parents = await missing_to_parent(session, batch, [row[0] for row in rows])
+        parents = (
+            await missing_to_parent(session, batch, [row[0] for row in rows])
+            if inherit
+            else {}
+        )
         if parents:
             rows += await fetch(sorted(set(parents.values())))
         for _, reaggregate, parent_name in rows:
@@ -178,13 +183,19 @@ async def _reaggregate_requirements_for_metrics_if_needed(
     session: AsyncSession,
     metrics: list[str],
     dimensions: list[str],
+    inherit: bool = False,
 ) -> list[ReaggregateRequirement]:
     """
     Run full metric decomposition only when reaggregate is possible.
     """
-    if not await _metric_graph_has_reaggregate(session, metrics):
+    if not await _metric_graph_has_reaggregate(session, metrics, inherit):
         return []
-    return await _reaggregate_requirements_for_metrics(session, metrics, dimensions)
+    return await _reaggregate_requirements_for_metrics(
+        session,
+        metrics,
+        dimensions,
+        inherit,
+    )
 
 
 # (metric name, dimension the cube must retain)
@@ -266,6 +277,7 @@ async def _reaggregate_requirements_for_metrics(
     session: AsyncSession,
     metrics: list[str],
     requested_dimensions: list[str],
+    inherit: bool = False,
 ) -> list[ReaggregateRequirement]:
     """
     Reaggregation requirements from full metric decomposition.
@@ -278,6 +290,7 @@ async def _reaggregate_requirements_for_metrics(
         extractor = await MetricComponentExtractor.from_node_name(
             metric_name,
             session,
+            inherit,
         )
         components, _ = await extractor.extract(session)
         for component in components:

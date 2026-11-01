@@ -612,7 +612,7 @@ async def test_reaggregate_requirements_skip_components_without_reaggregate(
 
     class FakeMetricComponentExtractor:
         @classmethod
-        async def from_node_name(cls, _metric_name, _session):
+        async def from_node_name(cls, _metric_name, _session, _inherit=False):
             return Extractor()
 
     monkeypatch.setattr(

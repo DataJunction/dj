@@ -60,6 +60,8 @@ class BuildContext:
     # Whether to use materialized tables when available (default: True)
     # Set to False when building SQL for materialization to avoid circular references
     use_materialized: bool = True
+    # Resolve missing branch nodes through the default branch.
+    inherit: bool = False
 
     # Temporal filter settings for incremental materialization
     # Dict mapping column refs to partition objects from cube (e.g., {"v3.date.date_id": partition_obj})

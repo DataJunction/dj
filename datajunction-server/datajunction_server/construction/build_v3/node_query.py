@@ -307,10 +307,11 @@ async def build_node_sql_v3(
             dialect=dialect,
             use_materialized=use_materialized,
             query_parameters=query_parameters,
+            inherit=True,
         )
 
     if starting_type == NodeType.CUBE:
-        cube = await Node.get_cube_by_name(session, node_name)
+        cube = await Node.get_cube_by_name(session, node_name, inherit=True)
         cube_revision = cube.current  # type: ignore[union-attr]
         access_checker.add_node(cube_revision, access.ResourceAction.READ)
         await access_checker.check(on_denied=AccessDenialMode.RAISE)
@@ -331,6 +332,7 @@ async def build_node_sql_v3(
             matched_cube=cube_revision,
             use_materialized=use_materialized,
             dialect=dialect,
+            inherit=True,
         )
         return await build_metrics_sql(
             session=session,
@@ -343,6 +345,7 @@ async def build_node_sql_v3(
             use_materialized=use_materialized,
             matched_cube=cube_revision,
             query_parameters=query_parameters,
+            inherit=True,
         )
 
     # Source / dimension / transform — the single-node path.
@@ -360,9 +363,14 @@ async def build_node_sql_v3(
     upstream_names, parent_map = await find_upstream_node_names(
         session,
         list(starting_set),
+        inherit=True,
     )
     upstream_names |= starting_set
-    nodes_dict = await batch_load_nodes_with_dependencies(session, upstream_names)
+    nodes_dict = await batch_load_nodes_with_dependencies(
+        session,
+        upstream_names,
+        inherit=True,
+    )
 
     # Single bulk access check on every node we'll touch
     access_checker.add_nodes(
@@ -390,6 +398,7 @@ async def build_node_sql_v3(
         use_materialized=use_materialized,
         nodes=nodes_dict,
         parent_map=parent_map,
+        inherit=True,
     )
 
     # ``add_dimensions_from_filters`` parses ``ctx.filters`` for dim refs

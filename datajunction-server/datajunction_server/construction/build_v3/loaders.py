@@ -127,6 +127,7 @@ def _collect_metric_expression_dim_nodes(ctx: BuildContext) -> set[str]:
 async def batch_load_nodes_with_dependencies(
     session: AsyncSession,
     node_names: set[str] | list[str],
+    inherit: bool = False,
 ) -> dict[str, Node]:
     """
     Batch-load a set of nodes with the eager-load tree the v3 SQL builders
@@ -137,11 +138,12 @@ async def batch_load_nodes_with_dependencies(
     single-node entrypoints like ``build_node_sql_v3`` that want the same
     eager-load shape without the metric-required scaffolding around it.
 
-    Returns nodes keyed by requested name. A branch name with no node falls
-    back to the default branch's node, which is also keyed by its own name.
+    Returns nodes keyed by requested name. With ``inherit``, a branch name
+    with no node falls back to the default branch's node, which is also keyed
+    by its own name.
     """
     found = {node.name: node for node in await _load_nodes_by_name(session, node_names)}
-    parents = await missing_to_parent(session, node_names, found)
+    parents = await missing_to_parent(session, node_names, found) if inherit else {}
     to_load = set(parents.values()) - set(found)
     if to_load:
         found.update(
@@ -220,15 +222,20 @@ async def _load_nodes_by_name(
 async def find_upstream_node_names(
     session: AsyncSession,
     starting_node_names: list[str],
+    inherit: bool = False,
 ) -> tuple[set[str], dict[str, list[str]]]:
     """
     Find upstream node names, including those of inherited starting nodes.
 
-    A branch name with no node is traced through the default branch's node,
+    With ``inherit``, a branch name with no node is traced through the default branch's node,
     and appears under both names.
     """
     all_names, parent_map = await _find_upstream(session, starting_node_names)
-    parents = await missing_to_parent(session, starting_node_names, all_names)
+    parents = (
+        await missing_to_parent(session, starting_node_names, all_names)
+        if inherit
+        else {}
+    )
     if not parents:
         return all_names, parent_map
     extra_names, extra_map = await _find_upstream(
@@ -535,6 +542,7 @@ async def load_nodes(ctx: BuildContext) -> None:
     all_node_names, parent_map = await find_upstream_node_names(
         ctx.session,
         list(initial_node_names),
+        ctx.inherit,
     )
 
     # Store parent map in context for later use (e.g., get_parent_node)
@@ -544,7 +552,11 @@ async def load_nodes(ctx: BuildContext) -> None:
     all_node_names.update(initial_node_names)
 
     # Query 2: Batch load all nodes with appropriate eager loading
-    nodes = await batch_load_nodes_with_dependencies(ctx.session, all_node_names)
+    nodes = await batch_load_nodes_with_dependencies(
+        ctx.session,
+        all_node_names,
+        ctx.inherit,
+    )
 
     # Cache all loaded nodes
     ctx.nodes.update(nodes)
@@ -717,6 +729,7 @@ async def load_post_preload_chain(
     extra_names, _ = await find_upstream_node_names(
         ctx.session,
         list(newly_added_nodes),
+        ctx.inherit,
     )
     # Re-load both the newly-added dim hops (preload only attached limited
     # eager-loading) and any of their upstream that we hadn't seen.
@@ -727,7 +740,11 @@ async def load_post_preload_chain(
         return
 
     ctx.nodes.update(
-        await batch_load_nodes_with_dependencies(ctx.session, nodes_to_load),
+        await batch_load_nodes_with_dependencies(
+            ctx.session,
+            nodes_to_load,
+            ctx.inherit,
+        ),
     )
 
 

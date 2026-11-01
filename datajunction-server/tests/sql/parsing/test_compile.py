@@ -374,7 +374,9 @@ class TestDerivedMetric:
             },
         )
 
-        async def mock_get_dj_node(session, name, kinds=None, current=True):
+        async def mock_get_dj_node(
+            session, name, kinds=None, current=True, inherit=False
+        ):
             mapping = {
                 "default.total_revenue": REVENUE_METRIC.current,
                 "default.order_count": ORDER_COUNT_METRIC.current,
@@ -422,7 +424,9 @@ class TestDimensionAttributeRef:
             },
         )
 
-        async def mock_get_dj_node(session, name, kinds=None, current=True):
+        async def mock_get_dj_node(
+            session, name, kinds=None, current=True, inherit=False
+        ):
             mapping = {
                 "default.total_revenue": REVENUE_METRIC.current,
                 "default.date_dim": DATE_DIM_NODE.current,

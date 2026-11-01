@@ -28,7 +28,7 @@ def calls(monkeypatch):
     execution = MagicMock()
     execution.dialect = Dialect.TRINO
 
-    async def fake_check(session, metrics, filters):
+    async def fake_check(session, metrics, filters, inherit=False):
         seen["check"].append((metrics, filters))
         return CheckedFilters([*(filters or []), "d.x = 1"], [WARNING])
 
