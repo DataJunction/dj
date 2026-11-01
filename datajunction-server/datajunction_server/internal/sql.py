@@ -138,7 +138,12 @@ async def build_node_sql(
 
     node = cast(
         Node,
-        await Node.get_by_name(session, node_name, raise_if_not_exists=True),
+        await Node.get_by_name(
+            session,
+            node_name,
+            raise_if_not_exists=True,
+            inherit=True,
+        ),
     )
     if not engine:  # pragma: no cover
         engine = node.current.catalog.engines[0]
@@ -154,7 +159,7 @@ async def build_node_sql(
 
     v3_result = await build_node_sql_v3(
         session=session,
-        node_name=node_name,
+        node_name=node.name,
         dimensions=dimensions or [],
         filters=filters or [],
         orderby=orderby or [],
@@ -228,7 +233,7 @@ async def generate_metrics_sql(
     merged_filters = list(filters or [])
 
     if cube and matched_cube is None:
-        cube_node = await Node.get_cube_by_name(session, cube)
+        cube_node = await Node.get_cube_by_name(session, cube, inherit=True)
         if cube_node:
             matched_cube = cube_node.current
 
@@ -318,7 +323,7 @@ async def generate_dimensions_sql(
 ) -> "BuildV3GeneratedSQL":
     """Generate direct-domain or cube-scoped distinct dimension values."""
     if cube and matched_cube is None:
-        cube_node = await Node.get_cube_by_name(session, cube)
+        cube_node = await Node.get_cube_by_name(session, cube, inherit=True)
         if cube_node:
             matched_cube = cube_node.current
 

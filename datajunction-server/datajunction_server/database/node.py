@@ -42,6 +42,7 @@ from sqlalchemy.orm import (
     noload,
     relationship,
     selectinload,
+    undefer,
 )
 from sqlalchemy.sql.base import ExecutableOption
 from sqlalchemy.sql.operators import is_, or_
@@ -914,23 +915,15 @@ class Node(Base):
 
         A deactivated row in the branch hides the default branch's node.
         """
-        from datajunction_server.internal.branch_scope import parent_node_names
+        from datajunction_server.internal.branch_scope import inherited_names
 
-        parents = await parent_node_names(session, names)
-        if not parents:
-            return {}
-        hidden = set(
-            (await session.execute(select(Node.name).where(_name_in(list(parents)))))
-            .scalars()
-            .all(),
-        )
-        wanted = {
-            name: parent for name, parent in parents.items() if name not in hidden
-        }
+        wanted = await inherited_names(session, names)
         if not wanted:
             return {}
         statement = (
-            select(Node).where(_name_in(list(wanted.values()))).options(*options)
+            select(Node)
+            .where(_name_in(list(wanted.values())))
+            .options(*options, undefer(Node.name))
         )
         if not include_inactive:
             statement = statement.where(is_(Node.deactivated_at, None))

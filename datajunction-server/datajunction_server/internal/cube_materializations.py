@@ -14,6 +14,7 @@ from datajunction_server.construction.build_v3.types import (
 )
 from datajunction_server.database.node import Column, Node, NodeRevision
 from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.internal.branch_scope import fetch_with_inherited
 from datajunction_server.models.column import SemanticType
 from datajunction_server.models.cube_materialization import (
     CombineMaterialization,
@@ -200,6 +201,27 @@ def _v3_col_to_model_column(col) -> ColumnMetadata:
         semantic_entity=semantic_entity,
         semantic_type=semantic_type,
     )
+
+
+async def _display_names(
+    session: AsyncSession,
+    names: list[str],
+) -> dict[str, str]:
+    """
+    Maps node names to the display names of their current revisions.
+    """
+    rows = (
+        await session.execute(
+            select(Node.name, NodeRevision.display_name)
+            .join(
+                NodeRevision,
+                (NodeRevision.node_id == Node.id)
+                & (NodeRevision.version == Node.current_version),
+            )
+            .where(Node.name.in_(names)),
+        )
+    ).all()
+    return dict(rows)
 
 
 async def _v3_grain_group_to_measures_query(
@@ -490,18 +512,11 @@ async def build_cube_materialization(
     # MissingGreenlet under AsyncSession).
     cube_metrics = current_revision.cube_metrics()
     metric_names = [m.name for m in cube_metrics]
-    display_name_rows = (
-        await session.execute(
-            select(Node.name, NodeRevision.display_name)
-            .join(
-                NodeRevision,
-                (NodeRevision.node_id == Node.id)
-                & (NodeRevision.version == Node.current_version),
-            )
-            .where(Node.name.in_(metric_names)),
-        )
-    ).all()
-    metric_display_names = dict(display_name_rows)
+    metric_display_names = await fetch_with_inherited(
+        session,
+        metric_names,
+        lambda names: _display_names(session, names),
+    )
 
     missing_from_build = [m.name for m in cube_metrics if m.name not in metrics_mapping]
     if missing_from_build:  # pragma: no cover

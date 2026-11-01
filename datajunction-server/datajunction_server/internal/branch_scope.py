@@ -3,11 +3,16 @@ Names a branch inherits from its parent.
 """
 
 from collections import defaultdict
+from collections.abc import Awaitable, Callable
+from typing import TypeVar
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datajunction_server.internal.namespaces import get_git_info_for_namespaces
+from datajunction_server.database.node import Node, _name_in
 from datajunction_server.utils import SEPARATOR
+
+T = TypeVar("T")
 
 
 async def parent_node_names(
@@ -19,6 +24,8 @@ async def parent_node_names(
 
     Names outside a branch, or inside the default branch, are left out.
     """
+    from datajunction_server.internal.namespaces import get_git_info_for_namespaces
+
     by_namespace: dict[str, list[str]] = defaultdict(list)
     for name in names:
         namespace, _, _ = name.rpartition(SEPARATOR)
@@ -44,3 +51,47 @@ async def parent_node_names(
         for name in namespace_names:
             parents[name] = default_namespace + name[len(branch) :]
     return parents
+
+
+async def inherited_names(
+    session: AsyncSession,
+    names: list[str],
+) -> dict[str, str]:
+    """
+    Maps missing branch node names to the default branch's names.
+
+    A name the branch holds a row for, even a deactivated one, is left out.
+    """
+    parents = await parent_node_names(session, names)
+    if not parents:
+        return {}
+    held = set(
+        (await session.execute(select(Node.name).where(_name_in(list(parents)))))
+        .scalars()
+        .all(),
+    )
+    return {name: parent for name, parent in parents.items() if name not in held}
+
+
+async def fetch_with_inherited(
+    session: AsyncSession,
+    names: list[str],
+    fetch: Callable[[list[str]], Awaitable[dict[str, T]]],
+) -> dict[str, T]:
+    """
+    Runs ``fetch`` by name, then again for default-branch names of misses.
+
+    Results are keyed by the name that was asked for.
+    """
+    results = await fetch(names)
+    missing = [name for name in names if name not in results]
+    if not missing:
+        return results
+    inherited = await inherited_names(session, missing)
+    if not inherited:
+        return results
+    parent_results = await fetch(list(inherited.values()))
+    for name, parent in inherited.items():
+        if parent in parent_results:
+            results[name] = parent_results[parent]
+    return results
