@@ -100,6 +100,10 @@ def _serialize_ast_v1(query_ast: Node) -> Any:
                         nones=True,
                         named=True,
                     )
+                    # OFFSET was added after version 1 was published. Keep
+                    # fingerprints for existing queries stable while including
+                    # an OFFSET when it changes the query's meaning.
+                    if name != "offset" or field_value is not None
                 },
             }
         if isinstance(value, ColumnType):

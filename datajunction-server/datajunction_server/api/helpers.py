@@ -1213,6 +1213,8 @@ async def query_event_stream(
                 [warning.model_dump(mode="json") for warning in warnings],
             ),
         }
+    if query.state in END_JOB_STATES and query.results.root:
+        query.results.root[0].columns = columns or []
     _logger.info("sending initial event to the client for query %s", query_id)
     yield {
         "event": "message",
@@ -1220,6 +1222,8 @@ async def query_event_stream(
         "retry": retry_timeout,
         "data": json.dumps(query.json()),
     }
+    if query.state in END_JOB_STATES:
+        return
     # Continuously check the query until it's complete
     while not timeout or (time.time() - starting_time < timeout):
         # Check if the client closed the connection

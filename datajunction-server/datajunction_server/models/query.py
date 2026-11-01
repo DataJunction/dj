@@ -44,6 +44,8 @@ class QueryCreate(BaseQuery):
     catalog_name: str
     submitted_query: str
     async_: bool = False
+    # Execution metadata for direct clients; never send the URI to DJQS.
+    engine_uri: str | None = Field(default=None, exclude=True, repr=False)
 
 
 class ColumnMetadata(BaseModel):

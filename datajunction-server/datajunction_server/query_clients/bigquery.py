@@ -12,6 +12,16 @@ from datajunction_server.errors import (
     DJQueryServiceClientException,
 )
 from datajunction_server.query_clients.base import BaseQueryServiceClient
+from datajunction_server.query_clients.catalog import (
+    catalog_from_engine_uri,
+    replace_catalog_alias,
+)
+from datajunction_server.models.dialect import Dialect
+from datajunction_server.models.query import (
+    ColumnMetadata,
+    QueryCreate,
+    QueryWithResults,
+)
 from datajunction_server.sql.parsing.types import ColumnType
 
 if TYPE_CHECKING:
@@ -102,6 +112,46 @@ class BigQueryClient(BaseQueryServiceClient):
             **self._connection_kwargs,
         )
 
+    async def submit_query(
+        self,
+        query_create: QueryCreate,
+        request_headers: dict[str, str] | None = None,
+    ) -> QueryWithResults:
+        """Execute SQL with the configured BigQuery project."""
+
+        def _fetch() -> tuple[list[ColumnMetadata], list[tuple[Any, ...]], str]:
+            project = (
+                catalog_from_engine_uri(query_create.engine_uri, Dialect.BIGQUERY)
+                or self.project
+                or query_create.catalog_name
+            )
+            sql = replace_catalog_alias(
+                query_create.submitted_query,
+                query_create.catalog_name,
+                project,
+                Dialect.BIGQUERY,
+            )
+            client = self._get_client(project=project)
+            try:
+                job = client.query(sql)
+                result = job.result()
+                columns = [
+                    ColumnMetadata(name=field.name, type=field.field_type)
+                    for field in result.schema
+                ]
+                return columns, [tuple(row) for row in result], sql
+            finally:
+                client.close()
+
+        try:
+            columns, rows, executed_sql = await asyncio.to_thread(_fetch)
+        except Exception as exc:
+            _logger.exception("BigQuery query failed")
+            raise DJQueryServiceClientException(
+                message="BigQuery query failed.",
+            ) from exc
+        return self._finished_query(query_create, columns, rows, executed_sql)
+
     def _get_project_from_engine(
         self,
         engine: Engine | None,
@@ -116,36 +166,11 @@ class BigQueryClient(BaseQueryServiceClient):
         3. Configured client project
         4. Fallback catalog
         """
-        if not engine or not engine.uri:
-            return self.project or fallback_catalog
-
-        try:
-            from urllib.parse import parse_qs, urlparse
-
-            parsed = urlparse(engine.uri)
-
-            # Most BigQuery URIs put project in host, e.g. bigquery://my-project/dataset
-            if parsed.hostname:
-                return parsed.hostname
-
-            # Support path-only form, e.g. bigquery:///my-project
-            if parsed.path and len(parsed.path) > 1:
-                project_name = parsed.path.lstrip("/").split("/")[0]
-                if project_name:
-                    return project_name
-
-            if parsed.query:
-                query_params = parse_qs(parsed.query)
-                if query_params.get("project"):
-                    return query_params["project"][0]
-
-        except Exception as e:  # pragma: no cover
-            _logger.warning(
-                f"Failed to parse project from engine URI {engine.uri}: {e}. "
-                f"Using fallback: {fallback_catalog}",
-            )
-
-        return self.project or fallback_catalog
+        return (
+            catalog_from_engine_uri(engine.uri if engine else None, Dialect.BIGQUERY)
+            or self.project
+            or fallback_catalog
+        )
 
     async def get_columns_for_table(
         self,

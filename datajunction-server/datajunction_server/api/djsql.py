@@ -328,6 +328,7 @@ async def get_data_for_djsql(
         engine_version=execution_ctx.engine.version,
         submitted_query=generated_sql.sql,
         async_=async_,
+        engine_uri=execution_ctx.engine.uri,
     )
 
     result = await query_service_client.submit_query(
@@ -384,6 +385,7 @@ async def get_data_stream_for_djsql(
         engine_version=execution_ctx.engine.version,
         submitted_query=generated_sql.sql,
         async_=True,
+        engine_uri=execution_ctx.engine.uri,
     )
 
     initial_query_info = await query_service_client.submit_query(
