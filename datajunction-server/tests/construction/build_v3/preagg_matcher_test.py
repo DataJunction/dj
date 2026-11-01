@@ -221,6 +221,41 @@ def test_get_preagg_dimension_column():
     )
 
 
+def test_get_preagg_dimension_column_keeps_the_null_role_apart():
+    """A bare ref and a named role are different columns, even on the same dimension."""
+    preagg = PreAggregation(
+        columns=[
+            V3ColumnMetadata(
+                name="plan_code",
+                type="string",
+                semantic_name="v3.plan.plan_code",
+                semantic_type="dimension",
+                source_column="local_plan_code",
+            ),
+            V3ColumnMetadata(
+                name="plan_code_billing",
+                type="string",
+                semantic_name="v3.plan.plan_code[billing]",
+                semantic_type="dimension",
+                source_column="billing_plan_code",
+            ),
+        ],
+    )
+    ctx = BuildContext(session=None, metrics=[], dimensions=[])
+    assert (
+        get_preagg_dimension_column(ctx, 1, preagg, "v3.plan.plan_code", "x")
+        == "local_plan_code"
+    )
+    assert (
+        get_preagg_dimension_column(ctx, 1, preagg, "v3.plan.plan_code[billing]", "x")
+        == "billing_plan_code"
+    )
+    only_named = PreAggregation(columns=[preagg.columns[1]])
+    assert (
+        get_preagg_dimension_column(ctx, 1, only_named, "v3.plan.plan_code", "x") == "x"
+    )
+
+
 @pytest_asyncio.fixture
 async def test_user(session: AsyncSession) -> User:
     """Create a test user."""
