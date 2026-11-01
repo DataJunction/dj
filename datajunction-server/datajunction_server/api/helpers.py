@@ -62,6 +62,11 @@ from datajunction_server.errors import (
 )
 from datajunction_server.internal.engines import get_engine
 from datajunction_server.internal.history import EntityType
+from datajunction_server.internal.access.authorization import (
+    AccessChecker,
+    AccessDenialMode,
+)
+from datajunction_server.models.access import ResourceAction
 from datajunction_server.models.attribute import RESERVED_ATTRIBUTE_NAMESPACE
 from datajunction_server.models.dimensionlink import JoinType
 from datajunction_server.models.engine import Dialect
@@ -231,6 +236,20 @@ async def nodes_by_asked_name(
         if node:
             resolved[name] = node
     return resolved
+
+
+async def check_inherited_reads(
+    access_checker: AccessChecker,
+    asked: list[str],
+    nodes: list[Node | None],
+) -> None:
+    """
+    Checks read access on default branch nodes served for branch names.
+    """
+    served = [node for name, node in zip(asked, nodes) if node and node.name != name]
+    if served:
+        access_checker.add_nodes(served, ResourceAction.READ)
+        await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
 
 async def raise_if_node_exists(session: AsyncSession, name: str) -> None:

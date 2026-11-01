@@ -751,6 +751,18 @@ async def get_metrics_sql_v3(
     )
 
 
+def resolve_orderby_names(orderby: list[str], found: dict[str, Node]) -> list[str]:
+    """
+    Swaps asked metric names in order by entries for the nodes' names.
+    """
+    resolved = []
+    for entry in orderby:
+        reference, space, direction = entry.partition(" ")
+        node = found.get(reference)
+        resolved.append(f"{node.name}{space}{direction}" if node else entry)
+    return resolved
+
+
 @router.get("/sql/", response_model=TranslatedSQL, name="Get SQL For Metrics")
 async def get_sql_for_metrics(
     metrics: list[str] = Query([]),
@@ -811,7 +823,7 @@ async def get_sql_for_metrics(
                 dimensions=dimensions,
                 filters=filters,
                 limit=limit,
-                orderby=orderby,
+                orderby=resolve_orderby_names(orderby, found),
                 query_params=query_params,
                 engine_name=engine_name,
                 engine_version=engine_version,
