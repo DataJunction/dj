@@ -172,12 +172,13 @@ def apply_requirements(
 async def load_declared_entries(
     session: AsyncSession,
     names: set[str],
+    inherit: bool = False,
 ) -> dict[str, list[RequirementEntry]]:
     """
     Entries each metric among the named nodes declares itself.
     """
     rows = await _declared_rows(session, sorted(names))
-    parents = await missing_to_parent(session, names, rows)
+    parents = await missing_to_parent(session, names, rows) if inherit else {}
     if parents:
         parent_rows = await _declared_rows(session, sorted(set(parents.values())))
         for name, parent in parents.items():
@@ -240,14 +241,15 @@ def _revision_entries(
 async def load_requirement_entries(
     session: AsyncSession,
     metrics: list[str],
+    inherit: bool = False,
 ) -> list[RequirementEntry]:
     """
     Entries declared on the requested metrics and on every metric upstream.
     """
     if not metrics:
         return []
-    names, _ = await find_upstream_node_names(session, metrics)
-    declared = await load_declared_entries(session, names)
+    names, _ = await find_upstream_node_names(session, metrics, inherit)
+    declared = await load_declared_entries(session, names, inherit)
     return [entry for entries in declared.values() for entry in entries]
 
 
@@ -331,6 +333,7 @@ async def apply_metric_filter_requirements(
     session: AsyncSession,
     metrics: list[str],
     filters: list[str] | None,
+    inherit: bool = False,
 ) -> tuple[list[str], list[DJWarning]]:
     """
     Check the filters against the metrics' requirements.
@@ -338,7 +341,7 @@ async def apply_metric_filter_requirements(
     Returns the filters with defaults added, and warnings. Raises a 422 when
     a required filter is missing.
     """
-    entries = await load_requirement_entries(session, metrics)
+    entries = await load_requirement_entries(session, metrics, inherit)
     return apply_requirements(entries, list(filters or []))
 
 
@@ -360,6 +363,7 @@ async def check_filter_requirements(
     session: AsyncSession,
     metrics: list[str],
     filters: list[str] | None,
+    inherit: bool = False,
 ) -> CheckedFilters:
     """
     apply_metric_filter_requirements, returned as CheckedFilters.
@@ -368,6 +372,7 @@ async def check_filter_requirements(
         session,
         metrics,
         filters,
+        inherit,
     )
     return CheckedFilters(effective, warnings)
 
@@ -381,6 +386,7 @@ async def apply_node_filter_requirements(
     session: AsyncSession,
     node_name: str,
     filters: list[str],
+    inherit: bool = False,
 ) -> tuple[list[str], list[DJWarning]]:
     """
     Check the requirements of a metric or cube node.
@@ -396,7 +402,7 @@ async def apply_node_filter_requirements(
             .where(Node.deactivated_at.is_(None)),
         )
     ).scalar_one_or_none()
-    if node_type is None:
+    if node_type is None and inherit:
         parent = (await missing_to_parent(session, [node_name], [])).get(node_name)
         if parent:
             node_type = (
@@ -407,15 +413,25 @@ async def apply_node_filter_requirements(
                 )
             ).scalar_one_or_none()
     if node_type == NodeType.METRIC:
-        return await apply_metric_filter_requirements(session, [node_name], filters)
+        return await apply_metric_filter_requirements(
+            session,
+            [node_name],
+            filters,
+            inherit,
+        )
     if node_type == NodeType.CUBE:
-        cube = await Node.get_cube_by_name(session, node_name, inherit=True)
+        cube = await Node.get_cube_by_name(
+            session,
+            node_name,
+            inherit=inherit,
+        )
         revision = cube.current  # type: ignore[union-attr]
         stored = list(revision.cube_filters or [])
         effective, warnings = await apply_metric_filter_requirements(
             session,
             list(revision.cube_node_metrics),
             stored + list(filters),
+            inherit,
         )
         return effective[len(stored) :], warnings
     return list(filters), []

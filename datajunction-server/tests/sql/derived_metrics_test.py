@@ -148,7 +148,7 @@ class TestExtractDependenciesForDerivedMetrics:
         # Patch get_dj_node to return our mock nodes
         original_get_dj_node = ast_module.get_dj_node
 
-        async def mock_get_dj_node(session, name, types):
+        async def mock_get_dj_node(session, name, types, inherit=False):
             if name == "default.metric_a":
                 return mock_metric_a
             elif name == "default.metric_b":
@@ -185,7 +185,7 @@ class TestExtractDependenciesForDerivedMetrics:
         # Patch get_dj_node to raise DJErrorException (node not found)
         original_get_dj_node = ast_module.get_dj_node
 
-        async def mock_get_dj_node(session, name, types):
+        async def mock_get_dj_node(session, name, types, inherit=False):
             # Simulate node not found - raises exception like the real function
             raise DJErrorException(
                 DJError(code=ErrorCode.UNKNOWN_NODE, message=f"Node {name} not found"),
@@ -257,7 +257,7 @@ class TestExtractDependenciesForDerivedMetrics:
         # Patch get_dj_node
         original_get_dj_node = ast_module.get_dj_node
 
-        async def mock_get_dj_node(session, name, types):
+        async def mock_get_dj_node(session, name, types, inherit=False):
             if name == "default.metric_a":
                 return mock_metric_a
             elif name == "default.metric_b":
