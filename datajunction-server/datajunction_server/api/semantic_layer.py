@@ -10,14 +10,26 @@ DJ generates SQL; the client executes it. This router does NOT run queries —
 """
 
 import logging
-from typing import Any
+from collections.abc import Mapping
+from typing import Any, Literal, TypeAlias, cast
 
 from fastapi import Body, Depends
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field  # pylint: disable=no-name-in-module
+from pydantic import (  # pylint: disable=no-name-in-module
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    TypeAdapter,
+    ValidationError,
+)
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.construction.build_v3.types import (
+    ColumnMetadata as GeneratedColumnMetadata,
+)
+from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.user import User
@@ -53,9 +65,15 @@ from datajunction_server.construction.build_v3.utils import (
     make_column_ref,
 )
 from datajunction_server.models.dialect import Dialect
-from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.access import ResourceAction, ResourceType
+from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.semantic_layer_metadata import (
+    MAX_FORMAT_PRECISION,
+    SEMANTIC_LAYER_METADATA_KEY,
+)
+from datajunction_server.models.unit import Unit, unit_to_dict
 from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.types import ColumnType
 from datajunction_server.utils import get_current_user, get_session
 
 logger = logging.getLogger(__name__)
@@ -100,6 +118,9 @@ DJ_TO_ARROW_TYPE_NAMES = {
     "varchar": "utf8",
 }
 
+_UNIT_ADAPTER = TypeAdapter(Unit)
+JSONObject: TypeAlias = dict[str, JsonValue]
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -114,7 +135,7 @@ def _problem(status_code: int, detail: str) -> JSONResponse:
     )
 
 
-def _arrow_type_name(dj_type: Any) -> str | None:
+def _arrow_type_name(dj_type: ColumnType | str | None) -> str | None:
     """Map a DJ column type to the Arrow JSON type object's ``name`` value."""
     if not dj_type:
         return None
@@ -133,21 +154,331 @@ def _cube_column_type_map(cube: NodeRevision) -> dict[str, str | None]:
     }
 
 
-def _cube_metadata_map(cube: NodeRevision) -> dict[str, dict[str, str | None]]:
-    """Return column metadata for the metric/dimension ids exposed by a cube."""
-    return {
-        column.cube_element_name: {"display_name": column.display_name}
-        for column in cube.columns
+def _semantic_type(
+    column: Column,
+    arrow_type: str,
+    *,
+    is_metric: bool,
+    unit: Unit | None = None,
+) -> str:
+    """Derive the portable business type from DJ's structured column fields."""
+    if getattr(column, "name", "").rsplit(".", 1)[-1] == "dateint":
+        return "date"
+
+    unit_data = unit_to_dict(unit or column.unit)
+    if unit_data and "kind" in unit_data:
+        unit_kind = unit_data["kind"]
+        if unit_kind == "time":
+            return "duration"
+        if unit_kind in {
+            "currency",
+            "percentage",
+            "proportion",
+            "count",
+            "data_size",
+        }:
+            return unit_kind
+
+    attributes = set(column.attribute_names())
+    if "primary_key" in attributes:
+        return "identifier"
+    if arrow_type == "date":
+        return "date"
+    if arrow_type == "timestamp":
+        return "timestamp"
+    if arrow_type == "bool":
+        return "boolean"
+    if arrow_type in {"int", "floating", "decimal"} or is_metric:
+        return "number"
+    return "category"
+
+
+def _format_metadata(unit: Unit | None) -> "FormatMetadata | None":
+    """Translate units with unambiguous display semantics to portable hints."""
+    unit_data = unit_to_dict(unit)
+    if not unit_data or "kind" not in unit_data:
+        return None
+    preset_by_kind = {
+        "currency": "currency",
+        "time": "duration",
+        "data_size": "data_size",
     }
+    preset = preset_by_kind.get(unit_data["kind"])
+    return FormatMetadata(preset=preset) if preset else None
 
 
-def _generated_column_arrow_type_name(column: Any) -> str:
+def _validated_unit(raw_unit: JsonValue) -> Unit | None:
+    """Validate custom metadata units without letting bad annotations fail a view."""
+    if raw_unit is None:
+        return None
+    try:
+        return _UNIT_ADAPTER.validate_python(raw_unit)
+    except ValidationError:
+        return None
+
+
+def _inferred_filter_metadata(arrow_type: str | None) -> "FilterMetadata | None":
+    """Infer conservative filter hints supported by DJ query translation."""
+    if arrow_type in {"utf8", "bool"}:
+        operators = ["=", "!=", "IS NULL", "IS NOT NULL"]
+        kind = "text" if arrow_type == "utf8" else "boolean"
+    elif arrow_type in {"int", "floating", "decimal", "date", "timestamp"}:
+        operators = [
+            "=",
+            "!=",
+            ">",
+            ">=",
+            "<",
+            "<=",
+            "IS NULL",
+            "IS NOT NULL",
+        ]
+        kind = {
+            "date": "date",
+            "timestamp": "datetime",
+        }.get(arrow_type, "number")
+    else:
+        return None
+    return FilterMetadata(
+        kind=kind,
+        operators=operators,
+        default_operator="=",
+    )
+
+
+def _decimal_places_pattern(precision: int) -> str:
+    """Build the decimal-place portion of a number format pattern."""
+    return f".{''.join('0' for _ in range(precision))}" if precision else ""
+
+
+def _fixed_decimal_pattern(prefix: str, precision: int) -> str:
+    """Build a Google Sheets fixed-decimal pattern."""
+    return f"{prefix}#,##0{_decimal_places_pattern(precision)}"
+
+
+def _client_format_extensions(
+    extensions: dict[str, JSONObject],
+    unit: Unit | None,
+    format_metadata: "FormatMetadata | None",
+    *,
+    format_is_explicit: bool,
+) -> dict[str, JSONObject]:
+    """Fill missing client formats when portable semantics are unambiguous."""
+    if format_metadata is None or format_metadata.preset is None:
+        return extensions
+    # Native format strings describe presentation only and cannot apply the
+    # portable scale multiplier. Keep any explicitly authored extensions.
+    if format_metadata.scale is not None and format_metadata.scale != 1:
+        return extensions
+
+    preset = format_metadata.preset
+    precision = format_metadata.precision
+    if precision is None:
+        precision = 2
+
+    unit_data = unit_to_dict(unit)
+    is_usd = bool(
+        unit_data
+        and unit_data.get("kind") == "currency"
+        and unit_data.get("code") == "USD",
+    )
+
+    d3format: str | None = None
+    number_format: dict[str, str] | None = None
+    if preset == "currency" and is_usd:
+        d3format = f"$,.{precision}f"
+        number_format = {
+            "type": "CURRENCY",
+            "pattern": _fixed_decimal_pattern("$", precision),
+        }
+    elif format_is_explicit and preset == "number":
+        d3format = f",.{precision}f"
+        number_format = {
+            "type": "NUMBER",
+            "pattern": _fixed_decimal_pattern("", precision),
+        }
+    elif format_is_explicit and preset == "percentage":
+        d3format = f".{precision}%"
+        number_format = {
+            "type": "PERCENT",
+            "pattern": f"0{_decimal_places_pattern(precision)}%",
+        }
+    elif format_is_explicit and preset == "smart_number":
+        d3format = "SMART_NUMBER"
+
+    if d3format is not None:
+        extensions.setdefault("superset", {}).setdefault("d3format", d3format)
+    if number_format is not None:
+        extensions.setdefault("google_sheets", {}).setdefault(
+            "numberFormat",
+            number_format,
+        )
+    return extensions
+
+
+_METADATA_KEYS = {
+    "display_name",
+    "semantic_type",
+    "unit",
+    "attributes",
+    "format",
+    "filter",
+    "extensions",
+}
+
+
+def _raw_column_metadata(cube: NodeRevision, column_id: str) -> JSONObject:
+    """Find semantic metadata declared in an element node's custom metadata.
+
+    Metric nodes describe one value, so their metadata may be declared directly.
+    Dimension nodes can expose several values and use a ``columns`` mapping.
+    The reserved ``semantic_layer`` key keeps this contract separate from other DJ
+    custom metadata.
+    """
+    for element in getattr(cube, "cube_elements", []):
+        revision = element.node_revision
+        if revision is None:
+            continue
+        if revision.type == NodeType.METRIC and revision.name != column_id:
+            continue
+        if revision.type != NodeType.METRIC:
+            base_id = f"{revision.name}.{element.name}"
+            if column_id != base_id and not column_id.startswith(f"{base_id}["):
+                continue
+
+        custom_metadata = revision.custom_metadata or {}
+        if not isinstance(custom_metadata, Mapping):
+            return {}
+        raw = custom_metadata.get(SEMANTIC_LAYER_METADATA_KEY, {})
+        if revision.type != NodeType.METRIC and isinstance(raw, Mapping):
+            columns = raw.get("columns", {})
+            raw = columns.get(element.name, {}) if isinstance(columns, Mapping) else {}
+        return cast(JSONObject, dict(raw)) if isinstance(raw, Mapping) else {}
+    return {}
+
+
+def _column_metadata(
+    column: Column,
+    *,
+    is_metric: bool,
+    raw_metadata: Mapping[str, JsonValue] | None = None,
+) -> "ColumnMetadata | None":
+    """Build strict portable metadata from a DJ cube column."""
+    raw_metadata = raw_metadata or {}
+    mapped_arrow_type = _arrow_type_name(column.type)
+    arrow_type = mapped_arrow_type or (
+        METRIC_FALLBACK_ARROW_TYPE_NAME
+        if is_metric
+        else DIMENSION_FALLBACK_ARROW_TYPE_NAME
+    )
+    attributes = column.attribute_names()
+    extensions = (
+        {
+            str(namespace): cast(JSONObject, dict(values))
+            for namespace, values in raw_metadata.get("extensions", {}).items()
+            if isinstance(values, Mapping)
+        }
+        if isinstance(raw_metadata.get("extensions"), Mapping)
+        else {}
+    )
+    producer_metadata = {
+        key: value for key, value in raw_metadata.items() if key not in _METADATA_KEYS
+    }
+    if producer_metadata:
+        extensions["datajunction"] = {
+            **producer_metadata,
+            **extensions.get("datajunction", {}),
+        }
+
+    raw_format = raw_metadata.get("format")
+    format_metadata = None
+    if isinstance(raw_format, Mapping):
+        raw_preset = raw_format.get("preset")
+        format_metadata = FormatMetadata(
+            preset=(
+                raw_preset
+                if isinstance(raw_preset, str)
+                and raw_preset in FormatMetadata.allowed_presets()
+                else None
+            ),
+            precision=(
+                raw_format.get("precision")
+                if isinstance(raw_format.get("precision"), int)
+                and not isinstance(raw_format.get("precision"), bool)
+                and 0 <= raw_format["precision"] <= MAX_FORMAT_PRECISION
+                else None
+            ),
+            scale=(
+                raw_format.get("scale")
+                if isinstance(raw_format.get("scale"), (int, float))
+                and not isinstance(raw_format.get("scale"), bool)
+                else None
+            ),
+        )
+        if not format_metadata.model_dump(exclude_none=True):
+            format_metadata = None
+
+    raw_unit = raw_metadata.get("unit", unit_to_dict(column.unit))
+    unit = _validated_unit(raw_unit)
+    resolved_format = format_metadata or _format_metadata(unit)
+    extensions = _client_format_extensions(
+        extensions,
+        unit,
+        resolved_format,
+        format_is_explicit=isinstance(raw_format, Mapping),
+    )
+    raw_semantic_type = raw_metadata.get("semantic_type")
+    if "filter" in raw_metadata:
+        filter_metadata = (
+            FilterMetadata.from_mapping(raw_metadata["filter"])
+            if isinstance(raw_metadata.get("filter"), Mapping)
+            else None
+        )
+    else:
+        filter_metadata = _inferred_filter_metadata(mapped_arrow_type)
+    metadata = ColumnMetadata(
+        display_name=(
+            raw_metadata.get("display_name")
+            if isinstance(raw_metadata.get("display_name"), str)
+            else column.display_name
+        ),
+        semantic_type=(
+            raw_semantic_type
+            if isinstance(raw_semantic_type, str)
+            and raw_semantic_type in ColumnMetadata.allowed_semantic_types()
+            else _semantic_type(
+                column,
+                arrow_type,
+                is_metric=is_metric,
+                unit=unit,
+            )
+        ),
+        unit=unit,
+        attributes=(
+            list(dict.fromkeys(raw_metadata["attributes"]))
+            if isinstance(raw_metadata.get("attributes"), list)
+            and all(isinstance(value, str) for value in raw_metadata["attributes"])
+            else attributes or None
+        ),
+        format=resolved_format,
+        filter=filter_metadata,
+        extensions=extensions or None,
+    )
+    return metadata if metadata.model_dump(exclude_none=True) else None
+
+
+def _cube_column_map(cube: NodeRevision) -> dict[str, Column]:
+    """Return role-aware cube columns keyed by semantic-layer id."""
+    return {column.cube_element_name: column for column in cube.columns}
+
+
+def _generated_column_arrow_type_name(column: GeneratedColumnMetadata) -> str:
     """Return the semantic-layer Arrow type name for a generated SQL column."""
-    arrow_type = _arrow_type_name(getattr(column, "type", None))
+    arrow_type = _arrow_type_name(column.type)
     if arrow_type:
         return arrow_type
 
-    semantic_type = str(getattr(column, "semantic_type", "") or "").lower()
+    semantic_type = column.semantic_type.lower()
     if semantic_type == "dimension":
         return DIMENSION_FALLBACK_ARROW_TYPE_NAME
     return METRIC_FALLBACK_ARROW_TYPE_NAME
@@ -156,20 +487,23 @@ def _generated_column_arrow_type_name(column: Any) -> str:
 def _metrics_payload(cube: NodeRevision) -> list["MetricInfo"]:
     """Spec ``metrics`` list. ``definition`` is display-only."""
     type_by_name = _cube_column_type_map(cube)
-    metadata_by_name = _cube_metadata_map(cube)
+    columns_by_name = _cube_column_map(cube)
     return [
         MetricInfo(
             id=metric_name,
             name=metric_name.split(".")[-1],
             type=type_by_name.get(metric_name) or METRIC_FALLBACK_ARROW_TYPE_NAME,
             definition=metric_name,
-            description=None,
+            description=getattr(columns_by_name.get(metric_name), "description", None),
             aggregation="OTHER",
-            metadata=MetricsMetadata(
-                display_name=metadata_by_name.get(metric_name, {}).get(
-                    "display_name",
-                    "",
-                ),
+            metadata=(
+                _column_metadata(
+                    columns_by_name[metric_name],
+                    is_metric=True,
+                    raw_metadata=_raw_column_metadata(cube, metric_name),
+                )
+                if metric_name in columns_by_name
+                else None
             ),
         )
         for metric_name in cube.cube_node_metrics
@@ -179,17 +513,23 @@ def _metrics_payload(cube: NodeRevision) -> list["MetricInfo"]:
 def _dimensions_payload(cube: NodeRevision) -> list["DimensionInfo"]:
     """Spec ``dimensions`` list. Grain detection is deferred."""
     type_by_name = _cube_column_type_map(cube)
-    metadata_by_name = _cube_metadata_map(cube)
+    columns_by_name = _cube_column_map(cube)
     return [
         DimensionInfo(
             id=dim_ref,
             name=dim_ref.split(".")[-1],
             type=type_by_name.get(dim_ref) or DIMENSION_FALLBACK_ARROW_TYPE_NAME,
             definition=dim_ref,
-            description=None,
+            description=getattr(columns_by_name.get(dim_ref), "description", None),
             grain=None,
-            metadata=DimensionMetadata(
-                display_name=metadata_by_name.get(dim_ref, {}).get("display_name", ""),
+            metadata=(
+                _column_metadata(
+                    columns_by_name[dim_ref],
+                    is_metric=False,
+                    raw_metadata=_raw_column_metadata(cube, dim_ref),
+                )
+                if dim_ref in columns_by_name
+                else None
             ),
         )
         for dim_ref in cube.cube_node_dimensions
@@ -211,6 +551,25 @@ def _view_payload(cube: NodeRevision) -> "ViewDetail":
         dimensions=_dimensions_payload(cube),
         metrics=_metrics_payload(cube),
     )
+
+
+def _view_detail_json(view: "ViewDetail") -> JSONObject:
+    """Omit empty metadata while retaining nullable fields in the view contract."""
+    payload = view.model_dump(mode="json")
+    columns: list[MetricInfo | DimensionInfo] = [
+        *view.metrics,
+        *view.dimensions,
+    ]
+    serialized_columns = payload["metrics"] + payload["dimensions"]
+    for serialized, column in zip(serialized_columns, columns, strict=True):
+        if column.metadata is None:
+            serialized.pop("metadata", None)
+        else:
+            serialized["metadata"] = column.metadata.model_dump(
+                mode="json",
+                exclude_none=True,
+            )
+    return cast(JSONObject, payload)
 
 
 # ---------------------------------------------------------------------------
@@ -238,7 +597,7 @@ _NULLARY_OPERATORS = frozenset({"IS NULL", "IS NOT NULL"})
 _COLLECTION_OPERATORS = frozenset({"IN", "NOT IN"})
 
 
-def _quote_value(value: Any) -> str:
+def _quote_value(value: JsonValue) -> str:
     """Render a scalar Python value as a SQL literal via sqlglot, which handles
     quote-escaping and numeric/bool/NULL rendering for the scalars the client
     sends (strings, numbers, bools, null)."""
@@ -303,7 +662,7 @@ class FilterPayload(BaseModel):
     type: str = "WHERE"
     column: str | None = None
     operator: str = "="
-    value: Any = None
+    value: JsonValue = None
 
 
 class GroupLimitPayload(BaseModel):
@@ -373,10 +732,154 @@ class ValuesRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-class MetricsMetadata(BaseModel):
-    """Metric-specific field metadata"""
+class FormatMetadata(BaseModel):
+    """Portable presentation hints from the semantic-layer specification."""
 
-    display_name: str
+    preset: (
+        Literal[
+            "smart_number",
+            "number",
+            "currency",
+            "percentage",
+            "duration",
+            "data_size",
+        ]
+        | None
+    ) = None
+    precision: int | None = Field(default=None, ge=0, le=MAX_FORMAT_PRECISION)
+    scale: float | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+    @staticmethod
+    def allowed_presets() -> set[str]:
+        """Values accepted by the portable metadata contract."""
+        return {
+            "smart_number",
+            "number",
+            "currency",
+            "percentage",
+            "duration",
+            "data_size",
+        }
+
+
+class FilterMetadata(BaseModel):
+    """Portable query-builder hints from the semantic-layer specification."""
+
+    kind: (
+        Literal[
+            "text",
+            "number",
+            "range",
+            "date",
+            "datetime",
+            "boolean",
+            "select",
+        ]
+        | None
+    ) = None
+    operators: list[str] | None = None
+    default_operator: str | None = None
+    multi: bool | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+    @classmethod
+    def from_mapping(cls, raw: Mapping[str, JsonValue]) -> "FilterMetadata | None":
+        """Sanitize free-form DJ custom metadata into the strict contract."""
+        allowed_operators = {
+            "=",
+            "!=",
+            ">",
+            ">=",
+            "<",
+            "<=",
+            "IS NULL",
+            "IS NOT NULL",
+        }
+        operators = raw.get("operators")
+        clean_operators = (
+            list(dict.fromkeys(operators))
+            if isinstance(operators, list)
+            and all(
+                isinstance(operator, str) and operator in allowed_operators
+                for operator in operators
+            )
+            else None
+        )
+        default_operator = raw.get("default_operator")
+        if (
+            not isinstance(default_operator, str)
+            or default_operator not in allowed_operators
+            or clean_operators is None
+            or default_operator not in clean_operators
+        ):
+            default_operator = None
+        metadata = cls(
+            kind=(
+                raw.get("kind")
+                if raw.get("kind")
+                in {"text", "number", "range", "date", "datetime", "boolean", "select"}
+                else None
+            ),
+            operators=clean_operators,
+            default_operator=default_operator,
+            multi=False if raw.get("multi") is False else None,
+        )
+        return metadata if metadata.model_dump(exclude_none=True) else None
+
+
+class ColumnMetadata(BaseModel):
+    """Portable metadata shared by semantic dimensions and metrics."""
+
+    display_name: str | None = None
+    semantic_type: (
+        Literal[
+            "currency",
+            "percentage",
+            "proportion",
+            "count",
+            "duration",
+            "data_size",
+            "date",
+            "timestamp",
+            "identifier",
+            "category",
+            "url",
+            "boolean",
+            "number",
+            "string",
+        ]
+        | None
+    ) = None
+    unit: Unit | None = None
+    attributes: list[str] | None = None
+    format: FormatMetadata | None = None
+    filter: FilterMetadata | None = None
+    extensions: dict[str, JSONObject] | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+    @staticmethod
+    def allowed_semantic_types() -> set[str]:
+        """Values accepted by the portable metadata contract."""
+        return {
+            "currency",
+            "percentage",
+            "proportion",
+            "count",
+            "duration",
+            "data_size",
+            "date",
+            "timestamp",
+            "identifier",
+            "category",
+            "url",
+            "boolean",
+            "number",
+            "string",
+        }
 
 
 class MetricInfo(BaseModel):
@@ -388,13 +891,7 @@ class MetricInfo(BaseModel):
     definition: str
     description: str | None
     aggregation: str
-    metadata: MetricsMetadata
-
-
-class DimensionMetadata(BaseModel):
-    """Dimension-specific field metadata"""
-
-    display_name: str
+    metadata: ColumnMetadata | None = None
 
 
 class DimensionInfo(BaseModel):
@@ -406,7 +903,7 @@ class DimensionInfo(BaseModel):
     definition: str
     description: str | None
     grain: str | None
-    metadata: DimensionMetadata
+    metadata: ColumnMetadata | None = None
 
 
 class ViewSummary(BaseModel):
@@ -844,7 +1341,6 @@ async def list_views(
                 )
     except DJException as exc:
         return _problem(exc.http_status_code or 400, exc.message)
-
     required_namespaces: set[str] = set()
     if namespace:
         required_namespaces.add(namespace)
@@ -929,7 +1425,7 @@ async def get_view(
         return _problem(exc.http_status_code or 404, exc.message)
     if cube_node is None or cube_node.current is None:
         return _problem(404, f"View `{view_name}` does not exist.")
-    return _view_payload(cube_node.current)
+    return JSONResponse(content=_view_detail_json(_view_payload(cube_node.current)))
 
 
 def _limit_to_ranked_groups(
