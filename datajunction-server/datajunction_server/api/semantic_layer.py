@@ -924,6 +924,7 @@ async def get_view(
             session,
             view_name,
             for_measures_sql=True,  # load only what we need to build the metrics
+            inherit=True,
         )
     except DJException as exc:
         return _problem(exc.http_status_code or 404, exc.message)
@@ -1172,7 +1173,11 @@ async def _generate_view_sql(
     if not payload.metrics and not payload.dimensions:
         return _problem(400, "A query must request at least one metric or dimension.")
     try:
-        cube_node = await Node.get_cube_by_name(session, view_name)
+        cube_node = await Node.get_cube_by_name(
+            session,
+            view_name,
+            inherit=True,
+        )
         if cube_node is None or cube_node.current is None:
             return _problem(404, f"View `{view_name}` does not exist.")
         cube_rev = cube_node.current
@@ -1279,7 +1284,11 @@ async def generate_values_sql(
 ) -> GeneratedSQLResponse | JSONResponse:
     """Generate SQL for a dimension's distinct values, optionally filtered."""
     try:
-        cube_node = await Node.get_cube_by_name(session, view_name)
+        cube_node = await Node.get_cube_by_name(
+            session,
+            view_name,
+            inherit=True,
+        )
     except DJException as exc:
         return _problem(exc.http_status_code or 400, exc.message)
     if cube_node is None or cube_node.current is None:

@@ -331,7 +331,12 @@ async def cube_materialization_info(
     materialized dataset. This allows us to reconstruct metrics SQL from the dataset when needed.
     To request metrics from the materialized cube, use the metrics' measures metadata.
     """
-    node = await Node.get_cube_by_name(session, name, with_metric_current=True)
+    node = await Node.get_cube_by_name(
+        session,
+        name,
+        with_metric_current=True,
+        inherit=True,
+    )
     if not node or not node.current:
         raise DJNodeNotFound(
             message=f"Cube node `{name}` does not exist.",
@@ -419,7 +424,12 @@ async def get_cube_dimension_sql(
     """
     Generates SQL to retrieve all unique values of a dimension for the cube
     """
-    node = await Node.get_cube_by_name(session, name)
+    node = await Node.get_cube_by_name(session, name, inherit=True)
+    if node is None:
+        raise DJNodeNotFound(
+            message=f"A cube node with name `{name}` does not exist.",
+            http_status_code=404,
+        )
     node_revision = node.current  # type: ignore
     return await build_dimensions_from_cube_query(
         session,
@@ -461,7 +471,12 @@ async def get_cube_dimension_values(
     All unique values of a dimension from the cube
     """
     request_headers = dict(request.headers)
-    node = await Node.get_cube_by_name(session, name)
+    node = await Node.get_cube_by_name(session, name, inherit=True)
+    if node is None:
+        raise DJNodeNotFound(
+            message=f"A cube node with name `{name}` does not exist.",
+            http_status_code=404,
+        )
     cube = node.current  # type: ignore
     translated_sql = await build_dimensions_from_cube_query(
         session,
@@ -1096,7 +1111,11 @@ async def get_cube_view_ddl(
 
     Each dialect has versioned and unversioned views.
     """
-    node = await Node.get_cube_by_name(session, name)
+    node = await Node.get_cube_by_name(
+        session,
+        name,
+        inherit=True,
+    )
     if node is None:
         raise DJNodeNotFound(
             message=f"A cube node with name `{name}` does not exist.",
@@ -1105,7 +1124,7 @@ async def get_cube_view_ddl(
     revision = node.current  # type: ignore
 
     names = CubeViewNames(name, revision.version)
-    spark_body, is_materialized = await _build_view_body(name, session)
+    spark_body, is_materialized = await _build_view_body(node.name, session)
     trino_body = transpile_sql(spark_body, dialect=Dialect.TRINO)
 
     return ViewDDLResponse(

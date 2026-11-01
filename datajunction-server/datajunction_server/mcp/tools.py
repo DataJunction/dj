@@ -14,7 +14,7 @@ from typing import Any
 
 from mcp import types
 from sqlalchemy import select
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm import joinedload, load_only, selectinload
 from sqlalchemy.sql.base import ExecutableOption
 
 from datajunction_server.construction.build_v3.builder import (
@@ -199,7 +199,12 @@ async def get_node_details(name: str) -> str:
         selectinload(Node.tags),
         selectinload(Node.owners),
     ]
-    node = await Node.get_by_name(session, name, options=options)
+    node = await Node.get_by_name(
+        session,
+        name,
+        options=options,
+        inherit=True,
+    )
     if not node:
         return f"Node '{name}' not found."
 
@@ -301,6 +306,7 @@ async def get_common(
                 session,
                 name,
                 options=[joinedload(Node.current)],
+                inherit=True,
             )
             if n:
                 metric_nodes.append(n)
@@ -317,7 +323,12 @@ async def get_common(
     # dimensions branch
     dim_nodes = []
     for name in dimensions or []:
-        n = await Node.get_by_name(session, name, options=[joinedload(Node.current)])
+        n = await Node.get_by_name(
+            session,
+            name,
+            options=[joinedload(Node.current)],
+            inherit=True,
+        )
         if n:
             dim_nodes.append(n)
     if not dim_nodes:
@@ -681,6 +692,13 @@ async def get_node_lineage(
     depth = max_depth if max_depth is not None else -1
 
     lines = [f"Lineage for: {node_name}", "=" * 60, ""]
+    node = await Node.get_by_name(
+        session,
+        node_name,
+        options=[load_only(Node.id, Node.name)],
+        inherit=True,
+    )
+    lineage_name = node.name if node else node_name
 
     def _format_section(title: str, nodes: list[Node]) -> list[str]:
         section = [f"{title} ({len(nodes)} nodes):", "-" * 60]
@@ -701,11 +719,11 @@ async def get_node_lineage(
     if direction in ("upstream", "both"):
         # ``get_upstream_nodes`` does not support depth — mirrors the existing
         # /nodes/{name}/upstream/ API which also ignores depth.
-        upstream = await get_upstream_nodes(session, node_name)
+        upstream = await get_upstream_nodes(session, lineage_name)
         lines += _format_section("Upstream Dependencies", upstream)
 
     if direction in ("downstream", "both"):
-        downstream = await get_downstream_nodes(session, node_name, depth=depth)
+        downstream = await get_downstream_nodes(session, lineage_name, depth=depth)
         lines += _format_section("Downstream Dependencies", downstream)
 
     return "\n".join(lines)
@@ -718,6 +736,7 @@ async def get_node_dimensions(node_name: str) -> str:
         session,
         node_name,
         options=[joinedload(Node.current)],
+        inherit=True,
     )
     if not node:
         return f"Node '{node_name}' not found."
