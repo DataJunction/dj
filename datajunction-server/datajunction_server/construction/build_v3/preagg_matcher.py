@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING
 
 from datajunction_server.construction.build_v3.dimensions import (
     parse_dimension_ref,
-    roles_reaching_dimension,
 )
 from datajunction_server.database.preaggregation import (
     PreAggregation,
@@ -22,7 +21,6 @@ from datajunction_server.database.preaggregation import (
     get_measure_identities,
     measure_identity_token,
 )
-from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.decompose import (
     Aggregability,
     MetricComponent,
@@ -115,36 +113,9 @@ def required_reaggregate_grain(
     MIN_BY / min / max in the metrics layer, so it is not substitutable.
     """
     return {
-        canonical_dimension_ref(ctx, node_rev_id, dimension_ref)
+        dimension_ref
         for dimension_ref in grain_group.reaggregate_component_dimensions.values()
     }
-
-
-def canonical_dimension_ref(
-    ctx: BuildContext,
-    node_rev_id: int,
-    ref: str,
-) -> str:
-    """
-    Canonical form of a dimension reference, so that a pre-agg registered with one
-    spelling still matches a query written with the other.
-
-    A bare reference is qualified only when exactly one named role reaches the
-    dimension and no role-free link does -- mirroring how the reference resolves,
-    which prefers the role-free link. Anything else is returned unchanged.
-    """
-    try:
-        dim_ref = parse_dimension_ref(ref)
-    except DJInvalidInputException:
-        # Not a node.column reference, so there is no dimension node to look up
-        # roles for. Compared as-is rather than failing the whole build.
-        return ref
-    if dim_ref.role:
-        return ref
-    roles = roles_reaching_dimension(ctx, node_rev_id, dim_ref.node_name)
-    if "" in roles or len(roles) != 1:
-        return ref
-    return f"{ref}[{roles.pop()}]"
 
 
 @dataclass(frozen=True)
@@ -226,10 +197,7 @@ def join_back_coverage(
     """
     coverage: list[JoinBackCoverage] = []
     for rdim in resolved_dimensions:
-        if (
-            canonical_dimension_ref(ctx, node_rev_id, rdim.original_ref)
-            in preagg_grain_set
-        ):
+        if rdim.original_ref in preagg_grain_set:
             continue
 
         # A locally-owned column has no dimension node to join, and neither does
@@ -246,12 +214,7 @@ def join_back_coverage(
 
         suffix = f"[{rdim.role}]" if rdim.role else ""
         key_refs = tuple(
-            canonical_dimension_ref(
-                ctx,
-                node_rev_id,
-                f"{rdim.node_name}{SEPARATOR}{key_col}{suffix}",
-            )
-            for key_col in primary_key
+            f"{rdim.node_name}{SEPARATOR}{key_col}{suffix}" for key_col in primary_key
         )
         if not set(key_refs).issubset(preagg_grain_set):
             return None
@@ -317,10 +280,7 @@ def find_matching_preagg(
         grain_group,
     )
 
-    requested_grain_set = {
-        canonical_dimension_ref(ctx, node_rev_id, rdim.original_ref)
-        for rdim in resolved_dimensions
-    }
+    requested_grain_set = {rdim.original_ref for rdim in resolved_dimensions}
 
     # Non-additive measures (e.g. COUNT(DISTINCT ...), raw AVG components) cannot
     # be rolled up to a coarser grain without producing wrong results. When any
@@ -338,10 +298,7 @@ def find_matching_preagg(
     candidates: list[tuple[tuple[int, int], PreaggMatch]] = []
 
     for preagg in available:
-        preagg_grain_set = {
-            canonical_dimension_ref(ctx, node_rev_id, ref)
-            for ref in (preagg.grain_columns or [])
-        }
+        preagg_grain_set = set(preagg.grain_columns or [])
 
         if not reaggregate_grain.issubset(preagg_grain_set):
             logger.debug(
@@ -461,17 +418,11 @@ def get_preagg_dimension_column(
     Physical column in the pre-agg backing a resolved grain dimension.
 
     External pre-aggs may store a dimension under a different column name (kept as
-    source_column). Matched by canonical dimension reference, so a bare and a
-    role-qualified spelling of the same dimension still match, falling back to the
-    DJ column name.
+    source_column). Matched on the reference exactly as written: no role is the
+    null role, which is not any named role. Falls back to the DJ column name.
     """
-    target = canonical_dimension_ref(ctx, node_rev_id, dimension_ref)
     for col in preagg.columns or []:
-        if col.semantic_type == "dimension" and target == canonical_dimension_ref(
-            ctx,
-            node_rev_id,
-            col.semantic_name,
-        ):
+        if col.semantic_type == "dimension" and dimension_ref == col.semantic_name:
             return col.source_column or col.name
     return default_column
 

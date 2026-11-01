@@ -488,12 +488,6 @@ def _bounds_by_ref(
     Computed once per build per node revision per side -- parsing every filter
     for every candidate pre-aggregation would re-parse the same strings N times.
     """
-    # Local import: ``preagg_matcher`` -> ``dimensions`` -> ``utils`` -> ``filters``
-    # is an existing chain, so importing it at module top would cycle.
-    from datajunction_server.construction.build_v3.preagg_matcher import (
-        canonical_dimension_ref,
-    )
-
     cached = ctx._filter_bound_cache.get((node_rev_id, upper))
     if cached is not None:
         return cached
@@ -512,8 +506,7 @@ def _bounds_by_ref(
     def offer(ref: str | None, value: int | None) -> None:
         if ref is None or value is None:
             return
-        canonical = canonical_dimension_ref(ctx, node_rev_id, ref)
-        bounds[canonical] = tighter(bounds.get(canonical, value), value)
+        bounds[ref] = tighter(bounds.get(ref, value), value)
 
     for filter_str in ctx.dimension_filters:
         conjuncts = _conjuncts(parse_filter(filter_str))

@@ -5,7 +5,7 @@ import pytest
 from datajunction_server.construction.build_v3.builder import build_metrics_sql
 from datajunction_server.construction.build_v3.group_others import GroupOthers
 from datajunction_server.construction.build_v3.types import ColumnMetadata, GeneratedSQL
-from datajunction_server.errors import DJInvalidMetricQueryException
+from datajunction_server.errors import DJInvalidMetricQueryException, ErrorCode
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 
@@ -984,11 +984,11 @@ class TestMetricsSQLBasic:
         assert "MAX_BY" not in response.json()["sql"]
 
     @pytest.mark.asyncio
-    async def test_reaggregate_collapses_when_roleless_base_dimension_requested(
+    async def test_reaggregate_rejects_roleless_base_dimension_request(
         self,
         client_with_build_v3,
     ):
-        """A role-less dimension request does not satisfy a roled protected grain."""
+        """A role-less request is the null role: it never names the roled protected grain."""
         await self._create_daily_balance_metric(client_with_build_v3)
 
         response = await client_with_build_v3.get(
@@ -999,13 +999,12 @@ class TestMetricsSQLBasic:
                 "use_materialized": "false",
             },
         )
-        assert response.status_code == 200, response.json()
-
-        sql = response.json()["sql"]
-        assert "MAX_BY(" in sql
-        assert "order_details_0.date_id_order" in sql
-        assert (
-            "SUM(order_details_0.line_total_sum_e1f61696) AS daily_balance" not in sql
+        assert response.status_code == 422, response.json()
+        error = response.json()["errors"][0]
+        assert error["code"] == ErrorCode.INVALID_DIMENSION.name
+        assert error["message"].startswith(
+            "v3.date.date_id has no role, but v3.date is reachable from "
+            "v3.order_details only through roles: ",
         )
 
     @pytest.mark.asyncio
@@ -1589,18 +1588,71 @@ class TestMetricsSQLDerived:
         ]
 
     @pytest.mark.asyncio
+    async def test_window_metric_ordered_by_role_free_dimension(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        A window ordered by a role-free dimension column stays valid when the
+        request also groups by another column of that dimension: the window
+        reads only the aggregated CTE, so it must not keep the dimension's name.
+        """
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.category_revenue_lag",
+                "description": "Revenue change against the previous category",
+                "query": (
+                    "SELECT v3.total_revenue - LAG(v3.total_revenue, 1) "
+                    "OVER (ORDER BY v3.product.category)"
+                ),
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.category_revenue_lag"],
+                "dimensions": ["v3.product.category", "v3.product.subcategory"],
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        sql = response.json()["sql"]
+        assert "OVER ( ORDER BY order_details_category_agg.category)" in sql
+        assert "ORDER BY v3.product" not in sql
+
+    @pytest.mark.asyncio
     async def test_mom_without_order_role(self, client_with_build_v3):
         """
-        Test MoM metric when dimension is requested without [order] role.
+        A MoM metric ordered by v3.date.month[order] needs the role in the request.
 
-        This tests the case where neither the metric's ORDER BY nor the
-        requested dimension have role suffixes.
+        A role-less dimension means the null role, which no link of v3.date
+        has, so the request is rejected and names the roles that would work.
         """
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
             params={
                 "metrics": ["v3.mom_revenue_change"],
-                "dimensions": ["v3.date.month"],  # No [order] suffix
+                "dimensions": ["v3.date.month"],
+            },
+        )
+        assert response.status_code == 422, response.json()
+        error = response.json()["errors"][0]
+        assert error["code"] == ErrorCode.INVALID_DIMENSION.name
+        assert error["message"].startswith(
+            "v3.date.month has no role, but v3.date is reachable from "
+            "v3.order_details only through roles: ",
+        )
+        assert "Specify one, e.g. v3.date.month[" in error["message"]
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.mom_revenue_change"],
+                "dimensions": ["v3.date.month[order]"],
             },
         )
 
@@ -1622,22 +1674,22 @@ class TestMetricsSQLDerived:
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             ),
             order_details_0 AS (
-                SELECT t2.month, SUM(t1.line_total) line_total_sum_e1f61696
+                SELECT t2.month AS month_order, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
                 LEFT OUTER JOIN v3_date t2 ON t1.order_date = t2.date_id
                 GROUP BY t2.month
             ),
             base_metrics AS (
                 SELECT
-                    order_details_0.month AS month,
+                    order_details_0.month_order AS month_order,
                     SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
                 FROM order_details_0
-                GROUP BY order_details_0.month
+                GROUP BY order_details_0.month_order
             )
             SELECT
-                base_metrics.month AS month,
-                (base_metrics.total_revenue - LAG(base_metrics.total_revenue, 1) OVER (ORDER BY base_metrics.month))
-                    / NULLIF(LAG(base_metrics.total_revenue, 1) OVER (ORDER BY base_metrics.month), 0) * 100
+                base_metrics.month_order AS month_order,
+                (base_metrics.total_revenue - LAG(base_metrics.total_revenue, 1) OVER (ORDER BY base_metrics.month_order))
+                    / NULLIF(LAG(base_metrics.total_revenue, 1) OVER (ORDER BY base_metrics.month_order), 0) * 100
                     AS mom_revenue_change
             FROM base_metrics
             """,
@@ -1645,9 +1697,9 @@ class TestMetricsSQLDerived:
 
         assert result["columns"] == [
             {
-                "name": "month",
+                "name": "month_order",
                 "type": "int",
-                "semantic_entity": "v3.date.month",
+                "semantic_entity": "v3.date.month[order]",
                 "semantic_type": "dimension",
             },
             {
@@ -1659,26 +1711,26 @@ class TestMetricsSQLDerived:
         ]
 
     @pytest.mark.asyncio
-    async def test_wow_and_mom_without_order_role(self, client_with_build_v3):
+    async def test_wow_and_mom_with_order_role(self, client_with_build_v3):
         """
-        Test WoW and MoM metrics when neither uses [order] role suffix.
+        Test WoW and MoM metrics ordered by roled dimensions.
 
-        Both metrics and dimensions have no role suffix, testing the
-        pure no-suffix case for the grain-level CTE logic.
+        Both metrics and the requested dimensions carry the [order] role,
+        testing the grain-level CTE logic with roled ORDER BY columns.
         """
         # Create the metric locally for this test
         response = await client_with_build_v3.post(
             "/nodes/metric/",
             json={
                 "name": "v3.wow_revenue_change_no_role",
-                "description": "Week-over-week revenue change (%) - without [order] role suffix",
+                "description": "Week-over-week revenue change (%) - roled ORDER BY",
                 "query": """
                     SELECT
-                        (v3.total_revenue - LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.week))
-                        / NULLIF(LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.week), 0) * 100
+                        (v3.total_revenue - LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.week[order]))
+                        / NULLIF(LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.week[order]), 0) * 100
                 """,
                 "mode": "published",
-                "required_dimensions": ["v3.date.week"],
+                "required_dimensions": ["v3.date.week[order]"],
             },
         )
         assert response.status_code in (200, 201), response.json()
@@ -1692,8 +1744,8 @@ class TestMetricsSQLDerived:
                 ],
                 "dimensions": [
                     "v3.product.category",
-                    "v3.date.week",
-                    "v3.date.month",
+                    "v3.date.week[order]",
+                    "v3.date.month[order]",
                 ],
             },
         )
@@ -1725,8 +1777,8 @@ class TestMetricsSQLDerived:
             order_details_0 AS (
               SELECT
                 t2.category,
-                t3.week,
-                t3.month,
+                t3.week AS week_order,
+                t3.month AS month_order,
                 SUM(t1.line_total) line_total_sum_e1f61696
               FROM v3_order_details t1
               LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
@@ -1736,55 +1788,55 @@ class TestMetricsSQLDerived:
             base_metrics AS (
               SELECT
                 order_details_0.category AS category,
-                order_details_0.week AS week,
-                order_details_0.month AS month,
+                order_details_0.week_order AS week_order,
+                order_details_0.month_order AS month_order,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
               FROM order_details_0
-              GROUP BY order_details_0.category, order_details_0.week, order_details_0.month
+              GROUP BY order_details_0.category, order_details_0.week_order, order_details_0.month_order
             ),
             order_details_week_agg AS (
               SELECT
                 order_details_0.category AS category,
-                order_details_0.week AS week,
+                order_details_0.week_order AS week_order,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
               FROM order_details_0
-              GROUP BY order_details_0.category, order_details_0.week
+              GROUP BY order_details_0.category, order_details_0.week_order
             ),
             order_details_week AS (
               SELECT
                 order_details_week_agg.category AS category,
-                order_details_week_agg.week AS week,
-                (order_details_week_agg.total_revenue - LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week))
-                  / NULLIF(LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week), 0) * 100
+                order_details_week_agg.week_order AS week_order,
+                (order_details_week_agg.total_revenue - LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week_order))
+                  / NULLIF(LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week_order), 0) * 100
                   AS wow_revenue_change_no_role
               FROM order_details_week_agg
             ),
             order_details_month_agg AS (
               SELECT
                 order_details_0.category AS category,
-                order_details_0.month AS month,
+                order_details_0.month_order AS month_order,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
               FROM order_details_0
-              GROUP BY order_details_0.category, order_details_0.month
+              GROUP BY order_details_0.category, order_details_0.month_order
             ),
             order_details_month AS (
               SELECT
                 order_details_month_agg.category AS category,
-                order_details_month_agg.month AS month,
-                (order_details_month_agg.total_revenue - LAG(order_details_month_agg.total_revenue, 1) OVER (PARTITION BY order_details_month_agg.category ORDER BY order_details_month_agg.month))
-                  / NULLIF(LAG(order_details_month_agg.total_revenue, 1) OVER (PARTITION BY order_details_month_agg.category ORDER BY order_details_month_agg.month), 0) * 100
+                order_details_month_agg.month_order AS month_order,
+                (order_details_month_agg.total_revenue - LAG(order_details_month_agg.total_revenue, 1) OVER (PARTITION BY order_details_month_agg.category ORDER BY order_details_month_agg.month_order))
+                  / NULLIF(LAG(order_details_month_agg.total_revenue, 1) OVER (PARTITION BY order_details_month_agg.category ORDER BY order_details_month_agg.month_order), 0) * 100
                   AS mom_revenue_change
               FROM order_details_month_agg
             )
             SELECT
               base_metrics.category AS category,
-              base_metrics.week AS week,
-              base_metrics.month AS month,
+              base_metrics.week_order AS week_order,
+              base_metrics.month_order AS month_order,
               order_details_week.wow_revenue_change_no_role AS wow_revenue_change_no_role,
               order_details_month.mom_revenue_change AS mom_revenue_change
             FROM base_metrics
-            LEFT OUTER JOIN order_details_week ON base_metrics.category = order_details_week.category AND base_metrics.week = order_details_week.week
-            LEFT OUTER JOIN order_details_month ON base_metrics.category = order_details_month.category AND base_metrics.month = order_details_month.month
+            LEFT OUTER JOIN order_details_week ON base_metrics.category = order_details_week.category AND base_metrics.week_order = order_details_week.week_order
+            LEFT OUTER JOIN order_details_month ON base_metrics.category = order_details_month.category AND base_metrics.month_order = order_details_month.month_order
             """,
         )
 
@@ -1796,15 +1848,15 @@ class TestMetricsSQLDerived:
                 "semantic_type": "dimension",
             },
             {
-                "name": "week",
+                "name": "week_order",
                 "type": "int",
-                "semantic_entity": "v3.date.week",
+                "semantic_entity": "v3.date.week[order]",
                 "semantic_type": "dimension",
             },
             {
-                "name": "month",
+                "name": "month_order",
                 "type": "int",
-                "semantic_entity": "v3.date.month",
+                "semantic_entity": "v3.date.month[order]",
                 "semantic_type": "dimension",
             },
             {
@@ -2392,20 +2444,6 @@ class TestMetricsSQLCrossFact:
         ]
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(
-        reason=(
-            "Pre-existing CTE dimension_refs alias-resolution bug, newly "
-            "reachable now that a roled required_dimensions ref (e.g. "
-            "v3.date.week[order]) is preserved distinctly instead of being "
-            "silently collapsed onto the bare dimension: the generated "
-            "window-function ORDER BY ends up qualified with a CTE alias "
-            "(base_metrics) that isn't in scope for that subquery. Needs a "
-            "fix in construction/build_v3/cte.py's dimension_refs "
-            "construction/lookup for roled-vs-bare dimension collisions; "
-            "out of scope for the required_dimensions storage fix."
-        ),
-        strict=False,
-    )
     async def test_period_over_period_metrics(self, client_with_build_v3):
         """
         Test period-over-period metrics (WoW, MoM) through metrics SQL.
@@ -2457,8 +2495,8 @@ class TestMetricsSQLCrossFact:
             order_details_0 AS (
               SELECT
                 t2.category,
-                t3.month,
-                t3.week,
+                t3.month AS month_order,
+                t3.week AS week_order,
                 t1.order_id,
                 SUM(t1.line_total) line_total_sum_e1f61696
               FROM v3_order_details t1
@@ -2469,61 +2507,61 @@ class TestMetricsSQLCrossFact:
             base_metrics AS (
               SELECT
                 order_details_0.category AS category,
-                order_details_0.month AS month,
-                order_details_0.week AS week,
+                order_details_0.month_order AS month_order,
+                order_details_0.week_order AS week_order,
                 COUNT(DISTINCT order_details_0.order_id) AS order_count,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
               FROM order_details_0
-              GROUP BY order_details_0.category, order_details_0.month, order_details_0.week
+              GROUP BY order_details_0.category, order_details_0.month_order, order_details_0.week_order
             ),
             order_details_week_agg AS (
               SELECT
                 order_details_0.category AS category,
-                order_details_0.week AS week,
+                order_details_0.week_order AS week_order,
                 COUNT(DISTINCT order_details_0.order_id) AS order_count,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
               FROM order_details_0
-              GROUP BY order_details_0.category, order_details_0.week
+              GROUP BY order_details_0.category, order_details_0.week_order
             ),
             order_details_week AS (
               SELECT
                 order_details_week_agg.category AS category,
-                order_details_week_agg.week AS week,
-                (order_details_week_agg.total_revenue - LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week))
-                  / NULLIF(LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week), 0) * 100
+                order_details_week_agg.week_order AS week_order,
+                (order_details_week_agg.total_revenue - LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week_order))
+                  / NULLIF(LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week_order), 0) * 100
                   AS wow_revenue_change,
-                (CAST(order_details_week_agg.order_count AS DOUBLE) - LAG(CAST(order_details_week_agg.order_count AS DOUBLE), 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week))
-                  / NULLIF(LAG(CAST(order_details_week_agg.order_count AS DOUBLE), 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week), 0) * 100
+                (CAST(order_details_week_agg.order_count AS DOUBLE) - LAG(CAST(order_details_week_agg.order_count AS DOUBLE), 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week_order))
+                  / NULLIF(LAG(CAST(order_details_week_agg.order_count AS DOUBLE), 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week_order), 0) * 100
                   AS wow_order_growth
               FROM order_details_week_agg
             ),
             order_details_month_agg AS (
               SELECT
                 order_details_0.category AS category,
-                order_details_0.month AS month,
+                order_details_0.month_order AS month_order,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
               FROM order_details_0
-              GROUP BY order_details_0.category, order_details_0.month
+              GROUP BY order_details_0.category, order_details_0.month_order
             ),
             order_details_month AS (
               SELECT
                 order_details_month_agg.category AS category,
-                order_details_month_agg.month AS month,
-                (order_details_month_agg.total_revenue - LAG(order_details_month_agg.total_revenue, 1) OVER (PARTITION BY order_details_month_agg.category ORDER BY order_details_month_agg.month))
-                  / NULLIF(LAG(order_details_month_agg.total_revenue, 1) OVER (PARTITION BY order_details_month_agg.category ORDER BY order_details_month_agg.month), 0) * 100
+                order_details_month_agg.month_order AS month_order,
+                (order_details_month_agg.total_revenue - LAG(order_details_month_agg.total_revenue, 1) OVER (PARTITION BY order_details_month_agg.category ORDER BY order_details_month_agg.month_order))
+                  / NULLIF(LAG(order_details_month_agg.total_revenue, 1) OVER (PARTITION BY order_details_month_agg.category ORDER BY order_details_month_agg.month_order), 0) * 100
                   AS mom_revenue_change
               FROM order_details_month_agg
             )
             SELECT
               base_metrics.category AS category,
-              base_metrics.month AS month,
-              base_metrics.week AS week,
+              base_metrics.month_order AS month_order,
+              base_metrics.week_order AS week_order,
               order_details_week.wow_revenue_change AS wow_revenue_change,
               order_details_week.wow_order_growth AS wow_order_growth,
               order_details_month.mom_revenue_change AS mom_revenue_change
             FROM base_metrics
-            LEFT OUTER JOIN order_details_week ON base_metrics.category = order_details_week.category AND base_metrics.week = order_details_week.week
-            LEFT OUTER JOIN order_details_month ON base_metrics.category = order_details_month.category AND base_metrics.month = order_details_month.month
+            LEFT OUTER JOIN order_details_week ON base_metrics.category = order_details_week.category AND base_metrics.week_order = order_details_week.week_order
+            LEFT OUTER JOIN order_details_month ON base_metrics.category = order_details_month.category AND base_metrics.month_order = order_details_month.month_order
             """,
         )
         assert result["columns"] == [
@@ -2534,14 +2572,14 @@ class TestMetricsSQLCrossFact:
                 "type": "string",
             },
             {
-                "name": "month",
-                "semantic_entity": "v3.date.month",
+                "name": "month_order",
+                "semantic_entity": "v3.date.month[order]",
                 "semantic_type": "dimension",
                 "type": "int",
             },
             {
-                "name": "week",
-                "semantic_entity": "v3.date.week",
+                "name": "week_order",
+                "semantic_entity": "v3.date.week[order]",
                 "semantic_type": "dimension",
                 "type": "int",
             },
@@ -3176,17 +3214,6 @@ class TestNonDecomposableMetrics:
         )
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(
-        reason=(
-            "Pre-existing CTE dimension_refs alias-resolution bug, newly "
-            "reachable now that a roled required_dimensions ref is preserved "
-            "distinctly instead of being silently collapsed onto the bare "
-            "dimension -- see test_period_over_period_metrics above for the "
-            "full explanation. Out of scope for the required_dimensions "
-            "storage fix."
-        ),
-        strict=False,
-    )
     async def test_trailing_wow_metrics(self, client_with_build_v3):
         """
         Test trailing/rolling week-over-week metrics.
@@ -3227,7 +3254,7 @@ class TestNonDecomposableMetrics:
             order_details_0 AS (
               SELECT
                 t2.category,
-                t1.order_date date_id,
+                t1.order_date date_id_order,
                 SUM(t1.line_total) line_total_sum_e1f61696
               FROM v3_order_details t1
               LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
@@ -3236,15 +3263,15 @@ class TestNonDecomposableMetrics:
             base_metrics AS (
               SELECT
                 order_details_0.category AS category,
-                order_details_0.date_id AS date_id,
+                order_details_0.date_id_order AS date_id_order,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
               FROM order_details_0
-              GROUP BY  order_details_0.category, order_details_0.date_id
+              GROUP BY  order_details_0.category, order_details_0.date_id_order
             )
             SELECT
               base_metrics.category AS category,
-              base_metrics.date_id AS date_id,
-              (SUM(base_metrics.total_revenue) OVER (PARTITION BY base_metrics.category ORDER BY base_metrics.date_id ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  - SUM(base_metrics.total_revenue) OVER (PARTITION BY base_metrics.category ORDER BY base_metrics.date_id ROWS BETWEEN 13 PRECEDING AND 7 PRECEDING) ) / NULLIF(SUM(base_metrics.total_revenue) OVER (PARTITION BY base_metrics.category ORDER BY base_metrics.date_id ROWS BETWEEN 13 PRECEDING AND 7 PRECEDING) , 0) * 100 AS trailing_wow_revenue_change
+              base_metrics.date_id_order AS date_id_order,
+              (SUM(base_metrics.total_revenue) OVER (PARTITION BY base_metrics.category ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  - SUM(base_metrics.total_revenue) OVER (PARTITION BY base_metrics.category ORDER BY base_metrics.date_id_order ROWS BETWEEN 13 PRECEDING AND 7 PRECEDING) ) / NULLIF(SUM(base_metrics.total_revenue) OVER (PARTITION BY base_metrics.category ORDER BY base_metrics.date_id_order ROWS BETWEEN 13 PRECEDING AND 7 PRECEDING) , 0) * 100 AS trailing_wow_revenue_change
             FROM base_metrics
             """,
         )
@@ -3257,8 +3284,8 @@ class TestNonDecomposableMetrics:
                 "type": "string",
             },
             {
-                "name": "date_id",
-                "semantic_entity": "v3.date.date_id",
+                "name": "date_id_order",
+                "semantic_entity": "v3.date.date_id[order]",
                 "semantic_type": "dimension",
                 "type": "int",
             },
@@ -3271,17 +3298,6 @@ class TestNonDecomposableMetrics:
         ]
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(
-        reason=(
-            "Pre-existing CTE dimension_refs alias-resolution bug, newly "
-            "reachable now that a roled required_dimensions ref is preserved "
-            "distinctly instead of being silently collapsed onto the bare "
-            "dimension -- see test_period_over_period_metrics above for the "
-            "full explanation. Out of scope for the required_dimensions "
-            "storage fix."
-        ),
-        strict=False,
-    )
     async def test_trailing_7d_revenue(self, client_with_build_v3):
         """
         Test trailing 7-day rolling sum metric.
@@ -3319,7 +3335,7 @@ class TestNonDecomposableMetrics:
             order_details_0 AS (
               SELECT
                 t2.category,
-                t1.order_date date_id,
+                t1.order_date date_id_order,
                 SUM(t1.line_total) line_total_sum_e1f61696
               FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
               GROUP BY  t2.category, t1.order_date
@@ -3327,15 +3343,15 @@ class TestNonDecomposableMetrics:
             base_metrics AS (
               SELECT
                 order_details_0.category AS category,
-                order_details_0.date_id AS date_id,
+                order_details_0.date_id_order AS date_id_order,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
               FROM order_details_0
-              GROUP BY  order_details_0.category, order_details_0.date_id
+              GROUP BY  order_details_0.category, order_details_0.date_id_order
             )
             SELECT
               base_metrics.category AS category,
-              base_metrics.date_id AS date_id,
-              SUM(base_metrics.total_revenue) OVER (PARTITION BY base_metrics.category ORDER BY base_metrics.date_id ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
+              base_metrics.date_id_order AS date_id_order,
+              SUM(base_metrics.total_revenue) OVER (PARTITION BY base_metrics.category ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
             FROM base_metrics
             """,
         )
@@ -3348,8 +3364,8 @@ class TestNonDecomposableMetrics:
                 "type": "string",
             },
             {
-                "name": "date_id",
-                "semantic_entity": "v3.date.date_id",
+                "name": "date_id_order",
+                "semantic_entity": "v3.date.date_id[order]",
                 "semantic_type": "dimension",
                 "type": "int",
             },
@@ -4122,17 +4138,6 @@ class TestMetricsSQLNestedDerived:
         assert result["columns"][1]["semantic_entity"] == "v3.aov_growth_index"
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(
-        reason=(
-            "Pre-existing CTE dimension_refs alias-resolution bug, newly "
-            "reachable now that a roled required_dimensions ref is preserved "
-            "distinctly instead of being silently collapsed onto the bare "
-            "dimension -- see test_period_over_period_metrics above for the "
-            "full explanation. Out of scope for the required_dimensions "
-            "storage fix."
-        ),
-        strict=False,
-    )
     async def test_nested_derived_metric_with_window_function(
         self,
         client_with_build_v3,
@@ -4181,7 +4186,7 @@ class TestMetricsSQLNestedDerived:
                 FROM default.v3.products
             ),
             order_details_0 AS (
-                SELECT t2.category, t3.week, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696
+                SELECT t2.category, t3.week AS week_order, t1.order_id, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
                 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
                 LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
@@ -4190,18 +4195,18 @@ class TestMetricsSQLNestedDerived:
             base_metrics AS (
                 SELECT
                     order_details_0.category AS category,
-                    order_details_0.week AS week,
+                    order_details_0.week_order AS week_order,
                     COUNT(DISTINCT order_details_0.order_id) AS order_count,
                     SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
                     SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT order_details_0.order_id), 0) AS avg_order_value
                 FROM order_details_0
-                GROUP BY order_details_0.category, order_details_0.week
+                GROUP BY order_details_0.category, order_details_0.week_order
             )
             SELECT
                 base_metrics.category AS category,
-                base_metrics.week AS week,
-                (base_metrics.avg_order_value - LAG(base_metrics.avg_order_value, 1) OVER (PARTITION BY base_metrics.category ORDER BY base_metrics.week))
-                    / NULLIF(LAG(base_metrics.avg_order_value, 1) OVER (PARTITION BY base_metrics.category ORDER BY base_metrics.week), 0) * 100
+                base_metrics.week_order AS week_order,
+                (base_metrics.avg_order_value - LAG(base_metrics.avg_order_value, 1) OVER (PARTITION BY base_metrics.category ORDER BY base_metrics.week_order))
+                    / NULLIF(LAG(base_metrics.avg_order_value, 1) OVER (PARTITION BY base_metrics.category ORDER BY base_metrics.week_order), 0) * 100
                     AS wow_aov_change
             FROM base_metrics
             """,
@@ -4215,9 +4220,9 @@ class TestMetricsSQLNestedDerived:
                 "semantic_type": "dimension",
             },
             {
-                "name": "week",
+                "name": "week_order",
                 "type": "int",
-                "semantic_entity": "v3.date.week",
+                "semantic_entity": "v3.date.week[order]",
                 "semantic_type": "dimension",
             },
             {
@@ -4363,7 +4368,7 @@ class TestMetricsSQLNestedDerived:
             order_details_0 AS (
               SELECT
                 t2.category,
-                t1.order_date date_id,
+                t1.order_date date_id_order,
                 SUM(t1.line_total) line_total_sum_e1f61696
               FROM v3_order_details t1
               LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
@@ -4372,33 +4377,22 @@ class TestMetricsSQLNestedDerived:
             base_metrics AS (
               SELECT
                 order_details_0.category AS category,
-                order_details_0.date_id AS date_id,
+                order_details_0.date_id_order AS date_id_order,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
               FROM order_details_0
-              GROUP BY order_details_0.category, order_details_0.date_id
+              GROUP BY order_details_0.category, order_details_0.date_id_order
             )
             SELECT
               base_metrics.category AS category,
-              base_metrics.date_id AS date_id,
-              (base_metrics.total_revenue - LAG(base_metrics.total_revenue, 1) OVER (PARTITION BY base_metrics.category ORDER BY base_metrics.date_id))
-                / NULLIF(LAG(base_metrics.total_revenue, 1) OVER (PARTITION BY base_metrics.category ORDER BY base_metrics.date_id), 0) * 100
+              base_metrics.date_id_order AS date_id_order,
+              (base_metrics.total_revenue - LAG(base_metrics.total_revenue, 1) OVER (PARTITION BY base_metrics.category ORDER BY base_metrics.date_id_order))
+                / NULLIF(LAG(base_metrics.total_revenue, 1) OVER (PARTITION BY base_metrics.category ORDER BY base_metrics.date_id_order), 0) * 100
                 AS dod_revenue_change
             FROM base_metrics
             """,
         )
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(
-        reason=(
-            "Pre-existing CTE dimension_refs alias-resolution bug, newly "
-            "reachable now that a roled required_dimensions ref is preserved "
-            "distinctly instead of being silently collapsed onto the bare "
-            "dimension -- see test_period_over_period_metrics above for the "
-            "full explanation. Out of scope for the required_dimensions "
-            "storage fix."
-        ),
-        strict=False,
-    )
     async def test_wow_at_daily_grain(self, client_with_build_v3):
         """
         Test week-over-week metric when requesting daily grain.
@@ -4451,7 +4445,7 @@ class TestMetricsSQLNestedDerived:
               SELECT
                 COALESCE(t1.order_date, t3.date_id) AS date_id_order,
                 t2.category,
-                t3.week,
+                t3.week AS week_order,
                 SUM(t1.line_total) line_total_sum_e1f61696
               FROM v3_order_details t1
               LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
@@ -4462,50 +4456,39 @@ class TestMetricsSQLNestedDerived:
               SELECT
                 order_details_0.date_id_order AS date_id_order,
                 order_details_0.category AS category,
-                order_details_0.week AS week,
+                order_details_0.week_order AS week_order,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
               FROM order_details_0
-              GROUP BY order_details_0.date_id_order, order_details_0.category, order_details_0.week
+              GROUP BY order_details_0.date_id_order, order_details_0.category, order_details_0.week_order
             ),
             order_details_week_agg AS (
               SELECT
                 order_details_0.category AS category,
-                order_details_0.week AS week,
+                order_details_0.week_order AS week_order,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
               FROM order_details_0
-              GROUP BY order_details_0.category, order_details_0.week
+              GROUP BY order_details_0.category, order_details_0.week_order
             ),
             order_details_week AS (
               SELECT
                 order_details_week_agg.category AS category,
-                order_details_week_agg.week AS week,
-                (order_details_week_agg.total_revenue - LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week))
-                  / NULLIF(LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week), 0) * 100
+                order_details_week_agg.week_order AS week_order,
+                (order_details_week_agg.total_revenue - LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week_order))
+                  / NULLIF(LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week_order), 0) * 100
                   AS wow_revenue_change
               FROM order_details_week_agg
             )
             SELECT
               base_metrics.date_id_order AS date_id_order,
               base_metrics.category AS category,
-              base_metrics.week AS week,
+              base_metrics.week_order AS week_order,
               order_details_week.wow_revenue_change AS wow_revenue_change
             FROM base_metrics
-            LEFT OUTER JOIN order_details_week ON base_metrics.category = order_details_week.category AND base_metrics.week = order_details_week.week
+            LEFT OUTER JOIN order_details_week ON base_metrics.category = order_details_week.category AND base_metrics.week_order = order_details_week.week_order
             """,
         )
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(
-        reason=(
-            "Pre-existing CTE dimension_refs alias-resolution bug, newly "
-            "reachable now that a roled required_dimensions ref is preserved "
-            "distinctly instead of being silently collapsed onto the bare "
-            "dimension -- see test_period_over_period_metrics above for the "
-            "full explanation. Out of scope for the required_dimensions "
-            "storage fix."
-        ),
-        strict=False,
-    )
     async def test_wow_and_mom_at_daily_grain(self, client_with_build_v3):
         """
         Test WoW and MoM metrics together when requesting daily grain.
@@ -4554,8 +4537,8 @@ class TestMetricsSQLNestedDerived:
               SELECT
                 COALESCE(t1.order_date, t3.date_id) AS date_id_order,
                 t2.category,
-                t3.month,
-                t3.week,
+                t3.month AS month_order,
+                t3.week AS week_order,
                 SUM(t1.line_total) line_total_sum_e1f61696
               FROM v3_order_details t1
               LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
@@ -4566,71 +4549,60 @@ class TestMetricsSQLNestedDerived:
               SELECT
                 order_details_0.date_id_order AS date_id_order,
                 order_details_0.category AS category,
-                order_details_0.month AS month,
-                order_details_0.week AS week,
+                order_details_0.month_order AS month_order,
+                order_details_0.week_order AS week_order,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
               FROM order_details_0
-              GROUP BY order_details_0.date_id_order, order_details_0.category, order_details_0.month, order_details_0.week
+              GROUP BY order_details_0.date_id_order, order_details_0.category, order_details_0.month_order, order_details_0.week_order
             ),
             order_details_week_agg AS (
               SELECT
                 order_details_0.category AS category,
-                order_details_0.week AS week,
+                order_details_0.week_order AS week_order,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
               FROM order_details_0
-              GROUP BY order_details_0.category, order_details_0.week
+              GROUP BY order_details_0.category, order_details_0.week_order
             ),
             order_details_week AS (
               SELECT
                 order_details_week_agg.category AS category,
-                order_details_week_agg.week AS week,
-                (order_details_week_agg.total_revenue - LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week))
-                  / NULLIF(LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week), 0) * 100
+                order_details_week_agg.week_order AS week_order,
+                (order_details_week_agg.total_revenue - LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week_order))
+                  / NULLIF(LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week_order), 0) * 100
                   AS wow_revenue_change
               FROM order_details_week_agg
             ),
             order_details_month_agg AS (
               SELECT
                 order_details_0.category AS category,
-                order_details_0.month AS month,
+                order_details_0.month_order AS month_order,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
               FROM order_details_0
-              GROUP BY order_details_0.category, order_details_0.month
+              GROUP BY order_details_0.category, order_details_0.month_order
             ),
             order_details_month AS (
               SELECT
                 order_details_month_agg.category AS category,
-                order_details_month_agg.month AS month,
-                (order_details_month_agg.total_revenue - LAG(order_details_month_agg.total_revenue, 1) OVER (PARTITION BY order_details_month_agg.category ORDER BY order_details_month_agg.month))
-                  / NULLIF(LAG(order_details_month_agg.total_revenue, 1) OVER (PARTITION BY order_details_month_agg.category ORDER BY order_details_month_agg.month), 0) * 100
+                order_details_month_agg.month_order AS month_order,
+                (order_details_month_agg.total_revenue - LAG(order_details_month_agg.total_revenue, 1) OVER (PARTITION BY order_details_month_agg.category ORDER BY order_details_month_agg.month_order))
+                  / NULLIF(LAG(order_details_month_agg.total_revenue, 1) OVER (PARTITION BY order_details_month_agg.category ORDER BY order_details_month_agg.month_order), 0) * 100
                   AS mom_revenue_change
               FROM order_details_month_agg
             )
             SELECT
               base_metrics.date_id_order AS date_id_order,
               base_metrics.category AS category,
-              base_metrics.month AS month,
-              base_metrics.week AS week,
+              base_metrics.month_order AS month_order,
+              base_metrics.week_order AS week_order,
               order_details_week.wow_revenue_change AS wow_revenue_change,
               order_details_month.mom_revenue_change AS mom_revenue_change
             FROM base_metrics
-            LEFT OUTER JOIN order_details_week ON base_metrics.category = order_details_week.category AND base_metrics.week = order_details_week.week
-            LEFT OUTER JOIN order_details_month ON base_metrics.category = order_details_month.category AND base_metrics.month = order_details_month.month
+            LEFT OUTER JOIN order_details_week ON base_metrics.category = order_details_week.category AND base_metrics.week_order = order_details_week.week_order
+            LEFT OUTER JOIN order_details_month ON base_metrics.category = order_details_month.category AND base_metrics.month_order = order_details_month.month_order
             """,
         )
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(
-        reason=(
-            "Pre-existing CTE dimension_refs alias-resolution bug, newly "
-            "reachable now that a roled required_dimensions ref is preserved "
-            "distinctly instead of being silently collapsed onto the bare "
-            "dimension -- see test_period_over_period_metrics above for the "
-            "full explanation. Out of scope for the required_dimensions "
-            "storage fix."
-        ),
-        strict=False,
-    )
     async def test_wow_with_count_distinct_at_daily_grain(self, client_with_build_v3):
         """
         Test WoW metrics with COUNT DISTINCT at daily grain.
@@ -4687,7 +4659,7 @@ class TestMetricsSQLNestedDerived:
               SELECT
                 COALESCE(t1.order_date, t3.date_id) AS date_id_order,
                 t2.category,
-                t3.week,
+                t3.week AS week_order,
                 t1.order_id,
                 SUM(t1.line_total) line_total_sum_e1f61696
               FROM v3_order_details t1
@@ -4699,41 +4671,41 @@ class TestMetricsSQLNestedDerived:
               SELECT
                 order_details_0.date_id_order AS date_id_order,
                 order_details_0.category AS category,
-                order_details_0.week AS week,
+                order_details_0.week_order AS week_order,
                 COUNT(DISTINCT order_details_0.order_id) AS order_count,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
               FROM order_details_0
-              GROUP BY order_details_0.date_id_order, order_details_0.category, order_details_0.week
+              GROUP BY order_details_0.date_id_order, order_details_0.category, order_details_0.week_order
             ),
             order_details_week_agg AS (
               SELECT
                 order_details_0.category AS category,
-                order_details_0.week AS week,
+                order_details_0.week_order AS week_order,
                 COUNT(DISTINCT order_details_0.order_id) AS order_count,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
               FROM order_details_0
-              GROUP BY order_details_0.category, order_details_0.week
+              GROUP BY order_details_0.category, order_details_0.week_order
             ),
             order_details_week AS (
               SELECT
                 order_details_week_agg.category AS category,
-                order_details_week_agg.week AS week,
-                (CAST(order_details_week_agg.order_count AS DOUBLE) - LAG(CAST(order_details_week_agg.order_count AS DOUBLE), 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week))
-                  / NULLIF(LAG(CAST(order_details_week_agg.order_count AS DOUBLE), 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week), 0) * 100
+                order_details_week_agg.week_order AS week_order,
+                (CAST(order_details_week_agg.order_count AS DOUBLE) - LAG(CAST(order_details_week_agg.order_count AS DOUBLE), 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week_order))
+                  / NULLIF(LAG(CAST(order_details_week_agg.order_count AS DOUBLE), 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week_order), 0) * 100
                   AS wow_order_growth,
-                (order_details_week_agg.total_revenue - LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week))
-                  / NULLIF(LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week), 0) * 100
+                (order_details_week_agg.total_revenue - LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week_order))
+                  / NULLIF(LAG(order_details_week_agg.total_revenue, 1) OVER (PARTITION BY order_details_week_agg.category ORDER BY order_details_week_agg.week_order), 0) * 100
                   AS wow_revenue_change
               FROM order_details_week_agg
             )
             SELECT
               base_metrics.date_id_order AS date_id_order,
               base_metrics.category AS category,
-              base_metrics.week AS week,
+              base_metrics.week_order AS week_order,
               order_details_week.wow_order_growth AS wow_order_growth,
               order_details_week.wow_revenue_change AS wow_revenue_change
             FROM base_metrics
-            LEFT OUTER JOIN order_details_week ON base_metrics.category = order_details_week.category AND base_metrics.week = order_details_week.week
+            LEFT OUTER JOIN order_details_week ON base_metrics.category = order_details_week.category AND base_metrics.week_order = order_details_week.week_order
             """,
         )
 
@@ -4950,8 +4922,8 @@ class TestMetricsSQLCrossFactWindow:
         Test cross-fact window metric when user requests finer grain than ORDER BY.
 
         This tests the build_window_agg_cte_from_base_metrics code path:
-        - User requests daily grain (v3.date.date_id)
-        - Window metric orders by weekly grain (v3.date.week)
+        - User requests daily grain (v3.date.date_id[order])
+        - Window metric orders by weekly grain (v3.date.week[order])
         - Metric is cross-fact (conversion_rate = order_count / visitor_count)
 
         Reaggregation must fail because base_metrics no longer retains the distinct
@@ -4982,7 +4954,7 @@ class TestMetricsSQLCrossFactWindow:
             "/sql/metrics/v3/",
             params={
                 "metrics": ["v3.wow_conversion_rate_change"],
-                "dimensions": ["v3.date.date_id", "v3.product.category"],
+                "dimensions": ["v3.date.date_id[order]", "v3.product.category"],
             },
         )
 
@@ -5025,7 +4997,7 @@ class TestMetricsSQLCrossFactWindow:
             "/sql/metrics/v3/",
             params={
                 "metrics": ["v3.wow_efficiency_ratio_change"],
-                "dimensions": ["v3.date.date_id", "v3.product.category"],
+                "dimensions": ["v3.date.date_id[order]", "v3.product.category"],
             },
         )
 
@@ -5074,7 +5046,7 @@ class TestMetricsSQLCrossFactWindow:
             "/sql/metrics/v3/",
             params={
                 "metrics": ["v3.wow_order_and_visitor_change"],
-                "dimensions": ["v3.date.date_id", "v3.product.category"],
+                "dimensions": ["v3.date.date_id[order]", "v3.product.category"],
             },
         )
 
@@ -5084,17 +5056,6 @@ class TestMetricsSQLCrossFactWindow:
         assert "no longer retains the distinct grain key" in message
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(
-        reason=(
-            "Pre-existing CTE dimension_refs alias-resolution bug, newly "
-            "reachable now that a roled required_dimensions ref is preserved "
-            "distinctly instead of being silently collapsed onto the bare "
-            "dimension -- see test_period_over_period_metrics above for the "
-            "full explanation. Out of scope for the required_dimensions "
-            "storage fix."
-        ),
-        strict=False,
-    )
     async def test_multi_fact_window_metrics_same_grain(self, client_with_build_v3):
         """
         Test window metrics from different facts with same ORDER BY grain.
@@ -5177,7 +5138,7 @@ class TestMetricsSQLCrossFactWindow:
             ),
             order_details_0 AS (
             SELECT  t2.category,
-                t3.week,
+                t3.week AS week_order,
                 SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
@@ -5185,7 +5146,7 @@ class TestMetricsSQLCrossFactWindow:
             ),
             page_views_enriched_0 AS (
             SELECT  t2.category,
-                t3.week,
+                t3.week AS week_order,
                 t1.session_id,
                 COUNT(t1.view_id) view_id_count_f41e2db4
             FROM v3_page_views_enriched t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
@@ -5194,23 +5155,23 @@ class TestMetricsSQLCrossFactWindow:
             ),
             base_metrics AS (
             SELECT  COALESCE(order_details_0.category, page_views_enriched_0.category) AS category,
-                COALESCE(order_details_0.week, page_views_enriched_0.week) AS week,
+                COALESCE(order_details_0.week_order, page_views_enriched_0.week_order) AS week_order,
                 SUM(page_views_enriched_0.view_id_count_f41e2db4) AS page_view_count,
                 COUNT( DISTINCT page_views_enriched_0.session_id) AS session_count,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
                 SUM(page_views_enriched_0.view_id_count_f41e2db4) / NULLIF(COUNT( DISTINCT page_views_enriched_0.session_id), 0) AS pages_per_session
-            FROM order_details_0 FULL OUTER JOIN page_views_enriched_0 ON order_details_0.category = page_views_enriched_0.category AND order_details_0.week = page_views_enriched_0.week
+            FROM order_details_0 FULL OUTER JOIN page_views_enriched_0 ON order_details_0.category = page_views_enriched_0.category AND order_details_0.week_order = page_views_enriched_0.week_order
             GROUP BY  1, 2
             )
 
             SELECT  base_metrics.category AS category,
-                base_metrics.week AS week,
+                base_metrics.week_order AS week_order,
                 (base_metrics.total_revenue - LAG(base_metrics.total_revenue, 1) OVER ( PARTITION BY base_metrics.category
-            ORDER BY base_metrics.week) ) / NULLIF(LAG(base_metrics.total_revenue, 1) OVER ( PARTITION BY base_metrics.category
-            ORDER BY base_metrics.week) , 0) * 100 AS wow_revenue_change,
+            ORDER BY base_metrics.week_order) ) / NULLIF(LAG(base_metrics.total_revenue, 1) OVER ( PARTITION BY base_metrics.category
+            ORDER BY base_metrics.week_order) , 0) * 100 AS wow_revenue_change,
                 (base_metrics.pages_per_session - LAG(base_metrics.pages_per_session, 1) OVER ( PARTITION BY base_metrics.category
-            ORDER BY base_metrics.week) ) / NULLIF(LAG(base_metrics.pages_per_session, 1) OVER ( PARTITION BY base_metrics.category
-            ORDER BY base_metrics.week) , 0) * 100 AS wow_pages_per_session_change
+            ORDER BY base_metrics.week_order) ) / NULLIF(LAG(base_metrics.pages_per_session, 1) OVER ( PARTITION BY base_metrics.category
+            ORDER BY base_metrics.week_order) , 0) * 100 AS wow_pages_per_session_change
             FROM base_metrics
             """,
         )
@@ -5958,10 +5919,10 @@ class TestFilterOnlyDimensions:
                 "description": "Week-over-week revenue change",
                 "query": """
                     SELECT v3.total_revenue
-                        - LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.week)
+                        - LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.week[order])
                 """,
                 "mode": "published",
-                "required_dimensions": ["v3.date.week"],
+                "required_dimensions": ["v3.date.week[order]"],
             },
         )
         assert response.status_code in (200, 201), response.json()
@@ -5970,7 +5931,7 @@ class TestFilterOnlyDimensions:
             "/sql/metrics/v3/",
             params={
                 "metrics": ["v3.wow_revenue_change_filtered"],
-                "filters": [f"v3.date.week {week_predicate}"],
+                "filters": [f"v3.date.week[order] {week_predicate}"],
             },
         )
         assert response.status_code == 200, response.json()
@@ -5990,7 +5951,7 @@ class TestFilterOnlyDimensions:
               JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             ),
             order_details_0 AS (
-              SELECT t2.week, SUM(t1.line_total) line_total_sum_e1f61696
+              SELECT t2.week AS week_order, SUM(t1.line_total) line_total_sum_e1f61696
               FROM v3_order_details t1
               LEFT OUTER JOIN v3_date t2 ON t1.order_date = t2.date_id
               WHERE t2.week {week_predicate}
@@ -5998,20 +5959,20 @@ class TestFilterOnlyDimensions:
             ),
             base_metrics AS (
               SELECT
-                order_details_0.week AS week,
+                order_details_0.week_order AS week_order,
                 SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
               FROM order_details_0
-              GROUP BY order_details_0.week
+              GROUP BY order_details_0.week_order
             )
             SELECT
-              base_metrics.week AS week,
-              base_metrics.total_revenue - LAG(base_metrics.total_revenue, 1) OVER (ORDER BY base_metrics.week) AS wow_revenue_change_filtered
+              base_metrics.week_order AS week_order,
+              base_metrics.total_revenue - LAG(base_metrics.total_revenue, 1) OVER (ORDER BY base_metrics.week_order) AS wow_revenue_change_filtered
             FROM base_metrics
-            WHERE base_metrics.week {week_predicate}
+            WHERE base_metrics.week_order {week_predicate}
             """,
         )
         assert [col["semantic_entity"] for col in result["columns"]] == [
-            "v3.date.week",
+            "v3.date.week[order]",
             "v3.wow_revenue_change_filtered",
         ]
 
@@ -7012,14 +6973,14 @@ class TestMetricsSQLEdgeCases:
         Chain: v3.order_details -> v3.customer -> v3.loyalty_status
         Both customer and loyalty_status have customer_id as their PK, and the
         intermediate link uses customer.customer_id as the FK target. Requesting
-        v3.loyalty_status.customer_id from a metric on v3.order_details should
+        v3.loyalty_status.customer_id[customer] from a metric on v3.order_details should
         skip both hops and resolve to v3.order_details.customer_id directly.
         """
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
             params={
                 "metrics": ["v3.total_revenue"],
-                "dimensions": ["v3.loyalty_status.customer_id"],
+                "dimensions": ["v3.loyalty_status.customer_id[customer]"],
             },
         )
 
@@ -7045,14 +7006,14 @@ class TestMetricsSQLEdgeCases:
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             ),
             order_details_0 AS (
-                SELECT t1.customer_id, SUM(t1.line_total) line_total_sum_e1f61696
+                SELECT t1.customer_id AS customer_id_customer, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
                 GROUP BY t1.customer_id
             )
-            SELECT order_details_0.customer_id AS customer_id,
+            SELECT order_details_0.customer_id_customer AS customer_id_customer,
                    SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
             FROM order_details_0
-            GROUP BY order_details_0.customer_id
+            GROUP BY order_details_0.customer_id_customer
             """,
         )
 
@@ -7067,7 +7028,7 @@ class TestMetricsSQLEdgeCases:
         is NOT an FK target of an intermediate link, the optimization must fall
         through and the joins must be emitted.
 
-        v3.loyalty_status.tier is a non-key attribute. Walking the chain
+        v3.loyalty_status.tier[customer] is a non-key attribute. Walking the chain
         backwards from loyalty_status.tier fails on the customer->loyalty_status
         link's foreign-key map, so both joins should fire.
         """
@@ -7075,7 +7036,7 @@ class TestMetricsSQLEdgeCases:
             "/sql/metrics/v3/",
             params={
                 "metrics": ["v3.total_revenue"],
-                "dimensions": ["v3.loyalty_status.tier"],
+                "dimensions": ["v3.loyalty_status.tier[customer]"],
             },
         )
 
@@ -7097,16 +7058,16 @@ class TestMetricsSQLEdgeCases:
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             ),
             order_details_0 AS (
-                SELECT t3.tier, SUM(t1.line_total) line_total_sum_e1f61696
+                SELECT t3.tier AS tier_customer, SUM(t1.line_total) line_total_sum_e1f61696
                 FROM v3_order_details t1
                 LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
                 LEFT OUTER JOIN v3_loyalty_status t3 ON t2.customer_id = t3.customer_id
                 GROUP BY t3.tier
             )
-            SELECT order_details_0.tier AS tier,
+            SELECT order_details_0.tier_customer AS tier_customer,
                    SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
             FROM order_details_0
-            GROUP BY order_details_0.tier
+            GROUP BY order_details_0.tier_customer
             """,
         )
 

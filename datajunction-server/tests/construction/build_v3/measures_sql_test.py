@@ -227,7 +227,7 @@ class TestDimensionJoins:
                 "metrics": ["v3.total_revenue"],
                 "dimensions": [
                     "v3.order_details.status",  # Local
-                    "v3.customer.name",  # Requires join
+                    "v3.customer.name[customer]",  # Requires join
                 ],
             },
         )
@@ -248,7 +248,7 @@ class TestDimensionJoins:
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t1.status, t2.name, SUM(t1.line_total) line_total_sum_e1f61696
+            SELECT t1.status, t2.name AS name_customer, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
             GROUP BY t1.status, t2.name
@@ -264,9 +264,9 @@ class TestDimensionJoins:
                 "semantic_type": "dimension",
             },
             {
-                "name": "name",
+                "name": "name_customer",
                 "type": "string",
-                "semantic_entity": "v3.customer.name",
+                "semantic_entity": "v3.customer.name[customer]",
                 "semantic_type": "dimension",
             },
             {
@@ -284,14 +284,13 @@ class TestDimensionJoins:
 
         Query: revenue and quantity by customer name
 
-        Note: v3.customer.name doesn't specify a role, but the dimension link
-        has role="customer". The system finds the path anyway.
+        Note: the dimension link has role="customer", so the request names it.
         """
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
                 "metrics": ["v3.total_revenue", "v3.total_quantity"],
-                "dimensions": ["v3.customer.name"],
+                "dimensions": ["v3.customer.name[customer]"],
             },
         )
 
@@ -305,15 +304,15 @@ class TestDimensionJoins:
 
         # Validate aggregability and grain
         assert gg["aggregability"] == "full"
-        assert gg["grain"] == ["name"]
+        assert gg["grain"] == ["name_customer"]
         assert sorted(gg["metrics"]) == ["v3.total_quantity", "v3.total_revenue"]
 
         # Validate columns
         assert gg["columns"] == [
             {
-                "name": "name",
+                "name": "name_customer",
                 "type": "string",
-                "semantic_entity": "v3.customer.name",
+                "semantic_entity": "v3.customer.name[customer]",
                 "semantic_type": "dimension",
             },
             {
@@ -344,7 +343,7 @@ class TestDimensionJoins:
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t2.name, SUM(t1.line_total) line_total_sum_e1f61696, SUM(t1.quantity) quantity_sum_06b64d2e
+            SELECT t2.name AS name_customer, SUM(t1.line_total) line_total_sum_e1f61696, SUM(t1.quantity) quantity_sum_06b64d2e
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
             GROUP BY t2.name
@@ -355,8 +354,8 @@ class TestDimensionJoins:
             "/sql/measures/v3/",
             params={
                 "metrics": ["v3.total_revenue", "v3.total_quantity"],
-                "dimensions": ["v3.customer.name"],
-                "filters": ["v3.customer.name = 'Abcd'"],
+                "dimensions": ["v3.customer.name[customer]"],
+                "filters": ["v3.customer.name[customer] = 'Abcd'"],
             },
         )
         result = response.json()
@@ -377,7 +376,7 @@ class TestDimensionJoins:
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t2.name, SUM(t1.line_total) line_total_sum_e1f61696, SUM(t1.quantity) quantity_sum_06b64d2e
+            SELECT t2.name AS name_customer, SUM(t1.line_total) line_total_sum_e1f61696, SUM(t1.quantity) quantity_sum_06b64d2e
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
             WHERE  t2.name = 'Abcd'
@@ -386,7 +385,7 @@ class TestDimensionJoins:
         )
 
         # Validate requested_dimensions
-        assert result["requested_dimensions"] == ["v3.customer.name"]
+        assert result["requested_dimensions"] == ["v3.customer.name[customer]"]
 
     @pytest.mark.asyncio
     async def test_multiple_metrics_multiple_dimensions(self, client_with_build_v3):
@@ -401,7 +400,7 @@ class TestDimensionJoins:
                 "metrics": ["v3.total_revenue", "v3.total_quantity"],
                 "dimensions": [
                     "v3.order_details.status",
-                    "v3.customer.name",
+                    "v3.customer.name[customer]",
                 ],
             },
         )
@@ -422,7 +421,7 @@ class TestDimensionJoins:
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t1.status, t2.name, SUM(t1.line_total) line_total_sum_e1f61696, SUM(t1.quantity) quantity_sum_06b64d2e
+            SELECT t1.status, t2.name AS name_customer, SUM(t1.line_total) line_total_sum_e1f61696, SUM(t1.quantity) quantity_sum_06b64d2e
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
             GROUP BY t1.status, t2.name
@@ -436,9 +435,9 @@ class TestDimensionJoins:
                 "semantic_type": "dimension",
             },
             {
-                "name": "name",
+                "name": "name_customer",
                 "type": "string",
-                "semantic_entity": "v3.customer.name",
+                "semantic_entity": "v3.customer.name[customer]",
                 "semantic_type": "dimension",
             },
             {
@@ -478,7 +477,7 @@ class TestDimensionJoins:
                 ],
                 "dimensions": [
                     "v3.order_details.status",
-                    "v3.customer.name",
+                    "v3.customer.name[customer]",
                     "v3.date.month[order]",
                     "v3.date.year[customer->registration]",
                     "v3.location.country[customer->home]",
@@ -537,7 +536,7 @@ class TestDimensionJoins:
         )
 
         SELECT  t1.status,
-            t2.name,
+            t2.name AS name_customer,
             t3.month month_order,
             t4.year year_registration,
             t5.country country_home,
@@ -559,7 +558,7 @@ class TestDimensionJoins:
             if c["semantic_type"] == "dimension"
         ]
         assert "v3.order_details.status" in dim_entities
-        assert "v3.customer.name" in dim_entities
+        assert "v3.customer.name[customer]" in dim_entities
         assert "v3.date.month[order]" in dim_entities
         assert "v3.date.year[customer->registration]" in dim_entities
         assert "v3.location.country[customer->home]" in dim_entities
@@ -577,7 +576,7 @@ class TestDimensionJoins:
         # Validate requested_dimensions
         assert result["requested_dimensions"] == [
             "v3.order_details.status",
-            "v3.customer.name",
+            "v3.customer.name[customer]",
             "v3.date.month[order]",
             "v3.date.year[customer->registration]",
             "v3.location.country[customer->home]",
@@ -715,14 +714,14 @@ class TestMeasuresSQLSkipJoin:
 
         Chain: v3.order_details -> v3.customer -> v3.loyalty_status. Both links
         align customer_id (the PK of customer and of loyalty_status), so the
-        requested v3.loyalty_status.customer_id resolves directly to the fact's
+        requested v3.loyalty_status.customer_id[customer] resolves directly to the fact's
         customer_id column with no joins emitted.
         """
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
                 "metrics": ["v3.total_revenue"],
-                "dimensions": ["v3.loyalty_status.customer_id"],
+                "dimensions": ["v3.loyalty_status.customer_id[customer]"],
             },
         )
 
@@ -737,7 +736,7 @@ class TestMeasuresSQLSkipJoin:
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t1.customer_id, SUM(t1.line_total) line_total_sum_e1f61696
+            SELECT t1.customer_id AS customer_id_customer, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             GROUP BY t1.customer_id
             """,
@@ -758,7 +757,7 @@ class TestMeasuresSQLSkipJoin:
         Negative case: requested terminal column is NOT FK-aligned with any
         intermediate, so no joins are skipped.
 
-        v3.loyalty_status.tier is a non-key attribute. Walking the chain
+        v3.loyalty_status.tier[customer] is a non-key attribute. Walking the chain
         backwards from loyalty_status.tier fails on the very first hop, so
         both joins remain.
         """
@@ -766,7 +765,7 @@ class TestMeasuresSQLSkipJoin:
             "/sql/measures/v3/",
             params={
                 "metrics": ["v3.total_revenue"],
-                "dimensions": ["v3.loyalty_status.tier"],
+                "dimensions": ["v3.loyalty_status.tier[customer]"],
             },
         )
 
@@ -787,7 +786,7 @@ class TestMeasuresSQLSkipJoin:
                 FROM default.v3.orders o
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
-            SELECT t3.tier, SUM(t1.line_total) line_total_sum_e1f61696
+            SELECT t3.tier AS tier_customer, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
             LEFT OUTER JOIN v3_loyalty_status t3 ON t2.customer_id = t3.customer_id
@@ -1428,7 +1427,7 @@ class TestMeasuresSQLMultipleMetrics:
                 "metrics": ORDER_DETAILS_BASE_METRICS,
                 "dimensions": [
                     "v3.order_details.status",
-                    "v3.customer.name",
+                    "v3.customer.name[customer]",
                     "v3.product.category",
                 ],
             },
@@ -1444,7 +1443,12 @@ class TestMeasuresSQLMultipleMetrics:
 
         # Merged group has LIMITED aggregability (worst case)
         assert gg["aggregability"] == "limited"
-        assert sorted(gg["grain"]) == ["category", "name", "order_id", "status"]
+        assert sorted(gg["grain"]) == [
+            "category",
+            "name_customer",
+            "order_id",
+            "status",
+        ]
         assert sorted(gg["metrics"]) == [
             "v3.customer_count",
             "v3.order_count",
@@ -1456,7 +1460,7 @@ class TestMeasuresSQLMultipleMetrics:
         # Validate requested_dimensions
         assert result["requested_dimensions"] == [
             "v3.order_details.status",
-            "v3.customer.name",
+            "v3.customer.name[customer]",
             "v3.product.category",
         ]
 
@@ -4078,7 +4082,7 @@ class TestCombinedMeasuresSQLEndpoint:
             "/sql/measures/v3/combined",
             params={
                 "metrics": ["v3.total_revenue", "v3.page_view_count"],
-                "dimensions": ["v3.date.date_id"],
+                "dimensions": ["v3.date.date_id[order]"],
             },
         )
 
@@ -4087,7 +4091,7 @@ class TestCombinedMeasuresSQLEndpoint:
 
         # Cross-fact metrics mean multiple grain groups
         assert data["grain_groups_combined"] >= 2
-        assert "date_id" in data["grain"]
+        assert "date_id_order" in data["grain"]
 
         # Verify SQL structure - FULL OUTER JOIN with COALESCE
         assert_sql_equal(
@@ -4105,27 +4109,27 @@ class TestCombinedMeasuresSQLEndpoint:
             FROM default.v3.page_views
             ),
             gg1 AS (
-            SELECT  t1.order_date date_id,
+            SELECT  t1.order_date date_id_order,
                 SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
             GROUP BY  t1.order_date
             ),
             gg2 AS (
-            SELECT  t1.page_date date_id,
+            SELECT  t1.page_date date_id_order,
                 COUNT(t1.view_id) view_id_count_f41e2db4
             FROM v3_page_views_enriched t1
             GROUP BY  t1.page_date
             )
-            SELECT  COALESCE(gg1.date_id, gg2.date_id) date_id,
+            SELECT  COALESCE(gg1.date_id_order, gg2.date_id_order) date_id_order,
                 gg1.line_total_sum_e1f61696,
                 gg2.view_id_count_f41e2db4
-            FROM gg1 FULL OUTER JOIN gg2 ON gg1.date_id = gg2.date_id
+            FROM gg1 FULL OUTER JOIN gg2 ON gg1.date_id_order = gg2.date_id_order
             """,
         )
 
         # Verify columns include measures from both sources
         column_names = [col["name"] for col in data["columns"]]
-        assert "date_id" in column_names
+        assert "date_id_order" in column_names
         assert "line_total_sum_e1f61696" in column_names
         assert "view_id_count_f41e2db4" in column_names
 
@@ -8446,7 +8450,7 @@ class TestWrapperCTEAbsorption:
         self,
         client_with_build_v3,
     ):
-        """When ``v3.customer.customer_id`` is full-skipped to
+        """When ``v3.customer.customer_id[customer]`` is full-skipped to
         ``t1.customer_id`` and ``v3.customer`` is also joined for
         another column (``name``), the projection becomes
         ``COALESCE(t1.customer_id, t_customer.customer_id)`` and the
@@ -8457,8 +8461,8 @@ class TestWrapperCTEAbsorption:
             params={
                 "metrics": ["v3.total_revenue"],
                 "dimensions": [
-                    "v3.customer.customer_id",
-                    "v3.customer.name",
+                    "v3.customer.customer_id[customer]",
+                    "v3.customer.name[customer]",
                 ],
             },
         )
@@ -8477,8 +8481,8 @@ class TestWrapperCTEAbsorption:
                 JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             )
             SELECT
-                COALESCE(t1.customer_id, t2.customer_id) AS customer_id,
-                t2.name,
+                COALESCE(t1.customer_id, t2.customer_id) AS customer_id_customer,
+                t2.name AS name_customer,
                 SUM(t1.line_total) line_total_sum_HASH
             FROM v3_order_details t1
             LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
@@ -8645,11 +8649,11 @@ class TestWrapperCTEAbsorption:
                 "dimensions": [
                     "v3.product.category",  # pre-RIGHT LEFT
                     "v3.allocation.campaign",  # RIGHT
-                    "v3.customer.name",  # post-RIGHT LEFT
+                    "v3.customer.name[customer]",  # post-RIGHT LEFT
                 ],
                 "filters": [
                     "v3.product.category = 'Electronics'",
-                    "v3.customer.name = 'Alice'",
+                    "v3.customer.name[customer] = 'Alice'",
                 ],
             },
         )

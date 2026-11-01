@@ -21,12 +21,12 @@ async def _post(client, **fields):
 async def test_attribute_in_both_lists_rejected(client_with_build_v3):
     response = await _post(
         client_with_build_v3,
-        required_filters=[{"dimension": "v3.date.date_id"}],
-        recommended_filters=[{"dimension": "v3.date.date_id"}],
+        required_filters=[{"dimension": "v3.date.date_id[order]"}],
+        recommended_filters=[{"dimension": "v3.date.date_id[order]"}],
     )
     assert response.status_code == 422
     assert response.json()["message"] == (
-        "Metric `v3.rf_invalid` lists v3.date.date_id in both required_filters and recommended_filters."
+        "Metric `v3.rf_invalid` lists v3.date.date_id[order] in both required_filters and recommended_filters."
     )
 
 
@@ -34,7 +34,9 @@ async def test_attribute_in_both_lists_rejected(client_with_build_v3):
 async def test_unparseable_default_rejected(client_with_build_v3):
     response = await _post(
         client_with_build_v3,
-        required_filters=[{"dimension": "v3.date.date_id", "default": "date_id = ="}],
+        required_filters=[
+            {"dimension": "v3.date.date_id[order]", "default": "date_id = ="},
+        ],
     )
     assert response.status_code == 422
     assert response.json()["message"] == (
@@ -63,8 +65,8 @@ async def test_default_on_unreachable_attribute_rejected(client_with_build_v3):
         client_with_build_v3,
         required_filters=[
             {
-                "dimension": "v3.date.date_id",
-                "default": "v3.date.date_id = 1 AND v3.nope.missing = 1",
+                "dimension": "v3.date.date_id[order]",
+                "default": "v3.date.date_id[order] = 1 AND v3.nope.missing = 1",
             },
         ],
     )
@@ -82,7 +84,7 @@ async def test_default_with_bare_column_rejected(client_with_build_v3):
     response = await _post(
         client_with_build_v3,
         required_filters=[
-            {"dimension": "v3.date.date_id", "default": "date_id = 20250101"},
+            {"dimension": "v3.date.date_id[order]", "default": "date_id = 20250101"},
         ],
     )
     assert response.status_code == 422
@@ -115,7 +117,12 @@ UNKNOWN_ROLE = {
 ROLE_ENTRIES = [
     pytest.param({"dimension": "v3.date.date_id[nonexistent]"}, id="dimension"),
     pytest.param(
-        {"dimension": "v3.date.date_id", "default": "v3.date.date_id[nonexistent] = 1"},
+        {
+            "dimension": "v3.date.date_id[order]",
+            "default": (
+                "v3.date.date_id[order] = 1 AND v3.date.date_id[nonexistent] = 1"
+            ),
+        },
         id="default",
     ),
 ]
@@ -151,9 +158,13 @@ async def test_unknown_role_rejected_on_update(client_with_build_v3, entry):
             "dimension": "v3.date.date_id[order]",
             "default": "v3.date.date_id[order] = 20250101",
         },
-        {"dimension": "v3.date.date_id", "default": "v3.date.date_id = 20250101"},
+        # No role is the null role, which a role-free link satisfies.
+        {
+            "dimension": "v3.product.category",
+            "default": "v3.product.category = 'Books'",
+        },
     ],
-    ids=["known-role", "no-role"],
+    ids=["known-role", "no-role-free-link"],
 )
 @pytest.mark.asyncio
 async def test_known_role_or_no_role_accepted(client_with_build_v3, entry):
@@ -164,6 +175,25 @@ async def test_known_role_or_no_role_accepted(client_with_build_v3, entry):
     ]
 
 
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"dimension": "v3.date.date_id"},
+        {"dimension": "v3.date.date_id", "default": "v3.date.date_id = 20250101"},
+    ],
+    ids=["dimension", "default"],
+)
+@pytest.mark.asyncio
+async def test_no_role_rejected_when_only_roles_reach(client_with_build_v3, entry):
+    """v3.date is linked from order_details only through roles."""
+    response = await _post(client_with_build_v3, required_filters=[entry])
+    assert response.status_code == 422
+    assert response.json()["message"] == UNRESOLVED
+    assert response.json()["errors"][0]["debug"] == {
+        "invalid_filter_requirement_attributes": ["v3.date.date_id"],
+    }
+
+
 MULTI_HOP_ENTRIES = [
     pytest.param(
         {"dimension": "v3.location.country[customer->home]"},
@@ -171,7 +201,7 @@ MULTI_HOP_ENTRIES = [
     ),
     pytest.param(
         {
-            "dimension": "v3.location.country",
+            "dimension": "v3.location.country[customer->home]",
             "default": "v3.location.country[customer->home] = 'US'",
         },
         id="default",
@@ -337,8 +367,11 @@ async def test_self_link_chain(client_with_service_setup, attribute, status_code
 
 UNCOVERED_DEFAULTS = [
     pytest.param(
-        {"dimension": "v3.date.date_id", "default": "v3.product.category = 'Books'"},
-        "v3.date.date_id",
+        {
+            "dimension": "v3.date.date_id[order]",
+            "default": "v3.product.category = 'Books'",
+        },
+        "v3.date.date_id[order]",
         id="other-attribute",
     ),
     pytest.param(
@@ -439,14 +472,14 @@ REACH_ENTRIES = [
     ),
     pytest.param(
         {
-            "dimension": "v3.date.date_id",
-            "default": "v3.date.date_id = 1 OR v3.rf_island.city = 'x'",
+            "dimension": "v3.date.date_id[order]",
+            "default": "v3.date.date_id[order] = 1 OR v3.rf_island.city = 'x'",
         },
         ["v3.rf_island.city"],
         id="unlinked-default",
     ),
     pytest.param({"dimension": "v3.product.category"}, [], id="one-hop"),
-    pytest.param({"dimension": "v3.rf_country.region"}, [], id="two-hops"),
+    pytest.param({"dimension": "v3.rf_country.region[from]"}, [], id="two-hops"),
     pytest.param({"dimension": "v3.order_details.status"}, [], id="own-table"),
 ]
 
@@ -522,7 +555,7 @@ REFERENCE_ENTRIES = [
     pytest.param({"dimension": ["v3.rf_plan.plan_label"]}, [], id="referenced"),
     pytest.param(
         {
-            "dimension": ["v3.date.date_id", "v3.rf_plan.plan_label"],
+            "dimension": ["v3.date.date_id[order]", "v3.rf_plan.plan_label"],
             "default": "v3.rf_plan.plan_label = 'checkout'",
         },
         [],
