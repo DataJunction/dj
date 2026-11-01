@@ -108,8 +108,13 @@ async def get_dj_node(
     node_name: str,
     kinds: set[NodeType] | None = None,
     current: bool = True,
+    inherit: bool = False,
 ) -> NodeRevision:
-    """Return the DJ Node with a given name from a set of node types"""
+    """
+    Return the DJ Node with a given name from a set of node types.
+
+    With ``inherit``, a branch name with no node resolves to the default branch's.
+    """
     from datajunction_server.internal.branch_scope import inherited_names
 
     start = time.monotonic()
@@ -133,7 +138,7 @@ async def get_dj_node(
     match = None
     try:
         match = await find(node_name)
-        if match is None:
+        if match is None and inherit:
             parent = (await inherited_names(session, [node_name])).get(node_name)
             match = await find(parent) if parent else None
         if match is None:

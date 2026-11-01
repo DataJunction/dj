@@ -1249,6 +1249,7 @@ class MetricComponentExtractor:
         cls,
         node_name: str,
         session: AsyncSession,
+        inherit: bool = False,
     ) -> "MetricComponentExtractor":
         """
         Create extractor for the latest version of a metric.
@@ -1256,6 +1257,7 @@ class MetricComponentExtractor:
         Args:
             node_name: Name of the metric node
             session: Database session
+            inherit: Resolve a missing branch name through the default branch
 
         Returns:
             MetricComponentExtractor for the current revision
@@ -1274,7 +1276,7 @@ class MetricComponentExtractor:
             return (await session.execute(stmt)).scalar_one_or_none()
 
         revision_id = await find(node_name)
-        if revision_id is None:
+        if revision_id is None and inherit:
             parent = (await inherited_names(session, [node_name])).get(node_name)
             revision_id = await find(parent) if parent else None
         if revision_id is None:

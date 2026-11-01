@@ -261,6 +261,7 @@ async def setup_build_context(
     matched_cube: NodeRevision | None = None,
     materialization_target: MaterializationTarget | None = None,
     combiner_dialect: Dialect | None = None,
+    inherit: bool = False,
 ) -> BuildContext:
     """
     Create and initialize a BuildContext with all setup done.
@@ -283,6 +284,7 @@ async def setup_build_context(
         use_materialized: Whether to use materialized tables
         include_temporal_filters: Whether to include temporal partition filters from cube
         lookback_window: Lookback window for temporal filters
+        inherit: Resolve missing branch nodes through the default branch
     Returns:
         Fully initialized BuildContext
     """
@@ -307,6 +309,7 @@ async def setup_build_context(
         use_materialized=use_materialized,
         temporal_partition_columns=temporal_partition_columns or {},
         lookback_window=lookback_window,
+        inherit=inherit,
     )
 
     # Add filter-driven dimensions upfront — this only parses filter strings and
@@ -392,6 +395,7 @@ async def build_measures_sql(
     matched_cube: NodeRevision | None = None,
     materialization_target: MaterializationTarget | None = None,
     combiner_dialect: Dialect | None = None,
+    inherit: bool = False,
 ) -> GeneratedMeasuresSQL:
     """
     Build measures SQL for a set of metrics, dimensions, and filters.
@@ -418,6 +422,7 @@ async def build_measures_sql(
             incremental materialization and partition pruning.
         lookback_window: Lookback window for temporal filters (e.g., "3 DAY").
             If not provided, filters to exactly the logical timestamp partition.
+        inherit: Resolve missing branch nodes through the default branch.
 
     Returns:
         GeneratedMeasuresSQL with one GrainGroupSQL per aggregation level,
@@ -439,6 +444,7 @@ async def build_measures_sql(
         matched_cube=matched_cube,
         materialization_target=materialization_target,
         combiner_dialect=combiner_dialect,
+        inherit=inherit,
     )
 
     # Build grain groups from context
@@ -549,9 +555,13 @@ async def build_metrics_sql(
     query_parameters: dict[str, Any] | None = None,
     lookback_window: str | None = None,
     group_others: GroupOthers | None = None,
+    inherit: bool = False,
 ) -> GeneratedSQL:
     """
     Build metrics SQL for a set of metrics and dimensions.
+
+    With ``inherit``, branch names with no node resolve through the default
+    branch.
 
     Plain filters are checked against the metrics' filter requirements first:
     a missing required filter raises, and defaults are added. The warnings
@@ -561,7 +571,7 @@ async def build_metrics_sql(
     checked = (
         filters
         if isinstance(filters, CheckedFilters)
-        else await check_filter_requirements(session, metrics, filters)
+        else await check_filter_requirements(session, metrics, filters, inherit)
     )
     result = await _build_metrics_sql(
         session=session,
@@ -576,6 +586,7 @@ async def build_metrics_sql(
         query_parameters=query_parameters,
         lookback_window=lookback_window,
         group_others=group_others,
+        inherit=inherit,
     )
     result.warnings = [*checked.warnings, *(result.warnings or [])]
     return result
@@ -594,6 +605,7 @@ async def _build_metrics_sql(
     query_parameters: dict[str, Any] | None = None,
     lookback_window: str | None = None,
     group_others: GroupOthers | None = None,
+    inherit: bool = False,
 ) -> GeneratedSQL:
     """
     Build metrics SQL for a set of metrics and dimensions.
@@ -659,6 +671,7 @@ async def _build_metrics_sql(
         dialect=dialect,
         use_materialized=use_materialized,
         lookback_window=lookback_window,
+        inherit=inherit,
     )
 
     if group_others is not None:
