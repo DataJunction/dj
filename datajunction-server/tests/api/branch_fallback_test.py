@@ -13,14 +13,20 @@ import json
 import re
 from collections.abc import Awaitable, Callable
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 import pytest_asyncio
+from pytest_mock import MockerFixture
 from httpx import AsyncClient
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.api.sql import resolve_orderby_names
 from datajunction_server.database.namespace import NodeNamespace
+from datajunction_server.internal.access.authorization import AuthorizationService
+from datajunction_server.models import access
+from tests.authz import VALIDATOR_AUTH_SERVICE, RecordingAuthorizationService
 
 BRANCH = "foo.feat_x"
 MAIN = "foo.bar"
@@ -494,3 +500,144 @@ async def test_similarity_and_view_and_measures(
     values = "/cubes/{}/dimensions/data"
     missing = await client.get(values.format("foo.feat_x.no_such_cube"))
     assert missing.status_code == 404
+
+
+class DenyDefaultBranch(AuthorizationService):
+    """
+    Approves everything except reading nodes in the default branch.
+    """
+
+    name = "test_deny_default_branch"
+
+    def authorize(self, auth_context, requests):
+        return [
+            access.AccessDecision(
+                request=request,
+                approved=not request.access_object.name.startswith(f"{MAIN}."),
+            )
+            for request in requests
+        ]
+
+
+PERMISSION_ENDPOINTS = [
+    ("/nodes/{name}/", "metric"),
+    ("/nodes/{name}/checks/", "metric"),
+    ("/nodes/{name}/revisions/", "metric"),
+    ("/nodes/{name}/upstream/", "metric"),
+    ("/nodes/{name}/dag/", "metric"),
+    ("/nodes/{name}/lineage/", "dimension"),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path, kind", PERMISSION_ENDPOINTS)
+async def test_inherited_node_checks_default_branch(
+    client: AsyncClient,
+    link: Callable[[], Awaitable[None]],
+    mocker: MockerFixture,
+    path: str,
+    kind: str,
+):
+    """
+    A caller denied on the default branch cannot read it through a branch name.
+    """
+    names = NAMES[kind]
+    await link()
+    allowed = await client.get(path.format(name=names["fallback"]))
+    assert allowed.status_code == 200
+
+    recorder = RecordingAuthorizationService()
+    mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: recorder)
+    both = await client.get(path.format(name=names["fallback"]))
+    assert both.status_code == 200
+    assert both.json() == allowed.json()
+    requested = [request.access_object.name for request in recorder.requests]
+    assert requested[0] == names["fallback"]
+    assert names["fallback"].replace(BRANCH, MAIN, 1) in requested
+
+    mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: DenyDefaultBranch())
+    denied = await client.get(path.format(name=names["fallback"]))
+    assert denied.status_code == 403
+    assert denied.json()["message"] == (
+        f"Access denied to 1 resource(s): {names['fallback'].replace(BRANCH, MAIN, 1)}"
+    )
+
+    held_recorder = RecordingAuthorizationService()
+    mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: held_recorder)
+    held = await client.get(path.format(name=names["hit"]))
+    assert held.status_code == 200
+    assert names["hit"].replace(BRANCH, MAIN, 1) not in [
+        request.access_object.name for request in held_recorder.requests
+    ]
+
+
+@pytest.mark.asyncio
+async def test_similarity_checks_default_branch(
+    client: AsyncClient,
+    link: Callable[[], Awaitable[None]],
+    mocker: MockerFixture,
+):
+    """
+    Similarity checks every inherited node, and none for held nodes.
+    """
+    metric = NAMES["metric"]
+    similarity = "/nodes/similarity/{}/{}"
+    await link()
+    recorder = RecordingAuthorizationService()
+    mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: recorder)
+    held = await client.get(similarity.format(metric["hit"], metric["hit"]))
+    assert held.status_code == 200
+    assert {request.access_object.name for request in recorder.requests} == {
+        metric["hit"],
+    }
+
+    mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: DenyDefaultBranch())
+    denied = await client.get(similarity.format(metric["hit"], metric["fallback"]))
+    assert denied.status_code == 403
+    assert denied.json()["message"] == (
+        "Access denied to 1 resource(s): foo.bar.total_repair_cost"
+    )
+
+
+@pytest.mark.asyncio
+async def test_orderby_inherited_metric(
+    client: AsyncClient,
+    link: Callable[[], Awaitable[None]],
+):
+    """
+    Ordering by an inherited metric gives the default branch's SQL.
+    """
+    fallback = NAMES["metric"]["fallback"]
+    main_name = "foo.bar.total_repair_cost"
+    await link()
+    for suffix in ("", " DESC", " ASC"):
+        main = await client.get(
+            "/sql/",
+            params={"metrics": main_name, "orderby": f"{main_name}{suffix}"},
+        )
+        assert main.status_code == 200, main.json()
+        inherited = await client.get(
+            "/sql/",
+            params={"metrics": fallback, "orderby": f"{fallback}{suffix}"},
+        )
+        assert inherited.json() == main.json()
+
+
+def test_resolve_orderby_names():
+    """
+    Only entries starting with an asked name are rewritten.
+    """
+    node = MagicMock()
+    node.name = "foo.bar.total_repair_cost"
+    assert resolve_orderby_names(
+        [
+            "foo.feat_x.total_repair_cost DESC",
+            "foo.feat_x.total_repair_cost",
+            "foo.bar.hard_hat.city ASC",
+        ],
+        {"foo.feat_x.total_repair_cost": node},
+    ) == [
+        "foo.bar.total_repair_cost DESC",
+        "foo.bar.total_repair_cost",
+        "foo.bar.hard_hat.city ASC",
+    ]
