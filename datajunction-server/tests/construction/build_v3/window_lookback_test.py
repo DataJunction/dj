@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from datajunction_server.construction.build_v3 import window_lookback as wl_mod
+from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
 from datajunction_server.construction.build_v3.filters import parse_filter
 from datajunction_server.construction.build_v3.measures import build_lookback_filter
 from datajunction_server.construction.build_v3.window_lookback import (
@@ -11,6 +12,7 @@ from datajunction_server.construction.build_v3.window_lookback import (
     _dimension_physical_table,
     _order_filter_bounds,
     _read_lookback_role_aware,
+    _same_order_sequence,
     _tighter_bound,
     apply_live_window_lookback,
     build_densify_join,
@@ -484,16 +486,81 @@ def test_apply_preserves_bounds_on_another_sequence_or_role(column):
     assert ctx.pushdown_consumed_filters == set()
 
 
+@pytest.mark.parametrize(
+    "order, candidate, default_role, expected",
+    [
+        ("date_id[order]", "date_id[order]", "order", True),
+        ("date_id[order]", "date_id[ship]", "order", False),
+        ("date_id", "date_id[order]", "order", True),
+        ("date_id[order]", "date_id", "order", True),
+        ("date_id", "date_id[ship]", "order", False),
+        ("date_id[ship]", "date_id", "order", False),
+        ("date_id", "date_id[order]", "", False),
+        ("date_id[order]", "date_id", "", False),
+        ("date_id", "month[order]", "order", False),
+        ("date_id", "date_id", "order", True),
+    ],
+)
+def test_order_sequence_matching_resolves_default_roles(
+    order,
+    candidate,
+    default_role,
+    expected,
+):
+    dimension = SimpleNamespace(name="v3.date")
+    order_link = SimpleNamespace(dimension=dimension)
+    ship_link = SimpleNamespace(dimension=dimension, role="ship")
+    paths = {(1, "v3.date", "order"): [order_link], (1, "v3.date", "ship"): [ship_link]}
+    if not default_role:
+        paths[(1, "v3.date", "")] = [SimpleNamespace(dimension=dimension, role="")]
+    ctx = SimpleNamespace(
+        metric_groups=[
+            SimpleNamespace(parent_node=SimpleNamespace(current=SimpleNamespace(id=1))),
+        ],
+        join_paths=paths,
+    )
+    assert (
+        _same_order_sequence(
+            ctx,
+            parse_dimension_ref(f"v3.date.{order}"),
+            parse_dimension_ref(f"v3.date.{candidate}"),
+        )
+        is expected
+    )
+
+
+def test_order_sequence_matching_requires_same_path_for_every_fact():
+    dimension = SimpleNamespace(name="v3.date")
+    order_link = SimpleNamespace(dimension=dimension, role="order")
+    default_link = SimpleNamespace(dimension=dimension, role="")
+    ctx = SimpleNamespace(
+        metric_groups=[
+            SimpleNamespace(parent_node=SimpleNamespace(current=SimpleNamespace(id=i)))
+            for i in (1, 2)
+        ],
+        join_paths={
+            (1, "v3.date", "order"): [order_link],
+            (2, "v3.date", "order"): [order_link],
+            (2, "v3.date", ""): [default_link],
+        },
+    )
+    assert not _same_order_sequence(
+        ctx,
+        parse_dimension_ref("v3.date.date_id"),
+        parse_dimension_ref("v3.date.date_id[order]"),
+    )
+
+
 def test_apply_bails_on_non_comparable_low_bound():
     # A string low bound cannot be compared/interpolated -> bail, leave filters intact.
-    ctx = _ctx([_decomposed(_ROLE_WINDOW)], ["v3.date.date_id >= 'a'"])
+    ctx = _ctx([_decomposed(_BARE_WINDOW)], ["v3.date.date_id >= 'a'"])
     assert apply_live_window_lookback(ctx) is None
     assert ctx.dimension_filters == ["v3.date.date_id >= 'a'"]
     assert ctx.pushdown_consumed_filters == set()
 
 
 def test_apply_bails_on_non_comparable_high_bound():
-    ctx = _ctx([_decomposed(_ROLE_WINDOW)], ["v3.date.date_id <= 'z'"])
+    ctx = _ctx([_decomposed(_BARE_WINDOW)], ["v3.date.date_id <= 'z'"])
     assert apply_live_window_lookback(ctx) is None
     assert ctx.dimension_filters == ["v3.date.date_id <= 'z'"]
 
@@ -507,7 +574,7 @@ def test_apply_noop_when_order_dim_unreachable_from_facts(mocker, column):
         return_value="cat.sch.dim_table",
     )
     ctx = _ctx(
-        [_decomposed(_ROLE_WINDOW)],
+        [_decomposed(_ROLE_WINDOW if "[order]" in column else _BARE_WINDOW)],
         [f"{column} BETWEEN 20240101 AND 20240131"],
         metric_groups=[],  # no facts -> injected_any stays False
     )
