@@ -645,7 +645,7 @@ async def _stream_events(client, url, params):
 
 
 def _query_events(submitted_sql):
-    """The two query events of a stream that finishes on the first poll."""
+    """A finished submission is sent once, without polling the query service."""
     return [
         (
             "message",
@@ -653,17 +653,6 @@ def _query_events(submitted_sql):
                 QueryWithResults(
                     id="test-query-id",
                     submitted_query=submitted_sql,
-                    state=QueryState.FINISHED,
-                    results=[],
-                ).json(),
-            ),
-        ),
-        (
-            "message",
-            json.dumps(
-                QueryWithResults(
-                    id="test-query-id",
-                    submitted_query="",
                     state=QueryState.FINISHED,
                     results=[],
                 ).json(),

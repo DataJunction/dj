@@ -35,6 +35,7 @@ from datajunction_server.construction.build_v3.cube_matcher import (
     resolve_dialect_and_engine_for_metrics,
 )
 from datajunction_server.errors import DJException, DJInvalidMetricQueryException
+from datajunction_server.enum import StrEnum
 from datajunction_server.constants import (
     AUTH_COOKIE,
     LOGGED_IN_FLAG_COOKIE,
@@ -87,6 +88,19 @@ from datajunction_server.utils import (
 logger = logging.getLogger(__name__)
 
 
+class SemanticErrorCode(StrEnum):
+    """Machine-readable problem codes returned by the semantic API."""
+
+    VALIDATION_ERROR = "VALIDATION_ERROR"
+    VIEW_NOT_FOUND = "VIEW_NOT_FOUND"
+    UNKNOWN_METRIC = "UNKNOWN_METRIC"
+    UNKNOWN_DIMENSION = "UNKNOWN_DIMENSION"
+    UNKNOWN_COLUMN = "UNKNOWN_COLUMN"
+    QUERY_EXECUTION_FAILED = "QUERY_EXECUTION_FAILED"
+    INVALID_QUERY_RESULT = "INVALID_QUERY_RESULT"
+    TOO_MANY_VALUES = "TOO_MANY_VALUES"
+
+
 # SecureAPIRouter (vs a plain APIRouter) attaches the DJHTTPBearer dependency,
 # which validates the JWT/cookie and populates ``request.state.user`` so that
 # ``get_current_user`` resolves — matching every other secured router
@@ -116,7 +130,7 @@ class SemanticAPIRoute(APIRoute):
                     422,
                     "Request failed schema validation.",
                     invalid_params=invalid_params,
-                    code="VALIDATION_ERROR",
+                    code=SemanticErrorCode.VALIDATION_ERROR,
                 )
             except ClientDisconnect:
                 raise
@@ -197,7 +211,7 @@ def _problem(
     detail: str,
     *,
     invalid_params: list[dict[str, str]] | None = None,
-    code: str | None = None,
+    code: SemanticErrorCode | None = None,
 ) -> JSONResponse:
     """Build an RFC 9457 problem response for this adapter."""
     try:
@@ -226,7 +240,11 @@ def _problem(
 
 
 def _view_not_found(view_name: str) -> JSONResponse:
-    return _problem(404, f"View `{view_name}` does not exist.", code="VIEW_NOT_FOUND")
+    return _problem(
+        404,
+        f"View `{view_name}` does not exist.",
+        code=SemanticErrorCode.VIEW_NOT_FOUND,
+    )
 
 
 def _arrow_type_name(dj_type: Any) -> str | None:
@@ -1485,11 +1503,11 @@ async def _prepare_view_sql(
                 f"metrics={bad_metrics} dimensions={bad_dims} "
                 f"filter_columns={bad_filters} order_columns={bad_order}",
                 code=(
-                    "UNKNOWN_METRIC"
+                    SemanticErrorCode.UNKNOWN_METRIC
                     if bad_metrics
-                    else "UNKNOWN_DIMENSION"
+                    else SemanticErrorCode.UNKNOWN_DIMENSION
                     if bad_dims
-                    else "UNKNOWN_COLUMN"
+                    else SemanticErrorCode.UNKNOWN_COLUMN
                 ),
             )
         if group_limit := payload.group_limit:
@@ -1598,16 +1616,28 @@ async def _execute_sql(
         )
     except DJException:
         logger.exception("Semantic query execution failed")
-        return _problem(502, "Query execution failed.", code="QUERY_EXECUTION_FAILED")
+        return _problem(
+            502,
+            "Query execution failed.",
+            code=SemanticErrorCode.QUERY_EXECUTION_FAILED,
+        )
     except NotImplementedError:
         return _problem(501, "The configured query client cannot execute queries.")
     except Exception:
         logger.exception("Unexpected semantic query execution failure")
-        return _problem(502, "Query execution failed.", code="QUERY_EXECUTION_FAILED")
+        return _problem(
+            502,
+            "Query execution failed.",
+            code=SemanticErrorCode.QUERY_EXECUTION_FAILED,
+        )
 
     if result.state != QueryState.FINISHED or result.errors:
         logger.error("Semantic query did not finish: %s", result.errors)
-        return _problem(502, "Query execution failed.", code="QUERY_EXECUTION_FAILED")
+        return _problem(
+            502,
+            "Query execution failed.",
+            code=SemanticErrorCode.QUERY_EXECUTION_FAILED,
+        )
     if len(result.results.root) != 1:
         return _problem(500, "Query returned an unexpected number of statements.")
     statement = result.results.root[0]
@@ -1627,7 +1657,7 @@ async def _execute_sql(
         return _problem(
             502,
             "Query returned invalid values.",
-            code="INVALID_QUERY_RESULT",
+            code=SemanticErrorCode.INVALID_QUERY_RESULT,
         )
     return SemanticResult(
         requests=[RequestInfo(type="sql", definition=generated.sql)],
@@ -1733,7 +1763,7 @@ async def get_values(
         return _problem(
             400,
             f"View `{view_name}` does not contain dimension `{body.dimension}`.",
-            code="UNKNOWN_DIMENSION",
+            code=SemanticErrorCode.UNKNOWN_DIMENSION,
         )
 
     bad_filters = [
@@ -1769,7 +1799,7 @@ async def get_values(
         return _problem(
             413,
             "Dimension has more than 10000 values.",
-            code="TOO_MANY_VALUES",
+            code=SemanticErrorCode.TOO_MANY_VALUES,
         )
     return result
 
@@ -1804,7 +1834,11 @@ async def _compatible_elements(
             400,
             f"View `{view_name}` does not contain: "
             f"metrics={unknown_metrics} dimensions={unknown_dims}",
-            code="UNKNOWN_METRIC" if unknown_metrics else "UNKNOWN_DIMENSION",
+            code=(
+                SemanticErrorCode.UNKNOWN_METRIC
+                if unknown_metrics
+                else SemanticErrorCode.UNKNOWN_DIMENSION
+            ),
         )
     return _metrics_payload(cube_rev) if metrics else _dimensions_payload(cube_rev)
 
