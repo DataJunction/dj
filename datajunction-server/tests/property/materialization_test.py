@@ -17,6 +17,7 @@ from hypothesis import assume, event, given, settings
 from tests.conftest import transpile_to_duckdb
 from tests.property.budget import examples
 from tests.property.graph import (
+    accepts_missing_dimension,
     assert_same_results,
     build_graph,
     create_metric,
@@ -25,14 +26,15 @@ from tests.property.graph import (
     metrics_sql,
     post,
     reference,
-    accepts_missing_dimension,
 )
 from tests.property.known_issues import (
     EMPTY_PREAGG_COUNT_IS_NULL,
+    FILTER_PUSHED_PAST_LEFT_JOIN,
     PREAGG_INNER_JOIN_DROPS_ORPHANS,
 )
 from tests.property.scenario import (
     METRIC_BY_DEFINITION,
+    FilterAtom,
     Scenario,
     materialization_scenarios,
 )
@@ -148,6 +150,8 @@ async def test_preaggregated_matches_raw(
     duckdb_conn: duckdb.DuckDBPyConnection,
     scenario: Scenario,
 ):
+    # known_issues.FILTER_PUSHED_PAST_LEFT_JOIN also affects the live query
+    # used by this oracle. The strict repro below exercises this path too.
     assume(
         not (
             scenario.join_type == "left"
@@ -170,6 +174,29 @@ async def test_preaggregated_matches_raw(
         scenario,
         skip_known=True,
         discard_if_not_served=True,
+    )
+
+
+@pytest.mark.asyncio
+@FILTER_PUSHED_PAST_LEFT_JOIN.xfail()
+async def test_known_issue_null_accepting_filter_with_preaggregation(
+    module__client_with_roads: AsyncClient,
+    duckdb_conn: duckdb.DuckDBPyConnection,
+):
+    await check_preaggregated(
+        module__client_with_roads,
+        duckdb_conn,
+        Scenario(
+            dimension_rows=((0, "b", None), (1, None, None)),
+            fact_rows=((0, 3, None), (1, 5, None)),
+            metrics=(METRIC_BY_DEFINITION["SUM(x)"],) * 2,
+            op="+",
+            join_type="left",
+            dimensions=("label",),
+            filters=(FilterAtom("label", "IS NULL"),),
+            preagg_grain=("label",),
+        ),
+        skip_known=False,
     )
 
 

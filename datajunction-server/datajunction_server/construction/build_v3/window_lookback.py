@@ -9,7 +9,10 @@ from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 if TYPE_CHECKING:
-    from datajunction_server.construction.build_v3.types import BuildContext
+    from datajunction_server.construction.build_v3.types import (
+        BuildContext,
+        DimensionRef,
+    )
 
 
 @dataclass
@@ -250,6 +253,9 @@ def _order_filter_bounds(
     Partial bounds (one side ``None``) let the caller stitch a range expressed
     as two separate filter strings (``col >= A`` and ``col <= B``) into a single
     ``[A, B]`` extent. The caller is responsible for combining them.
+
+    This helper matches only the column name. The caller must first verify
+    that the filter targets the window's dimension node and resolved join path.
     """
     from datajunction_server.construction.build_v3.dimension_refs import (
         split_dimension_ref,
@@ -368,6 +374,41 @@ def _dimension_physical_table(
     return None  # pragma: no cover
 
 
+def _same_order_sequence(
+    ctx: BuildContext,
+    order: DimensionRef,
+    candidate: DimensionRef,
+) -> bool:
+    """Match an implicit role only when it resolves to the same sequence."""
+    from datajunction_server.construction.build_v3.dimensions import find_join_path
+
+    if (order.node_name, order.column_name) != (
+        candidate.node_name,
+        candidate.column_name,
+    ):
+        return False
+    if order.role == candidate.role:
+        return True
+    if order.role and candidate.role:
+        return False
+    # An omitted role follows the default join path. Use the same resolver as
+    # dimension planning, in either direction, rather than treating it as a
+    # wildcard that might consume a different date role's filter.
+    if not ctx.metric_groups:
+        return False
+    for group in ctx.metric_groups:
+        order_path = find_join_path(ctx, group.parent_node, order.node_name, order.role)
+        filter_path = find_join_path(
+            ctx,
+            group.parent_node,
+            candidate.node_name,
+            candidate.role,
+        )
+        if not order_path or not filter_path or order_path.links != filter_path.links:
+            return False
+    return True
+
+
 def apply_live_window_lookback(ctx: BuildContext) -> WindowLookbackPlan | None:
     """
     Live frame-aware lookback adapter (mirror of the cube-side
@@ -484,9 +525,8 @@ def apply_live_window_lookback(ctx: BuildContext) -> WindowLookbackPlan | None:
         )
         validate_window_lookback(wl, order_is_sequence_dim)
 
-        # Find dimension filters constraining this sequence. Unroled references
-        # retain the default-path behavior; explicitly different roles stay
-        # separate. A range may be
+        # Find filters on this sequence, resolving omitted roles through the
+        # default join path. Explicitly different roles stay separate. A range may be
         # expressed as TWO separate filter strings (``col >= A`` and
         # ``col <= B``); we collect partial bounds across all matching filters
         # and stitch them into a single ``[low, high]`` extent.
@@ -506,8 +546,9 @@ def apply_live_window_lookback(ctx: BuildContext) -> WindowLookbackPlan | None:
             # The same date column can be reached through several roles. Only
             # consume bounds on the sequence this window actually orders by.
             filter_refs = extract_filter_dimension_refs([filter_str])
-            if not {order_ref, f"{order_node_name}.{order_col_name}"}.intersection(
-                filter_refs,
+            if not any(
+                _same_order_sequence(ctx, parsed_order, parse_dimension_ref(ref))
+                for ref in filter_refs
             ):
                 continue
             filter_ast = parse_filter(filter_str)

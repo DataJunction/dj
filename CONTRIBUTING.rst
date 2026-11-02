@@ -366,7 +366,9 @@ They run with the rest of the server suite. ``DJ_PBT_PROFILE`` selects ``dev`` (
 shrinking), ``ci`` (the default when ``CI`` is set, a fixed sequence without shrinking), or ``nightly`` (ten times the
 examples, random with shrinking). PR CI runs ``ci``, which replays the same examples every time. The
 ``property-tests.yml`` workflow runs ``nightly`` daily and can also be dispatched manually. It caches the Hypothesis
-database and uploads failure examples and JUnit results when a run fails. The API-backed properties need the same Postgres test setup as the server suite;
+database after successful and failing test runs, uploads failure examples and JUnit results, and opens or updates
+a tracking issue when a run fails. It runs only in ``DataJunction/dj``, using Python 3.11 and Postgres 17;
+manual runs do not cancel scheduled runs. The API-backed properties need the same Postgres test setup as the server suite;
 locally, the test fixtures start it through Docker.
 
 .. code-block:: sh

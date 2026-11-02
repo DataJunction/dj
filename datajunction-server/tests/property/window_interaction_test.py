@@ -14,7 +14,15 @@ from tests.property.random_graph_test import fixed
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("kind", ["lag", "lead", "sum", "avg", "share"])
+@pytest.mark.parametrize(
+    "kind, window_role, filter_role",
+    [(kind, "[time]", "[time]") for kind in ("lag", "lead", "sum", "avg", "share")]
+    + [
+        (kind, window_role, filter_role)
+        for kind in ("sum", "avg")
+        for window_role, filter_role in (("", "[time]"), ("[time]", ""), ("", ""))
+    ],
+)
 @pytest.mark.parametrize("filtered", [False, True])
 @settings(max_examples=examples(6))
 @example(case=(3, ((0, 2, 0), (1, 3, 2))), extent=1, threshold=0)
@@ -23,6 +31,8 @@ async def test_partitioned_windows_and_scalar_descendants(
     module__client_with_roads,
     duckdb_conn,
     kind,
+    window_role,
+    filter_role,
     filtered,
     case,
     extent,
@@ -61,7 +71,8 @@ async def test_partitioned_windows_and_scalar_descendants(
         join_type="left",
         role="time",
     )
-    day, partition = f"{time_dim}.day[time]", graph.dimension("label")
+    day, partition = f"{time_dim}.day{window_role}", graph.dimension("label")
+    filter_day = f"{time_dim}.day{filter_role}"
     total = await create_metric(
         client,
         graph,
@@ -90,7 +101,7 @@ async def test_partitioned_windows_and_scalar_descendants(
     rolling = kind in ("sum", "avg")
     low = size - 2 if rolling else 0
     if rolling:
-        filters += [f"{day} >= {low}", f"{day} <= {size - 1}"]
+        filters += [f"{filter_day} >= {low}", f"{filter_day} <= {size - 1}"]
     expected = {}
     for group in (0, 1):
         observed = sorted({d for k, _, d in rows if k == group})
