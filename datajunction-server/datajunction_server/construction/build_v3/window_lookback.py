@@ -461,7 +461,11 @@ def apply_live_window_lookback(ctx: BuildContext) -> WindowLookbackPlan | None:
     constrains the frame's order column.
     """
     from datajunction_server.construction.build_v3.cte import has_window_function
-    from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
+    from datajunction_server.construction.build_v3.dimensions import (
+        can_skip_join_for_dimension,
+        find_join_path,
+        parse_dimension_ref,
+    )
     from datajunction_server.construction.build_v3.filters import parse_filter
     from datajunction_server.construction.build_v3.utils import make_column_ref
 
@@ -618,29 +622,34 @@ def apply_live_window_lookback(ctx: BuildContext) -> WindowLookbackPlan | None:
         injected_any = False
         for metric_group in ctx.metric_groups:
             fact_node = metric_group.parent_node
-            if not fact_node.current or not fact_node.current.dimension_links:
-                continue  # pragma: no cover
-            for link in fact_node.current.dimension_links:
-                if (
-                    link.dimension.name != order_node_name
-                    or (link.role or None) != parsed_order.role
-                ):
-                    continue
-                fk_columns = link.foreign_key_column_names
-                if not fk_columns:
-                    continue  # pragma: no cover
-                fk_col_name = next(iter(fk_columns))
-
-                scan_filter = build_scan_bounds(
-                    make_column_ref(fk_col_name),
-                    high_expr,
-                    offset_low,
-                )
-                ctx.upstream_pushdown_filters.setdefault(
-                    fact_node.name,
-                    [],
-                ).append(scan_filter)
-                injected_any = True
+            order_path = find_join_path(
+                ctx,
+                fact_node,
+                order_node_name,
+                parsed_order.role,
+            )
+            if order_path is None:
+                continue
+            # Resolve the sequence column along the selected path, just as
+            # dimension planning does. A different date role must never add a
+            # second scan predicate; non-key columns cannot filter the fact.
+            _, fk_col_name, skipped = can_skip_join_for_dimension(
+                parsed_order,
+                order_path,
+                fact_node,
+            )
+            if fk_col_name is None or skipped != len(order_path.links):
+                continue
+            scan_filter = build_scan_bounds(
+                make_column_ref(fk_col_name),
+                high_expr,
+                offset_low,
+            )
+            ctx.upstream_pushdown_filters.setdefault(
+                fact_node.name,
+                [],
+            ).append(scan_filter)
+            injected_any = True
 
         if not injected_any:
             # Could not reach the order dimension from any fact -> leave the
