@@ -11,6 +11,7 @@ from tests.property.graph import assert_same_results, build_graph, create_metric
 from tests.property.interaction_graph import link, query, source
 from tests.property.interaction_scenarios import time_scenarios
 from tests.property.random_graph_test import fixed
+from tests.property.scenario import values
 
 
 @pytest.mark.asyncio
@@ -139,4 +140,120 @@ async def test_partitioned_windows_and_scalar_descendants(
         actual,
         expected,
         f"{case!r}\nkind={kind}, extent={extent}, filtered={filtered}\n{sql}",
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["sum", "avg"])
+@pytest.mark.parametrize("role", ["order", "ship", None])
+@settings(max_examples=examples(6))
+@example(rows=[(1, 2, 0), (2, 3, 5), (3, 7, None)], extent=1)
+@given(
+    rows=st.lists(
+        st.tuples(
+            st.integers(0, 5),
+            values,
+            st.one_of(st.none(), st.integers(0, 6)),
+        ),
+        min_size=1,
+        max_size=12,
+    ),
+    extent=st.integers(1, 3),
+)
+async def test_rolling_window_expands_only_its_resolved_date_role(
+    module__client_with_roads,
+    duckdb_conn,
+    kind,
+    role,
+    rows,
+    extent,
+):
+    client, conn = module__client_with_roads, duckdb_conn
+    # The unrelated date can be outside the scan bounds or NULL. Neither
+    # changes which orders contribute to the window on the selected date.
+    fact_rows = tuple(
+        (other, value, day) if role == "ship" else (day, value, other)
+        for day, value, other in rows
+    )
+    graph = await build_graph(client, conn, replace(fixed(), fact_rows=fact_rows))
+    fact_source = graph.fact
+    graph.fact = graph.prefix + "orders"
+    # Exercise scan-filter injection into a transform CTE, as in a modeled
+    # fact table, rather than reading the physical source directly.
+    await post(
+        client,
+        "/nodes/transform/",
+        {
+            "name": graph.fact,
+            "query": f"SELECT k, x, y FROM {fact_source}",
+            "mode": "published",
+        },
+    )
+    table, time_src, time_dim = (
+        graph.fact_table + "_dates",
+        graph.prefix + "dates_src",
+        graph.prefix + "dates",
+    )
+    conn.execute(f'CREATE TABLE "default".pbt.{table} (day INT)')
+    conn.executemany(
+        f'INSERT INTO "default".pbt.{table} VALUES (?)',
+        [(d,) for d in range(7)],
+    )
+    await source(client, time_src, table, [("day", "int")])
+    await post(
+        client,
+        "/nodes/dimension/",
+        {
+            "name": time_dim,
+            "query": f"SELECT day FROM {time_src}",
+            "primary_key": ["day"],
+            "mode": "published",
+        },
+    )
+    for column, link_role in (("k", "order"), ("y", "ship")):
+        await link(
+            client,
+            graph.fact,
+            time_dim,
+            f"{graph.fact}.{column} = {time_dim}.day",
+            join_type="left",
+            role=link_role,
+        )
+    day = f"{time_dim}.day" + (f"[{role}]" if role else "")
+    filter_day = f"{time_dim}.day[{role or 'order'}]"
+    total = await create_metric(
+        client,
+        graph,
+        "total",
+        f"SELECT SUM(x) FROM {graph.fact}",
+    )
+    window = await create_metric(
+        client,
+        graph,
+        "window",
+        f"SELECT {kind.upper()}({total}) OVER "
+        f"(ORDER BY {day} ROWS BETWEEN {extent} PRECEDING AND CURRENT ROW)",
+        required_dimensions=[day],
+    )
+    totals = [
+        sum(v for d, v, _ in rows if d == date and v is not None) for date in range(7)
+    ]
+    expected = {}
+    for date in (2, 3):
+        frame = totals[max(0, date - extent) : date + 1]
+        expected[(date,)] = (
+            totals[date],
+            sum(frame) / (len(frame) if kind == "avg" else 1),
+        )
+    sql, actual = await query(
+        client,
+        conn,
+        [total, window],
+        [day],
+        [f"{filter_day} >= 2", f"{filter_day} <= 3"],
+    )
+    assert_same_results(
+        actual,
+        expected,
+        f"{rows!r}\nrole={role}, kind={kind}, extent={extent}\n{sql}",
     )

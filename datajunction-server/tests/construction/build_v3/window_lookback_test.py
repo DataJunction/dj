@@ -421,6 +421,7 @@ def _ctx(
         decomposed_metrics={d.metric_node.name: d for d in decomposed_list},
         dimension_filters=list(dimension_filters),
         nodes={order_node: node},
+        join_paths={},
         metric_groups=metric_groups or [],
         upstream_pushdown_filters={},
         pushdown_consumed_filters=set(),
@@ -453,6 +454,27 @@ def test_apply_preserves_bounds_on_another_sequence_or_role(column):
     assert apply_live_window_lookback(ctx) is None
     assert ctx.dimension_filters == filters
     assert ctx.pushdown_consumed_filters == set()
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    ["IN (1, 2)", "!= 5"],
+)
+def test_apply_preserves_non_range_filter_on_order_sequence(predicate):
+    filters = [f"v3.date.date_id[order] {predicate}"]
+    ctx = _ctx([_decomposed(_ROLE_WINDOW)], filters)
+    assert apply_live_window_lookback(ctx) is None
+    assert ctx.dimension_filters == filters
+    assert ctx.pushdown_consumed_filters == set()
+    assert ctx.upstream_pushdown_filters == {}
+
+
+def test_order_sequence_without_facts_cannot_resolve_implicit_role():
+    assert not _same_order_sequence(
+        _ctx([], []),
+        parse_dimension_ref("v3.date.date_id"),
+        parse_dimension_ref("v3.date.date_id[order]"),
+    )
 
 
 @pytest.mark.parametrize(
@@ -551,3 +573,34 @@ def test_apply_noop_when_order_dim_unreachable_from_facts(mocker, column):
     physical_table.assert_called_once()
     # The original filter is left intact since nothing was expanded.
     assert ctx.dimension_filters == [f"{column} BETWEEN 20240101 AND 20240131"]
+
+
+@pytest.mark.parametrize("path_kind", ["missing", "non_key", "partial"])
+def test_apply_preserves_filters_when_order_column_has_no_fact_key(mocker, path_kind):
+    mocker.patch.object(
+        wl_mod,
+        "_dimension_physical_table",
+        return_value="cat.sch.dates",
+    )
+    fact = SimpleNamespace(name="v3.fact", current=SimpleNamespace(id=1))
+    filters = ["v3.date.date_id[order] BETWEEN 1 AND 10"]
+    ctx = _ctx(
+        [_decomposed(_ROLE_WINDOW)],
+        filters,
+        metric_groups=[SimpleNamespace(parent_node=fact)],
+    )
+    date_link = SimpleNamespace(
+        dimension=ctx.nodes["v3.date"],
+        foreign_keys_reversed={"v3.date.other_id": "v3.fact.order_date"},
+    )
+    if path_kind == "non_key":
+        ctx.join_paths[(1, "v3.date", "order")] = [date_link]
+    elif path_kind == "partial":
+        date_link.foreign_keys_reversed = {"v3.date.date_id": "v3.bridge.date_id"}
+        bridge_link = SimpleNamespace(foreign_keys_reversed={})
+        ctx.join_paths[(1, "v3.date", "order")] = [bridge_link, date_link]
+
+    assert apply_live_window_lookback(ctx) is None
+    assert ctx.dimension_filters == filters
+    assert ctx.pushdown_consumed_filters == set()
+    assert ctx.upstream_pushdown_filters == {}
