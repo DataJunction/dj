@@ -55,16 +55,16 @@ class TestFilterPushdownToParentCTE:
         )
 
 
-class TestFilterPushdownToDimensionCTE:
-    """Filters on dimension columns push into the dimension node's CTE."""
+class TestDimensionFilterPlacement:
+    """Dimension predicates apply on their consuming aliases."""
 
     @pytest.mark.asyncio
-    async def test_product_filter_pushed_to_dimension_cte(
+    async def test_product_filter_stays_on_consuming_alias(
         self,
         client_with_build_v3,
     ):
         """
-        Filter on v3.product.category should push into the v3_product CTE.
+        Filter on v3.product.category stays on the consuming product alias.
         """
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
@@ -88,7 +88,6 @@ class TestFilterPushdownToDimensionCTE:
             v3_product AS (
               SELECT product_id, category
               FROM default.v3.products
-              WHERE category = 'Electronics'
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -109,7 +108,7 @@ class TestFilterPushdownMultiple:
         client_with_build_v3,
     ):
         """
-        Date filter → parent CTE (via FK), product filter → product dim CTE.
+        Date filter → parent CTE (via FK), product filter → product join alias.
         """
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
@@ -137,7 +136,6 @@ class TestFilterPushdownMultiple:
             v3_product AS (
               SELECT product_id, category
               FROM default.v3.products
-              WHERE category = 'Electronics'
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -402,11 +400,11 @@ class TestFilterPushdownOperators:
         )
 
     @pytest.mark.asyncio
-    async def test_not_in_list_filter_pushed_to_dim_cte(
+    async def test_not_in_list_filter_stays_on_consuming_alias(
         self,
         client_with_build_v3,
     ):
-        """NOT IN (...) on a dim column pushes into the dim CTE."""
+        """NOT IN (...) on a dimension column stays on the join alias."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -431,7 +429,6 @@ class TestFilterPushdownOperators:
             v3_product AS (
               SELECT product_id, category
               FROM default.v3.products
-              WHERE category NOT IN ('Electronics', 'Clothing')
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -443,11 +440,11 @@ class TestFilterPushdownOperators:
         )
 
     @pytest.mark.asyncio
-    async def test_is_null_filter_pushed_to_dim_cte(
+    async def test_is_null_filter_stays_on_consuming_alias(
         self,
         client_with_build_v3,
     ):
-        """IS NULL pushes into the dim CTE."""
+        """IS NULL stays on the join alias, preserving real matches."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -470,7 +467,6 @@ class TestFilterPushdownOperators:
             v3_product AS (
               SELECT product_id, category, subcategory
               FROM default.v3.products
-              WHERE subcategory IS NULL
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -482,11 +478,11 @@ class TestFilterPushdownOperators:
         )
 
     @pytest.mark.asyncio
-    async def test_is_not_null_filter_pushed_to_dim_cte(
+    async def test_is_not_null_filter_stays_on_consuming_alias(
         self,
         client_with_build_v3,
     ):
-        """IS NOT NULL pushes into the dim CTE."""
+        """IS NOT NULL stays on the join alias."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -509,7 +505,6 @@ class TestFilterPushdownOperators:
             v3_product AS (
               SELECT product_id, category, subcategory
               FROM default.v3.products
-              WHERE subcategory IS NOT NULL
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -561,11 +556,11 @@ class TestFilterPushdownOperators:
         )
 
     @pytest.mark.asyncio
-    async def test_like_filter_pushed_to_dim_cte(
+    async def test_like_filter_stays_on_consuming_alias(
         self,
         client_with_build_v3,
     ):
-        """LIKE pushes into the dim CTE."""
+        """LIKE stays on the consuming dimension alias."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -588,7 +583,6 @@ class TestFilterPushdownOperators:
             v3_product AS (
               SELECT product_id, category
               FROM default.v3.products
-              WHERE category LIKE 'Elect%'
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -600,11 +594,11 @@ class TestFilterPushdownOperators:
         )
 
     @pytest.mark.asyncio
-    async def test_not_equal_filter_pushed_to_dim_cte(
+    async def test_not_equal_filter_stays_on_consuming_alias(
         self,
         client_with_build_v3,
     ):
-        """<> pushes into the dim CTE."""
+        """<> stays on the consuming dimension alias."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -627,7 +621,6 @@ class TestFilterPushdownOperators:
             v3_product AS (
               SELECT product_id, category
               FROM default.v3.products
-              WHERE category <> 'Electronics'
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -639,7 +632,7 @@ class TestFilterPushdownOperators:
         )
 
     @pytest.mark.asyncio
-    async def test_not_wrapped_predicate_pushed_to_dim_cte(
+    async def test_not_wrapped_predicate_stays_on_consuming_alias(
         self,
         client_with_build_v3,
     ):
@@ -666,7 +659,6 @@ class TestFilterPushdownOperators:
             v3_product AS (
               SELECT product_id, category
               FROM default.v3.products
-              WHERE NOT (category = 'Electronics')
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -678,7 +670,7 @@ class TestFilterPushdownOperators:
         )
 
     @pytest.mark.asyncio
-    async def test_function_wrapped_filter_pushed_to_dim_cte(
+    async def test_function_wrapped_filter_stays_on_consuming_alias(
         self,
         client_with_build_v3,
     ):
@@ -705,7 +697,6 @@ class TestFilterPushdownOperators:
             v3_product AS (
               SELECT product_id, category
               FROM default.v3.products
-              WHERE LOWER(category) = 'electronics'
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -769,11 +760,11 @@ class TestFilterPushdownMultiHop:
     """Filter on a dim two hops from the parent (parent → customer → location)."""
 
     @pytest.mark.asyncio
-    async def test_filter_on_multi_hop_dim_pushes_into_terminal_dim_cte(
+    async def test_filter_on_multi_hop_dim_stays_on_terminal_alias(
         self,
         client_with_build_v3,
     ):
-        """A non-PK filter on a multi-hop dim pushes into that dim's CTE."""
+        """A non-PK filter on a multi-hop dimension stays on its join alias."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -796,7 +787,6 @@ class TestFilterPushdownMultiHop:
             v3_location AS (
               SELECT location_id, country
               FROM default.v3.locations
-              WHERE country = 'US'
             ),
             v3_order_details AS (
               SELECT o.customer_id,
@@ -916,7 +906,6 @@ class TestDimCteFilterOnNonFkColumn:
                 UNION ALL
                 SELECT 1, 'true'
               ) t
-              WHERE t.is_fraud_key IN (0)
             )
             SELECT t2.is_fraud,
                    SUM(t1.amount) amount_sum_HASH
@@ -1078,7 +1067,6 @@ class TestFilterPushdownCrossJoinAggregatesColumnAway:
             v3_time_window_dim AS (
               SELECT window_id, window_size
               FROM default.v3.time_window
-              WHERE window_id IN ('7day')
             ),
             v3_entity_window_config AS (
               SELECT e.entity_id
@@ -1765,9 +1753,8 @@ class TestDimLabelFilterNameCollision:
         )
         assert response.status_code == 200, response.json()
         sql = get_first_grain_group(response.json())["sql"]
-        # The label predicate is pushed into the dimension's own CTE
-        # (string = string, correct) and applied at the post-join outer
-        # WHERE, but NOT into the transform CTE (which exposes the int FK).
+        # The label predicate applies on the dimension join alias, never
+        # the transform CTE's same-named integer foreign key.
         assert_sql_equal(
             sql,
             """
@@ -1782,7 +1769,6 @@ class TestDimLabelFilterNameCollision:
                 UNION ALL
                 SELECT 1, 'true'
               ) t
-              WHERE t.is_bot = 'false'
             )
             SELECT t2.is_bot,
                    SUM(t1.amount) amount_sum_HASH
@@ -1806,8 +1792,8 @@ class TestDimLabelFilterNameCollision:
         transform that does not itself carry the dimension link, the filter can
         be pushed past the link into that ancestor's CTE — where a node-local
         FK-column guard is blind because the ancestor has no link.  The label
-        predicate must stay in the dimension's own CTE and the post-join outer
-        WHERE; no upstream CTE may receive ``is_bot = 'false'`` on the raw int
+        predicate must stay in the post-join outer WHERE; no upstream CTE
+        may receive ``is_bot = 'false'`` on the raw int
         column.  (The linked transform selects its FK column from an upstream
         transform that only projects the raw key and carries no link of its own.)
         """
@@ -1909,7 +1895,6 @@ class TestDimLabelFilterNameCollision:
                 UNION ALL
                 SELECT 1, 'true'
               ) t
-              WHERE t.is_bot = 'false'
             ),
             v3_ml_long AS (
               SELECT is_bot, amount
@@ -2115,7 +2100,6 @@ class TestFilterPushdownRoleQualifiedSharedDim:
             v3_show AS (
               SELECT show_id, show_title, planned_launch_date
               FROM default.v3.shows
-              WHERE planned_launch_date BETWEEN 20240101 AND 20240201
             ),
             v3_show_activity AS (
               SELECT show_id, view_secs

@@ -550,12 +550,10 @@ def outer_only_filter_refs(
     predicate would silently bind to the wrong column (and, when the two have
     different types, match nothing).
 
-    Every joined dimension ref is reported.  Pushdown refuses them for
-    non-dimension CTEs, but the genuinely safe paths still apply: a filter on
-    the dimension's *own* CTE resolves through the dimension columns in
-    ``_build_local_dim_aliases``, and a filter on the join key resolves to the
-    parent's FK column through ``foreign_keys_reversed`` — both override this
-    restriction where the ref maps to a real local column.
+    Every joined dimension ref is reported. A join-key filter can still
+    resolve to the parent's FK column through ``foreign_keys_reversed``.
+    Dimension CTEs and their inputs remain unfiltered so other roles and
+    null-accepting predicates see the original dimension rows.
 
     Refs are reported as requested, role included
     (``v3.location.country[customer->home]``).  A role-less entry therefore
@@ -583,9 +581,27 @@ def build_outer_where(
     Returns the combined WHERE expression with table-qualified column names,
     or None if no filters parse successfully.
     """
+    # Keep each reference's owning alias while resolving it. Two roles can
+    # expose the same column name; qualifying after reducing both to that
+    # name would bind both predicates to whichever role was visited last.
+    qualified_aliases: dict[str, str | ast.Name] = dict(filter_column_aliases)
+    for resolved_dim in resolved_dimensions:
+        column_name = filter_column_aliases.get(
+            resolved_dim.original_ref,
+            resolved_dim.column_name,
+        )
+        table_alias = get_dimension_table_alias(
+            resolved_dim,
+            main_alias,
+            dim_aliases,
+        )
+        qualified_aliases[resolved_dim.original_ref] = ast.Name(
+            column_name,
+            namespace=ast.Name(table_alias),
+        )
     where_clause = parse_and_resolve_filters(
         filters,
-        filter_column_aliases,
+        qualified_aliases,
         cte_alias=None,
         nodes=nodes,
     )

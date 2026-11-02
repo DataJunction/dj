@@ -681,7 +681,6 @@ default_users AS (
     snapshot_date,
     registration_country
   FROM default.examples.users
-  WHERE  registration_country = 'NZ'
 ),
 events_0 AS (
   SELECT  COALESCE(t1.user_id, t2.user_id) AS user_id_user_windowed,
@@ -768,7 +767,6 @@ GROUP BY  events_0.user_id_user_windowed,
   SELECT  country_code,
     name
   FROM default.examples.countries
-  WHERE  name = 'NZ'
 ),
 default_events AS (
   SELECT  user_id,

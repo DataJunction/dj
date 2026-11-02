@@ -105,7 +105,6 @@ class TestMetricsSQLBasic:
               v3_product AS (
                 SELECT product_id, category, subcategory
                 FROM default.v3.products
-                WHERE category = 'Electronics' AND subcategory = 'Smartphones'
               ),
               order_details_0 AS (
                 SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
@@ -1849,7 +1848,6 @@ class TestMetricsSQLDerived:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
-                WHERE category = 'Electronics'
             ),
             order_details_0 AS (
                 SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
@@ -1909,7 +1907,6 @@ class TestMetricsSQLDerived:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
-                WHERE category = 'Electronics'
             ),
             v3_page_views_enriched AS (
                 SELECT view_id, product_id
@@ -2127,7 +2124,6 @@ class TestMetricsSQLDerived:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
-                WHERE category = 'Electronics'
             ),
             order_details_0 AS (
                 SELECT t1.status, t2.category, SUM(t1.line_total) line_total_sum_e1f61696
@@ -2783,7 +2779,6 @@ class TestFilterOnlyDimensionLoop:
                 category,
                 subcategory
               FROM default.v3.products
-              WHERE subcategory = 'tools' AND category = 'electronics'
             ),
             order_details_0 AS (
               SELECT
@@ -5904,7 +5899,6 @@ class TestFilterOnlyDimensions:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
-                WHERE category = 'Electronics'
             ),
             order_details_0 AS (
                 SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
@@ -5982,7 +5976,6 @@ class TestFilterOnlyDimensions:
             WITH v3_date AS (
               SELECT date_id, week
               FROM default.v3.dates
-              WHERE week {week_predicate}
             ),
             v3_order_details AS (
               SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
@@ -6210,7 +6203,6 @@ class TestMultiHopIntermediateDimensionColumns:
                 location_id,
                 country
               FROM default.v3.locations
-              WHERE country = 'US'
             ),
             v3_order_details AS (
               SELECT
@@ -6484,7 +6476,6 @@ class TestFilterOnRoleDimension:
             v3_date AS (
                 SELECT date_id, year
                 FROM default.v3.dates
-                WHERE year >= 2024
             ),
             v3_order_details AS (
                 SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
@@ -6549,7 +6540,6 @@ class TestFilterOnRoleDimension:
             v3_date AS (
                 SELECT date_id, year
                 FROM default.v3.dates
-                WHERE year IN (2023, 2024)
             ),
             v3_order_details AS (
                 SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
@@ -6615,7 +6605,6 @@ class TestFilterOnRoleDimension:
             v3_date AS (
                 SELECT date_id, year
                 FROM default.v3.dates
-                WHERE year >= 2024
             ),
             v3_order_details AS (
                 SELECT o.order_date, oi.product_id, oi.quantity * oi.unit_price AS line_total
@@ -6669,7 +6658,6 @@ class TestFilterOnRoleDimension:
             v3_location AS (
                 SELECT location_id, country
                 FROM default.v3.locations
-                WHERE country = 'US'
             ),
             v3_order_details AS (
                 SELECT o.from_location_id, oi.quantity * oi.unit_price AS line_total
@@ -6846,7 +6834,6 @@ class TestFilterOnRoleDimension:
             v3_location AS (
                 SELECT location_id, country
                 FROM default.v3.locations
-                WHERE country = 'US'
             ),
             v3_order_details AS (
                 SELECT o.customer_id, oi.quantity * oi.unit_price AS line_total
@@ -7199,7 +7186,6 @@ class TestMetricsSQLEdgeCases:
             WITH v3_customer AS (
                 SELECT customer_id, email
                 FROM default.v3.customers
-                WHERE email LIKE '%@example.com'
             ),
             v3_order_details AS (
                 SELECT o.customer_id, oi.product_id,
@@ -7730,9 +7716,8 @@ class TestMetricOnDimensionNode:
             """
             WITH
             v3_product AS (
-              SELECT category, price
+              SELECT category, subcategory, price
               FROM default.v3.products
-              WHERE subcategory = 'phones'
             ),
             product_0 AS (
               SELECT
@@ -7740,6 +7725,7 @@ class TestMetricOnDimensionNode:
                 COUNT(t1.price) price_count_78363aa6,
                 SUM(t1.price) price_sum_78363aa6
               FROM v3_product t1
+              WHERE t1.subcategory = 'phones'
               GROUP BY t1.category
             )
             SELECT

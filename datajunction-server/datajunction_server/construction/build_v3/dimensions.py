@@ -439,7 +439,7 @@ def _register_pushdown_into_upstream(
                 if arm_select is not None:
                     # Source lives in a scope where the normal CTE-WHERE
                     # injection wouldn't see the alias — set-op arm, CTE
-                    # body, or subquery in WHERE.  Bake the filter
+                    # body, or relational subquery. Bake the filter
                     # directly into that Select.
                     inject_filter_into_select(arm_select, rewritten)
                 else:
@@ -461,17 +461,20 @@ def _resolve_pushdown_targets(
 ) -> list[tuple[str, str | None, ast.Select | None]]:
     """
     Return one ``(target_cte_name, qualifier, arm_select)`` triple per
-    Table reference to the linked source in the child transform's query.
+    relational Table reference to the linked source in the child transform.
 
     The caller rewrites the filter once per triple (using ``qualifier``)
     and injects it at the right scope — so a self-join with two
     references to the same source produces two filter injections (one
-    per alias), each landing in the Select that scans that instance.
+    per alias), each landing in the Select that scans that instance. Scalar
+    and EXISTS subqueries keep their authored predicates.
 
     ``arm_select`` is ``None`` only when there's a single match in the
     top-level Select of a non-set-op body — that's the one case where
     the normal CTE-WHERE injection path can handle it.
     """
+    from datajunction_server.construction.build_v3.cte import _is_relational_scope
+
     if linked_node.type != NodeType.SOURCE:
         return [(linked_node.name, None, None)]
     all_targets: list[tuple[str, str | None, ast.Select | None]] = []
@@ -491,10 +494,9 @@ def _resolve_pushdown_targets(
         top_select = child_query.select
         if not isinstance(top_select, ast.Select):
             continue  # pragma: no cover
-        # Walk every Table anywhere in the parsed query — set-op arms,
-        # CTE bodies, subqueries inside WHERE/HAVING.  Collect every
-        # match so a self-join (two refs to the same source) produces
-        # two filter injections, one per alias.
+        # Find relational scans of the linked source. A scalar or EXISTS
+        # subquery can read the same table while computing an unrelated value;
+        # applying the request filter there would change that value.
         matches: list[tuple[str, ast.Select]] = []
         for tbl in child_query.find_all(ast.Table):
             try:
@@ -509,6 +511,8 @@ def _resolve_pushdown_targets(
             containing_select = _enclosing_select(tbl)
             if containing_select is None:
                 continue  # pragma: no cover
+            if not _is_relational_scope(containing_select, child_query):
+                continue
             matches.append((alias, containing_select))
         if not matches:
             continue  # pragma: no cover

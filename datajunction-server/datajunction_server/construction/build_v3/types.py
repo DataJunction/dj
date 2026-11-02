@@ -243,8 +243,8 @@ class PushdownFilters:
             dimension's bare attribute name and so must not be pushed into an
             upstream transform/source CTE under that name (the same-named
             column there is the raw FK value, not the attribute).  Such a
-            filter still pushes into the dimension's *own* CTE and lands in the
-            outer WHERE.  See ``outer_only_filter_refs``.
+            filter applies on the consuming dimension alias in the outer
+            WHERE. See ``outer_only_filter_refs``.
         fk_collision_cols: Foreign-key *value* column short-names on the linking
             (parent) node's dimension links.  An ``outer_only`` ref whose bare
             column collides with one of these is a joined dimension's non-key

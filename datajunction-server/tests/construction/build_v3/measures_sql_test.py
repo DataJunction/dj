@@ -370,7 +370,6 @@ class TestDimensionJoins:
             v3_customer AS (
                 SELECT customer_id, name
                 FROM default.v3.customers
-                WHERE name = 'Abcd'
             ),
             v3_order_details AS (
                 SELECT o.customer_id, oi.quantity, oi.quantity * oi.unit_price AS line_total
@@ -1058,7 +1057,6 @@ class TestMeasuresSQLRoles:
             v3_location AS (
                 SELECT location_id, country
                 FROM default.v3.locations
-                WHERE country = 'US'
             ),
             v3_order_details AS (
                 SELECT o.customer_id, oi.quantity * oi.unit_price AS line_total
@@ -2729,7 +2727,6 @@ class TestMeasuresSQLFilters:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
-                WHERE category = 'Electronics'
             )
             SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
@@ -2769,7 +2766,6 @@ class TestMeasuresSQLFilters:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
-                WHERE category = 'Electronics'
             )
             SELECT t1.status, t2.category, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
@@ -2800,7 +2796,6 @@ class TestMeasuresSQLFilters:
             v3_date AS (
                 SELECT date_id, year
                 FROM default.v3.dates
-                WHERE year >= 2024
             ),
             v3_order_details AS (
                 SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
@@ -4649,7 +4644,6 @@ class TestFilterOnlyDimensions:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
-                WHERE category = 'Electronics'
             )
             SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
@@ -7252,16 +7246,11 @@ class TestFilterPushdownScope:
         )
 
     @pytest.mark.asyncio
-    async def test_source_inside_where_exists_subquery(
+    async def test_rejects_filter_on_source_only_in_where_exists(
         self,
         client_with_build_v3,
     ):
-        """Source referenced *only* inside a ``WHERE EXISTS`` correlated
-        subquery.  The filter lands in the EXISTS subquery's WHERE —
-        narrowing the semi-join.  Semantically that means "only outer
-        rows for which a matching inner row also satisfies the dim
-        filter", which is the natural reading of the user's intent.
-        """
+        """A source used only in an expression cannot own a request filter."""
         client = client_with_build_v3
         await _setup_audit_dim(client)
         src = await _setup_audit_log_source(client, "exists", "audit_log_exists")
@@ -7317,26 +7306,8 @@ class TestFilterPushdownScope:
                 "filters": ["v3.audit_date_dim.dateint >= 20260101"],
             },
         )
-        assert response.status_code == 200, response.json()
-        sql = get_first_grain_group(response.json())["sql"]
-        assert_sql_equal(
-            sql,
-            """
-            WITH v3_events_exists AS (
-              SELECT acc.account_id, acc.event_type
-              FROM default.v3.accounts_exists AS acc
-              WHERE EXISTS (
-                SELECT 1
-                FROM default.v3.audit_log_exists AS log
-                WHERE log.account_id = acc.account_id
-                  AND log.audit_date >= 20260101
-              )
-            )
-            SELECT t1.event_type, t1.account_id
-            FROM v3_events_exists t1
-            GROUP BY t1.event_type, t1.account_id
-            """,
-        )
+        assert response.status_code == 422, response.json()
+        assert "Cannot find join path" in response.json()["message"]
 
     @pytest.mark.asyncio
     async def test_set_op_with_nested_subquery_in_non_leading_arm(
@@ -7496,8 +7467,8 @@ class TestFilterPushdownScope:
     @pytest.mark.asyncio
     async def test_source_in_from_and_in_where_exists(self, client_with_build_v3):
         """Source referenced in both a top-level FROM and an EXISTS
-        subquery in the same transform.  Multi-match must filter both
-        aliases — one in the outer WHERE, one in the EXISTS WHERE.
+        subquery in the same transform. Only the outer row source owns the
+        request filter; the authored EXISTS predicate must stay unchanged.
         """
         client = client_with_build_v3
         await _setup_audit_dim(client)
@@ -7548,7 +7519,6 @@ class TestFilterPushdownScope:
                 SELECT 1
                 FROM default.v3.audit_log_fe AS b
                 WHERE b.account_id = a.account_id
-                  AND b.audit_date >= 20260101
               )
               AND a.audit_date >= 20260101
             )
@@ -7611,10 +7581,11 @@ class TestFilterPushdownScope:
         )
 
     @pytest.mark.asyncio
-    async def test_source_in_having_subquery(self, client_with_build_v3):
-        """Source referenced inside a HAVING-clause scalar subquery.
-        The filter lands in that subquery's WHERE.
-        """
+    async def test_rejects_filter_on_source_only_in_having_subquery(
+        self,
+        client_with_build_v3,
+    ):
+        """A source used only in an expression cannot own a request filter."""
         client = client_with_build_v3
         await _setup_audit_dim(client)
         src = await _setup_audit_log_source(client, "having", "audit_log_having")
@@ -7667,36 +7638,15 @@ class TestFilterPushdownScope:
                 "filters": ["v3.audit_date_dim.dateint >= 20260101"],
             },
         )
-        assert response.status_code == 200, response.json()
-        sql = get_first_grain_group(response.json())["sql"]
-        assert_sql_equal(
-            sql,
-            """
-            WITH v3_events_having AS (
-              SELECT acc.account_id, acc.event_type
-              FROM default.v3.acct_having AS acc
-              GROUP BY acc.account_id, acc.event_type
-              HAVING COUNT(acc.audit_id) > (
-                SELECT COUNT(*)
-                FROM default.v3.audit_log_having AS log
-                WHERE log.audit_date >= 20260101
-              )
-            )
-            SELECT t1.event_type, t1.account_id
-            FROM v3_events_having t1
-            GROUP BY t1.event_type, t1.account_id
-            """,
-        )
+        assert response.status_code == 422, response.json()
+        assert "Cannot find join path" in response.json()["message"]
 
     @pytest.mark.asyncio
-    async def test_source_in_select_list_scalar_subquery(
+    async def test_rejects_filter_on_source_only_in_scalar_subquery(
         self,
         client_with_build_v3,
     ):
-        """Source inside a SELECT-list scalar subquery.  The filter
-        narrows the scalar — that's the natural reading (constrain the
-        underlying rows the scalar computes over).
-        """
+        """A source used only in an expression cannot own a request filter."""
         client = client_with_build_v3
         await _setup_audit_dim(client)
         src = await _setup_audit_log_source(client, "scalar", "audit_log_scalar")
@@ -7746,22 +7696,8 @@ class TestFilterPushdownScope:
                 "filters": ["v3.audit_date_dim.dateint >= 20260101"],
             },
         )
-        assert response.status_code == 200, response.json()
-        sql = get_first_grain_group(response.json())["sql"]
-        assert_sql_equal(
-            sql,
-            """
-            WITH v3_events_scalar AS (
-              SELECT acc.account_id, acc.event_type,
-                (SELECT MAX(log.audit_id) FROM default.v3.audit_log_scalar AS log
-                 WHERE log.audit_date >= 20260101) AS max_id
-              FROM default.v3.acct_scalar AS acc
-            )
-            SELECT t1.event_type, t1.account_id
-            FROM v3_events_scalar t1
-            GROUP BY t1.event_type, t1.account_id
-            """,
-        )
+        assert response.status_code == 422, response.json()
+        assert "Cannot find join path" in response.json()["message"]
 
     @pytest.mark.asyncio
     async def test_chained_dim_link_intermediate_dim(self, client_with_build_v3):
@@ -8262,10 +8198,9 @@ class TestWrapperCTEAbsorption:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
-                WHERE category = 'Electronics'
             ),
             v3_order_details_filtered AS (
-                SELECT *, t2.category
+                SELECT t1.*, t2.category
                 FROM v3_order_details t1
                 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
                 WHERE t2.category = 'Electronics'
@@ -8379,7 +8314,6 @@ class TestWrapperCTEAbsorption:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
-                WHERE category = 'Electronics'
             )
             SELECT t2.category, SUM(t1.line_total) line_total_sum_HASH
             FROM v3_order_details t1
@@ -8755,10 +8689,9 @@ class TestWrapperCTEAbsorption:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
-                WHERE category = 'Electronics'
             ),
             v3_order_details_filtered AS (
-                SELECT *, t2.category
+                SELECT t1.*, t2.category
                 FROM v3_order_details t1
                 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
                 WHERE t2.category = 'Electronics'
@@ -9389,7 +9322,6 @@ class TestParentCteFilterLanding:
             v3_right_spine_dim AS (
               SELECT spine_id, account_id
               FROM default.v3.right_spine
-              WHERE account_id IN (1, 2, 3)
             )
             SELECT t2.spine_id, SUM(t1.value) value_sum_HASH
             FROM (SELECT *
@@ -9554,23 +9486,13 @@ class TestParentCteFilterLanding:
         )
 
     @pytest.mark.asyncio
-    async def test_filter_pushes_into_nested_subquery_self_reference(
+    async def test_fact_filter_does_not_narrow_nested_source_reuse(
         self,
         client_with_build_v3,
     ):
-        """Transform body references the same source table twice: once
-        at the top-level FROM (alias ``a``) and once inside a nested
-        subquery on the LEFT-joined side (alias ``a2``).  A filter on
-        a column owned by that source must land at BOTH references —
-        not just the top-level one — so Spark partition pruning fires
-        at both scans (and the inner subquery doesn't full-scan).
-
-        Mirrors the XP-style transform pattern where an inner subquery
-        joins ``allocation_core_d a2`` for account-FK lookup.  The
-        direct dim-link pushdown path used to inject only at the
-        top-level alias; the inner ``a2`` reference would scan
-        unfiltered.  This test pins down the v2-parity fix.
-        """
+        """A fact filter belongs to the outer scan even when a nested join reads the same
+        source. The nested scan keeps its authored signup predicate, preserving the rows
+        used to compute its result."""
         client = client_with_build_v3
 
         # Source: a fact-shaped table with a partition-eligible date column.
@@ -9663,7 +9585,7 @@ class TestParentCteFilterLanding:
                 FROM default.v3.subs_lifecycle AS rev
                 JOIN default.v3.events_nested_self_ref AS a2
                   ON a2.account_id = rev.account_id
-                WHERE rev.signup_ts_ms > 0 AND a2.event_date = 20260101
+                WHERE rev.signup_ts_ms > 0
               ) AS s ON a.account_id = s.account_id
               WHERE a.event_date = 20260101
             )
@@ -9675,26 +9597,13 @@ class TestParentCteFilterLanding:
         )
 
     @pytest.mark.asyncio
-    async def test_filter_pushes_into_dim_cte_via_local_link(
+    async def test_dimension_link_filter_stays_on_its_consuming_alias(
         self,
         client_with_build_v3,
     ):
-        """Each CTE consults its OWN dim links for pushdown, not just the
-        parent's.
-
-        When a fact and a separately-linked dim each map the same dim ref
-        to differently-named local columns, the parent-derived alias map
-        only knows the fact's column.  The dim CTE has its own column
-        for the same dim, but pushdown used to miss it.  This test pins
-        the per-CTE alias resolution that consults each node's own
-        ``dimension_links``.
-
-        Shape: a single dim node ``v3.shared_date_dim`` is linked by
-        both a fact (``column_a → shared_date_dim.dateint``) and a
-        separate dim transform (``column_b → shared_date_dim.dateint``).
-        A filter on ``shared_date_dim.dateint`` must land in both CTEs,
-        using each one's own local column name.
-        """
+        """A fact and a joined dimension can link the same date through differently named
+        columns. Filter the fact through its own key and the dimension through its
+        consuming alias, keeping the dimension CTE reusable."""
         client = client_with_build_v3
 
         # The shared dim node.
@@ -9852,7 +9761,6 @@ class TestParentCteFilterLanding:
             WITH v3_dim_transform_dual AS (
               SELECT account_id, column_b
               FROM default.v3.dim_dual
-              WHERE column_b = 20260101
             ),
             v3_fact_transform_dual AS (
               SELECT account_id, value
@@ -9988,25 +9896,13 @@ class TestParentCteFilterLanding:
         )
 
     @pytest.mark.asyncio
-    async def test_filter_disambiguates_joined_tables_via_dim_link(
+    async def test_filter_uses_projected_key_from_owning_scope(
         self,
         client_with_build_v3,
     ):
-        """When an inner subquery's FROM has two Tables exposing the
-        same bare column, the filter must route to the Table whose
-        ``dimension_link`` references the filter's dim — not a
-        first-write-wins arbitrary pick.
-
-        Regression from a real Netflix XP query: an inner subquery
-        had ``subscription_lifecycle_cohort_d rev JOIN
-        allocation_core_d a2 ON ...`` where BOTH tables expose
-        ``snapshot_utc_date``.  The filter
-        ``allocation_snapshot_date.dateint = X`` is supposed to
-        constrain allocation_core_d (a2) since that's the linked
-        table; first-write-wins picked ``rev`` instead, sending
-        the predicate to the wrong table and changing result
-        semantics.  This test pins the dim-link-aware routing.
-        """
+        """An inner join projects the allocation date alongside a sibling table with the
+        same column name. Filter the projected allocation key in its owning output scope
+        without guessing a binding in the nested join."""
         client = client_with_build_v3
 
         # Allocation source — linked to the alloc-date dim.
@@ -10135,8 +10031,8 @@ class TestParentCteFilterLanding:
         # link, NOT to ``sib`` (sibling table) — even though sib is
         # processed first in the inner subquery's FROM and would
         # otherwise win first-write-wins.
-        assert "a.snapshot_utc_date = 20260520" in sql, (
-            f"Filter not routed to allocation table via dim link:\n{sql}"
+        assert "s.snapshot_utc_date = 20260520" in sql, (
+            f"Filter not bound to the projected allocation key:\n{sql}"
         )
         assert "sib.snapshot_utc_date = 20260520" not in sql, (
             f"Filter mis-routed to sibling table that has no dim link:\n{sql}"
@@ -10575,7 +10471,6 @@ class TestParentCteFilterLanding:
             WITH v3_alias_collide_label_dim AS (
               SELECT window_label
               FROM default.v3.alias_collide_labels
-              WHERE window_label = 'demo'
             ),
             v3_alias_collide_xform AS (
               SELECT a.account_id
@@ -10583,7 +10478,6 @@ class TestParentCteFilterLanding:
                 SELECT a.account_id, a.event_date, a.value, w.window_label
                 FROM default.v3.events_alias_collide AS a
                 CROSS JOIN v3_alias_collide_label_dim AS w
-                WHERE w.window_label = 'demo'
               ) AS a
               WHERE a.window_label = 'demo'
             )

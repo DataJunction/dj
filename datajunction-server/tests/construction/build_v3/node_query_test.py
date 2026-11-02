@@ -815,7 +815,6 @@ async def test_sql_with_filter_only_dimension(
           SELECT hard_hat_id, last_name, first_name, title, birth_date, hire_date,
                  address, city, state, postal_code, country, manager, contractor_id
           FROM default.roads.hard_hats
-          WHERE state = 'CA'
         ),
         default_repair_orders_fact AS (
           SELECT
@@ -887,7 +886,6 @@ async def test_sql_with_dimension_and_filter_on_same_dim(
           SELECT hard_hat_id, last_name, first_name, title, birth_date, hire_date,
                  address, city, state, postal_code, country, manager, contractor_id
           FROM default.roads.hard_hats
-          WHERE state = 'CA'
         ),
         default_repair_orders_fact AS (
           SELECT
@@ -995,7 +993,6 @@ async def test_sql_with_multiple_filters(
           SELECT hard_hat_id, last_name, first_name, title, birth_date, hire_date,
                  address, city, state, postal_code, country, manager, contractor_id
           FROM default.roads.hard_hats
-          WHERE state = 'CA'
         ),
         default_repair_orders_fact AS (
           SELECT

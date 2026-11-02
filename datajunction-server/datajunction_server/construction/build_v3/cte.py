@@ -1494,11 +1494,10 @@ def _resolve_pushdown_filters_for_cte(
 ) -> tuple[list[tuple[ast.Select, ast.Expression]], set[str]]:
     """Determine which user filters can be pushed into this CTE.
 
-    For each filter, extracts the dimension references, resolves them to bare
-    column names via filter_column_aliases, and checks whether this CTE outputs
-    those columns.  If all referenced columns are present, the filter is rewritten
-    using the CTE's internal table-qualified column names and returned, paired
-    with the Select node it should be injected into.
+    Request filters on dimensions stay on the consuming alias: narrowing a
+    shared dimension CTE can change another role's rows or turn a real LEFT
+    JOIN match into a null-extended row. Fact/transform filters are rewritten
+    into their owning relational scope without changing scalar subqueries.
 
     Set-operation CTEs (UNION / INTERSECT / EXCEPT): the filter is injected
     into the **primary** Select only — i.e. the first arm of the union
@@ -1520,6 +1519,8 @@ def _resolve_pushdown_filters_for_cte(
     )
 
     if not node_output_cols:  # pragma: no cover
+        return [], set()
+    if node.type == NodeType.DIMENSION:
         return [], set()
 
     # Per-CTE alias resolution: each node may have its own dim links pointing
@@ -1564,48 +1565,6 @@ def _resolve_pushdown_filters_for_cte(
     target_select = cast(ast.Select, cte_query.select)
     results: list[tuple[ast.Select, ast.Expression]] = []
     consumed: set[str] = set()
-
-    # Alias-substitution map: ``{alias → physical_table}`` derived
-    # from every Table in the CTE body.  Used together with the
-    # column-aware retargeting below — when the primary rewrite at
-    # target_select uses alias X for physical table P, sibling
-    # Table refs to P elsewhere in the CTE body get a retargeted
-    # copy of the rewrite with their own alias.  This disambiguates
-    # cases where multiple FROM-side tables in an inner scope expose
-    # the same bare column name (e.g. ``rev.snapshot_utc_date`` vs
-    # ``a2.snapshot_utc_date`` when both rev and a2 carry the
-    # column); column-aware retargeting alone has no way to prefer
-    # the table that's the same physical source as the primary.
-    alias_to_phys: dict[str, str] = {}
-    for tbl in cte_query.find_all(ast.Table):
-        try:
-            tbl_name = tbl.name.identifier(quotes=False)
-        except Exception:  # pragma: no cover
-            continue
-        alias_tag = tbl.alias.name if tbl.alias else tbl_name.split(SEPARATOR)[-1]
-        alias_to_phys.setdefault(alias_tag, tbl_name)
-
-    # Aliases of Tables in target_select's DIRECT FROM (not nested
-    # inside subqueries).  Alias-substitution may only fire for
-    # primary-rewrite qualifiers that resolve to one of these — if
-    # the primary qualifier is a subquery alias at target_select
-    # that happens to share a name with a deeper Table, propagating
-    # the filter into the deeper scope injects ``alias.col`` where
-    # ``alias`` means a different thing and ``col`` may not exist.
-    target_direct_table_aliases: set[str] = set()
-    if target_select.from_ is not None:  # pragma: no branch
-        for relation in target_select.from_.relations:
-            sides = [relation.primary, *(j.right for j in relation.extensions)]
-            for expr in sides:
-                if isinstance(expr, ast.Table):
-                    try:
-                        tbl_name = expr.name.identifier(quotes=False)
-                    except Exception:  # pragma: no cover
-                        continue
-                    alias_tag = (
-                        expr.alias.name if expr.alias else tbl_name.split(SEPARATOR)[-1]
-                    )
-                    target_direct_table_aliases.add(alias_tag)
 
     # Pre-compute a column->alias map for every distinct Select scope
     # inside the CTE body.  Each scope's map says: "for a bare column
@@ -1658,43 +1617,19 @@ def _resolve_pushdown_filters_for_cte(
             results.append((target_select, rewritten))
             consumed.add(filter_str)
 
-        # First pass — alias-substitution by physical table.
-        alias_subst_scopes: set[int] = set()
-        if rewritten is not None:
-            for primary_alias in _qualifier_aliases(rewritten):
-                if primary_alias not in target_direct_table_aliases:
-                    continue
-                physical = alias_to_phys.get(primary_alias)
-                if not physical:  # pragma: no cover
-                    continue
-                for ref_alias, enclosing_select in _find_table_refs(
-                    cte_query,
-                    physical,
-                ):
-                    # Other scopes only: a sibling alias here is a
-                    # self-join, already handled by the primary rewrite.
-                    if enclosing_select is target_select:
-                        continue
-                    cloned = _retarget_filter_qualifier(
-                        rewritten,
-                        primary_alias,
-                        ref_alias,
-                    )
-                    results.append((enclosing_select, cloned))
-                    alias_subst_scopes.add(id(enclosing_select))
+            # This Select already constrains its output. Repeating the filter
+            # in a nested scan can change an authored aggregate or scalar
+            # expression, even when it reads the same physical table.
+            continue
 
-        # Second pass — column-aware retargeting.
-        # Runs regardless of primary success.  Includes target_select when
-        # primary failed: FK-linked source tables read at the top level (not
-        # in a nested subquery) only appear in the target_select scope map.
+        # When the output Select cannot bind the filter (e.g. an unprojected
+        # date key), look for a relational row source that can.
         for inner_select, col_to_alias in scope_column_aliases:
-            if inner_select is target_select and rewritten is not None:
-                continue  # primary already handled target_select
-            if id(inner_select) in alias_subst_scopes:
-                continue
             if id(inner_select) in wrapped_setop_arms:
                 continue
             if not _select_has_table_in_from(inner_select):  # pragma: no cover
+                continue
+            if not _is_relational_scope(inner_select, cte_query):
                 continue
             inner_rewrite = _rewrite_filter_for_scope(
                 filter_str,
@@ -1730,74 +1665,55 @@ def _select_has_table_in_from(sel: ast.Select) -> bool:
     return False  # pragma: no cover
 
 
-def _qualifier_aliases(filter_ast: ast.Expression) -> set[str]:
-    """Return the set of distinct qualifier aliases used in ``filter_ast``.
+def _is_relational_scope(select: ast.Select, query: ast.Query) -> bool:
+    """Whether a Select supplies rows to the query rather than a scalar value.
 
-    A column like ``a.snapshot_utc_date`` contributes ``"a"`` to the
-    set; bare column references contribute nothing.
+    A matching table or column inside a scalar/EXISTS subquery does not prove
+    that a request filter belongs there. Every Query boundary on the path to
+    the owning query must be a FROM/JOIN relation or a WITH definition.
     """
-    result: set[str] = set()
-    for col in filter_ast.find_all(ast.Column):
-        if col.name and col.name.namespace:  # pragma: no branch
-            result.add(col.name.namespace.name)
-    return result
 
+    def owns_rows(
+        current: ast.Node | None,
+        owner: ast.Query,
+        visiting: set[int],
+    ) -> bool:
+        while current is not None and current is not owner:
+            # EXISTS/IN can contain a Select directly, without a Query wrapper.
+            if isinstance(current, ast.Select) and not isinstance(
+                current.parent,
+                (ast.Query, ast.SetOp),
+            ):
+                return False
+            if isinstance(current, ast.Query):
+                parent = current.parent
+                if isinstance(parent, ast.Query):
+                    # WITH definitions can serve scalar readers too. Only
+                    # narrow one when every reader supplies relational rows.
+                    if id(current) in visiting:
+                        return False
+                    readers = [
+                        table
+                        for table in parent.find_all(ast.Table)
+                        if table.name.identifier(quotes=False)
+                        == current.alias_or_name.name
+                    ]
+                    if not readers:
+                        return False
+                    for table in readers:
+                        scopes = _enclosing_selects(table, parent.select)
+                        if not scopes or not owns_rows(
+                            scopes[0],
+                            parent,
+                            visiting | {id(current)},
+                        ):
+                            return False
+                elif not isinstance(parent, (ast.Relation, ast.Join, ast.From)):
+                    return False
+            current = current.parent
+        return current is owner
 
-def _retarget_filter_qualifier(
-    filter_ast: ast.Expression,
-    old_alias: str,
-    new_alias: str,
-) -> ast.Expression:
-    """Deepcopy ``filter_ast`` and rewrite every column qualified by
-    ``old_alias`` to be qualified by ``new_alias`` instead.
-
-    Used to clone a primary-Select-targeted filter for injection at
-    a sibling reference to the same physical source table.  The
-    cloned filter uses the sibling's alias so column references
-    resolve in the sibling's scope.
-    """
-    cloned = deepcopy(filter_ast)
-    for col in cloned.find_all(ast.Column):
-        if col.name is None or not col.name.namespace:  # pragma: no cover
-            continue
-        if col.name.namespace.name == old_alias:  # pragma: no branch
-            col.name = ast.Name(col.name.name, namespace=ast.Name(new_alias))
-    return cloned
-
-
-def _find_table_refs(
-    cte_query: ast.Query,
-    physical_table_name: str,
-) -> list[tuple[str, ast.Select]]:
-    """Find every ``ast.Table`` reference to ``physical_table_name``
-    in the CTE body and return ``(alias, enclosing_select)`` per
-    match.
-
-    Used by :func:`_resolve_pushdown_filters_for_cte` to inject a
-    retargeted copy of the primary filter at every nested
-    subquery / arm that scans the same physical source table.
-    Crosses set-op arms via ``find_all`` so secondary arms with the
-    same source as the primary arm also get the pushdown.
-    """
-    results: list[tuple[str, ast.Select]] = []
-    for tbl in cte_query.find_all(ast.Table):
-        try:
-            tbl_name = tbl.name.identifier(quotes=False)
-        except Exception:  # pragma: no cover
-            continue
-        if tbl_name != physical_table_name:
-            continue
-        alias_tag = tbl.alias.name if tbl.alias else tbl_name.split(SEPARATOR)[-1]
-        enclosing: ast.Select | None = None
-        cur = getattr(tbl, "parent", None)
-        while cur is not None:  # pragma: no branch
-            if isinstance(cur, ast.Select):
-                enclosing = cur
-                break
-            cur = getattr(cur, "parent", None)
-        if enclosing is not None:  # pragma: no branch
-            results.append((alias_tag, enclosing))
-    return results
+    return owns_rows(select, query, set())
 
 
 def _build_local_dim_aliases(node: Node) -> dict[str, str]:
@@ -2465,8 +2381,9 @@ def collect_node_ctes(
     """
     Collect CTEs for all non-source nodes, recursively expanding table references.
 
-    When ``pushdown`` is provided, each CTE independently checks whether any
-    user-supplied dimension filter can be pushed into its WHERE clause.
+    When ``pushdown`` is provided, fact/transform CTEs check whether a request
+    filter binds in their relational scope. Dimension CTEs and their input
+    lineage stay unfiltered because they may serve other roles or grain groups.
 
     This handles the full dependency chain:
     - Source nodes -> replaced with physical table names (catalog.schema.table)
@@ -2492,6 +2409,7 @@ def collect_node_ctes(
     """
     # Collect all node names that need CTEs (including transitive dependencies)
     all_node_names: set[str] = set()
+    dependencies: dict[str, set[str]] = {}
     # Track source nodes encountered during traversal
     scanned_source_names: set[str] = set()
     # Map of node_name -> filter strings successfully pushed into that CTE
@@ -2527,6 +2445,7 @@ def collect_node_ctes(
                 query_ast = ctx.get_parsed_query(node)
 
                 refs = get_table_references_from_ast(query_ast)
+                dependencies[node.name] = refs
 
                 for ref in refs:
                     ref_node = ctx.nodes.get(ref)
@@ -2540,6 +2459,21 @@ def collect_node_ctes(
     shared_visited: set[str] = set()
     for node in nodes_to_include:
         collect_refs(node, shared_visited)
+
+    # Keeping a dimension CTE unfiltered is insufficient if a transform feeding
+    # it is narrowed instead. Protect the whole dimension input lineage, even
+    # when one of those inputs also supplies the fact. The consuming fact scope
+    # can still apply its own predicate without changing another reader's rows.
+    dimension_inputs: set[str] = set()
+    pending = [
+        name for name in all_node_names if ctx.nodes[name].type == NodeType.DIMENSION
+    ]
+    while pending:
+        name = pending.pop()
+        if name in dimension_inputs:
+            continue
+        dimension_inputs.add(name)
+        pending.extend(dependencies.get(name, set()))
 
     # Topologically sort all collected nodes
     sorted_nodes = topological_sort_nodes(ctx, all_node_names)
@@ -2598,7 +2532,7 @@ def collect_node_ctes(
         if injected_filters and node.name in injected_filters:
             _inject_filter_into_where(query_ast, injected_filters[node.name])
 
-        if pushdown:
+        if pushdown and node.name not in dimension_inputs:
             injections, consumed = _resolve_pushdown_filters_for_cte(
                 node,
                 query_ast,
