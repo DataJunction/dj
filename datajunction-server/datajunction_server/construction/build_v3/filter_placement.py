@@ -9,7 +9,6 @@ from datajunction_server.construction.build_v3.cte import (
     _get_relation_side_id,
     _rewrite_filter_for_cte,
     _wrap_relation_side_with_filter,
-    inject_filter_into_select,
 )
 from datajunction_server.construction.build_v3.filters import (
     combine_filters,
@@ -58,9 +57,7 @@ def _find_bindings(
     result: list[tuple[ast.Table, str, tuple[ast.Query, ...]]] = []
 
     def visit(relation: ast.Expression) -> None:
-        if isinstance(relation, ast.Alias):
-            visit(relation.child)
-        elif isinstance(relation, ast.Query):
+        if isinstance(relation, ast.Query):
             result.extend(_find_bindings(relation, candidates, queries, path))
         elif isinstance(relation, ast.Table):
             name = relation.name.identifier(quotes=False)
@@ -118,7 +115,7 @@ def place_filters(
         if (definition := _definition(table, queries)) is not None
     )
     # Target identity groups predicates on one relation into one wrapper.
-    relations: dict[int, tuple[ast.Expression, list[ast.Expression]]] = {}
+    relations: dict[int, tuple[ast.Table, list[ast.Expression]]] = {}
     local: list[ast.Expression] = []
     consumed: set[str] = set()
 
@@ -149,7 +146,7 @@ def place_filters(
             )
 
         bindings: dict[str, ast.Name] = {}
-        target: ast.Expression | None = None
+        target: ast.Table | None = None
         for ref in refs:
             matches = _find_bindings(root, hidden.get(ref, []), queries)
             if len(matches) != 1:
@@ -157,14 +154,10 @@ def place_filters(
             table, column, path = matches[0]
             if readers[id(root)] or any(readers[id(scope)] > 1 for scope in path[1:]):
                 invalid(f"{ref} requires narrowing a shared query definition")
-            relation = cast(
-                ast.Expression,
-                table.parent if isinstance(table.parent, ast.Alias) else table,
-            )
-            if target is not None and relation is not target:
+            if target is not None and table is not target:
                 invalid("the complete predicate does not bind to one consumer")
-            target = relation
-            qualifier = _get_relation_side_id(relation)
+            target = table
+            qualifier = _get_relation_side_id(cast(ast.Expression, table))
             assert qualifier is not None
             bindings[ref] = ast.Name(column, namespace=ast.Name(qualifier))
         assert target is not None
@@ -175,11 +168,18 @@ def place_filters(
     for target, predicates in relations.values():
         # An explicit alias survives the later physical-table rewrite, so the
         # wrapper predicate never depends on a source's logical short name.
-        if isinstance(target, ast.Table) and target.alias is None:
+        if target.alias is None:
             target.alias = ast.Name(target.name.name)
         predicate = combine_filters(predicates)
         assert predicate is not None
-        target.swap(_wrap_relation_side_with_filter(target, predicate))
+        target.swap(
+            _wrap_relation_side_with_filter(cast(ast.Expression, target), predicate),
+        )
+    # Local predicates constrain the fact's output. Moving them into the
+    # nullable input of an authored outer join changes which rows qualify.
+    select = cast(ast.Select, root.select)
     for predicate in local:
-        inject_filter_into_select(cast(ast.Select, root.select), predicate)
+        select.where = (
+            ast.BinaryOp.And(select.where, predicate) if select.where else predicate
+        )
     return consumed

@@ -105,7 +105,14 @@ async def test_role_filter_preserves_other_role_of_shared_dimension(
 @pytest.mark.parametrize("endpoint", ["measures", "metrics"])
 @pytest.mark.parametrize(
     "subquery",
-    ["scalar", "exists", "shared_cte", "relational_total", "linked_transform"],
+    [
+        "scalar",
+        "exists",
+        "shared_cte",
+        "relational_total",
+        "grouped_total",
+        "linked_transform",
+    ],
 )
 async def test_filter_only_source_link_preserves_authored_subquery(
     client_with_build_v3,
@@ -162,6 +169,13 @@ async def test_filter_only_source_link_preserves_authored_subquery(
             "FROM v3.order_history_src o CROSS JOIN "
             "(SELECT COUNT(*) AS orders FROM v3.order_history_src) totals"
         )
+    elif subquery == "grouped_total":
+        query = (
+            "SELECT o.customer_id, totals.orders AS all_time_orders "
+            "FROM v3.order_history_src o JOIN "
+            "(SELECT customer_id, COUNT(*) AS orders FROM v3.order_history_src "
+            "GROUP BY customer_id) totals ON o.customer_id = totals.customer_id"
+        )
     elif subquery == "linked_transform":
         response = await client.post(
             "/nodes/transform/",
@@ -211,7 +225,7 @@ async def test_filter_only_source_link_preserves_authored_subquery(
             "filters": ["v3.date.date_id = 20240101"],
         },
     )
-    if subquery in ("shared_cte", "relational_total"):
+    if subquery in ("shared_cte", "relational_total", "grouped_total"):
         # A shared definition or a second relational reader cannot establish
         # one owner for this hidden key.
         assert response.status_code == 422, response.json()
@@ -234,3 +248,120 @@ def test_multi_hop_role_still_pushes_into_owning_fact_scope():
         parse("SELECT e.event_date FROM events e"),
     )
     assert str(predicate) == "e.event_date >= 20240101"
+
+
+async def filtered_node_sql(client, endpoint, query, filters, aggregation):
+    """Build the same filtered transform through the node and metric endpoints."""
+    response = await client.post(
+        "/nodes/transform/",
+        json={"name": "v3.filtered_fact", "query": query, "mode": "published"},
+    )
+    assert response.status_code == 201, response.json()
+    if endpoint == "node":
+        response = await client.get(
+            "/sql/v3.filtered_fact/",
+            params={"filters": filters},
+        )
+    else:
+        response = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.filtered_total",
+                "query": f"SELECT {aggregation} FROM v3.filtered_fact",
+                "mode": "published",
+            },
+        )
+        assert response.status_code == 201, response.json()
+        response = await client.get(
+            f"/sql/{endpoint}/v3/",
+            params={"metrics": ["v3.filtered_total"], "filters": filters},
+        )
+    return response_sql(response, endpoint)
+
+
+@pytest.mark.parametrize("endpoint", ["node", "measures", "metrics"])
+@pytest.mark.parametrize(
+    "predicate, expected",
+    [
+        ("category = 'active'", [(1, "active")]),
+        ("category IS NULL", [(3, None)]),
+        (
+            "category = 'active' OR v3.filtered_fact.order_id = 2",
+            [(1, "active"), (2, "inactive")],
+        ),
+    ],
+)
+async def test_local_filter_on_outer_join_constrains_output(
+    client_with_build_v3,
+    endpoint,
+    predicate,
+    expected,
+):
+    sql = await filtered_node_sql(
+        client_with_build_v3,
+        endpoint,
+        "SELECT o.order_id, p.category FROM v3.src_orders o "
+        "LEFT JOIN v3.src_products p ON o.order_id = p.product_id",
+        [f"v3.filtered_fact.{predicate}"],
+        "COUNT(order_id)",
+    )
+    result = execute(
+        sql,
+        """
+        CREATE TABLE orders (order_id INTEGER);
+        CREATE TABLE products (product_id INTEGER, category TEXT);
+        INSERT INTO orders VALUES (1), (2), (3);
+        INSERT INTO products VALUES (1, 'active'), (2, 'inactive');
+        """,
+    )
+    assert result == (expected if endpoint == "node" else [(len(expected),)])
+
+
+@pytest.mark.parametrize("endpoint", ["node", "measures", "metrics"])
+async def test_local_date_filter_preserves_shared_upstream_scalar_count(
+    client_with_build_v3,
+    endpoint,
+):
+    client = client_with_build_v3
+    response = await client.post(
+        "/nodes/transform/",
+        json={
+            "name": "v3.history",
+            "query": "SELECT order_date FROM v3.src_orders",
+            "mode": "published",
+        },
+    )
+    assert response.status_code == 201, response.json()
+    sql = await filtered_node_sql(
+        client,
+        endpoint,
+        "SELECT h.order_date, (SELECT COUNT(*) FROM v3.history) AS all_time_orders "
+        "FROM v3.history h",
+        ["v3.filtered_fact.order_date = 20240101"],
+        "SUM(all_time_orders)",
+    )
+    assert execute(
+        sql,
+        "CREATE TABLE orders (order_date INTEGER); "
+        "INSERT INTO orders VALUES (20240101), (20230101);",
+    ) == ([(20240101, 2)] if endpoint == "node" else [(2,)])
+
+
+@pytest.mark.parametrize("endpoint", ["node", "measures", "metrics"])
+async def test_filter_only_union_status_constrains_both_arms(
+    client_with_build_v3,
+    endpoint,
+):
+    sql = await filtered_node_sql(
+        client_with_build_v3,
+        endpoint,
+        "SELECT a.order_id, a.status FROM v3.src_orders a WHERE a.order_id = 1 "
+        "UNION ALL SELECT b.order_id, b.status FROM v3.src_orders b WHERE b.order_id = 2",
+        ["v3.filtered_fact.status = 'active'"],
+        "COUNT(order_id)",
+    )
+    assert execute(
+        sql,
+        "CREATE TABLE orders (order_id INTEGER, status TEXT); "
+        "INSERT INTO orders VALUES (1, 'active'), (2, 'inactive'), (3, 'active');",
+    ) == ([(1, "active")] if endpoint == "node" else [(1,)])

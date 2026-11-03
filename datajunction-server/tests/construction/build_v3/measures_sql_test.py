@@ -6232,16 +6232,12 @@ class TestOuterJoinFilterSafety:
         assert response.status_code in (200, 201), response.text
 
     @pytest.mark.asyncio
-    async def test_local_filter_on_non_preserved_side_wraps_inside_parent_cte(
+    async def test_local_filter_on_non_preserved_side_constrains_parent_output(
         self,
         client_with_build_v3,
         setup_right_outer_join_parent,
     ):
-        """A filter on ``status`` (a column from the non-preserved ``o`` side)
-        must be applied INSIDE the orders subquery — before the RIGHT OUTER
-        JOIN — not in the CTE body's WHERE.  Verifies the inner-side wrapping
-        path inside ``_inject_filter_into_where``.
-        """
+        """The requested status must hold on the fact output, including after NULL-fill."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -6259,8 +6255,9 @@ class TestOuterJoinFilterSafety:
                 SELECT
                     d.date_id,
                     o.order_id
-                FROM (SELECT * FROM default.v3.orders o WHERE o.status = 'completed') o
+                FROM default.v3.orders o
                 RIGHT OUTER JOIN default.v3.dates d ON o.order_date = d.date_id
+                WHERE o.status = 'completed'
             )
             SELECT
                 t1.date_id,
@@ -9388,22 +9385,11 @@ class TestParentCteFilterLanding:
         )
 
     @pytest.mark.asyncio
-    async def test_filter_on_left_joined_side_inside_source_body_skips_pushdown(
+    async def test_filter_on_left_joined_side_constrains_parent_output(
         self,
         client_with_build_v3,
     ):
-        """Regression for the XP-style LEFT JOIN bug.
-
-        A transform's source body LEFT-joins a side fact to a primary.
-        A filter on a column from the side fact (the null-producing side
-        of the LEFT JOIN inside the source) must NOT be pushed into the
-        CTE's WHERE — that would NULL-reject primary rows whose side
-        fact has no match and silently turn the LEFT JOIN into an INNER.
-
-        With the null-producing-side check in ``_resolve_pushdown_form``,
-        DJ declines the pushdown for such columns and the filter falls
-        through to the outer scope where it's safe.
-        """
+        """A filter on an exposed side key must hold after the authored LEFT JOIN."""
         client = client_with_build_v3
 
         # Side fact — the null-producing side under the LEFT JOIN inside
@@ -9511,25 +9497,16 @@ class TestParentCteFilterLanding:
         assert response.status_code == 200, response.json()
         sql = get_first_grain_group(response.json())["sql"]
 
-        # DJ wraps the LEFT-joined inner side (``side_measurements``)
-        # with an inline subquery that pre-applies the filter, then the
-        # outer LEFT JOIN preserves primary rows that have no matching
-        # filtered side row.  The filter does NOT sit at the CTE's
-        # top-level WHERE (which would defeat the LEFT JOIN by
-        # NULL-rejecting unmatched primary rows).  This is the
-        # ``_try_push_filter_into_outer_join_side`` safety mechanism
-        # in action — see ``cte.py:1021``.
+        # This key is exposed by the fact, so the request constrains its
+        # output rather than changing the authored join's input rows.
         assert_sql_equal(
             sql,
             """
             WITH v3_events_with_side AS (
               SELECT e.account_id
               FROM default.v3.events_left_join_primary AS e
-              LEFT JOIN (
-                SELECT *
-                FROM default.v3.side_measurements AS s
-                WHERE s.measure_date = 20260101
-              ) s ON e.account_id = s.account_id
+              LEFT JOIN default.v3.side_measurements AS s ON e.account_id = s.account_id
+              WHERE s.measure_date = 20260101
             )
             SELECT t1.account_id, COUNT(*) count_HASH
             FROM v3_events_with_side t1

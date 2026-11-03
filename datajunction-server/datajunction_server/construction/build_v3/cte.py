@@ -1496,14 +1496,9 @@ def _resolve_pushdown_form(
     because the column isn't exposed at all, or because the projection is a
     non-column expression that can't be inlined into WHERE.
 
-    Null-producing-side safety: the caller injects the rewritten filter
-    via :func:`inject_filter_into_select`, which routes parent-only atoms
-    through :func:`_try_push_filter_into_outer_join_side`.  That function
-    walks the join chain and wraps the inner relation when a predicate
-    would otherwise NULL-reject preserved rows, so it's safe for
-    ``_resolve_pushdown_form`` to allow pushdown even when the underlying
-    column sits on a null-producing side — the downstream injector will
-    do the right thing.
+    Local request predicates belong in the fact's output WHERE, including
+    when the column comes from a nullable join input. Filtering that input
+    instead would change which output rows satisfy the request predicate.
     """
     if output_col not in cte_output_cols:
         return None

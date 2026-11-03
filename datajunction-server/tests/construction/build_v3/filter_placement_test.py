@@ -7,11 +7,17 @@ from types import SimpleNamespace
 import pytest
 
 from datajunction_server.construction.build_v3.filter_placement import place_filters
+from datajunction_server.construction.build_v3.dimensions import (
+    _resolve_filter_only_dim,
+    parse_dimension_ref,
+)
+from datajunction_server.construction.build_v3.measures import build_select_ast
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
     PushdownFilters,
 )
 from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 
@@ -22,6 +28,7 @@ def context(bindings=None):
         dimensions=[],
         nodes={
             "fact": SimpleNamespace(
+                name="fact",
                 current=SimpleNamespace(columns=[SimpleNamespace(name="date_id")]),
             ),
         },
@@ -56,6 +63,20 @@ def test_outer_filter_preserves_all_time_scalar_count():
     assert rows(query) == [(20240101, 2)]
 
 
+@pytest.mark.parametrize("join, owner", [("LEFT", "b"), ("RIGHT", "a"), ("FULL", "b")])
+@pytest.mark.parametrize(
+    "predicate, expected",
+    [("= 20240101", [(20240101,)]), ("IS NULL", [(None,)])],
+)
+def test_local_filter_constrains_outer_join_output(join, owner, predicate, expected):
+    query = parse(
+        f"SELECT {owner}.date_id FROM orders a {join} JOIN orders b "
+        "ON a.amount = b.amount AND a.date_id = 20240101 AND b.date_id = 20240101",
+    )
+    place_filters(context(), {"fact": query}, request([f"date.date_id {predicate}"]))
+    assert rows(query) == expected
+
+
 @pytest.mark.parametrize(
     "body",
     [
@@ -63,6 +84,8 @@ def test_outer_filter_preserves_all_time_scalar_count():
         "(SELECT SUM(amount) AS total FROM orders) s",
         "SELECT a.amount FROM orders a JOIN orders b ON a.date_id = b.date_id",
         "SELECT amount FROM orders UNION ALL SELECT amount FROM orders",
+        "SELECT amount FROM RANGE(2) AS t(amount)",
+        "SELECT 1",
     ],
 )
 def test_ambiguous_hidden_key_is_rejected_without_partial_changes(body):
@@ -164,6 +187,7 @@ def test_placement_state_does_not_leak_between_fact_groups():
         "SELECT amount, (SELECT SUM(amount) FROM history) AS total FROM history",
         "WITH history AS (SELECT amount FROM orders UNION ALL SELECT amount FROM history) "
         "SELECT amount FROM history",
+        "WITH history AS (SELECT amount FROM history) SELECT amount FROM history",
     ],
 )
 def test_hidden_keys_in_unused_shared_or_recursive_definitions_are_rejected(body):
@@ -173,3 +197,116 @@ def test_hidden_keys_in_unused_shared_or_recursive_definitions_are_rejected(body
     with pytest.raises(DJInvalidInputException):
         place_filters(ctx, {"fact": query}, request())
     assert str(query) == before
+
+
+@pytest.mark.parametrize("hidden", [False, True])
+def test_materialized_fact_requires_exposed_filter_keys(hidden):
+    ctx = context({("fact", "date.date_id"): [("orders", "date_id")]} if hidden else {})
+    if hidden:
+        with pytest.raises(DJInvalidInputException, match="materialized fact"):
+            place_filters(ctx, {}, request())
+    else:
+        assert place_filters(ctx, {}, request()) == set()
+
+
+def test_local_filter_leaves_shared_fact_definition_to_its_consumer():
+    fact = parse("SELECT date_id FROM orders")
+    reader = parse("SELECT (SELECT COUNT(*) FROM fact) AS total")
+    before = str(fact), str(reader)
+    assert (
+        place_filters(context(), {"fact": fact, "reader": reader}, request()) == set()
+    )
+    assert (str(fact), str(reader)) == before
+    assert rows(f"WITH fact AS ({fact}) {reader}") == [(2,)]
+
+
+def test_complete_hidden_predicate_cannot_span_different_consumers():
+    query = parse(
+        "SELECT o.amount FROM orders o JOIN products p ON o.amount = p.product_id",
+    )
+    before = str(query)
+    ctx = context(
+        {
+            ("fact", "date.date_id"): [("orders", "date_id")],
+            ("fact", "product.category"): [("products", "category")],
+        },
+    )
+    with pytest.raises(DJInvalidInputException, match="complete predicate"):
+        place_filters(
+            ctx,
+            {"fact": query},
+            request(["date.date_id = 20240101 OR product.category = 'B'"]),
+        )
+    assert str(query) == before
+
+
+def test_complete_hidden_predicate_keeps_or_on_one_consumer():
+    query = parse("SELECT amount FROM orders o")
+    ctx = context(
+        {
+            ("fact", "date.date_id"): [("orders", "date_id")],
+            ("fact", "account.id"): [("orders", "amount")],
+        },
+    )
+    place_filters(
+        ctx,
+        {"fact": query},
+        request(["date.date_id = 20240101 OR account.id = 5"]),
+    )
+    assert rows(query) == [(10,), (5,)]
+
+
+def test_all_filters_validate_before_any_query_is_changed():
+    query = parse("SELECT date_id FROM orders")
+    before = str(query)
+    ctx = context({("fact", "product.category"): [("products", "category")]})
+    with pytest.raises(DJInvalidInputException, match="eligible relational owners"):
+        place_filters(
+            ctx,
+            {"fact": query},
+            request(["date.date_id = 20240101", "product.category = 'B'"]),
+        )
+    assert str(query) == before
+
+
+@pytest.mark.parametrize("missing_revision", [False, True])
+def test_upstream_discovery_skips_missing_metadata(missing_revision):
+    ctx = context()
+    ctx.parent_map = {"fact": ["upstream"], "upstream": ["fact"]}
+    if missing_revision:
+        ctx.nodes["upstream"] = SimpleNamespace(current=None)
+    assert not _resolve_filter_only_dim(
+        ctx,
+        ctx.nodes["fact"],
+        parse_dimension_ref("date.date_id"),
+        "date.date_id",
+    )
+    assert ctx.upstream_filter_bindings == {}
+
+
+def test_multiple_explicit_scan_bounds_are_combined_before_aggregation():
+    ctx = context()
+    fact = ctx.nodes["fact"]
+    fact.type = NodeType.TRANSFORM
+    fact.current.query = "SELECT date_id FROM orders"
+    fact.current.availability = None
+    ctx.nodes["orders"] = SimpleNamespace(
+        name="orders",
+        type=NodeType.SOURCE,
+        current=SimpleNamespace(catalog=None, schema_=None, table="orders"),
+    )
+    ctx.parent_map = {"fact": ["orders"]}
+    ctx.upstream_pushdown_filters = {
+        "fact": [
+            parse("SELECT 1 WHERE date_id >= 20230102").select.where,
+            parse("SELECT 1 WHERE date_id <= 20231231").select.where,
+        ],
+    }
+    query, _, _ = build_select_ast(
+        ctx,
+        metric_expressions=[("count", parse("SELECT COUNT(*)").select.projection[0])],
+        resolved_dimensions=[],
+        parent_node=fact,
+    )
+    assert rows(query) == [(0,)]
+    assert "WHERE" not in str(ctx.get_parsed_query(fact))
