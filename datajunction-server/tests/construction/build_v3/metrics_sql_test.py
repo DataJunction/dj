@@ -3808,7 +3808,6 @@ class TestNonDecomposableMetrics:
             SELECT  base_metrics.date_id_order AS date_id_order,
               SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
              FROM base_metrics
-             WHERE  base_metrics.date_id_order = 20240130 + 1
             """,
         )
 
@@ -4012,7 +4011,6 @@ SELECT  order_details_0.date_id_order AS date_id_order,
 SELECT  base_metrics.date_id_order AS date_id_order,
 	SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)  AS cumulative_revenue
  FROM base_metrics
- WHERE  base_metrics.date_id_order = 20240131
 """,
         )
 
@@ -7714,26 +7712,28 @@ class TestMetricOnDimensionNode:
         assert_sql_equal(
             sql,
             """
-            WITH
-            v3_product AS (
-              SELECT category, subcategory, price
+            WITH v3_product AS (
+              SELECT
+                category,
+                price
               FROM default.v3.products
-            ),
-            product_0 AS (
+              WHERE
+                subcategory = 'phones'
+            ), product_0 AS (
               SELECT
                 t1.category,
-                COUNT(t1.price) price_count_78363aa6,
-                SUM(t1.price) price_sum_78363aa6
-              FROM v3_product t1
-              WHERE t1.subcategory = 'phones'
-              GROUP BY t1.category
+                COUNT(t1.price) AS price_count_78363aa6,
+                SUM(t1.price) AS price_sum_78363aa6
+              FROM v3_product AS t1
+              GROUP BY
+                t1.category
             )
             SELECT
               product_0.category AS category,
-              SUM(product_0.price_sum_78363aa6)
-                / NULLIF(SUM(product_0.price_count_78363aa6), 0) AS avg_product_price
+              SUM(product_0.price_sum_78363aa6) / NULLIF(SUM(product_0.price_count_78363aa6), 0) AS avg_product_price
             FROM product_0
-            GROUP BY product_0.category
+            GROUP BY
+              product_0.category
             """,
         )
 

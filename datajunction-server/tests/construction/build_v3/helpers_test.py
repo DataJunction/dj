@@ -37,7 +37,6 @@ from datajunction_server.construction.build_v3.materialization import (
     has_available_materialization,
 )
 from datajunction_server.construction.build_v3.measures import (
-    _add_table_prefixes_to_filter,
     _resolve_dim_namespace_refs,
     collect_cte_nodes,
 )
@@ -874,83 +873,6 @@ class TestFilterHelpers:
             "Make sure each reference uses the `node.column` form and that "
             "the column exists on the referenced node."
         )
-
-
-class TestAddTablePrefixesToFilter:
-    """Tests for the _add_table_prefixes_to_filter helper in measures.py."""
-
-    def test_unresolved_subscript_only_processes_base_expr(self):
-        """Test that a Subscript node in the filter only recurses into its base expr.
-
-        Covers lines 260-261: when a Subscript reaches _add_table_prefixes_to_filter
-        (because resolve_filter_references didn't replace it), only node.expr is
-        processed — the subscript index is not recursed into.
-        """
-        # Build a filter with a subscript that was NOT resolved
-        filter_ast = parse_filter("arr[0] = 'x'")
-        # Empty resolved dimensions — col_to_table will be empty
-        mock_parent = MagicMock()
-        mock_parent.name = "parent"
-        mock_parent.current = MagicMock()
-        mock_parent.current.dimension_links = []
-
-        # Should not raise; the base expression (arr) will be processed
-        _add_table_prefixes_to_filter(
-            filter_ast,
-            resolved_dimensions=[],
-            main_alias="t1",
-            dim_aliases={},
-            parent_node=mock_parent,
-        )
-        # The subscript is still in the output (not resolved), but no error
-        assert "[0]" in str(filter_ast)
-
-    def test_already_qualified_column_is_skipped(self):
-        """Test that a pre-qualified column (e.g., t1.status) is not re-qualified.
-
-        Covers the False branch of `if node.name and not (node.name.namespace ...)`:
-        when a column already has a namespace (table qualifier), the inner block is
-        skipped and we fall through to recursing into children (line 276).
-        """
-        # t1.status is already table-qualified
-        filter_ast = parse_filter("t1.status = 'active'")
-        mock_parent = MagicMock()
-        mock_parent.name = "parent"
-        mock_parent.current = MagicMock()
-        mock_parent.current.dimension_links = []
-
-        _add_table_prefixes_to_filter(
-            filter_ast,
-            resolved_dimensions=[],
-            main_alias="fact",
-            dim_aliases={},
-            parent_node=mock_parent,
-        )
-        # Column should still be t1.status (unchanged)
-        assert "t1.status" in str(filter_ast)
-
-    def test_unknown_column_defaults_to_main_alias(self):
-        """Test that an unqualified column not in any dimension maps to main_alias.
-
-        Covers line 273: the else branch in add_prefixes when col_name is not in
-        col_to_table, so we fall back to prefixing with main_alias.
-        """
-        # 'status' is an unqualified column — not in any dimension's col_to_table
-        filter_ast = parse_filter("status = 'active'")
-        mock_parent = MagicMock()
-        mock_parent.name = "parent"
-        mock_parent.current = MagicMock()
-        mock_parent.current.dimension_links = []
-
-        _add_table_prefixes_to_filter(
-            filter_ast,
-            resolved_dimensions=[],
-            main_alias="t1",
-            dim_aliases={},
-            parent_node=mock_parent,
-        )
-        # Unknown column should be prefixed with main_alias
-        assert "t1.status" in str(filter_ast)
 
 
 class TestResolveDimNamespaceRefs:

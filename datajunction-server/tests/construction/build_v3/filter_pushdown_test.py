@@ -1063,29 +1063,34 @@ class TestFilterPushdownCrossJoinAggregatesColumnAway:
         assert_sql_equal(
             get_first_grain_group(response.json())["sql"],
             """
-            WITH
-            v3_time_window_dim AS (
-              SELECT window_id, window_size
+            WITH v3_time_window_dim AS (
+              SELECT
+                window_id,
+                window_size
               FROM default.v3.time_window
-            ),
-            v3_entity_window_config AS (
-              SELECT e.entity_id
+            ), v3_entity_window_config AS (
+              SELECT
+                e.entity_id
               FROM default.v3.entity_facts AS e
               CROSS JOIN (
-                SELECT window_id, window_size
+                SELECT
+                  window_id,
+                  window_size
                 FROM v3_time_window_dim
-                WHERE v3_time_window_dim.window_id IN ('7day')
               ) AS w
-              GROUP BY e.entity_id
-            ),
-            v3_entity_report AS (
-              SELECT c.entity_id
+              GROUP BY
+                e.entity_id
+            ), v3_entity_report AS (
+              SELECT
+                c.entity_id
               FROM v3_entity_window_config AS c
               CROSS JOIN v3_time_window_dim AS w
-              WHERE w.window_id IN ('7day')
+              WHERE
+                w.window_id IN ('7day')
             )
-            SELECT COUNT(t1.entity_id) entity_id_count_HASH
-            FROM v3_entity_report t1
+            SELECT
+              COUNT(t1.entity_id) AS entity_id_count_HASH
+            FROM v3_entity_report AS t1
             """,
             normalize_aliases=True,
         )
@@ -1195,29 +1200,32 @@ class TestFilterPushdownViaSourceFKLinkAtTopLevel:
             get_first_grain_group(response.json())["sql"],
             """
             WITH v3_event_summary AS (
-              SELECT a.account_id,
+              SELECT
+                a.account_id,
                 SUM(a.value) AS total
-              FROM default.v3.snapped_events AS a
-              WHERE a.report_date = 20240101
-              GROUP BY a.account_id
+              FROM (
+                SELECT
+                  *
+                FROM default.v3.snapped_events AS a
+                WHERE
+                  a.report_date = 20240101
+              ) AS a
+              GROUP BY
+                a.account_id
             )
-            SELECT SUM(t1.total) total_sum_HASH
-            FROM v3_event_summary t1
+            SELECT
+              SUM(t1.total) AS total_sum_HASH
+            FROM v3_event_summary AS t1
             """,
             normalize_aliases=True,
         )
 
 
 class TestFilterPushdownToMultipleSiblingTransforms:
-    """Regression: FK dimension filter must reach all sibling transforms that
-    read the same source, not just the first one found.
-
-    Both sibling transforms are upstream of the same metric so they land in
-    the same grain group — exactly mirroring the prod pattern where multiple
-    transforms read from the same snapshot source table."""
+    """Sibling scans in one grain group have ambiguous filter ownership."""
 
     @pytest.mark.asyncio
-    async def test_fk_filter_pushed_to_all_sibling_transforms(
+    async def test_ambiguous_sibling_transform_filter_is_rejected(
         self,
         client_with_build_v3,
     ):
@@ -1323,41 +1331,15 @@ class TestFilterPushdownToMultipleSiblingTransforms:
                 "filters": ["v3.snap_dim.dateint = 20240101"],
             },
         )
-        assert response.status_code == 200, response.json()
-        assert_sql_equal(
-            get_first_grain_group(response.json())["sql"],
-            """
-            WITH v3_child_a AS (
-              SELECT a.account_id, SUM(a.amount) AS total_a
-              FROM default.v3.multi_child_src AS a
-              WHERE a.snap_date = 20240101
-              GROUP BY a.account_id
-            ),
-            v3_child_b AS (
-              SELECT b.account_id, SUM(b.amount) AS total_b
-              FROM default.v3.multi_child_src AS b
-              WHERE b.snap_date = 20240101
-              GROUP BY b.account_id
-            ),
-            v3_combined AS (
-              SELECT a.total_a, b.total_b
-              FROM v3_child_a AS a
-              JOIN v3_child_b AS b ON a.account_id = b.account_id
-            )
-            SELECT SUM(t1.total_a + t1.total_b) total_a_total_b_sum_HASH
-            FROM v3_combined t1
-            """,
-            normalize_aliases=True,
-        )
+        assert response.status_code == 422, response.json()
+        assert "eligible relational owners" in response.json()["message"]
 
 
 class TestFilterPushedToAllMultipleDirectParentFKColumns:
-    """Multiple direct parents each link a different column to the same filter-only
-    dimension. The filter must be pushed to *all* of them, not just the first one
-    (which would be hash-order non-deterministic)."""
+    """Different parent keys linked to the same dimension need an explicit owner."""
 
     @pytest.mark.asyncio
-    async def test_filter_applied_to_all_fk_columns_across_direct_parents(
+    async def test_ambiguous_direct_parent_keys_are_rejected(
         self,
         client_with_build_v3,
     ):
@@ -1462,16 +1444,8 @@ class TestFilterPushedToAllMultipleDirectParentFKColumns:
                 "filters": ["v3.event_date.dateint = 20240101"],
             },
         )
-        assert response.status_code == 200, response.json()
-        sql = get_first_grain_group(response.json())["sql"]
-
-        # Both sources must be filtered — not just whichever hash-order surfaces first
-        assert "send_date = 20240101" in sql, (
-            "filter missing from src_events_a (send_date)"
-        )
-        assert "alloc_date = 20240101" in sql, (
-            "filter missing from src_events_b (alloc_date)"
-        )
+        assert response.status_code == 422, response.json()
+        assert "eligible relational owners" in response.json()["message"]
 
 
 class TestFilterNotPushedToTransitiveUpstreamByColumnNameCollision:
@@ -1636,24 +1610,38 @@ class TestFilterNotPushedToTransitiveUpstreamByColumnNameCollision:
             sql,
             """
             WITH v3_xform_alloc AS (
-              SELECT a.entity_id, a.snap_date
-              FROM default.v3.snap_src AS a
-              WHERE a.snap_date = 20240101
-              GROUP BY a.entity_id, a.snap_date
-            ),
-            v3_xform_revenue AS (
-              SELECT r.entity_id, SUM(r.revenue) AS total_revenue, r.snap_date
+              SELECT
+                a.entity_id,
+                a.snap_date
+              FROM (
+                SELECT
+                  *
+                FROM default.v3.snap_src AS a
+                WHERE
+                  a.snap_date = 20240101
+              ) AS a
+              GROUP BY
+                a.entity_id,
+                a.snap_date
+            ), v3_xform_revenue AS (
+              SELECT
+                r.entity_id,
+                SUM(r.revenue) AS total_revenue,
+                r.snap_date
               FROM default.v3.revenue_src AS r
-              GROUP BY r.entity_id, r.snap_date
-            ),
-            v3_combined_fact AS (
-              SELECT r.total_revenue
+              GROUP BY
+                r.entity_id,
+                r.snap_date
+            ), v3_combined_fact AS (
+              SELECT
+                r.total_revenue
               FROM v3_xform_alloc AS a
-              JOIN v3_xform_revenue AS r ON a.entity_id = r.entity_id
-              AND a.snap_date = r.snap_date
+              JOIN v3_xform_revenue AS r
+                ON a.entity_id = r.entity_id AND a.snap_date = r.snap_date
             )
-            SELECT SUM(t1.total_revenue) total_revenue_sum_HASH
-            FROM v3_combined_fact t1
+            SELECT
+              SUM(t1.total_revenue) AS total_revenue_sum_HASH
+            FROM v3_combined_fact AS t1
             """,
             normalize_aliases=True,
         )

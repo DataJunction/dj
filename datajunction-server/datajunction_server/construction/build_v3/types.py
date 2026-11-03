@@ -120,33 +120,20 @@ class BuildContext:
     # Populated by add_dimensions_from_filters() in setup_build_context
     filter_dimensions: set[str] = field(default_factory=set)
 
-    # Skip-join dimension mappings: original_ref -> local_column_name
-    # When a dimension uses skip-join optimization (e.g., requesting the join key itself),
-    # we map the dimension reference to the actual local column name for filter resolution
-    # Example: "dimensions.time.date.dateint" -> "utc_date"
-    skip_join_column_mapping: dict[str, str] = field(default_factory=dict)
-
-    # Filters to inject into specific upstream CTEs to support v2's filter_only
-    # behavior for dim refs whose only link lives on an upstream of the fact.
-    # Keyed by node name; multiple filters per node are ANDed at injection time.
+    # Explicitly targeted lookback predicates, keyed by temporal source node.
+    # Ordinary request predicates use consumer-scoped bindings below.
     upstream_pushdown_filters: dict[str, list[ast.Expression]] = field(
         default_factory=dict,
     )
 
-    # Filter strings that have been fully handled via upstream pushdown — these
-    # are removed from `dimension_filters` so the outer WHERE doesn't try to
-    # re-apply them (the dim ref is unreachable from the fact).
+    # Request date bounds already handled by lookback source predicates.
     pushdown_consumed_filters: set[str] = field(default_factory=set)
 
-    # Filter strings that were successfully injected into a measures-layer
-    # CTE's WHERE clause.  The metrics-layer outer WHERE checks this set
-    # and skips re-applying these predicates on top of the aggregation
-    # CTEs — the CTE already narrows its rows correctly.
-    cte_consumed_filters: set[str] = field(default_factory=set)
-
-    # Dim refs handled via upstream pushdown — caller skips emitting a
-    # ResolvedDimension for these and skips the unreachable-dim error.
-    pushdown_resolved_dims: set[str] = field(default_factory=set)
+    # Discovered filter-only links, scoped to the fact consumer. Discovery is
+    # read-only; placement validates paths on the current grain group's ASTs.
+    upstream_filter_bindings: dict[tuple[str, str], list[tuple[str, str]]] = field(
+        default_factory=dict,
+    )
 
     # Build warnings (e.g. fan-out risk): the single sink, read once per endpoint.
     warnings: list[DJWarning] = field(default_factory=list)
@@ -228,35 +215,12 @@ class BuildContext:
 
 @dataclass
 class PushdownFilters:
-    """User-supplied dimension filters to push into upstream CTEs.
-
-    Built by ``build_select_ast`` during outer-query filter resolution, then
-    passed to ``collect_node_ctes`` so each CTE can independently decide which
-    filters apply to it.
-
-    Attributes:
-        filters: Raw filter strings (e.g. ``["v3.date.date_id[order] >= 20240101"]``).
-        column_aliases: Map from dimension ref to bare column name.  Identity
-            for most dimensions (``category`` → ``category``), but differs when
-            a FK rename is involved (``date_id`` → ``order_date``).
-        outer_only_refs: Dimension refs that resolve only to a joined
-            dimension's bare attribute name and so must not be pushed into an
-            upstream transform/source CTE under that name (the same-named
-            column there is the raw FK value, not the attribute).  Such a
-            filter applies on the consuming dimension alias in the outer
-            WHERE. See ``outer_only_filter_refs``.
-        fk_collision_cols: Foreign-key *value* column short-names on the linking
-            (parent) node's dimension links.  An ``outer_only`` ref whose bare
-            column collides with one of these is a joined dimension's non-key
-            attribute sharing a name with the raw FK column, so it must not be
-            pushed into ANY CTE (incl. an upstream ancestor that projects the FK
-            without owning the link).  See ``_resolve_pushdown_filters_for_cte``.
-    """
+    """Request filters and local bindings for one fact consumer."""
 
     filters: list[str]
     column_aliases: dict[str, str]
+    parent_node_name: str
     outer_only_refs: set[str] = field(default_factory=set)
-    fk_collision_cols: set[str] = field(default_factory=set)
 
 
 @dataclass

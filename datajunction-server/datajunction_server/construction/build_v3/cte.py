@@ -1463,636 +1463,6 @@ def _inject_filter_into_where(
     inject_filter_into_select(cast(ast.Select, query_ast.select), filter_expr)
 
 
-def _fk_key_column_names(node: Node) -> set[str]:
-    """Short names of the foreign-key *value* columns on ``node``'s dim links.
-
-    Each link's ``foreign_keys_reversed`` maps a dimension PK column to the raw
-    FK column on this node; we return those FK column short names.  A filter on a
-    joined dimension's non-key attribute whose bare name collides with one of
-    these must never be pushed onto it (it would bind a string-attribute
-    predicate to the int FK column).
-    """
-    from datajunction_server.construction.build_v3.utils import get_short_name
-
-    cols: set[str] = set()
-    if node.current and node.current.dimension_links:
-        for link in node.current.dimension_links:
-            for _pk_fqn, fk_fqn in (link.foreign_keys_reversed or {}).items():
-                if fk_fqn:  # pragma: no branch
-                    cols.add(get_short_name(fk_fqn))
-    return cols
-
-
-def _resolve_pushdown_filters_for_cte(
-    node: Node,
-    cte_query: ast.Query,
-    pushdown_filters: list[str],
-    filter_column_aliases: dict[str, str],
-    ctx: BuildContext | None = None,
-    outer_only_refs: set[str] | None = None,
-    fk_collision_cols: set[str] | None = None,
-) -> tuple[list[tuple[ast.Select, ast.Expression]], set[str]]:
-    """Determine which user filters can be pushed into this CTE.
-
-    Request filters on dimensions stay on the consuming alias: narrowing a
-    shared dimension CTE can change another role's rows or turn a real LEFT
-    JOIN match into a null-extended row. Fact/transform filters are rewritten
-    into their owning relational scope without changing scalar subqueries.
-
-    Set-operation CTEs (UNION / INTERSECT / EXCEPT): the filter is injected
-    into the **primary** Select only — i.e. the first arm of the union
-    chain.  Subsequent arms (reachable via ``set_op.right``) are left
-    untouched.  Matches v2's behavior: transform authors often use
-    asymmetric UNION arms where the secondary arm acts as an unfiltered
-    backstop, and uniformly pushing into every arm would override that
-    intent.  Pushing into the primary arm is still useful — it's where
-    DJ's projection inspection sees the CTE's output schema, and Spark
-    can partition-prune through it just as well as a wrapper subquery.
-
-    Returns ``(injections, consumed)`` where ``injections`` is the list of
-    ``(target_select, rewritten_filter)`` pairs to inject and ``consumed``
-    is the set of original filter strings that were successfully pushed
-    into the CTE (so the caller can drop them from outer-level WHERE).
-    """
-    node_output_cols = (
-        {col.name for col in (node.current.columns or [])} if node.current else set()
-    )
-
-    if not node_output_cols:  # pragma: no cover
-        return [], set()
-    if node.type == NodeType.DIMENSION:
-        return [], set()
-
-    # Per-CTE alias resolution: each node may have its own dim links pointing
-    # different columns at the same dim ref (e.g. fact maps measure_date to
-    # ``instance_start_utc_date`` while a related dim transform maps the same
-    # dim to its own ``calendar_date`` column).  The parent-derived
-    # ``filter_column_aliases`` would only push to the parent's column, so
-    # dim CTEs whose local columns are named differently are missed.
-    # Consult the current node's own ``dimension_links`` and override the
-    # parent's mapping where the node has its own link for the dim.
-    local_aliases = _build_local_dim_aliases(node)
-    effective_aliases = {
-        **filter_column_aliases,
-        **local_aliases,
-    }
-
-    # Block a filter ref when its resolved bare column is a foreign-key *value*
-    # column (the raw int key on a fact/transform) but the ref has no local
-    # mapping — i.e. the filter targets a joined dimension's non-key attribute
-    # whose name collides with that FK column.  Pushing it would bind a (string)
-    # attribute predicate to the (int) FK column and silently match nothing.
-    #
-    # The FK-column set is the union of THIS node's links and the linking
-    # (parent) node's links (``fk_collision_cols``, threaded in).  The parent
-    # set is essential: the filter can be pushed UPSTREAM into an ancestor CTE
-    # that merely projects the FK column without carrying the link (e.g. a base
-    # transform feeding a linked one) — where a node-local check is blind.  This
-    # single ``blocked_refs`` set is consulted by every pushdown path below.
-    # Genuine dimension attributes (e.g. ``state``) are not FK columns, so they
-    # are never blocked; the dim's own CTE / join-key filters stay exempt via
-    # ``local_aliases``.
-    collision_cols = _fk_key_column_names(node) | (fk_collision_cols or set())
-    blocked_refs: set[str] = set()
-    for ref in outer_only_refs or set():
-        base = ref.split("[")[0]
-        if ref in local_aliases or base in local_aliases:
-            continue  # properly mapped locally (dim's own CTE / join key) — safe
-        bare_col = effective_aliases.get(ref) or effective_aliases.get(base)
-        if bare_col and bare_col in collision_cols:
-            blocked_refs.add(ref)
-
-    target_select = cast(ast.Select, cte_query.select)
-    results: list[tuple[ast.Select, ast.Expression]] = []
-    consumed: set[str] = set()
-
-    # Pre-compute a column->alias map for every distinct Select scope
-    # inside the CTE body.  Each scope's map says: "for a bare column
-    # name X, which alias provides it in this scope's FROM tree?"
-    # Used by the retargeting walk below to inject the filter at inner
-    # scopes (nested subqueries) with correct per-scope qualifiers —
-    # e.g. ``observation_window`` resolves to the CROSS-joined dim's
-    # alias while ``alloc_group_id`` resolves to the fact's alias, even
-    # though both share the same parent qualifier in the outer scope.
-    scope_column_aliases = (
-        _build_all_scope_column_alias_maps(cte_query, ctx) if ctx else []
-    )
-
-    # Identify "wrapped UNION arms" — arms of a set-op chain that
-    # lives inside a derived-table boundary (an ast.Query nested
-    # somewhere under target_select), NOT the CTE body's own
-    # top-level set-op chain.  When a wrapped UNION sits inside a
-    # derived table, the enclosing Select's WHERE already
-    # constrains the UNION's output — pushing the same predicate
-    # into each arm is redundant and diverges from v2.  Arms of
-    # the CTE body's OWN top-level UNION (e.g. the CTE is
-    # ``(SELECT ...) UNION ALL (SELECT ...)`` directly) still get
-    # pushdown, since there's no outer WHERE to handle them.
-    wrapped_setop_arms: set[int] = set()
-    for query_node in cte_query.find_all(ast.Query):
-        if query_node is cte_query:
-            continue
-        inner = query_node.select
-        if not isinstance(inner, ast.Select) or inner.set_op is None:
-            continue
-        cursor: ast.Select | None = inner
-        while cursor is not None:  # pragma: no branch
-            wrapped_setop_arms.add(id(cursor))
-            if cursor.set_op is None or not isinstance(
-                cursor.set_op.right,
-                ast.Select,
-            ):
-                break
-            cursor = cursor.set_op.right
-
-    for filter_str in pushdown_filters:
-        rewritten = _rewrite_filter_for_select(
-            filter_str,
-            effective_aliases,
-            node_output_cols,
-            target_select,
-            blocked_refs,
-        )
-        if rewritten is not None:
-            results.append((target_select, rewritten))
-            consumed.add(filter_str)
-
-            # This Select already constrains its output. Repeating the filter
-            # in a nested scan can change an authored aggregate or scalar
-            # expression, even when it reads the same physical table.
-            continue
-
-        # When the output Select cannot bind the filter (e.g. an unprojected
-        # date key), look for a relational row source that can.
-        for inner_select, col_to_alias in scope_column_aliases:
-            if id(inner_select) in wrapped_setop_arms:
-                continue
-            if not _select_has_table_in_from(inner_select):  # pragma: no cover
-                continue
-            if not _is_relational_scope(inner_select, cte_query):
-                continue
-            inner_rewrite = _rewrite_filter_for_scope(
-                filter_str,
-                effective_aliases,
-                col_to_alias,
-                blocked_refs,
-            )
-            if inner_rewrite is None:
-                continue
-            results.append((inner_select, inner_rewrite))
-            consumed.add(filter_str)
-
-    return results, consumed
-
-
-def _select_has_table_in_from(sel: ast.Select) -> bool:
-    """Return True iff the Select's direct FROM has at least one
-    ``ast.Table`` relation side.
-
-    A scope whose FROM contains only ``ast.Query`` derived-table
-    aliases (e.g. ``(SELECT ...) AS denominator LEFT JOIN (SELECT
-    ...) AS numerator``) shouldn't receive column-aware filter
-    injection — its only candidate aliases are the outer-level
-    aliases for those subqueries, which don't exist inside them.
-    """
-    if sel.from_ is None:  # pragma: no cover
-        return False
-    for relation in sel.from_.relations:  # pragma: no branch
-        sides = [relation.primary, *(j.right for j in relation.extensions)]
-        for expr in sides:  # pragma: no branch
-            if isinstance(expr, ast.Table):  # pragma: no branch
-                return True
-    return False  # pragma: no cover
-
-
-def _is_relational_scope(select: ast.Select, query: ast.Query) -> bool:
-    """Whether a Select supplies rows to the query rather than a scalar value.
-
-    A matching table or column inside a scalar/EXISTS subquery does not prove
-    that a request filter belongs there. Every Query boundary on the path to
-    the owning query must be a FROM/JOIN relation or a WITH definition.
-    """
-
-    def owns_rows(
-        current: ast.Node | None,
-        owner: ast.Query,
-        visiting: set[int],
-    ) -> bool:
-        while current is not None and current is not owner:
-            # EXISTS/IN can contain a Select directly, without a Query wrapper.
-            if isinstance(current, ast.Select) and not isinstance(
-                current.parent,
-                (ast.Query, ast.SetOp),
-            ):
-                return False
-            if isinstance(current, ast.Query):
-                parent = current.parent
-                if isinstance(parent, ast.Query):
-                    # WITH definitions can serve scalar readers too. Only
-                    # narrow one when every reader supplies relational rows.
-                    if id(current) in visiting:
-                        return False
-                    readers = [
-                        table
-                        for table in parent.find_all(ast.Table)
-                        if table.name.identifier(quotes=False)
-                        == current.alias_or_name.name
-                    ]
-                    if not readers:
-                        return False
-                    for table in readers:
-                        scopes = _enclosing_selects(table, parent.select)
-                        if not scopes or not owns_rows(
-                            scopes[0],
-                            parent,
-                            visiting | {id(current)},
-                        ):
-                            return False
-                elif not isinstance(parent, (ast.Relation, ast.Join, ast.From)):
-                    return False
-            current = current.parent
-        return current is owner
-
-    return owns_rows(select, query, set())
-
-
-def _build_local_dim_aliases(node: Node) -> dict[str, str]:
-    """Build a ``{dim_ref → local_column_name}`` map from a node's own
-    authored ``dimension_links``.
-
-    The dim ref keys match the form used in user filter strings (e.g.
-    ``common.dimensions.xp.measure_date.dateint``) so they can directly
-    override entries in the parent-derived ``filter_column_aliases``.
-    Values are the bare short name of the node's FK column.
-
-    This is the per-CTE complement to the parent-derived alias map: when
-    a dim CTE has its own link that maps a dim ref to a column with a
-    *different* local name than the parent uses, this lets the CTE-level
-    pushdown resolve to its own column instead of looking for the
-    parent's column name (which it doesn't have).
-    """
-    result: dict[str, str] = {}
-    if not node.current:  # pragma: no cover
-        return result
-    from datajunction_server.construction.build_v3.utils import get_short_name
-
-    # Inside a dim's own CTE, ``<this_dim>.<col>`` must resolve to the
-    # dim's own column — not to whatever the parent's link mapped it
-    # to.  Without this, a filter on the dim's PK gets resolved via
-    # the parent's FK column name, which can collide with a same-named
-    # but differently-typed column on the dim itself.
-    if node.type == NodeType.DIMENSION and node.current.columns:
-        for col in node.current.columns:
-            result[f"{node.name}{SEPARATOR}{col.name}"] = col.name
-
-    if not node.current.dimension_links:
-        return result
-
-    for link in node.current.dimension_links:
-        # ``foreign_keys_reversed`` maps dim PK columns → node FK columns.
-        # Both sides are fully-qualified (``<node>.<col>``) identifiers.
-        #
-        # A *role-qualified* link is keyed WITH its role (e.g.
-        # ``v3.date.date_id[planned_launch]``) so it only matches a filter
-        # that carries that same role. Keying it by the bare, role-stripped
-        # FQN would let an *unqualified* filter (e.g. ``v3.date.date_id``,
-        # meaning the fact's own date) silently bind to this dim's role
-        # column, over-filtering the CTE. Unqualified links (role=None) keep
-        # the bare key.
-        for dim_col_fqn, fk_fqn in (link.foreign_keys_reversed or {}).items():
-            if not fk_fqn:  # pragma: no cover
-                continue
-            key = f"{dim_col_fqn}[{link.role}]" if link.role else dim_col_fqn
-            result[key] = get_short_name(fk_fqn)
-    return result
-
-
-def _build_all_scope_column_alias_maps(
-    cte_query: ast.Query,
-    ctx: BuildContext,
-) -> list[tuple[ast.Select, dict[str, tuple[str, str]]]]:
-    """For every distinct ``ast.Select`` scope reachable through the
-    target Select's FROM subtree (subqueries inside JOINs, nested
-    derived tables, etc.), build a ``{column_name → alias}`` map.
-
-    Crucially, this only walks the **primary Select's FROM subtree**,
-    not chained UNION/INTERSECT/EXCEPT arms reached via ``set_op.right``.
-    Transform authors often use asymmetric set-op arms — one arm
-    deliberately filtered, another acting as an unfiltered backstop —
-    and we don't want column-aware retargeting to override that intent
-    by pushing the filter into every arm.  The primary arm gets the
-    full retargeting; secondary arms are left alone (matching v2 and
-    the existing primary-Select-only set-op pushdown policy).
-
-    For each FROM entry inside the walked subtree:
-
-    - **``ast.Table``** with alias ``a`` (or table short-name if no
-      alias): look up its columns via a three-step chain — direct
-      node-name match, then dot-to-underscore CTE-name form, then
-      materialized-physical-name match (handles
-      ``prodhive.dse.foo`` for a node named
-      ``source.prodhive.dse.foo``, or
-      ``prodhive.dj.dim__name__v5_0`` for a dim node).  Tables that
-      can't be resolved contribute nothing to the scope (safer than
-      guessing columns the Table may not actually have).
-    - **Subquery** (``ast.Query`` aliased as ``s``): walk the
-      subquery's projection for output column names.
-
-    First-write-wins on collisions.  Used by
-    :func:`_resolve_pushdown_filters_for_cte` for column-aware
-    retargeting: each scope can qualify the same filter differently
-    based on which alias actually exposes each column there.
-    """
-    result: list[tuple[ast.Select, dict[str, tuple[str, str]]]] = []
-    target_select = cte_query.select
-    if not isinstance(target_select, ast.Select):  # pragma: no cover
-        return result
-
-    cte_name_to_node = {get_cte_name(n.name): n for n in ctx.nodes.values()}
-
-    # Build a reverse lookup from a node's emitted physical table
-    # reference (``catalog.schema.table``) back to the node.  Lets us
-    # resolve Tables referenced by their materialized name (e.g.
-    # ``prodhive.dse.ab_nm_alloc_f`` for a source node named
-    # ``source.prodhive.dse.ab_nm_alloc_f``, or
-    # ``prodhive.dj.common__dimensions__xp__observation_window__v5_0``
-    # for the obs_window dim) instead of by node name or CTE form.
-    # Safely skips nodes whose materialization parts can't be derived.
-    physical_to_node: dict[str, Node] = {}
-    for n in ctx.nodes.values():
-        try:
-            parts, _ = get_table_reference_parts_with_materialization(ctx, n)
-        except Exception:  # pragma: no cover
-            continue
-        if parts:  # pragma: no branch
-            physical_to_node.setdefault(".".join(parts), n)
-
-    # Walk every Select in the CTE body — including secondary arms
-    # of set-op chains and their nested subqueries.  Each scope's
-    # column→alias map is built independently, so column-aware
-    # safety naturally prevents pushing into an arm whose tables
-    # don't expose the filter's columns.  Matches v2 behavior where
-    # filters land in every UNION arm whose source supports them.
-    selects: list[ast.Select] = []
-    for sel in cte_query.find_all(ast.Select):
-        if isinstance(sel, ast.Select):  # pragma: no branch
-            selects.append(sel)
-
-    seen: set[int] = set()
-    for sel in selects:
-        if id(sel) in seen:  # pragma: no cover
-            continue
-        seen.add(id(sel))
-        col_alias: dict[str, tuple[str, str]] = {}
-        if not sel.from_:  # pragma: no cover
-            result.append((sel, col_alias))
-            continue
-        for relation in sel.from_.relations:
-            sides = [relation.primary, *(j.right for j in relation.extensions)]
-            for expr in sides:
-                _populate_scope_column_aliases(
-                    expr,
-                    col_alias,
-                    ctx,
-                    cte_name_to_node,
-                    physical_to_node,
-                )
-        result.append((sel, col_alias))
-    return result
-
-
-def _populate_scope_column_aliases(
-    expr: object,
-    col_alias: dict[str, tuple[str, str]],
-    ctx: BuildContext,
-    cte_name_to_node: dict[str, Node],
-    physical_to_node: dict[str, Node],
-) -> None:
-    """Helper: add this FROM-side expression's columns to a scope's
-    resolver map.
-
-    The resolver map is ``{key → (alias, emit_col)}`` where the key
-    is either a bare column name (for direct-projection lookup) or a
-    fully-qualified dim-ref FQN (for dim-link-aware lookup).
-
-    Handles Tables (resolved via a node-name / CTE-name /
-    materialized-physical-name chain) and subqueries (via projection
-    walk).  For a resolved Table, the node's own ``dimension_links``
-    contribute dim-ref entries: each ``foreign_keys_reversed`` row
-    yields ``dim_pk_fqn → (alias, fk_col_short)``, so a filter on
-    that dim resolves to *this* table's alias even when a sibling
-    table in the same scope exposes the same bare column name.
-
-    First-write-wins on collisions — within a single scope, the
-    earliest-registered Table for a given dim ref or bare column
-    wins.  This matches the FROM-order convention DJ uses elsewhere.
-
-    For Tables, the chain tries three forms in order:
-
-    1. Direct node-name match (``ctx.nodes[tbl_name]``) — covers nodes
-       referenced by their canonical name.
-    2. CTE-name match (``cte_name_to_node[tbl_name]``) — covers nodes
-       referenced as ``a_b_c`` for ``a.b.c``.
-    3. Materialized-physical-name match
-       (``physical_to_node[tbl_name]``) — covers source/transform/dim
-       nodes referenced by their materialized
-       ``catalog.schema.table`` form.
-
-    When all three miss, the Table contributes nothing to the scope's
-    resolver map — safer than guessing.
-    """
-    if isinstance(expr, ast.Table):
-        try:
-            tbl_name = expr.name.identifier(quotes=False)
-        except Exception:  # pragma: no cover
-            return
-        alias_name = expr.alias.name if expr.alias else tbl_name.split(SEPARATOR)[-1]
-        target_node = (
-            ctx.nodes.get(tbl_name)
-            or cte_name_to_node.get(tbl_name)
-            or physical_to_node.get(tbl_name)
-        )
-        if target_node and target_node.current:  # pragma: no branch
-            from datajunction_server.construction.build_v3.utils import get_short_name
-
-            # Dim-link-derived entries — for each dim the node
-            # explicitly links to, register a ``dim_pk_fqn → (alias,
-            # fk_col)`` entry.  This is the ONLY route column-aware
-            # retargeting uses to push filters into this scope; a
-            # bare-col fallback was tried but caused over-aggressive
-            # pushdown into tables that incidentally share a column
-            # name with the filter's dim but aren't actually linked
-            # to it (e.g. pushing ``alloc_utc_date BETWEEN ...`` into
-            # retention_revenue_d whose ``alloc_utc_date`` column
-            # isn't linked to the ``allocation_date`` dim — v2
-            # doesn't push there either).
-            for link in target_node.current.dimension_links or []:
-                for dim_pk_fqn, fk_fqn in (link.foreign_keys_reversed or {}).items():
-                    if not fk_fqn:  # pragma: no cover
-                        continue
-                    resolution = (alias_name, get_short_name(fk_fqn))
-                    if dim_pk_fqn not in col_alias:  # pragma: no branch
-                        col_alias[dim_pk_fqn] = resolution
-                    # A role-qualified filter resolves only through a link with
-                    # that role, so register the link under its role as well.
-                    if link.role:
-                        col_alias.setdefault(f"{dim_pk_fqn}[{link.role}]", resolution)
-            # If the target IS itself a dimension node, register
-            # entries for its own primary-key columns pointing at
-            # this alias — without this, filters on the dim's own
-            # PK (e.g. ``observation_window.observation_window IN
-            # ('1-35')`` against the obs_window dim) wouldn't
-            # resolve since dim nodes don't have dim_links of
-            # their own.
-            if target_node.type == NodeType.DIMENSION and target_node.current.columns:
-                for col in target_node.current.columns:
-                    dim_pk_fqn = f"{target_node.name}{SEPARATOR}{col.name}"
-                    if dim_pk_fqn not in col_alias:  # pragma: no branch
-                        col_alias[dim_pk_fqn] = (alias_name, col.name)
-    elif isinstance(expr, ast.Query):
-        alias_obj = getattr(expr, "alias", None)
-        if alias_obj is None or not hasattr(alias_obj, "name"):  # pragma: no cover
-            return
-        alias_name = alias_obj.name
-        inner_sel = expr.select
-        if not isinstance(inner_sel, ast.Select):  # pragma: no cover
-            return
-        for proj in inner_sel.projection:
-            output_name = _projection_output_name(proj)
-            if output_name and output_name not in col_alias:  # pragma: no branch
-                col_alias[output_name] = (alias_name, output_name)
-
-
-def _projection_output_name(proj: object) -> str | None:
-    """Extract the output column name of a projection element."""
-    alias = getattr(proj, "alias", None)
-    if alias is not None and hasattr(alias, "name"):
-        return alias.name  # pragma: no cover
-    if isinstance(proj, ast.Column) and proj.name:  # pragma: no cover
-        return proj.name.name
-    return None  # pragma: no cover
-
-
-def _ref_is_blocked(ref: str, blocked_refs: set[str]) -> bool:
-    """Whether a filter's dim ref is blocked.
-
-    A role-qualified ref is blocked by its own entry or a role-less one for the
-    dimension, not by another role's. A role-less ref is blocked by any role of
-    the dimension, since it can resolve through any of them.
-    """
-    if ref in blocked_refs:
-        return True
-    base = ref.split("[")[0]
-    if base != ref:
-        return base in blocked_refs
-    return any(blocked.startswith(f"{ref}[") for blocked in blocked_refs)
-
-
-def _filter_touches_blocked_ref(
-    filter_ast: ast.Expression,
-    blocked_refs: set[str],
-) -> bool:
-    """Whether any dim ref in the filter is blocked, keeping each ref's role."""
-    refs: list[str] = []
-    role_columns: set[int] = set()
-    for subscript in filter_ast.find_all(ast.Subscript):
-        if isinstance(subscript.expr, ast.Column):  # pragma: no branch
-            ref = dimension_ref_of_expression(subscript)
-            if ref:  # pragma: no branch
-                refs.append(ref)
-                role_columns.add(id(subscript.expr))
-    for col in filter_ast.find_all(ast.Column):
-        if id(col) not in role_columns:
-            ref = get_column_full_name(col)
-            if ref:  # pragma: no branch
-                refs.append(ref)
-    return any(_ref_is_blocked(ref, blocked_refs) for ref in refs)
-
-
-def _rewrite_filter_for_scope(
-    filter_str: str,
-    filter_column_aliases: dict[str, str],
-    column_to_alias: dict[str, tuple[str, str]],
-    blocked_refs: set[str] | None = None,
-) -> ast.Expression | None:
-    """Parse a filter fresh and qualify each dim-ref column using the
-    scope's resolver map.
-
-    ``blocked_refs`` carries the same outer-only/FK-collision guard the primary
-    rewrite honors (see :func:`_resolve_pushdown_filters_for_cte`): a filter
-    referencing any blocked ref is skipped entirely so this column-aware
-    retargeting pass cannot reintroduce a push the primary path refused.
-
-    The resolver map keys are fully-qualified dim refs (e.g.
-    ``common.dimensions.xp.allocation_snapshot_date.dateint``)
-    populated from each FROM-side node's ``dimension_links``.  Each
-    value is ``(alias, emit_col_name)`` — the alias to qualify the
-    column with, and the FK column on the linked table.
-
-    Filter columns whose dim ref isn't present in the map are
-    silently skipped (the filter as a whole still pushes if other
-    columns resolve).  Bare-column fallback is intentionally not
-    used: if a node doesn't have an explicit dim_link to the
-    filter's dim, pushing the filter there could be semantically
-    wrong (e.g. incidentally matching ``alloc_utc_date`` on a
-    retention table whose date semantics differ from the
-    allocation source).
-
-    Returns ``None`` when no column resolves — atomic per filter
-    to mirror the primary-rewrite behavior.
-    """
-    filter_ast = parse_filter(filter_str)
-    cols = list(filter_ast.find_all(ast.Column))
-    # Guard first, before any early-out: a filter referencing a blocked ref
-    # (outer-only / FK-name collision) must never be retargeted into a scope —
-    # it stays at the outer WHERE.  Checked up front so it holds regardless of
-    # whether this scope's resolver map happens to be empty.
-    if blocked_refs and _filter_touches_blocked_ref(filter_ast, blocked_refs):
-        return None
-    if not column_to_alias:
-        return None
-    rewrites: list[tuple[ast.Expression, ast.Column]] = []
-    # Role-qualified refs are ``Subscript(Column(dim.col), role)``.  They resolve
-    # only through a link with that role, and the whole subscript is replaced so
-    # no ``[role]`` suffix is left in the SQL.  A role the scope can't resolve
-    # means this scope can't take the filter: pushing the rest would leave the
-    # unresolved ref behind.
-    handled_col_ids: set[int] = set()
-    for subscript in filter_ast.find_all(ast.Subscript):
-        if not isinstance(subscript.expr, ast.Column):  # pragma: no cover
-            continue
-        full_name = dimension_ref_of_expression(subscript)
-        if full_name is None:  # pragma: no cover
-            continue
-        handled_col_ids.add(id(subscript.expr))
-        if isinstance(subscript.index, ast.Column):  # pragma: no branch
-            handled_col_ids.add(id(subscript.index))
-        resolution = column_to_alias.get(full_name)
-        if resolution is None:
-            return None
-        target_alias, emit_col = resolution
-        new_name = ast.Name(emit_col, namespace=ast.Name(target_alias))
-        rewrites.append((subscript, ast.Column(name=new_name)))
-    for col in cols:
-        if id(col) in handled_col_ids:
-            continue
-        full = get_column_full_name(col)
-        if not full:  # pragma: no cover
-            continue
-        resolution = column_to_alias.get(full)
-        if resolution is None:  # pragma: no cover
-            continue
-        target_alias, emit_col = resolution
-        new_name = ast.Name(emit_col, namespace=ast.Name(target_alias))
-        rewrites.append((col, ast.Column(name=new_name)))
-    if not rewrites:  # pragma: no cover
-        return None
-    for old_expr, new_col in rewrites:
-        if old_expr.parent is not None:  # pragma: no branch
-            old_expr.parent.replace(old_expr, new_col, copy=False)
-    return filter_ast
-
-
 def _cte_has_set_operation(cte_query: ast.Query) -> bool:
     """Detect whether the CTE body is a UNION / INTERSECT / EXCEPT.
 
@@ -2112,11 +1482,6 @@ def _build_name(parts: list[str]) -> ast.Name:
     if len(parts) == 1:
         return ast.Name(parts[0])
     return ast.Name(parts[-1], namespace=_build_name(parts[:-1]))
-
-
-def _column_from_qualified(qualified: str) -> ast.Column:
-    """Build an ``ast.Column`` node from a dotted reference like ``o.order_date``."""
-    return ast.Column(name=_build_name(qualified.split(SEPARATOR)))
 
 
 def _resolve_pushdown_form(
@@ -2152,13 +1517,12 @@ def _rewrite_filter_for_cte(
     filter_column_aliases: dict[str, str],
     cte_output_cols: set[str],
     cte_query: ast.Query,
+    blocked_refs: set[str] | None = None,
 ) -> ast.Expression | None:
     """Rewrite a dimension filter for injection into a specific CTE.
 
-    For non-set-op CTEs, delegates to :func:`_rewrite_filter_for_select`
-    against the single Select arm.  Returns ``None`` for set-op CTE
-    bodies — callers (e.g. :func:`_resolve_pushdown_filters_for_cte`)
-    handle set-op CTEs by pushing into the primary arm only.
+    Set-operation outputs are filtered by their consumer rather than modifying
+    just one arm. Otherwise every reference must bind to the output projection.
     """
     if _cte_has_set_operation(cte_query):
         return None
@@ -2167,6 +1531,7 @@ def _rewrite_filter_for_cte(
         filter_column_aliases,
         cte_output_cols,
         cast(ast.Select, cte_query.select),
+        blocked_refs,
     )
 
 
@@ -2206,100 +1571,26 @@ def _rewrite_filter_for_select(
     Returns the rewritten filter AST, or None when the filter can't be
     safely pushed into this Select.
     """
-    blocked_refs = blocked_refs or set()
+    from datajunction_server.construction.build_v3.filters import (
+        resolve_filter_references,
+    )
+    from datajunction_server.construction.build_v3.utils import (
+        extract_filter_dimension_refs,
+    )
+
     projection_map = _build_select_projection_map(cte_select)
-    filter_ast = parse_filter(filter_str)
-
-    # Outer-only refs (joined-dimension attributes that resolve only to a bare
-    # column name) must never be pushed into this CTE — a same-named local
-    # column is the raw FK value, not the attribute.  If the filter touches
-    # one, bail entirely so the predicate stays in the post-join outer WHERE;
-    # a partial push would either bind to the wrong column or leave the rest
-    # of an OR-predicate dangling.  Role-qualified refs are checked with their
-    # role, so a blocked role doesn't block a filter on another role.
-    if blocked_refs and _filter_touches_blocked_ref(filter_ast, blocked_refs):
-        return None
-
-    # First pass: plan the rewrites by walking the AST.  Role-qualified refs
-    # appear as Subscript(Column(base), Column/Lambda(role)) and are handled
-    # whole; plain Column refs are handled individually.  Collect rewrites
-    # into buffers so we can bail out atomically if any ref can't be pushed.
-    subscript_rewrites: list[tuple[ast.Subscript, ast.Column]] = []
-    column_rewrites: list[tuple[ast.Column, ast.Column]] = []
-    # Columns that are children of a rewritten Subscript — exclude from the
-    # plain-Column pass so we don't double-process them.
-    handled_col_ids: set[int] = set()
-
-    # Users can write filters like v3.date.date_id[order] >= 20240101 where
-    # [order] is a role, a disambiguator when the same dimension is linked to
-    # the fact multiple times. A filter like that would be stored in the AST as:
-    #   BinaryOp(
-    #     >=,
-    #     Subscript(
-    #       expr=Column("v3.date.date_id"),
-    #       index=Column("order"),
-    #     ),
-    #     Literal(20240101),
-    #  )
-    for subscript in filter_ast.find_all(ast.Subscript):
-        # Skip ones whose target isn't a Column as these are real SQL array subscripts, not role refs
-        if not isinstance(subscript.expr, ast.Column):
-            continue  # pragma: no cover
-        # Reconstruct the original role-qualified form: base = "v3.date.date_id", role = "order"
-        base = get_column_full_name(subscript.expr)
-        full_name = dimension_ref_of_expression(subscript)
-        if full_name is None:
-            continue  # pragma: no cover
-
-        # Look up in the filter alias map. Prefers the role-specific key over the fallback.
-        output_col = filter_column_aliases.get(
-            full_name,
-        ) or filter_column_aliases.get(base)
+    bindings: dict[str, ast.Name] = {}
+    for ref in extract_filter_dimension_refs([filter_str], include_bare=True):
+        if ref in (blocked_refs or set()):
+            return None
+        output_col = filter_column_aliases.get(ref)
         if output_col is None:
-            continue  # pragma: no cover
-        form = _resolve_pushdown_form(
-            output_col,
-            cte_output_cols,
-            projection_map,
-        )
+            return None
+        form = _resolve_pushdown_form(output_col, cte_output_cols, projection_map)
         if form is None:
             return None
-        replacement = _column_from_qualified(form)
-        subscript_rewrites.append((subscript, replacement))
-
-        # Safety checks and queue for subscript to column swap
-        handled_col_ids.add(id(subscript.expr))
-        if isinstance(subscript.index, ast.Column):
-            handled_col_ids.add(id(subscript.index))
-
-    # Handle dim refs that don't have a role qualifier
-    for col in filter_ast.find_all(ast.Column):
-        # Skip columns accounted for in the subscript pass
-        if id(col) in handled_col_ids:
-            continue
-        full_name = get_column_full_name(col)
-        if not full_name or full_name not in filter_column_aliases:
-            continue
-        output_col = filter_column_aliases[full_name]
-        form = _resolve_pushdown_form(
-            output_col,
-            cte_output_cols,
-            projection_map,
-        )
-        if form is None:
-            return None
-        column_rewrites.append((col, _column_from_qualified(form)))
-
-    if not subscript_rewrites and not column_rewrites:
-        return None
-
-    # Second pass: apply.  Safe to mutate now that every ref has been validated.
-    for subscript, replacement in subscript_rewrites:
-        subscript.swap(replacement)
-    for col, replacement in column_rewrites:
-        col.swap(replacement)
-
-    return filter_ast
+        bindings[ref] = _build_name(form.split(SEPARATOR))
+    return resolve_filter_references(parse_filter(filter_str), bindings)
 
 
 def _build_cte_projection_map(cte_query: ast.Query) -> dict[str, str | None]:
@@ -2381,9 +1672,8 @@ def collect_node_ctes(
     """
     Collect CTEs for all non-source nodes, recursively expanding table references.
 
-    When ``pushdown`` is provided, fact/transform CTEs check whether a request
-    filter binds in their relational scope. Dimension CTEs and their input
-    lineage stay unfiltered because they may serve other roles or grain groups.
+    Request filters are placed once for the specified fact consumer, before
+    table rewriting and CTE flattening. Shared input definitions stay intact.
 
     This handles the full dependency chain:
     - Source nodes -> replaced with physical table names (catalog.schema.table)
@@ -2409,7 +1699,6 @@ def collect_node_ctes(
     """
     # Collect all node names that need CTEs (including transitive dependencies)
     all_node_names: set[str] = set()
-    dependencies: dict[str, set[str]] = {}
     # Track source nodes encountered during traversal
     scanned_source_names: set[str] = set()
     # Map of node_name -> filter strings successfully pushed into that CTE
@@ -2445,7 +1734,6 @@ def collect_node_ctes(
                 query_ast = ctx.get_parsed_query(node)
 
                 refs = get_table_references_from_ast(query_ast)
-                dependencies[node.name] = refs
 
                 for ref in refs:
                     ref_node = ctx.nodes.get(ref)
@@ -2460,21 +1748,6 @@ def collect_node_ctes(
     for node in nodes_to_include:
         collect_refs(node, shared_visited)
 
-    # Keeping a dimension CTE unfiltered is insufficient if a transform feeding
-    # it is narrowed instead. Protect the whole dimension input lineage, even
-    # when one of those inputs also supplies the fact. The consuming fact scope
-    # can still apply its own predicate without changing another reader's rows.
-    dimension_inputs: set[str] = set()
-    pending = [
-        name for name in all_node_names if ctx.nodes[name].type == NodeType.DIMENSION
-    ]
-    while pending:
-        name = pending.pop()
-        if name in dimension_inputs:
-            continue
-        dimension_inputs.add(name)
-        pending.extend(dependencies.get(name, set()))
-
     # Topologically sort all collected nodes
     sorted_nodes = topological_sort_nodes(ctx, all_node_names)
 
@@ -2482,6 +1755,22 @@ def collect_node_ctes(
     cte_names: dict[str, str] = {}
     for node in sorted_nodes:
         cte_names[node.name] = get_cte_name(node.name)
+
+    # Plan request filters on build-local semantic ASTs, before lowering table
+    # names or flattening WITH definitions. Cached authored queries stay intact.
+    queries = {
+        node.name: deepcopy(ctx.get_parsed_query(node))
+        for node in sorted_nodes
+        if node.current and node.current.query
+    }
+    if pushdown:
+        from datajunction_server.construction.build_v3.filter_placement import (
+            place_filters,
+        )
+
+        consumed = place_filters(ctx, queries, pushdown)
+        if consumed:
+            consumed_by_node[pushdown.parent_node_name] = consumed
 
     # Build CTEs in dependency order
     ctes: list[tuple[str, ast.Query]] = []
@@ -2496,8 +1785,8 @@ def collect_node_ctes(
         if not node.current or not node.current.query:  # pragma: no cover
             continue
 
-        # Get parsed query from cache (uses deepcopy internally to avoid mutation)
-        query_ast = deepcopy(ctx.get_parsed_query(node))
+        # Lower the build-local query after semantic filter placement.
+        query_ast = queries[node.name]
 
         cte_name = cte_names[node.name]
 
@@ -2526,26 +1815,9 @@ def collect_node_ctes(
             inner_cte_renames,
         )
 
-        # Inject filters into this CTE's WHERE clause from two sources:
-        # (1) Temporal/explicit filters targeted at this node by name
-        # (2) User dimension filters that reference columns this CTE outputs
+        # Apply explicit temporal/lookback predicates targeted at this node.
         if injected_filters and node.name in injected_filters:
             _inject_filter_into_where(query_ast, injected_filters[node.name])
-
-        if pushdown and node.name not in dimension_inputs:
-            injections, consumed = _resolve_pushdown_filters_for_cte(
-                node,
-                query_ast,
-                pushdown.filters,
-                pushdown.column_aliases,
-                ctx,
-                pushdown.outer_only_refs,
-                pushdown.fk_collision_cols,
-            )
-            for target_select, filter_ast in injections:
-                inject_filter_into_select(target_select, filter_ast)
-            if consumed:
-                consumed_by_node[node.name] = consumed
 
         ctes.append((cte_name, query_ast))
 

@@ -763,10 +763,11 @@ async def test_sql_with_filter_on_local_column(
             repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
             repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
             repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
-          FROM default.roads.repair_orders repair_orders
-          JOIN default.roads.repair_order_details repair_order_details
+          FROM default.roads.repair_orders AS repair_orders
+          JOIN default.roads.repair_order_details AS repair_order_details
             ON repair_orders.repair_order_id = repair_order_details.repair_order_id
-          WHERE repair_orders.hard_hat_id > 100
+          WHERE
+            repair_orders.hard_hat_id > 100
         )
         SELECT
           t1.repair_order_id,
@@ -783,8 +784,7 @@ async def test_sql_with_filter_on_local_column(
           t1.total_repair_cost,
           t1.time_to_dispatch,
           t1.dispatch_delay
-        FROM default_repair_orders_fact t1
-        WHERE t1.hard_hat_id > 100
+        FROM default_repair_orders_fact AS t1
         LIMIT 5
         """,
     )
@@ -990,11 +990,22 @@ async def test_sql_with_multiple_filters(
         response.json()["sql"],
         """
         WITH default_hard_hat AS (
-          SELECT hard_hat_id, last_name, first_name, title, birth_date, hire_date,
-                 address, city, state, postal_code, country, manager, contractor_id
+          SELECT
+            hard_hat_id,
+            last_name,
+            first_name,
+            title,
+            birth_date,
+            hire_date,
+            address,
+            city,
+            state,
+            postal_code,
+            country,
+            manager,
+            contractor_id
           FROM default.roads.hard_hats
-        ),
-        default_repair_orders_fact AS (
+        ), default_repair_orders_fact AS (
           SELECT
             repair_orders.repair_order_id,
             repair_orders.municipality_id,
@@ -1010,10 +1021,11 @@ async def test_sql_with_multiple_filters(
             repair_order_details.price * repair_order_details.quantity AS total_repair_cost,
             repair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,
             repair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay
-          FROM default.roads.repair_orders repair_orders
-          JOIN default.roads.repair_order_details repair_order_details
+          FROM default.roads.repair_orders AS repair_orders
+          JOIN default.roads.repair_order_details AS repair_order_details
             ON repair_orders.repair_order_id = repair_order_details.repair_order_id
-          WHERE repair_order_details.price > 50
+          WHERE
+            repair_order_details.price > 50
         )
         SELECT
           t1.repair_order_id,
@@ -1030,10 +1042,11 @@ async def test_sql_with_multiple_filters(
           t1.total_repair_cost,
           t1.time_to_dispatch,
           t1.dispatch_delay
-        FROM default_repair_orders_fact t1
-        INNER JOIN default_hard_hat t2
+        FROM default_repair_orders_fact AS t1
+        INNER JOIN default_hard_hat AS t2
           ON t1.hard_hat_id = t2.hard_hat_id
-        WHERE t1.price > 50 AND t2.state = 'CA'
+        WHERE
+          t2.state = 'CA'
         LIMIT 2
         """,
     )

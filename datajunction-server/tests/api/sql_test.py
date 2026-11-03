@@ -907,7 +907,6 @@ async def test_transform_sql_filter_dimension_pk_col(
         	t1.dispatch_delay,
         	t1.hard_hat_id
          FROM default_repair_orders_fact t1
-         WHERE  t1.hard_hat_id = 7
 
         """,
         expected_columns=[
@@ -1093,7 +1092,6 @@ async def test_transform_sql_filter_direct_node(
         	t1.time_to_dispatch,
         	t1.dispatch_delay
          FROM default_repair_orders_fact t1
-         WHERE  t1.price > 97915
 
         """,
         expected_columns=[
@@ -3425,17 +3423,18 @@ async def test_filter_pushdowns(
     assert_sql_equal(
         response.json()["sql"],
         """
-        WITH
-        default_repair_orders_fact AS (
-        SELECT  repair_orders.hard_hat_id AS hh_id
-         FROM default.roads.repair_orders repair_orders
-         WHERE  repair_orders.hard_hat_id IN (123, 13) AND repair_orders.hard_hat_id = 123 OR repair_orders.hard_hat_id = 13
+        WITH default_repair_orders_fact AS (
+          SELECT
+            repair_orders.hard_hat_id AS hh_id
+          FROM default.roads.repair_orders AS repair_orders
+          WHERE
+            repair_orders.hard_hat_id IN (123, 13)
+            AND repair_orders.hard_hat_id = 123
+            OR repair_orders.hard_hat_id = 13
         )
-
-        SELECT  t1.hh_id hard_hat_id
-         FROM default_repair_orders_fact t1
-         WHERE  t1.hh_id IN (123, 13) AND t1.hh_id = 123 OR t1.hh_id = 13
-
+        SELECT
+          t1.hh_id AS hard_hat_id
+        FROM default_repair_orders_fact AS t1
         """,
     )
 
@@ -3667,16 +3666,9 @@ async def test_filter_on_source_nodes(
         },
     )
 
-    # The v3 single-node builder does not propagate filter dimensions through
-    # upstream source nodes (the join path is rooted at the requested node, so
-    # filters that reference an upstream-only dim have nowhere to anchor). The
-    # v2 path used to follow the upstream-source dim_link and pushdown the
-    # filter into the source CTE; v3 surfaces this as a clear "no join path"
-    # error instead of silently producing a query with the filter dropped.
-    assert response.status_code == 422
-    body = response.json()
-    assert "Cannot find join path" in body["message"]
-    assert "default.event_date" in body["message"]
+    # The same unique-path placement supports node SQL and metric SQL.
+    assert response.status_code == 200, response.json()
+    assert "event_date BETWEEN 20240101 AND 20240201" in response.json()["sql"]
 
 
 # =============================================================================
