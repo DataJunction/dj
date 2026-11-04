@@ -259,7 +259,7 @@ class NodeNamespace(Base):
             select(Node)
             .where(
                 or_(
-                    Node.namespace.like(f"{namespace}.%"),
+                    Node.namespace.startswith(f"{namespace}.", autoescape=True),
                     Node.namespace == namespace,
                 ),
             )
