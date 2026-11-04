@@ -25,7 +25,10 @@ from datajunction_server.construction.build_v3.decomposition import (
     missing_fixed_grain_dimensions,
     missing_reaggregate_dimensions,
 )
-from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
+from datajunction_server.construction.build_v3.dimensions import (
+    parse_dimension_ref,
+    resolve_dimensions,
+)
 from datajunction_server.construction.build_v3.filter_requirements import (
     CheckedFilters,
     check_filter_requirements,
@@ -54,6 +57,7 @@ from datajunction_server.construction.build_v3.types import (
 from datajunction_server.construction.build_v3.utils import (
     add_dimensions_from_filters,
     add_dimensions_from_metric_expressions,
+    extract_filter_dimension_refs,
 )
 from datajunction_server.construction.build_v3.window_lookback import (
     apply_live_window_lookback,
@@ -61,7 +65,13 @@ from datajunction_server.construction.build_v3.window_lookback import (
     densify_window_base_metrics,
 )
 from datajunction_server.database.partition import Partition
-from datajunction_server.errors import DJError, DJInvalidInputException, ErrorCode
+from datajunction_server.errors import (
+    DJError,
+    DJException,
+    DJInvalidInputException,
+    DJWarning,
+    ErrorCode,
+)
 from datajunction_server.instrumentation import events
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.materialization import MaterializationTarget
@@ -449,6 +459,64 @@ async def build_measures_sql(
     return result
 
 
+def _parent_reaches(ctx: BuildContext, parent_node: Any, dimension: str) -> bool:
+    """Whether the parent node can resolve this dimension."""
+    saved = ctx.dimensions
+    ctx.dimensions = [dimension]
+    try:
+        resolve_dimensions(ctx, parent_node)
+        return True
+    except DJException:
+        return False
+    finally:
+        ctx.dimensions = saved
+
+
+def _scope_filters_to_parents(ctx: BuildContext) -> dict[str, list[str]]:
+    """
+    Filters to skip for parents that cannot reach them, keyed by parent name.
+
+    A filter on filter-only dimensions applies only to the parents that reach
+    all of them. It is skipped for a parent that reaches none, as long as some
+    parent reaches all. Anything else still fails as before.
+    """
+    groups = ctx.metric_groups
+    scoped: dict[str, list[str]] = {}
+    if len(groups) < 2:
+        return scoped
+    for filter_str in ctx.dimension_filters:
+        refs = extract_filter_dimension_refs([filter_str])
+        if not refs or not all(ref in ctx.filter_dimensions for ref in refs):
+            continue
+        reached = {
+            group.parent_node.name: [
+                _parent_reaches(ctx, group.parent_node, ref) for ref in refs
+            ]
+            for group in groups
+        }
+        if any(any(r) and not all(r) for r in reached.values()):
+            continue
+        with_filter = [g for g in groups if all(reached[g.parent_node.name])]
+        without = [g for g in groups if not any(reached[g.parent_node.name])]
+        if not with_filter or not without:
+            continue
+        for group in without:
+            scoped.setdefault(group.parent_node.name, []).append(filter_str)
+        names = lambda gs: ", ".join(  # noqa: E731
+            sorted(m.metric_node.name for g in gs for m in g.decomposed_metrics),
+        )
+        ctx.add_warning(
+            DJWarning(
+                code=ErrorCode.FILTER_SCOPED,
+                message=(
+                    f"Filter {filter_str} applied to {names(with_filter)} only; "
+                    f"{names(without)} cannot reach it"
+                ),
+            ),
+        )
+    return scoped
+
+
 async def build_grain_groups(
     ctx: BuildContext,
     metrics: list[str],
@@ -472,8 +540,21 @@ async def build_grain_groups(
     # Process each metric group into grain group SQLs
     # Cross-fact metrics produce separate grain groups (one per parent node)
     all_grain_group_sqls: list[GrainGroupSQL] = []
+    scoped_filters = _scope_filters_to_parents(ctx)
     for metric_group in ctx.metric_groups:
-        grain_group_sqls = process_metric_group(ctx, metric_group)
+        dropped = scoped_filters.get(metric_group.parent_node.name, [])
+        saved = (ctx.dimensions, ctx.filter_dimensions, ctx.dimension_filters)
+        if dropped:
+            dropped_dims = set(extract_filter_dimension_refs(dropped))
+            ctx.dimensions = [d for d in ctx.dimensions if d not in dropped_dims]
+            ctx.filter_dimensions = ctx.filter_dimensions - dropped_dims
+            ctx.dimension_filters = [
+                f for f in ctx.dimension_filters if f not in dropped
+            ]
+        try:
+            grain_group_sqls = process_metric_group(ctx, metric_group)
+        finally:
+            ctx.dimensions, ctx.filter_dimensions, ctx.dimension_filters = saved
         all_grain_group_sqls.extend(grain_group_sqls)
 
     # Sanity check: all requested metrics should already be decomposed

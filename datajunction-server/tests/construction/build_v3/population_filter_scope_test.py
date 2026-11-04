@@ -13,6 +13,8 @@ import pytest_asyncio
 
 from tests.conftest import transpile_to_duckdb
 
+from . import assert_sql_equal
+
 ALLOCATION = [(1, "A"), (2, "A"), (3, "B"), (4, "B")]
 PLAYS = [
     (1, "tv", 100.0),
@@ -149,12 +151,77 @@ def exp_tables(duckdb_conn):
     return duckdb_conn
 
 
-async def _query(client, filters=None):
+def _expected_by_cell(
+    play_where="",
+    allocation_where="",
+    outer_where="",
+    join_where="",
+):
+    return f"""
+    WITH
+    exp_allocation AS (
+      SELECT account_id, cell FROM default.exp.allocation {allocation_where}
+    ),
+    exp_play AS (
+      SELECT account_id, secs FROM default.exp.play {play_where}
+    ),
+    allocation_0 AS (
+      SELECT t1.cell, t1.account_id FROM exp_allocation t1
+      GROUP BY t1.cell, t1.account_id
+    ),
+    allocation_0_agg AS (
+      SELECT cell, COUNT(DISTINCT account_id) account_id
+      FROM allocation_0 GROUP BY cell
+    ),
+    play_0 AS (
+      SELECT t2.cell, SUM(t1.secs) secs_sum_5b5411ec
+      FROM exp_play t1
+      LEFT OUTER JOIN exp_allocation t2 ON t1.account_id = t2.account_id
+      {join_where}
+      GROUP BY t2.cell
+    )
+    SELECT
+      COALESCE(allocation_0_agg.cell, play_0.cell) AS cell,
+      SUM(play_0.secs_sum_5b5411ec) / NULLIF(MAX(allocation_0_agg.account_id), 0)
+        AS secs_per_account
+    FROM allocation_0_agg
+    FULL OUTER JOIN play_0 ON allocation_0_agg.cell = play_0.cell
+    {outer_where}
+    GROUP BY 1
+    """
+
+
+EXPECTED_BY_ACCOUNT_WITH_TV_FILTER = """
+WITH
+exp_allocation AS (
+  SELECT account_id FROM default.exp.allocation
+),
+exp_play AS (
+  SELECT account_id, secs FROM default.exp.play WHERE device_type = 'tv'
+),
+allocation_0 AS (
+  SELECT t1.account_id FROM exp_allocation t1 GROUP BY t1.account_id
+),
+play_0 AS (
+  SELECT t1.account_id, SUM(t1.secs) secs_sum_5b5411ec
+  FROM exp_play t1 GROUP BY t1.account_id
+)
+SELECT
+  COALESCE(allocation_0.account_id, play_0.account_id) AS account_id,
+  SUM(play_0.secs_sum_5b5411ec) / NULLIF(COUNT(DISTINCT allocation_0.account_id), 0)
+    AS secs_per_account
+FROM allocation_0
+FULL OUTER JOIN play_0 ON allocation_0.account_id = play_0.account_id
+GROUP BY 1
+"""
+
+
+async def _query(client, filters=None, dimensions=("exp.allocation.cell",)):
     response = await client.get(
         "/sql/metrics/v3/",
         params={
             "metrics": ["exp.secs_per_account"],
-            "dimensions": ["exp.allocation.cell"],
+            "dimensions": list(dimensions),
             "filters": filters or [],
         },
     )
@@ -170,6 +237,7 @@ async def test_without_filter_divides_by_whole_population(exp_model, exp_tables)
     response = await _query(exp_model)
     assert response.status_code == 200, response.text
     body = response.json()
+    assert_sql_equal(body["sql"], _expected_by_cell())
     assert _rows(exp_tables, body["sql"]) == [("A", 90.0), ("B", 30.0)]
     assert body["warnings"] == []
 
@@ -179,6 +247,12 @@ async def test_device_filter_keeps_population_unfiltered(exp_model, exp_tables):
     response = await _query(exp_model, ["exp.device_d.device_type = 'tv'"])
     assert response.status_code == 200, response.text
     body = response.json()
+    # The device filter lands only in the play CTE; the allocation CTEs are
+    # unchanged, so the denominator stays the whole population.
+    assert_sql_equal(
+        body["sql"],
+        _expected_by_cell(play_where="WHERE device_type = 'tv'"),
+    )
     # Cell A: 100 tv secs / 2 allocated accounts. Cell B: 60 / 2.
     # Account 4 never played and account 2 never used a tv; both stay counted.
     assert _rows(exp_tables, body["sql"]) == [("A", 50.0), ("B", 30.0)]
@@ -202,6 +276,14 @@ async def test_filter_both_sides_reach_applies_to_both(exp_model, exp_tables):
     response = await _query(exp_model, ["exp.allocation.cell = 'A'"])
     assert response.status_code == 200, response.text
     body = response.json()
+    assert_sql_equal(
+        body["sql"],
+        _expected_by_cell(
+            allocation_where="WHERE cell = 'A'",
+            join_where="WHERE t2.cell = 'A'",
+            outer_where="WHERE allocation_0_agg.cell = 'A'",
+        ),
+    )
     assert _rows(exp_tables, body["sql"]) == [("A", 90.0)]
     assert body["warnings"] == []
 
@@ -210,3 +292,32 @@ async def test_filter_both_sides_reach_applies_to_both(exp_model, exp_tables):
 async def test_filter_no_metric_reaches_still_fails(exp_model):
     response = await _query(exp_model, ["exp.nowhere.col = 1"])
     assert response.status_code in (404, 422), response.text
+
+
+@pytest.mark.asyncio
+async def test_device_filter_at_account_grain(exp_model, exp_tables):
+    response = await _query(
+        exp_model,
+        ["exp.device_d.device_type = 'tv'"],
+        ["exp.allocation.account_id"],
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert_sql_equal(body["sql"], EXPECTED_BY_ACCOUNT_WITH_TV_FILTER)
+    # Every allocated account has a row. Accounts 2 and 4 have no tv plays, so
+    # their value is NULL (SUM over no rows), not 0.
+    assert _rows(exp_tables, body["sql"]) == [
+        (1, 100.0),
+        (2, None),
+        (3, 60.0),
+        (4, None),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_or_filter_across_both_sides_is_rejected(exp_model):
+    response = await _query(
+        exp_model,
+        ["exp.allocation.cell = 'A' OR exp.device_d.device_type = 'tv'"],
+    )
+    assert response.status_code == 422, response.text
