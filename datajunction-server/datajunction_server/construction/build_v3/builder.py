@@ -31,6 +31,7 @@ from datajunction_server.construction.build_v3.filter_requirements import (
     check_filter_requirements,
 )
 from datajunction_server.construction.build_v3.filters import (
+    normalize_filters,
     get_filter_column_references,
 )
 from datajunction_server.construction.build_v3.loaders import (
@@ -299,7 +300,7 @@ async def setup_build_context(
         session=session,
         metrics=metrics,
         dimensions=list(dimensions),
-        filters=filters or [],
+        filters=normalize_filters(filters),
         dialect=dialect,
         combiner_dialect=combiner_dialect,
         materialization_target=materialization_target,

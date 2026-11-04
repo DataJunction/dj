@@ -252,6 +252,18 @@ def test_multi_hop_role_still_pushes_into_owning_fact_scope():
 
 async def filtered_node_sql(client, endpoint, query, filters, aggregation):
     """Build the same filtered transform through the node and metric endpoints."""
+    response = await filtered_node_response(
+        client,
+        endpoint,
+        query,
+        filters,
+        aggregation,
+    )
+    return response_sql(response, endpoint)
+
+
+async def filtered_node_response(client, endpoint, query, filters, aggregation):
+    """Return the response so rejected placements can be tested as well."""
     response = await client.post(
         "/nodes/transform/",
         json={"name": "v3.filtered_fact", "query": query, "mode": "published"},
@@ -261,6 +273,7 @@ async def filtered_node_sql(client, endpoint, query, filters, aggregation):
         response = await client.get(
             "/sql/v3.filtered_fact/",
             params={"filters": filters},
+            headers={"Cache-Control": "no-cache"},
         )
     else:
         response = await client.post(
@@ -275,8 +288,9 @@ async def filtered_node_sql(client, endpoint, query, filters, aggregation):
         response = await client.get(
             f"/sql/{endpoint}/v3/",
             params={"metrics": ["v3.filtered_total"], "filters": filters},
+            headers={"Cache-Control": "no-cache"},
         )
-    return response_sql(response, endpoint)
+    return response
 
 
 @pytest.mark.parametrize("endpoint", ["node", "measures", "metrics"])
@@ -365,3 +379,122 @@ async def test_filter_only_union_status_constrains_both_arms(
         "CREATE TABLE orders (order_id INTEGER, status TEXT); "
         "INSERT INTO orders VALUES (1, 'active'), (2, 'inactive'), (3, 'active');",
     ) == ([(1, "active")] if endpoint == "node" else [(1,)])
+
+
+@pytest.fixture
+async def customer_date_link(client_with_build_v3):
+    client = client_with_build_v3
+    response = await client.post(
+        "/nodes/v3.src_customers/link",
+        json={
+            "dimension_node": "v3.date",
+            "join_on": "v3.src_customers.registration_date = v3.date.date_id",
+        },
+    )
+    assert response.status_code in (200, 201), response.json()
+    return client
+
+
+CUSTOMER_ORDERS = """
+    CREATE TABLE orders (order_id INTEGER, customer_id INTEGER, status TEXT);
+    CREATE TABLE customers (customer_id INTEGER, registration_date INTEGER);
+    INSERT INTO orders VALUES
+        (1, 1, 'active'), (2, 2, 'inactive'), (3, 3, 'active'), (4, 4, 'active');
+    INSERT INTO customers VALUES (1, 20240101), (2, 20230101), (4, NULL);
+"""
+
+
+@pytest.mark.parametrize("endpoint", ["node", "measures", "metrics"])
+@pytest.mark.parametrize(
+    "filters, expected",
+    [
+        (["v3.date.date_id = 20240101"], [(1, "active")]),
+        (["v3.date.date_id IS NULL"], [(3, "active"), (4, "active")]),
+        (
+            ["v3.date.date_id >= 20230101 AND v3.filtered_fact.status = 'active'"],
+            [(1, "active")],
+        ),
+        (
+            ["v3.date.date_id >= 20230101", "v3.filtered_fact.status = 'active'"],
+            [(1, "active")],
+        ),
+        (
+            ["v3.date.date_id = 20240101 OR v3.filtered_fact.status = 'inactive'"],
+            [(1, "active"), (2, "inactive")],
+        ),
+    ],
+)
+async def test_hidden_filter_constrains_authored_outer_join(
+    customer_date_link,
+    endpoint,
+    filters,
+    expected,
+):
+    sql = await filtered_node_sql(
+        customer_date_link,
+        endpoint,
+        "SELECT o.order_id, o.status FROM v3.src_orders o "
+        "LEFT JOIN v3.src_customers c ON o.customer_id = c.customer_id",
+        filters,
+        "COUNT(order_id)",
+    )
+    assert execute(sql, CUSTOMER_ORDERS) == (
+        expected if endpoint == "node" else [(len(expected),)]
+    )
+
+
+@pytest.mark.parametrize("endpoint", ["node", "measures", "metrics"])
+async def test_hidden_filter_rejects_nullable_query_boundary(
+    customer_date_link,
+    endpoint,
+):
+    response = await filtered_node_response(
+        customer_date_link,
+        endpoint,
+        "SELECT o.order_id FROM v3.src_orders o LEFT JOIN "
+        "(SELECT customer_id FROM v3.src_customers) c "
+        "ON o.customer_id = c.customer_id",
+        ["v3.date.date_id = 20240101"],
+        "COUNT(order_id)",
+    )
+    assert response.status_code == 422, response.json()
+    assert "nullable query boundary" in str(response.json())
+
+
+@pytest.mark.parametrize("endpoint", ["node", "measures", "metrics"])
+@pytest.mark.parametrize("combined", [False, True])
+async def test_hidden_and_aggregate_filters_keep_separate_scopes(
+    customer_date_link,
+    endpoint,
+    combined,
+):
+    filters = ["v3.date.date_id = 20240101", "v3.filtered_fact.total > 1"]
+    sql = await filtered_node_sql(
+        customer_date_link,
+        endpoint,
+        "SELECT c.customer_id, COUNT(*) AS total FROM v3.src_customers c "
+        "JOIN v3.src_orders o ON c.customer_id = o.customer_id GROUP BY c.customer_id",
+        [" AND ".join(filters)] if combined else filters,
+        "SUM(total)",
+    )
+    # Customer 1 has two matching orders; customer 2's count must be filtered
+    # before aggregation, while the aggregate predicate applies to the result.
+    fixture = CUSTOMER_ORDERS + "INSERT INTO orders VALUES (5, 1, 'active');"
+    assert execute(sql, fixture) == ([(1, 2)] if endpoint == "node" else [(2,)])
+
+
+@pytest.mark.parametrize("endpoint", ["node", "measures", "metrics"])
+async def test_hidden_or_aggregate_filter_cannot_split_scopes(
+    customer_date_link,
+    endpoint,
+):
+    response = await filtered_node_response(
+        customer_date_link,
+        endpoint,
+        "SELECT c.customer_id, COUNT(*) AS total FROM v3.src_customers c "
+        "JOIN v3.src_orders o ON c.customer_id = o.customer_id GROUP BY c.customer_id",
+        ["v3.date.date_id = 20240101 OR v3.filtered_fact.total > 1"],
+        "SUM(total)",
+    )
+    assert response.status_code == 422, response.json()
+    assert "local references cannot bind" in str(response.json())

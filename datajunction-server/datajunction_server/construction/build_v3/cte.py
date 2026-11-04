@@ -1289,6 +1289,20 @@ def _filter_namespaces(filter_ast: ast.Expression) -> set[str]:
     }
 
 
+def _non_preserved_sides(relation: ast.Relation) -> set[ast.Expression]:
+    """Relation inputs that can become NULL-filled anywhere in a join chain."""
+    left = {relation.primary}
+    nullable: set[ast.Expression] = set()
+    for join in relation.extensions:
+        kind = (join.join_type or "").upper().strip()
+        if kind in _OUTER_JOIN_KINDS_RIGHT | _OUTER_JOIN_KINDS_FULL:
+            nullable.update(left)
+        if kind in _OUTER_JOIN_KINDS_LEFT | _OUTER_JOIN_KINDS_FULL:
+            nullable.add(join.right)
+        left.add(join.right)
+    return nullable
+
+
 def _classify_outer_join_target(
     relation: ast.Relation,
     filter_namespaces: set[str],
@@ -1311,33 +1325,9 @@ def _classify_outer_join_target(
     if not relation.extensions or not filter_namespaces:
         return None
 
-    # ``_get_relation_side_id`` returns None only for unaliased subqueries the
-    # v3 builder never emits — branches guarding ``is not None`` are
-    # defensive only, hence the no-branch pragmas on this loop.
-    preserved: dict[str, ast.Expression] = {}
-    non_preserved: dict[str, ast.Expression] = {}
-    primary_id = _get_relation_side_id(relation.primary)
-    if primary_id is not None:  # pragma: no branch
-        preserved[primary_id] = relation.primary
-
-    for join in relation.extensions:
-        right_id = _get_relation_side_id(join.right)
-        kind = (join.join_type or "").upper().strip()
-
-        if kind in _OUTER_JOIN_KINDS_LEFT:
-            if right_id is not None:  # pragma: no branch
-                non_preserved[right_id] = join.right
-        elif kind in _OUTER_JOIN_KINDS_RIGHT:
-            non_preserved.update(preserved)
-            preserved = {}
-            if right_id is not None:  # pragma: no branch
-                preserved[right_id] = join.right
-        elif kind in _OUTER_JOIN_KINDS_FULL:
-            non_preserved.update(preserved)
-            if right_id is not None:  # pragma: no branch
-                non_preserved[right_id] = join.right
-        elif right_id is not None:  # pragma: no branch
-            preserved[right_id] = join.right
+    non_preserved = {
+        _get_relation_side_id(side): side for side in _non_preserved_sides(relation)
+    }
 
     if not non_preserved or not filter_namespaces.issubset(non_preserved):
         return None
@@ -1573,9 +1563,29 @@ def _rewrite_filter_for_select(
         extract_filter_dimension_refs,
     )
 
+    bindings = _filter_bindings_for_select(
+        extract_filter_dimension_refs([filter_str], include_bare=True),
+        filter_column_aliases,
+        cte_output_cols,
+        cte_select,
+        blocked_refs,
+    )
+    if bindings is None:
+        return None
+    return resolve_filter_references(parse_filter(filter_str), bindings)
+
+
+def _filter_bindings_for_select(
+    refs: list[str],
+    filter_column_aliases: dict[str, str],
+    cte_output_cols: set[str],
+    cte_select: ast.Select,
+    blocked_refs: set[str] | None = None,
+) -> dict[str, ast.Name] | None:
+    """Resolve local references without rewriting any part of a predicate."""
     projection_map = _build_select_projection_map(cte_select)
     bindings: dict[str, ast.Name] = {}
-    for ref in extract_filter_dimension_refs([filter_str], include_bare=True):
+    for ref in refs:
         if ref in (blocked_refs or set()):
             return None
         output_col = filter_column_aliases.get(ref)
@@ -1585,7 +1595,7 @@ def _rewrite_filter_for_select(
         if form is None:
             return None
         bindings[ref] = _build_name(form.split(SEPARATOR))
-    return resolve_filter_references(parse_filter(filter_str), bindings)
+    return bindings
 
 
 def _build_cte_projection_map(cte_query: ast.Query) -> dict[str, str | None]:

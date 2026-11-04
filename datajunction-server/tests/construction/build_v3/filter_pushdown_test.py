@@ -1203,13 +1203,9 @@ class TestFilterPushdownViaSourceFKLinkAtTopLevel:
               SELECT
                 a.account_id,
                 SUM(a.value) AS total
-              FROM (
-                SELECT
-                  *
-                FROM default.v3.snapped_events AS a
-                WHERE
-                  a.report_date = 20240101
-              ) AS a
+              FROM default.v3.snapped_events AS a
+              WHERE
+                a.report_date = 20240101
               GROUP BY
                 a.account_id
             )
@@ -1613,13 +1609,9 @@ class TestFilterNotPushedToTransitiveUpstreamByColumnNameCollision:
               SELECT
                 a.entity_id,
                 a.snap_date
-              FROM (
-                SELECT
-                  *
-                FROM default.v3.snap_src AS a
-                WHERE
-                  a.snap_date = 20240101
-              ) AS a
+              FROM default.v3.snap_src AS a
+              WHERE
+                a.snap_date = 20240101
               GROUP BY
                 a.entity_id,
                 a.snap_date

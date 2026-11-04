@@ -12,6 +12,7 @@ from datajunction_server.construction.build_v3.dimensions import (
     parse_dimension_ref,
 )
 from datajunction_server.construction.build_v3.measures import build_select_ast
+from datajunction_server.construction.build_v3.filters import normalize_filters
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
     PushdownFilters,
@@ -38,8 +39,8 @@ def context(bindings=None):
 
 def request(filters=None):
     return PushdownFilters(
-        filters=filters or ["date.date_id = 20240101"],
-        column_aliases={"date.date_id": "date_id"},
+        filters=normalize_filters(filters or ["date.date_id = 20240101"]),
+        column_aliases={"date.date_id": "date_id", "fact.date_id": "date_id"},
         parent_node_name="fact",
     )
 
@@ -171,6 +172,7 @@ def test_placement_state_does_not_leak_between_fact_groups():
     )
     authored = parse("SELECT SUM(amount) AS total FROM orders")
     for owner in ("first", "second"):
+        ctx.nodes[owner] = ctx.nodes["fact"]
         query = deepcopy(authored)
         group_request = request()
         group_request.parent_node_name = owner
@@ -220,9 +222,10 @@ def test_local_filter_leaves_shared_fact_definition_to_its_consumer():
     assert rows(f"WITH fact AS ({fact}) {reader}") == [(2,)]
 
 
-def test_complete_hidden_predicate_cannot_span_different_consumers():
+def test_complete_hidden_predicate_cannot_span_different_select_scopes():
     query = parse(
-        "SELECT o.amount FROM orders o JOIN products p ON o.amount = p.product_id",
+        "SELECT o.amount FROM orders o JOIN (SELECT product_id FROM products) p "
+        "ON o.amount = p.product_id",
     )
     before = str(query)
     ctx = context(
@@ -254,6 +257,126 @@ def test_complete_hidden_predicate_keeps_or_on_one_consumer():
         request(["date.date_id = 20240101 OR account.id = 5"]),
     )
     assert rows(query) == [(10,), (5,)]
+
+
+def test_hidden_predicate_can_span_relations_in_one_select():
+    query = parse(
+        "SELECT o.amount FROM orders o JOIN products p ON o.amount = p.product_id",
+    )
+    ctx = context(
+        {
+            ("fact", "date.date_id"): [("orders", "date_id")],
+            ("fact", "product.category"): [("products", "category")],
+        },
+    )
+    place_filters(
+        ctx,
+        {"fact": query},
+        request(["date.date_id = 20240101 OR product.category = 20230101"]),
+    )
+    assert rows(
+        f"WITH products AS (SELECT amount AS product_id, date_id AS category FROM orders) {query}",
+    ) == [(10,), (5,)]
+
+
+@pytest.mark.parametrize(
+    "join, source",
+    [
+        ("orders a LEFT JOIN linked b", "a"),
+        ("linked b RIGHT JOIN orders a", "a"),
+        ("orders a FULL JOIN linked b", "a"),
+    ],
+)
+@pytest.mark.parametrize(
+    "predicate, expected",
+    [
+        ("= 20240101", [(10,)]),
+        ("IS NULL", []),
+    ],
+)
+def test_hidden_filter_constrains_nullable_input_at_its_owning_select(
+    join,
+    source,
+    predicate,
+    expected,
+):
+    query = parse(f"SELECT {source}.amount FROM {join} ON a.amount = b.amount")
+    linked = parse("SELECT amount, date_id FROM orders")
+    ctx = context({("fact", "date.date_id"): [("linked", "date_id")]})
+    place_filters(
+        ctx,
+        {"fact": query, "linked": linked},
+        request([f"date.date_id {predicate}"]),
+    )
+    assert rows(f"WITH linked AS ({linked}) {query}") == expected
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "SELECT a.id FROM (SELECT 1 AS id) a LEFT JOIN (SELECT amount FROM orders) h ON a.id = h.amount",
+        "WITH history AS (SELECT amount FROM orders) SELECT a.id FROM (SELECT 1 AS id) a LEFT JOIN history h ON a.id = h.amount",
+        "SELECT a.id FROM (SELECT 1 AS id) a LEFT JOIN history h ON a.id = h.amount",
+    ],
+)
+def test_hidden_key_behind_nullable_query_boundary_is_rejected_atomically(body):
+    queries = {"fact": parse(body), "history": parse("SELECT amount FROM orders")}
+    before = {name: str(query) for name, query in queries.items()}
+    ctx = context({("fact", "date.date_id"): [("orders", "date_id")]})
+    with pytest.raises(DJInvalidInputException, match="nullable query boundary"):
+        place_filters(ctx, queries, request())
+    assert {name: str(query) for name, query in queries.items()} == before
+
+
+@pytest.mark.parametrize("combined", [False, True])
+def test_hidden_and_local_conjuncts_can_use_different_scopes(combined):
+    query = parse("SELECT q.date_id FROM (SELECT amount AS date_id FROM orders) q")
+    filters = ["date.date_id = 20240101", "fact.date_id = 10"]
+    ctx = context({("fact", "date.date_id"): [("orders", "date_id")]})
+    place_filters(
+        ctx,
+        {"fact": query},
+        request([" AND ".join(filters)] if combined else filters),
+    )
+    assert rows(query) == [(10,)]
+
+
+def test_mixed_or_requires_one_enforceable_select():
+    query = parse("SELECT date_id FROM (SELECT amount AS date_id FROM orders) q")
+    before = str(query)
+    ctx = context({("fact", "date.date_id"): [("orders", "date_id")]})
+    with pytest.raises(DJInvalidInputException, match="one SELECT scope"):
+        place_filters(
+            ctx,
+            {"fact": query},
+            request(["date.date_id = 20240101 OR fact.date_id = 10"]),
+        )
+    assert str(query) == before
+
+
+def test_mixed_or_can_bind_local_and_hidden_references_in_one_select():
+    query = parse("SELECT amount AS date_id FROM orders o")
+    ctx = context({("fact", "date.date_id"): [("orders", "date_id")]})
+    place_filters(
+        ctx,
+        {"fact": query},
+        request(["date.date_id = 20240101 OR fact.date_id = 5"]),
+    )
+    assert rows(query) == [(10,), (5,)]
+
+
+def test_normalization_only_splits_unconditional_conjunctions():
+    filters = [
+        "a = 1 AND (b = 2 OR c = 3)",
+        "NOT (d = 4 AND e = 5)",
+        "f BETWEEN 1 AND 2",
+    ]
+    normalized = normalize_filters(filters)
+    assert len(normalized) == 4
+    assert normalized[0] == "a = 1"
+    assert "b = 2 OR c = 3" in normalized[1]
+    assert normalized[2:] == filters[1:]
+    assert normalize_filters(normalized) == normalized
 
 
 def test_all_filters_validate_before_any_query_is_changed():

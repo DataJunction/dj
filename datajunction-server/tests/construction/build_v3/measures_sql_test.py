@@ -6378,13 +6378,9 @@ class TestUpstreamFilterOnlyPushdown:
               SELECT
                 order_id,
                 quantity * unit_price AS line_total
-              FROM (
-                SELECT
-                  *
-                FROM v3_order_details AS order_details
-                WHERE
-                  order_details.product_id = 7
-              ) AS order_details
+              FROM v3_order_details AS order_details
+              WHERE
+                order_details.product_id = 7
             )
             SELECT
               t1.order_id,
@@ -6504,15 +6500,9 @@ class TestUpstreamFilterOnlyPushdown:
                 account_id,
                 event_type,
                 COUNT(*) AS event_count
-              FROM (
-                SELECT
-                  *
-                FROM default.v3.audit_log AS a
-                WHERE
-                  a.audit_date >= 20260101 AND a.audit_date <= 20260131
-              ) AS a
+              FROM default.v3.audit_log AS a
               WHERE
-                event_type = 'login'
+                a.audit_date >= 20260101 AND a.audit_date <= 20260131 AND event_type = 'login'
               GROUP BY
                 account_id,
                 event_type
@@ -6765,13 +6755,9 @@ class TestUpstreamFilterOnlyPushdown:
               SELECT
                 session_id,
                 SUM(total_duration) AS lifetime_duration
-              FROM (
-                SELECT
-                  *
-                FROM v3_session_durations AS session_durations
-                WHERE
-                  session_durations.event_date = 20260101
-              ) AS session_durations
+              FROM v3_session_durations AS session_durations
+              WHERE
+                session_durations.event_date = 20260101
               GROUP BY
                 session_id
             )
@@ -6922,13 +6908,9 @@ class TestUpstreamFilterOnlyPushdown:
                 customer_id,
                 order_date,
                 quantity * unit_price AS line_total
-              FROM (
-                SELECT
-                  *
-                FROM v3_order_details AS order_details
-                WHERE
-                  order_details.product_id = 7
-              ) AS order_details
+              FROM v3_order_details AS order_details
+              WHERE
+                order_details.product_id = 7
             )
             SELECT
               t2.campaign,
@@ -7127,13 +7109,9 @@ class TestFilterPushdownScope:
                 SELECT
                   account_id,
                   event_type
-                FROM (
-                  SELECT
-                    *
-                  FROM default.v3.audit_log_nested AS inner_src
-                  WHERE
-                    inner_src.audit_date >= 20260101
-                ) AS inner_src
+                FROM default.v3.audit_log_nested AS inner_src
+                WHERE
+                  inner_src.audit_date >= 20260101
               ) AS wrap
               GROUP BY
                 account_id,
@@ -7245,13 +7223,9 @@ class TestFilterPushdownScope:
               SELECT
                 account_id,
                 event_type
-              FROM (
-                SELECT
-                  *
-                FROM default.v3.audit_log_withcte AS src
-                WHERE
-                  src.audit_date >= 20260101
-              ) AS src
+              FROM default.v3.audit_log_withcte AS src
+              WHERE
+                src.audit_date >= 20260101
             ), v3_events_with_cte AS (
               SELECT
                 account_id,
@@ -7457,13 +7431,9 @@ class TestFilterPushdownScope:
                 SELECT
                   account_id,
                   event_type
-                FROM (
-                  SELECT
-                    *
-                  FROM default.v3.audit_log_twoflt AS inner_src
-                  WHERE
-                    inner_src.audit_date >= 20260101 AND inner_src.audit_date <= 20260131
-                ) AS inner_src
+                FROM default.v3.audit_log_twoflt AS inner_src
+                WHERE
+                  inner_src.audit_date >= 20260101 AND inner_src.audit_date <= 20260131
               ) AS wrap
             )
             SELECT
@@ -7528,13 +7498,7 @@ class TestFilterPushdownScope:
               SELECT
                 a.account_id,
                 a.event_type
-              FROM (
-                SELECT
-                  *
-                FROM default.v3.audit_log_fe AS a
-                WHERE
-                  a.audit_date >= 20260101
-              ) AS a
+              FROM default.v3.audit_log_fe AS a
               WHERE
                 EXISTS(
                   SELECT
@@ -7543,6 +7507,7 @@ class TestFilterPushdownScope:
                   WHERE
                     b.account_id = a.account_id
                 )
+                AND a.audit_date >= 20260101
             )
             SELECT
               t1.event_type,
@@ -7599,13 +7564,9 @@ class TestFilterPushdownScope:
               SELECT
                 account_id,
                 event_type
-              FROM (
-                SELECT
-                  *
-                FROM default.v3.audit_log_noalias AS src_audit_log_noalias
-                WHERE
-                  src_audit_log_noalias.audit_date >= 20260101
-              ) AS src_audit_log_noalias
+              FROM default.v3.audit_log_noalias AS src_audit_log_noalias
+              WHERE
+                src_audit_log_noalias.audit_date >= 20260101
             )
             SELECT
               t1.event_type,
@@ -7956,13 +7917,9 @@ class TestFilterPushdownScope:
               SELECT
                 account_id,
                 event_type
-              FROM (
-                SELECT
-                  *
-                FROM v3_events_with_date AS events_with_date
-                WHERE
-                  events_with_date.audit_date >= 20260101
-              ) AS events_with_date
+              FROM v3_events_with_date AS events_with_date
+              WHERE
+                events_with_date.audit_date >= 20260101
             )
             SELECT
               t1.event_type,
@@ -8068,13 +8025,9 @@ class TestFilterPushdownScope:
               SELECT
                 account_id,
                 event_type
-              FROM (
-                SELECT
-                  *
-                FROM v3_events_double_link AS events_double_link
-                WHERE
-                  events_double_link.audit_date >= 20260101
-              ) AS events_double_link
+              FROM v3_events_double_link AS events_double_link
+              WHERE
+                events_double_link.audit_date >= 20260101
             )
             SELECT
               t1.event_type,

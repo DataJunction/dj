@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import dataclass
 from typing import cast
 
 from datajunction_server.construction.build_v3.cte import (
+    _filter_bindings_for_select,
     _get_relation_side_id,
+    _non_preserved_sides,
     _rewrite_filter_for_cte,
-    _wrap_relation_side_with_filter,
 )
 from datajunction_server.construction.build_v3.filters import (
     combine_filters,
@@ -39,12 +41,21 @@ def _definition(table: ast.Table, queries: dict[str, ast.Query]) -> ast.Query | 
     return queries.get(name)
 
 
+@dataclass
+class _Binding:
+    table: ast.Table
+    column: str
+    path: tuple[ast.Query, ...]
+    crosses_nullable_boundary: bool
+
+
 def _find_bindings(
     query: ast.Query,
     candidates: list[tuple[str, str]],
     queries: dict[str, ast.Query],
     path: tuple[ast.Query, ...] = (),
-) -> list[tuple[ast.Table, str, tuple[ast.Query, ...]]]:
+    crosses_nullable_boundary: bool = False,
+) -> list[_Binding]:
     """Find explicit links through FROM/JOIN edges, never expression subqueries.
 
     Stop at the nearest linked node: its output is the semantic boundary, even
@@ -54,11 +65,19 @@ def _find_bindings(
     if any(query is scope for scope in path) or query.select.set_op is not None:
         return []
     path = (*path, query)
-    result: list[tuple[ast.Table, str, tuple[ast.Query, ...]]] = []
+    result: list[_Binding] = []
 
-    def visit(relation: ast.Expression) -> None:
+    def visit(relation: ast.Expression, nullable: bool) -> None:
         if isinstance(relation, ast.Query):
-            result.extend(_find_bindings(relation, candidates, queries, path))
+            result.extend(
+                _find_bindings(
+                    relation,
+                    candidates,
+                    queries,
+                    path,
+                    crosses_nullable_boundary or nullable,
+                ),
+            )
         elif isinstance(relation, ast.Table):
             name = relation.name.identifier(quotes=False)
             definition = _definition(relation, queries)
@@ -68,15 +87,27 @@ def _find_bindings(
                 if owner == name and definition is queries.get(name)
             ]
             if columns:
-                result.extend((relation, column, path) for column in columns)
+                result.extend(
+                    _Binding(relation, column, path, crosses_nullable_boundary)
+                    for column in columns
+                )
             elif definition is not None:
-                result.extend(_find_bindings(definition, candidates, queries, path))
+                result.extend(
+                    _find_bindings(
+                        definition,
+                        candidates,
+                        queries,
+                        path,
+                        crosses_nullable_boundary or nullable,
+                    ),
+                )
 
     if query.select.from_ is not None:
         for relation in query.select.from_.relations:
-            visit(relation.primary)
+            nullable = _non_preserved_sides(relation)
+            visit(relation.primary, relation.primary in nullable)
             for join in relation.extensions:
-                visit(join.right)
+                visit(join.right, join.right in nullable)
     return result
 
 
@@ -88,9 +119,9 @@ def place_filters(
     """Resolve every predicate before applying any placements for this consumer.
 
     Local predicates can constrain the fact definition only when it has no
-    other readers. Hidden-key predicates constrain a specific linked relation;
-    reaching it through a shared definition is refused. Neither path broadcasts
-    predicates into other CTEs that happen to expose the same column.
+    other readers. Hidden-key predicates constrain the SELECT that reads their
+    explicit link. Shared definitions and nullable boundaries hiding the key
+    cannot enforce the predicate for this consumer and are refused.
     """
     hidden = {
         ref: candidates
@@ -114,26 +145,29 @@ def place_filters(
         for table in query.find_all(ast.Table)
         if (definition := _definition(table, queries)) is not None
     )
-    # Target identity groups predicates on one relation into one wrapper.
-    relations: dict[int, tuple[ast.Table, list[ast.Expression]]] = {}
-    local: list[ast.Expression] = []
+    placements: dict[int, tuple[ast.Select, list[ast.Expression]]] = {}
+    aliases: dict[int, ast.Table] = {}
     consumed: set[str] = set()
+    root_select = cast(ast.Select, root.select)
+    node = ctx.nodes[request.parent_node_name]
+    output_cols = {col.name for col in node.current.columns}
 
     for filter_str in request.filters:
         refs = extract_filter_dimension_refs([filter_str], include_bare=True)
         if not hidden.keys() & set(refs):
             if readers[id(root)]:
                 continue
-            node = ctx.nodes[request.parent_node_name]
             rewritten = _rewrite_filter_for_cte(
                 filter_str,
                 request.column_aliases,
-                {col.name for col in node.current.columns},
+                output_cols,
                 root,
                 request.outer_only_refs,
             )
             if rewritten is not None:
-                local.append(rewritten)
+                placements.setdefault(id(root_select), (root_select, []))[1].append(
+                    rewritten,
+                )
                 consumed.add(filter_str)
             continue
 
@@ -145,41 +179,49 @@ def place_filters(
                 http_status_code=422,
             )
 
-        bindings: dict[str, ast.Name] = {}
-        target: ast.Table | None = None
+        local_refs = [ref for ref in refs if ref not in hidden]
+        bindings = _filter_bindings_for_select(
+            local_refs,
+            request.column_aliases,
+            output_cols,
+            root_select,
+            request.outer_only_refs,
+        )
+        if bindings is None:
+            invalid("local references cannot bind to the fact output")
+        assert bindings is not None
+        target = root_select if local_refs else None
         for ref in refs:
-            matches = _find_bindings(root, hidden.get(ref, []), queries)
+            if ref not in hidden:
+                continue
+            matches = _find_bindings(root, hidden[ref], queries)
             if len(matches) != 1:
                 invalid(f"{ref} has {len(matches)} eligible relational owners")
-            table, column, path = matches[0]
+            binding = matches[0]
+            table, column, path = binding.table, binding.column, binding.path
             if readers[id(root)] or any(readers[id(scope)] > 1 for scope in path[1:]):
                 invalid(f"{ref} requires narrowing a shared query definition")
-            if target is not None and table is not target:
-                invalid("the complete predicate does not bind to one consumer")
-            target = table
+            if binding.crosses_nullable_boundary:
+                invalid(f"{ref} crosses a nullable query boundary that hides the key")
+            scope = cast(ast.Select, path[-1].select)
+            if target is not None and scope is not target:
+                invalid("the complete predicate does not bind to one SELECT scope")
+            target = scope
             qualifier = _get_relation_side_id(cast(ast.Expression, table))
             assert qualifier is not None
             bindings[ref] = ast.Name(column, namespace=ast.Name(qualifier))
+            aliases[id(table)] = table
         assert target is not None
         rewritten = resolve_filter_references(parse_filter(filter_str), bindings)
-        relations.setdefault(id(target), (target, []))[1].append(rewritten)
+        placements.setdefault(id(target), (target, []))[1].append(rewritten)
         consumed.add(filter_str)
 
-    for target, predicates in relations.values():
-        # An explicit alias survives the later physical-table rewrite, so the
-        # wrapper predicate never depends on a source's logical short name.
-        if target.alias is None:
-            target.alias = ast.Name(target.name.name)
-        predicate = combine_filters(predicates)
-        assert predicate is not None
-        target.swap(
-            _wrap_relation_side_with_filter(cast(ast.Expression, target), predicate),
-        )
-    # Local predicates constrain the fact's output. Moving them into the
-    # nullable input of an authored outer join changes which rows qualify.
-    select = cast(ast.Select, root.select)
-    for predicate in local:
-        select.where = (
-            ast.BinaryOp.And(select.where, predicate) if select.where else predicate
+    # Apply only after every predicate has a complete, enforceable placement.
+    for table in aliases.values():
+        if table.alias is None:
+            table.alias = ast.Name(table.name.name)
+    for select, predicates in placements.values():
+        select.where = combine_filters(
+            [select.where, *predicates] if select.where is not None else predicates,
         )
     return consumed

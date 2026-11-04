@@ -437,6 +437,21 @@ def _conjuncts(expression: ast.Expression) -> list[ast.Expression]:
     return [expression]
 
 
+def normalize_filters(filters: list[str] | None) -> list[str]:
+    """Treat top-level AND conditions like separate request filter entries.
+
+    OR and NOT expressions remain indivisible. Preserve the original spelling
+    of unsplit filters so consumption and temporal targeting use stable keys.
+    """
+    normalized = []
+    for filter_str in filters or []:
+        conjuncts = _conjuncts(parse_filter(filter_str))
+        normalized.extend(
+            [filter_str] if len(conjuncts) == 1 else [str(atom) for atom in conjuncts],
+        )
+    return normalized
+
+
 def dimension_ref_of_expression(expression: ast.Expression) -> str | None:
     """
     Dimension reference an expression names, if it names one directly.

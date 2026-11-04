@@ -33,6 +33,7 @@ from datajunction_server.construction.build_v3.dimensions import (
     resolve_dimensions,
 )
 from datajunction_server.construction.build_v3.filters import (
+    normalize_filters,
     parse_and_resolve_filters,
 )
 from datajunction_server.construction.build_v3.loaders import (
@@ -257,7 +258,7 @@ async def build_node_sql_v3(
     semantic names that resolve to the correct output alias.
     """
     dim_list = list(dimensions or [])
-    filter_list = list(filters or [])
+    filter_list = normalize_filters(filters)
     orderby_list = list(orderby or [])
 
     # Lightweight node lookup so we can dispatch on node type before paying
