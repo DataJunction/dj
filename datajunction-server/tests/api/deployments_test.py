@@ -2433,6 +2433,101 @@ class TestDeployments:
         ]
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "required_dimension",
+        [
+            "${prefix}default.date.week",
+            pytest.param(
+                "${prefix}default.date.week[order]",
+                marks=pytest.mark.xfail(
+                    strict=True,
+                    reason=(
+                        "a required dimension with a role redeploys as an update "
+                        "of required_dimensions"
+                    ),
+                ),
+            ),
+        ],
+    )
+    async def test_redeploy_is_noop_for_required_dimension_forms(
+        self,
+        client,
+        required_dimension,
+    ):
+        """
+        A metric whose required dimension is reached through a role-qualified
+        link must redeploy as a noop, same as one without a role.
+        """
+        namespace = "required_dimension_forms_noop"
+        date_source = SourceSpec(
+            name="default.date_src",
+            catalog="default",
+            schema="shop",
+            table="dates",
+            columns=[
+                ColumnSpec(name="date_id", type="int"),
+                ColumnSpec(name="week", type="int"),
+            ],
+        )
+        date = DimensionSpec(
+            name="default.date",
+            query="SELECT date_id, week FROM ${prefix}default.date_src",
+            primary_key=["date_id"],
+        )
+        orders_source = SourceSpec(
+            name="default.orders_src",
+            catalog="default",
+            schema="shop",
+            table="orders",
+            columns=[
+                ColumnSpec(name="order_id", type="int"),
+                ColumnSpec(name="order_date", type="int"),
+                ColumnSpec(name="amount", type="double"),
+            ],
+        )
+        orders = TransformSpec(
+            name="default.orders",
+            query=(
+                "SELECT order_id, order_date, amount FROM ${prefix}default.orders_src"
+            ),
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node="${prefix}default.date",
+                    join_type="left",
+                    join_on=(
+                        "${prefix}default.orders.order_date = "
+                        "${prefix}default.date.date_id"
+                    ),
+                    role="order",
+                ),
+            ],
+        )
+        revenue = MetricSpec(
+            name="default.revenue",
+            node_type=NodeType.METRIC,
+            query="SELECT SUM(amount) FROM ${prefix}default.orders",
+            required_dimensions=[required_dimension],
+        )
+        nodes = [date_source, date, orders_source, orders, revenue]
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert data["status"] == "success", data["results"]
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(namespace=namespace, nodes=nodes),
+        )
+        assert data["status"] == "success", data["results"]
+        assert all(result["operation"] == "noop" for result in data["results"]), [
+            (result["name"], result["operation"], result["changed_fields"])
+            for result in data["results"]
+            if result["operation"] != "noop"
+        ]
+
+    @pytest.mark.asyncio
     async def test_deploy_reconciles_external_preaggregation(
         self,
         client,

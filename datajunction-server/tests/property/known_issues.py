@@ -62,3 +62,11 @@ PREAGG_INNER_JOIN_DROPS_ORPHANS = KnownIssue(
     "no matching dimension row, so requests that don't use that dimension get "
     "a different answer when served from it",
 )
+FUNCTION_NAME_CASE_CHANGES_FINGERPRINT = KnownIssue(
+    "a query that differs only in the case of a function name (`sum(x)` vs "
+    "`SUM(x)`) has a different semantic fingerprint",
+)
+COLUMN_METADATA_CHANGES_FINGERPRINT = KnownIssue(
+    "a non-empty column description or display name changes a node's semantic "
+    "fingerprint, so a documentation edit propagates to every descendant",
+)
