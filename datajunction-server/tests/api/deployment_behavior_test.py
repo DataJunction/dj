@@ -96,19 +96,12 @@ async def revisions(client, project):
 
 
 async def cube_values(client, project, warehouse):
-    cube = next(node for node in project["nodes"] if node["name"] == "revenue_cube")
-    prefix = f"{project['namespace']}."
+    # Let the server load metrics, dimensions, and filters from the saved cube.
+    # Supplying lists from the edited YAML would bypass persistence checks.
     response = await client.get(
         "/sql/metrics/v3/",
         params={
-            "cube": f"{prefix}revenue_cube",
-            "metrics": [
-                metric.replace("${prefix}", prefix) for metric in cube["metrics"]
-            ],
-            "dimensions": [
-                dimension.replace("${prefix}", prefix)
-                for dimension in cube["dimensions"]
-            ],
+            "cube": f"{project['namespace']}.revenue_cube",
             "use_materialized": False,
         },
     )
