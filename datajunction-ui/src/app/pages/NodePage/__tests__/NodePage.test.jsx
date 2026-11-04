@@ -25,6 +25,62 @@ vi.mock('recharts', () => ({
   Tooltip: () => null,
 }));
 
+// Mock reactflow (lineage/dimensions/graph tabs). Tabs are lazy-loaded, so
+// reactflow is dynamically imported mid-render; loading the real lib inside
+// jsdom during render blocks the event loop. The dedicated tab tests cover
+// reactflow rendering — here we only need NodePage to mount the right tab.
+vi.mock('reactflow/dist/style.css', () => ({}));
+vi.mock('reactflow', async () => {
+  const React = await vi.importActual('react');
+  const { useState } = React;
+  const Passthrough = ({ children }) => <div>{children}</div>;
+  return {
+    __esModule: true,
+    default: ({ children, nodes, nodeTypes }) => (
+      <div data-testid="reactflow">
+        {(nodes || []).map(n => {
+          const NodeComp = nodeTypes?.[n.type];
+          return NodeComp ? (
+            <NodeComp key={n.id} data={n.data} />
+          ) : (
+            <div key={n.id}>{n.id}</div>
+          );
+        })}
+        {children}
+      </div>
+    ),
+    ReactFlowProvider: Passthrough,
+    Panel: Passthrough,
+    Background: () => null,
+    Controls: () => null,
+    MiniMap: () => null,
+    Handle: () => null,
+    Position: { Left: 'left', Right: 'right', Top: 'top', Bottom: 'bottom' },
+    MarkerType: { ArrowClosed: 'arrowclosed', Arrow: 'arrow' },
+    useNodesState: initial => {
+      const [n, s] = useState(initial || []);
+      return [n, s, () => {}];
+    },
+    useEdgesState: initial => {
+      const [e, s] = useState(initial || []);
+      return [e, s, () => {}];
+    },
+    addEdge: (params, eds) => [...(eds || []), params],
+  };
+});
+
+// Mock CodeMirror (materialization config editor). Like reactflow, it's pulled
+// in via a lazy tab and dynamically importing it (plus every language grammar
+// from codemirror-extensions-langs) mid-render blocks jsdom. The materialization
+// tab's own tests cover the editor.
+vi.mock('@uiw/react-codemirror', () => ({
+  __esModule: true,
+  default: ({ value }) => <div data-testid="codemirror">{value}</div>,
+}));
+vi.mock('@uiw/codemirror-extensions-langs', () => ({
+  langs: new Proxy({}, { get: () => () => [] }),
+}));
+
 // ResizeObserver is not defined in jsdom
 global.ResizeObserver = function (callback) {
   return { observe: () => {}, disconnect: () => {}, unobserve: () => {} };
