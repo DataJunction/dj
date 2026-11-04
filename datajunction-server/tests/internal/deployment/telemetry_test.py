@@ -122,3 +122,35 @@ async def test_failed_execution_is_timed_and_propagated(
     name, elapsed_ms, timer_tags = provider.return_value.timer.call_args.args
     assert (name, timer_tags) == ("dj.deployments.execute_latency_ms", tags)
     assert elapsed_ms >= 0
+
+
+@pytest.mark.parametrize("metric_stage", ["provider", "timer", "counter"])
+@pytest.mark.parametrize("error_type", [None, ValueError, asyncio.CancelledError])
+async def test_metrics_failure_preserves_deployment_outcome(
+    orchestrator,
+    caplog,
+    metric_stage,
+    error_type,
+):
+    result = DeploymentExecuteResult(results=[], downstream_impacts=[])
+    error = error_type("deployment stopped") if error_type else None
+    orchestrator._execute = AsyncMock(return_value=result, side_effect=error)
+    metrics_error = RuntimeError("metrics unavailable")
+
+    with patch(f"{MODULE}.get_metrics_provider") as provider:
+        target = {
+            "provider": provider,
+            "timer": provider.return_value.timer,
+            "counter": provider.return_value.counter,
+        }[metric_stage]
+        target.side_effect = metrics_error
+
+        if error_type:
+            with pytest.raises(error_type) as raised:
+                await orchestrator.execute()
+            assert raised.value is error
+        else:
+            assert await orchestrator.execute() is result
+
+    assert "Failed to record deployment execution metrics" in caplog.text
+    assert any(record.exc_info[1] is metrics_error for record in caplog.records)

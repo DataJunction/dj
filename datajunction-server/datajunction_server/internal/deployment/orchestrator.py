@@ -510,20 +510,23 @@ class DeploymentOrchestrator:
             status = "cancelled"
             raise
         finally:
-            source = self.deployment_spec.source
-            tags = {
-                "namespace": self.deployment_spec.namespace,
-                "dry_run": str(self.dry_run),
-                "source_type": source.type.value if source else "local",
-                "status": status,
-            }
-            provider = get_metrics_provider()
-            provider.timer(
-                "dj.deployments.execute_latency_ms",
-                (time.perf_counter() - start) * 1000,
-                tags,
-            )
-            provider.counter("dj.deployments.execute", tags=tags)
+            try:
+                source = self.deployment_spec.source
+                tags = {
+                    "namespace": self.deployment_spec.namespace,
+                    "dry_run": str(self.dry_run),
+                    "source_type": source.type.value if source else "local",
+                    "status": status,
+                }
+                provider = get_metrics_provider()
+                provider.timer(
+                    "dj.deployments.execute_latency_ms",
+                    (time.perf_counter() - start) * 1000,
+                    tags,
+                )
+                provider.counter("dj.deployments.execute", tags=tags)
+            except Exception:
+                logger.exception("Failed to record deployment execution metrics")
 
     async def _execute(self) -> DeploymentExecuteResult:
         """
