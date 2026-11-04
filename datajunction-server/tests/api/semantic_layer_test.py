@@ -2458,10 +2458,11 @@ async def test_list_views_query_count(
     namespace_queries = [
         query for query in capture_queries if "FROM nodenamespace " in query
     ]
-    assert len(namespace_queries) == 1, "\n\n".join(namespace_queries)
+    # Namespace metadata and governed boundaries are each loaded once.
+    assert len(namespace_queries) == 2, "\n\n".join(namespace_queries)
 
     # The remaining queries build the per-request RBAC context.
-    assert len(capture_queries) <= 7, "\n\n".join(capture_queries)
+    assert len(capture_queries) <= 8, "\n\n".join(capture_queries)
 
 
 @pytest.mark.asyncio

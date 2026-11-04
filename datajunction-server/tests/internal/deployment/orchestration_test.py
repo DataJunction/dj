@@ -1173,7 +1173,9 @@ def _prune_session(mocker, *governed_namespaces, extra_results=()):
 def _prune_orchestrator(mocker, session, namespace, actions, *, governed):
     scopes = [
         RoleScope(
-            action=action, scope_type=ResourceType.NAMESPACE, scope_value=namespace
+            action=action,
+            scope_type=ResourceType.NAMESPACE,
+            scope_value=namespace,
         )
         for action in actions
     ]
@@ -1233,7 +1235,8 @@ class TestDeploymentNamespacePruningAuthorization:
             governed=governed,
         )
         namespace_row = NodeNamespace(
-            namespace=namespace, is_governed_boundary=governed
+            namespace=namespace,
+            is_governed_boundary=governed,
         )
         mocker.patch(
             "datajunction_server.internal.deployment.orchestrator.get_node_namespace",
@@ -1241,7 +1244,9 @@ class TestDeploymentNamespacePruningAuthorization:
             return_value=namespace_row,
         )
         plan = SimpleNamespace(
-            to_deploy=[], to_delete=[], to_delete_namespaces=[namespace]
+            to_deploy=[],
+            to_delete=[],
+            to_delete_namespaces=[namespace],
         )
 
         if allowed:
@@ -1268,7 +1273,9 @@ class TestDeploymentNamespacePruningAuthorization:
             governed=False,
         )
         plan = SimpleNamespace(
-            to_deploy=[], to_delete=[], to_delete_namespaces=[namespace]
+            to_deploy=[],
+            to_delete=[],
+            to_delete_namespaces=[namespace],
         )
         await orchestrator._authorize_deployment_plan(plan)
 

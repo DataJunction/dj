@@ -388,7 +388,7 @@ async def test_namespace_cascade_authorizes_all_nodes_before_mutation(
     session.add_all(
         [
             NodeNamespace(namespace=root),
-            NodeNamespace(namespace=child, is_governed_boundary=True),
+            NodeNamespace(namespace=child),
         ],
     )
     await session.commit()
@@ -406,6 +406,8 @@ async def test_namespace_cascade_authorizes_all_nodes_before_mutation(
         )
         assert response.status_code == HTTPStatus.OK, response.json()
 
+    child_namespace = await session.get(NodeNamespace, child)
+    child_namespace.is_governed_boundary = True
     if operation == "restore":
         now = datetime.now(UTC)
         root_namespace = await session.get(NodeNamespace, root)
@@ -413,7 +415,7 @@ async def test_namespace_cascade_authorizes_all_nodes_before_mutation(
         for name in names:
             node = await session.scalar(select(Node).where(Node.name == name))
             node.deactivated_at = now
-        await session.commit()
+    await session.commit()
 
     action = (
         ResourceAction.DELETE if operation == "deactivate" else ResourceAction.WRITE
