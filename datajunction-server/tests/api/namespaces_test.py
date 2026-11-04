@@ -488,6 +488,7 @@ async def test_namespace_cascade_authorizes_all_nodes_before_mutation(
         ),
     )
     await session.commit()
+    await session.refresh(role, ["scopes"])
     response = await cascade_request()
     assert response.status_code == (
         HTTPStatus.OK if operation == "deactivate" else HTTPStatus.CREATED
