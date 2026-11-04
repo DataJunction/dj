@@ -10,7 +10,17 @@ from collections import namedtuple
 from dataclasses import dataclass, field
 from typing import cast
 
-from sqlalchemy import and_, bindparam, func, join, literal, or_, select, text
+from sqlalchemy import (
+    and_,
+    bindparam,
+    func,
+    join,
+    literal,
+    or_,
+    select,
+    text,
+    union_all,
+)
 from sqlalchemy.dialects.postgresql import array
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, joinedload, load_only, noload, selectinload
@@ -25,6 +35,7 @@ from datajunction_server.database.node import (
     Node,
     NodeRelationship,
     NodeRevision,
+    RequiredDimension,
 )
 from datajunction_server.errors import DJGraphCycleException
 from datajunction_server.models.attribute import ColumnAttributes
@@ -1429,20 +1440,25 @@ async def get_nodes_with_common_dimensions(
     dimension_ids = [d.id for d in common_dimensions]
     num_dimensions = len(dimension_ids)
 
-    # Build a CTE that merges column -> dimension and dimension link -> dimension relationships
-    # These are the "branches" of the dimensions graph
-    graph_branches = (
+    # Build a CTE that merges column -> dimension, dimension link -> dimension,
+    # and metric required_dimensions -> dimension relationships. These are the
+    # "branches" of the dimensions graph. The required_dimensions branch makes
+    # a metric that depends on a dimension *only* via a full-path
+    # required_dimensions entry (never through a column or dimension link)
+    # visible to this graph -- e.g. for dimension-deletion impact analysis.
+    graph_branches = union_all(
         select(
             Column.node_revision_id.label("node_revision_id"),
             Column.dimension_id.label("dimension_id"),
-        )
-        .where(Column.dimension_id.isnot(None))
-        .union_all(
-            select(
-                DimensionLink.node_revision_id.label("node_revision_id"),
-                DimensionLink.dimension_id.label("dimension_id"),
-            ),
-        )
+        ).where(Column.dimension_id.isnot(None)),
+        select(
+            DimensionLink.node_revision_id.label("node_revision_id"),
+            DimensionLink.dimension_id.label("dimension_id"),
+        ),
+        select(
+            RequiredDimension.metric_id.label("node_revision_id"),
+            RequiredDimension.dimension_id.label("dimension_id"),
+        ).where(RequiredDimension.dimension_id.isnot(None)),
     ).cte("graph_branches")
 
     # Recursive CTE: find all dimensions that lead to each target dimension

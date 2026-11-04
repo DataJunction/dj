@@ -2,6 +2,7 @@
 Utilities used around construction
 """
 
+import decimal
 import time
 from typing import TYPE_CHECKING
 
@@ -12,10 +13,93 @@ from sqlalchemy.orm.exc import NoResultFound
 
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.errors import DJError, DJErrorException, ErrorCode
+from datajunction_server.models.dimensionlink import DimensionLinkDefault
 from datajunction_server.models.node_type import NodeType
 
 if TYPE_CHECKING:
-    from datajunction_server.sql.parsing.ast import Name
+    from datajunction_server.sql.parsing.ast import Name, Value
+
+
+NUMERIC_COLUMN_TYPES = {
+    "bigint",
+    "decimal",
+    "double",
+    "float",
+    "int",
+    "integer",
+    "long",
+    "number",
+    "numeric",
+    "real",
+    "smallint",
+    "tinyint",
+}
+BOOLEAN_COLUMN_TYPES = {"bool", "boolean"}
+STRING_COLUMN_TYPES = {"char", "string", "text", "varchar"}
+
+
+def _string_literal(value: DimensionLinkDefault) -> "Value":
+    """Quoted SQL string literal, with embedded quotes escaped."""
+    from datajunction_server.sql.parsing import ast
+
+    escaped = str(value).replace("'", "''")
+    return ast.String(f"'{escaped}'")
+
+
+def _number_literal(value: DimensionLinkDefault) -> "Value | None":
+    """Numeric SQL literal, or None if the value isn't a number."""
+    from datajunction_server.sql.parsing import ast
+
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float, decimal.Decimal)):
+        return ast.Number(value)
+    try:
+        parsed = decimal.Decimal(value)
+    except decimal.InvalidOperation:
+        return None
+    return ast.Number(parsed) if parsed.is_finite() else None
+
+
+def _boolean_literal(value: DimensionLinkDefault) -> "Value | None":
+    """Boolean SQL literal, or None if the value isn't a boolean."""
+    from datajunction_server.sql.parsing import ast
+
+    if isinstance(value, bool):
+        return ast.Boolean(value)
+    if str(value).strip().lower() in {"true", "false"}:
+        return ast.Boolean(str(value).strip().lower() == "true")
+    return None
+
+
+def dimension_link_default_literal(
+    default_value: DimensionLinkDefault,
+    column_type: str | None = None,
+) -> "Value":
+    """
+    Build the SQL literal for a dimension link's default value.
+
+    The target column's type decides how the value renders, so a numeric
+    column gets a bare number even when the default was authored as the
+    string ``"0"``. Where the column type says nothing, the value's own
+    type decides. A value that can't be rendered in the column's type
+    falls back to a quoted string.
+    """
+    base_type = (column_type or "").lower().split("(", maxsplit=1)[0].strip()
+    literal = None
+    if base_type in BOOLEAN_COLUMN_TYPES:
+        literal = _boolean_literal(default_value)
+    elif base_type in NUMERIC_COLUMN_TYPES:
+        literal = _number_literal(default_value)
+    elif base_type not in STRING_COLUMN_TYPES:
+        literal = (
+            _boolean_literal(default_value)
+            if isinstance(default_value, bool)
+            else _number_literal(default_value)
+            if isinstance(default_value, (int, float, decimal.Decimal))
+            else None
+        )
+    return literal if literal is not None else _string_literal(default_value)
 
 
 async def get_dj_node(

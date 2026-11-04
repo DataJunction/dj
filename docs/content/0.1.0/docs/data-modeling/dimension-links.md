@@ -313,6 +313,20 @@ This is useful when:
 - Downstream consumers expect non-null values for grouping or display
 - You want to provide meaningful labels like "Unknown", "N/A", or "Other" for unmatched rows
 
+A `default_value` can be a string, a number, or a boolean, and DJ renders it to match the type of whichever
+dimension column it wraps. A numeric fallback on a numeric column becomes a bare number rather than a quoted
+string, so the column keeps its type:
+
+```sql
+-- With default_value = 0, on an integer column
+SELECT COALESCE(user.account_tier, 0) AS account_tier
+FROM events
+LEFT JOIN user ON events.user_id = user.id
+```
+
+Because the link's fallback applies to every dimension column reached through it, a value that the column's type
+cannot hold — say `"Unknown"` against an integer column — falls back to a quoted string.
+
 {{< alert icon="👉" >}}
 The `default_value` option is only applicable when using `LEFT` or `RIGHT` join types, as these are the join types
 that can produce NULL values from unmatched rows.

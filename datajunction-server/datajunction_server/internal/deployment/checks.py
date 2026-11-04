@@ -5,6 +5,7 @@ entity, from the node spec and the plan's `existing_specs` and `node_graph`.
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Literal, get_args, get_origin
 
 from pydantic import BaseModel
@@ -16,8 +17,8 @@ from datajunction_server.database.deployment import Deployment
 from datajunction_server.database.node import Node
 
 from datajunction_server.database.tag import Tag
+from datajunction_server.database.user import PrincipalKind, User
 
-from datajunction_server.enum import StrEnum
 from datajunction_server.internal.checks.context import (
     Bindings,
     Change,
@@ -25,6 +26,8 @@ from datajunction_server.internal.checks.context import (
     ColumnProjection,
     LinkProjection,
     NodeProjection,
+    OwnerKinds,
+    OwnerProjection,
     TagProjection,
     TagTypes,
     custom_metadata,
@@ -117,7 +120,7 @@ def _spec_defaults(base: type[BaseModel], skip: frozenset[str]) -> dict[str, Any
 
 # `project_node` sets each of these itself, so a default would be discarded.
 _PROJECTED_DIRECTLY = frozenset(
-    {"name", "namespace", "custom_metadata", "tags", "dimension_links"},
+    {"name", "namespace", "custom_metadata", "tags", "dimension_links", "owners"},
 )
 _NODE_DEFAULTS = _spec_defaults(NodeSpec, _PROJECTED_DIRECTLY)
 _LINK_DEFAULTS = _spec_defaults(DimensionLinkSpec, frozenset())
@@ -133,8 +136,8 @@ def _cel_safe(value: Any, empty: Any = "") -> Any:
     """Coerce a dumped value into something CEL can read."""
     if value is None:
         return empty
-    if isinstance(value, (StrEnum, NodeType)):
-        return str(value)
+    if isinstance(value, Enum):
+        return str(value.value)
     if isinstance(value, Mapping):
         return {str(key): _cel_safe(item) for key, item in value.items()}
     if isinstance(value, (list, tuple, set)):
@@ -195,6 +198,25 @@ async def resolve_tag_types(
     return {**{tag.name: str(tag.tag_type or "") for tag in stored}, **declared}
 
 
+async def resolve_owner_kinds(
+    session: AsyncSession,
+    used: Iterable[str],
+) -> dict[str, str]:
+    """
+    Map each owner the deploy's nodes use to its principal kind.
+    """
+    names = sorted(set(used))
+    if not names:
+        return {}
+    users = await User.get_by_usernames(
+        session,
+        names,
+        raise_if_not_exists=False,
+        options=[load_only(User.id, User.username, User.kind), noload("*")],
+    )
+    return {user.username: str(user.kind.value) for user in users}
+
+
 def _placeholder(subschema: Any) -> Any:
     """A representative value for a declared property."""
     kind = str(subschema.get("type")) if isinstance(subschema, Mapping) else ""
@@ -232,6 +254,27 @@ def project_column(column: ColumnSpec) -> ColumnProjection:
     return projected
 
 
+def merge_columns(
+    declared: Sequence[ColumnSpec],
+    outputs: Sequence[ColumnSpec],
+) -> list[ColumnSpec]:
+    """
+    Every output column, in output order, with the metadata the spec declares
+    for it. Declared columns missing from the output follow.
+    """
+    declared_by_name = {column.name: column for column in declared}
+    merged = [
+        declared_by_name[output.name].model_copy(
+            update={"type": output.type, "order": output.order},
+        )
+        if output.name in declared_by_name
+        else ColumnSpec(name=output.name, type=output.type, order=output.order)
+        for output in outputs
+    ]
+    output_names = {output.name for output in outputs}
+    return merged + [column for column in declared if column.name not in output_names]
+
+
 def project_tags(names: Sequence[str], tag_types: TagTypes) -> list[TagProjection]:
     """A node's tags, each with the type the deploy resolved for it."""
     return [
@@ -239,13 +282,30 @@ def project_tags(names: Sequence[str], tag_types: TagTypes) -> list[TagProjectio
     ]
 
 
+def project_owners(
+    names: Sequence[str],
+    owner_kinds: OwnerKinds,
+) -> list[OwnerProjection]:
+    """A node's owners, unknown ones counted as users."""
+    return [
+        OwnerProjection(
+            name=name,
+            kind=owner_kinds.get(name, PrincipalKind.USER.value),
+        )
+        for name in names
+    ]
+
+
 def project_node(
     spec: NodeSpec | None,
     declared: DeclaredProperties,
     tag_types: TagTypes,
+    owner_kinds: OwnerKinds | None = None,
+    outputs: Sequence[ColumnSpec] | None = None,
 ) -> NodeProjection:
     """
-    Project one node spec into the `node` binding.
+    Project one node spec into the `node` binding. `outputs` are the node's
+    output columns when known; otherwise `columns` are the declared ones.
     """
     dumped = spec.model_dump() if spec is not None else {}
     projected = {
@@ -264,13 +324,19 @@ def project_node(
         declared,
     )
     projected["tags"] = project_tags(dumped.get("tags") or [], tag_types)
+    projected["owners"] = project_owners(dumped.get("owners") or [], owner_kinds or {})
     projected["dimension_links"] = [
         project_link(link) for link in getattr(spec, "dimension_links", None) or []
     ]
     # Metrics exclude `columns` from the dump, so read it off the spec too.
-    projected["columns"] = [
-        project_column(column) for column in getattr(spec, "columns", None) or []
-    ]
+    columns = (
+        spec.rendered_columns
+        if isinstance(spec, CubeSpec)
+        else getattr(spec, "columns", None) or []
+    )
+    if outputs is not None:
+        columns = merge_columns(columns, outputs)
+    projected["columns"] = [project_column(column) for column in columns]
     return projected
 
 
@@ -279,12 +345,13 @@ def project_dependency(
     spec: NodeSpec | None,
     declared: DeclaredProperties,
     tag_types: TagTypes,
+    owner_kinds: OwnerKinds | None = None,
 ) -> NodeProjection:
     """
     One upstream, in the same shape as `node`. An upstream the deployment does
     not contain has no spec, so only its name is filled in.
     """
-    return dict(project_node(spec, declared, tag_types), name=name)
+    return dict(project_node(spec, declared, tag_types, owner_kinds), name=name)
 
 
 def build_bindings(
@@ -295,19 +362,21 @@ def build_bindings(
     operation: DeploymentResult.Operation,
     declared: DeclaredProperties,
     tag_types: TagTypes,
+    owner_kinds: OwnerKinds | None = None,
+    outputs: Sequence[ColumnSpec] | None = None,
 ) -> Bindings:
-    node = project_node(spec, declared, tag_types)
+    node = project_node(spec, declared, tag_types, owner_kinds, outputs)
     # An unchanged or removed node is its own previous state, so project once.
     projected_previous = (
         node
         if operation in _UNCHANGED_OPERATIONS
-        else project_node(previous, declared, tag_types)
+        else project_node(previous, declared, tag_types, owner_kinds)
     )
     return Bindings(
         node=node,
         previous=projected_previous,
         dependencies=[
-            project_dependency(name, dependency, declared, tag_types)
+            project_dependency(name, dependency, declared, tag_types, owner_kinds)
             for name, dependency in dependencies
         ],
         change=Change(kind=str(operation.value)),
@@ -512,6 +581,39 @@ async def governing_check_specs(
     return [], []
 
 
+async def checks_match_last_deployment(
+    session: AsyncSession,
+    namespace: str,
+    checks: Sequence[DeploymentCheckSpec] | None,
+    rulesets: Sequence[DeploymentRulesetSpec] | None,
+) -> bool:
+    """
+    Whether a namespace's last successful deploy declared the same checks.
+
+    A new or altered check can fail a node that this deploy leaves alone, so
+    only an unchanged manifest can be evaluated against the changed nodes.
+    """
+    row = (
+        await session.execute(
+            select(
+                Deployment.spec["checks"].label("checks"),
+                Deployment.spec["rulesets"].label("rulesets"),
+            )
+            .where(
+                Deployment.namespace == namespace,
+                Deployment.status == DeploymentStatus.SUCCESS,
+            )
+            .order_by(Deployment.created_at.desc())
+            .limit(1),
+        )
+    ).one_or_none()
+    if row is None:
+        return False
+    dumped = [check.model_dump() for check in checks or []]
+    dumped_rulesets = [ruleset.model_dump() for ruleset in rulesets or []]
+    return (row.checks or []) == dumped and (row.rulesets or []) == dumped_rulesets
+
+
 async def governing_manifest(
     session: AsyncSession,
     node_name: str,
@@ -538,6 +640,10 @@ async def check_node(session: AsyncSession, node: Node) -> NodeCheckResults | No
     spec = await node.to_spec(session)
     declared = await resolve_declared_schemas(session, node.namespace, [node.type])
     tag_types = await resolve_tag_types(session, [], [tag.name for tag in node.tags])
+    owner_kinds = await resolve_owner_kinds(
+        session,
+        [owner.username for owner in node.owners],
+    )
     loaded = load_checks(manifest.checks, build_fixtures(declared, [node.type]))
     bindings = build_bindings(
         spec,
@@ -546,6 +652,7 @@ async def check_node(session: AsyncSession, node: Node) -> NodeCheckResults | No
         operation=DeploymentResult.Operation.NOOP,
         declared=declared.properties,
         tag_types=tag_types,
+        owner_kinds=owner_kinds,
     )
     results = evaluate(loaded.checks, bindings)
     return NodeCheckResults(

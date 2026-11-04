@@ -509,20 +509,28 @@ class QueryServiceClient:
             headers=self.requests_session.headers,
             timeout=20,
         )
-        if response.status_code not in (200, 201):  # pragma: no cover
-            _logger.exception(
+        if response.status_code not in (200, 201):
+            _logger.error(
                 "[DJQS] Failed to schedule cube materialization for"
-                " node=%s with `POST /cubes/materialize`: %s",
-                materialization_input.cube,
+                " cube=%s: status=%s body=%s",
+                materialization_input.cube.name,
+                response.status_code,
                 response.text,
             )
-            return MaterializationInfo(urls=[], output_tables=[])  # pragma: no cover
-        result = response.json()  # pragma: no cover
+            raise DJQueryServiceClientException(
+                message=(
+                    f"Query service rejected cube materialization for "
+                    f"'{materialization_input.cube.name}' "
+                    f"(status={response.status_code}): {response.text}"
+                ),
+                http_status_code=HTTPStatus.BAD_GATEWAY,
+            )
+        result = response.json()
         _logger.info(
             "[DJQS] Scheduled cube materialization for node=%s with `POST /cubes/materialize`",
             materialization_input.cube,
         )
-        return MaterializationInfo(**result)  # pragma: no cover
+        return MaterializationInfo(**result)
 
     def materialize_cube_v2(
         self,

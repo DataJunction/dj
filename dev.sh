@@ -7,6 +7,8 @@
 # Slot 1:           DJ 8100, UI 3100, PG 5433
 # Slot 2:           DJ 8200, UI 3200, PG 5434
 # …
+# Local .dev-pg-port, .dev-redis-port, and .dev-trino-port files override
+# published host ports without changing the worktree slot or its data volumes.
 #
 # Setup a new slot:
 #   git worktree add ../dj-slot-1
@@ -31,11 +33,11 @@ export COMPOSE_PROJECT_NAME="dj-slot-${OFFSET}"
 export DJ_CONTAINER_PREFIX="dj-s${OFFSET}"
 export DJ_PORT=$((8000 + OFFSET * 100))
 export DJ_UI_PORT=$((3000 + OFFSET * 100))
-export DJ_PG_PORT=$((5432 + OFFSET))
+export DJ_PG_PORT=$(cat .dev-pg-port 2>/dev/null || echo $((5432 + OFFSET)))
 export DJ_QS_PORT=$((8001 + OFFSET * 100))
-export DJ_REDIS_PORT=$((6379 + OFFSET))
+export DJ_REDIS_PORT=$(cat .dev-redis-port 2>/dev/null || echo $((6379 + OFFSET)))
 export DJ_JUPYTER_PORT=$((8181 + OFFSET * 100))
-export DJ_TRINO_PORT=$((8080 + OFFSET * 100))
+export DJ_TRINO_PORT=$(cat .dev-trino-port 2>/dev/null || echo $((8080 + OFFSET * 100)))
 
 case "${1:-}" in
   urls)
@@ -43,6 +45,8 @@ case "${1:-}" in
     echo "DJ  : http://localhost:$DJ_PORT"
     echo "UI  : http://localhost:$DJ_UI_PORT"
     echo "PG  : localhost:$DJ_PG_PORT"
+    echo "Redis: localhost:$DJ_REDIS_PORT"
+    echo "Trino: http://localhost:$DJ_TRINO_PORT"
     exit 0
     ;;
 esac

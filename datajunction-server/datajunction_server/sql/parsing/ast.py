@@ -15,12 +15,13 @@ from copy import deepcopy
 from dataclasses import dataclass, field, fields
 import difflib
 from enum import Enum
-from functools import reduce
+from functools import lru_cache, reduce
 from itertools import chain, zip_longest
 import re
 from sqlglot import Dialect as SQLGlotDialect
 from sqlglot import exp as sqlglot_exp
 from typing import (
+    ClassVar,
     TYPE_CHECKING,
     Any,
     Dict,
@@ -341,6 +342,19 @@ class CompileContext:
 TNode = TypeVar("TNode", bound="Node")
 
 
+@lru_cache(maxsize=None)
+def field_names(node_type: type) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """
+    Field names of a node class as (all, public).
+
+    Dataclass fields are fixed once the class exists, but ``dataclasses.fields``
+    rebuilds its tuple on every call, so resolve the names one time per class.
+    """
+    all_names = tuple(node_field.name for node_field in fields(node_type))
+    public = tuple(name for name in all_names if not name.startswith("_"))
+    return all_names, public
+
+
 class Node(ABC):
     """Base class for all DJ AST nodes.
 
@@ -499,22 +513,22 @@ class Node(ABC):
                 and optional flattening (by default Iterator[Node])
         """
 
+        all_names, public_names = field_names(type(self))
+        names = all_names if obfuscated else public_names
+        attributes = self.__dict__
+
         def make_child_generator():
             """
             Makes a generator enclosing self to return
             not obfuscated fields (fields without starting `_`)
             """
-            for self_field in fields(self):
-                if (
-                    not self_field.name.startswith("_") if not obfuscated else True
-                ) and (self_field.name in self.__dict__):
-                    value = self.__dict__[self_field.name]
-                    values = [value]
-                    if flat:
-                        values = flatten(value)
+            for name in names:
+                if name in attributes:
+                    value = attributes[name]
+                    values = flatten(value) if flat else [value]
                     for value in values:
                         if named:
-                            yield (self_field.name, value)
+                            yield (name, value)
                         else:
                             yield value
 
@@ -545,19 +559,27 @@ class Node(ABC):
 
         return child_generator
 
+    # Fields that can hold child nodes, in field order. Declared per class so
+    # traversal does not rederive it.
+    __child_fields__: ClassVar[tuple[str, ...]] = ()
+
     @property
     def children(self) -> Iterator[Node]:
         """
         Returns an iterator of all nodes that are one
         step from the current node down including through iterables
         """
-        return self.fields(
-            flat=True,
-            nodes_only=True,
-            obfuscated=False,
-            nones=False,
-            named=False,
-        )
+        attributes = self.__dict__
+        for name in self.__child_fields__:
+            value = attributes.get(name)
+            if value is None:
+                continue
+            if type(value) in (list, tuple, set):
+                for item in value:
+                    if isinstance(item, Node):
+                        yield item
+            elif isinstance(value, Node):
+                yield value
 
     def replace(
         self,
@@ -592,7 +614,7 @@ class Node(ABC):
         if func(self):
             yield self
 
-        yield from chain(*[child.filter(func) for child in self.children])
+        yield from chain.from_iterable(child.filter(func) for child in self.children)
 
     def contains(self, other: Node) -> bool:
         """
@@ -751,6 +773,8 @@ class Aliasable(Node):
     A mixin for Nodes that are aliasable
     """
 
+    __child_fields__ = ("alias",)
+
     alias: Name | None = None
     as_: bool | None = None
     semantic_entity: str | None = None
@@ -798,6 +822,11 @@ class Alias(Aliasable, Generic[AliasedType]):
     Wraps node types with an alias
     """
 
+    __child_fields__ = (
+        "alias",
+        "child",
+    )
+
     child: AliasedType = field(default_factory=Node)
 
     def __str__(self) -> str:
@@ -827,6 +856,8 @@ class Expression(Node):
     """
     An expression type simply for type checking
     """
+
+    __child_fields__ = ()
 
     parenthesized: bool | None = field(init=False, default=None)
 
@@ -870,6 +901,8 @@ class Name(Node):
     """
     The string name specified in sql with quote style
     """
+
+    __child_fields__ = ("namespace",)
 
     name: str
     quote_style: str = ""
@@ -918,6 +951,8 @@ class Named(Node):
     An Expression that has a name
     """
 
+    __child_fields__ = ("name",)
+
     name: Name
 
     @staticmethod
@@ -964,6 +999,7 @@ class Named(Node):
 
 @dataclass(eq=False)
 class DefaultName(Name):
+    __child_fields__ = ("namespace",)
     name: str = ""
 
     def __bool__(self) -> bool:
@@ -972,6 +1008,7 @@ class DefaultName(Name):
 
 @dataclass(eq=False)
 class UnNamed(Named):
+    __child_fields__ = ("name",)
     name: Name = field(default_factory=DefaultName)
 
 
@@ -980,6 +1017,11 @@ class Column(Aliasable, Named, Expression):
     """
     Column used in statements
     """
+
+    __child_fields__ = (
+        "name",
+        "alias",
+    )
 
     _table: Aliasable | TableExpression | None = field(
         repr=False,
@@ -1533,6 +1575,8 @@ class Wildcard(Named, Expression):
     Wildcard or '*' expression
     """
 
+    __child_fields__ = ("name",)
+
     name: Name = field(init=False, repr=False, default_factory=lambda: Name("*"))
     _table: Table | None = field(repr=False, default=None)
 
@@ -1564,6 +1608,11 @@ class TableExpression(Aliasable, Expression):
     """
     A type for table expressions
     """
+
+    __child_fields__ = (
+        "alias",
+        "column_list",
+    )
 
     column_list: list[Column] = field(default_factory=list)
     _columns: list[Expression] = field(
@@ -1854,6 +1903,13 @@ class Table(TableExpression, Named):
     A type for tables
     """
 
+    __child_fields__ = (
+        "name",
+        "alias",
+        "column_list",
+        "path",
+    )
+
     _dj_node: DJNode | None = field(repr=False, default=None)
     dimension_link: DimensionLink | None = field(repr=False, default=None)
     path: list[Table] | None = field(repr=False, default=None)
@@ -1967,6 +2023,8 @@ class Operation(Expression):
     A type to overarch types that operate on other expressions
     """
 
+    __child_fields__ = ()
+
 
 class UnaryOpKind(DJEnum):
     """
@@ -1985,6 +2043,8 @@ class UnaryOp(Operation):
     """
     An operation that operates on a single expression
     """
+
+    __child_fields__ = ("expr",)
 
     op: UnaryOpKind
     expr: Expression
@@ -2035,11 +2095,16 @@ class ArithmeticUnaryOp(Operation):
     An operation that operates on a single expression
     """
 
+    __child_fields__ = ("expr",)
+
     op: ArithmeticUnaryOpKind
     expr: Expression
 
     def __str__(self) -> str:
-        return f"{self.op}{self.expr}"
+        ret = f"{self.op}{self.expr}"
+        if self.parenthesized:
+            return f"({ret})"
+        return ret
 
     @property
     def type(self) -> ColumnType:
@@ -2080,6 +2145,11 @@ class BinaryOp(Operation):
     Represents an operation that operates on two expressions
     """
 
+    __child_fields__ = (
+        "left",
+        "right",
+    )
+
     op: BinaryOpKind
     left: Expression
     right: Expression
@@ -2095,16 +2165,29 @@ class BinaryOp(Operation):
         """
         Create a BinaryOp of kind BinaryOpKind.And rolling up all expressions.
         Tolerates 0/1 args so that callers may safely `.And(*conditions)` an empty list.
+
+        An OR operand is parenthesized, since AND binds tighter than OR.
         """
         if left is None:
             return None
         if right is None:
             return left
+
+        def group(expr: Expression) -> Expression:
+            if (
+                isinstance(expr, BinaryOp)
+                and expr.op == BinaryOpKind.Or
+                and not expr.parenthesized
+            ):
+                expr = deepcopy(expr)
+                expr.parenthesized = True
+            return expr
+
         return reduce(
             lambda left, right: BinaryOp(
                 BinaryOpKind.And,
-                left,
-                right,
+                group(left),
+                group(right),
             ),
             (left, right, *rest),
         )
@@ -2252,6 +2335,8 @@ class FrameBound(Expression):
     Represents frame bound in a window function
     """
 
+    __child_fields__ = ()
+
     start: str
     stop: str
 
@@ -2264,6 +2349,11 @@ class Frame(Expression):
     """
     Represents frame in window function
     """
+
+    __child_fields__ = (
+        "start",
+        "end",
+    )
 
     frame_type: str
     start: FrameBound
@@ -2280,6 +2370,12 @@ class Over(Expression):
     """
     Represents a function used in a statement
     """
+
+    __child_fields__ = (
+        "partition_by",
+        "order_by",
+        "window_frame",
+    )
 
     partition_by: list[Expression] = field(default_factory=list)
     order_by: list[SortItem] = field(default_factory=list)
@@ -2321,6 +2417,12 @@ class Function(Named, Operation):
     Represents a function used in a statement
     """
 
+    __child_fields__ = (
+        "name",
+        "args",
+        "over",
+    )
+
     args: list[Expression] = field(default_factory=list)
     quantifier: SetQuantifier | None = None
     over: Over | None = None
@@ -2349,7 +2451,14 @@ class Function(Named, Operation):
         return self.name, self.args
 
     def __deepcopy__(self, memodict):
-        return self
+        # Bypass __new__, whose required arguments include children with parent
+        # links back to this function. Register the clone before copying those
+        # cycles, and preserve all compiled state without rebinding parents.
+        copied = object.__new__(type(self))
+        memodict[id(self)] = copied
+        for name, value in self.__dict__.items():
+            object.__setattr__(copied, name, deepcopy(value, memodict))
+        return copied
 
     def __str__(self) -> str:
         if self.name.name.upper() in function_registry and self.is_runtime():
@@ -2423,6 +2532,8 @@ class Value(Expression):
     Base class for all values number, string, boolean
     """
 
+    __child_fields__ = ()
+
     def is_aggregation(self) -> bool:
         return False
 
@@ -2432,6 +2543,8 @@ class Null(Value):
     """
     Null value
     """
+
+    __child_fields__ = ()
 
     def __str__(self) -> str:
         return "NULL"
@@ -2446,6 +2559,8 @@ class Number(Value):
     """
     Number value
     """
+
+    __child_fields__ = ()
 
     value: float | int | decimal.Decimal
     _type: IntegerBase | None = None
@@ -2506,6 +2621,8 @@ class String(Value):
     String value
     """
 
+    __child_fields__ = ()
+
     value: str
 
     def __str__(self) -> str:
@@ -2521,6 +2638,8 @@ class Boolean(Value):
     """
     Boolean True/False value
     """
+
+    __child_fields__ = ()
 
     value: bool
 
@@ -2538,6 +2657,8 @@ class IntervalUnit(Value):
     Interval unit value
     """
 
+    __child_fields__ = ("value",)
+
     unit: str
     value: Number | None = None
 
@@ -2550,6 +2671,11 @@ class Interval(Value):
     """
     Interval value
     """
+
+    __child_fields__ = (
+        "from_",
+        "to",
+    )
 
     from_: list[IntervalUnit]
     to: IntervalUnit | None = None
@@ -2600,6 +2726,8 @@ class Struct(Value):
     Struct value
     """
 
+    __child_fields__ = ("values",)
+
     values: list[Aliasable]
 
     def __str__(self):
@@ -2613,6 +2741,8 @@ class Predicate(Operation):
     Represents a predicate
     """
 
+    __child_fields__ = ()
+
     negated: bool = False
 
     @property
@@ -2625,6 +2755,12 @@ class Between(Predicate):
     """
     A between statement
     """
+
+    __child_fields__ = (
+        "expr",
+        "low",
+        "high",
+    )
 
     expr: Expression = field(default_factory=Expression)
     low: Expression = field(default_factory=Expression)
@@ -2656,6 +2792,11 @@ class In(Predicate):
     An in expression
     """
 
+    __child_fields__ = (
+        "expr",
+        "source",
+    )
+
     expr: Expression = field(default_factory=Expression)
     source: list[Expression] | Select = field(default_factory=Expression)
 
@@ -2675,6 +2816,11 @@ class Rlike(Predicate):
     A regular expression match statement
     """
 
+    __child_fields__ = (
+        "expr",
+        "pattern",
+    )
+
     expr: Expression = field(default_factory=Expression)
     pattern: Expression = field(default_factory=Expression)
 
@@ -2688,6 +2834,11 @@ class Like(Predicate):
     """
     A string pattern matching statement
     """
+
+    __child_fields__ = (
+        "expr",
+        "patterns",
+    )
 
     expr: Expression = field(default_factory=Expression)
     quantifier: str = ""
@@ -2722,6 +2873,8 @@ class IsNull(Predicate):
     A null check statement
     """
 
+    __child_fields__ = ("expr",)
+
     expr: Expression = field(default_factory=Expression)
 
     def __str__(self) -> str:
@@ -2738,6 +2891,8 @@ class IsBoolean(Predicate):
     """
     A boolean check statement
     """
+
+    __child_fields__ = ("expr",)
 
     expr: Expression = field(default_factory=Expression)
     value: str = "UNKNOWN"
@@ -2757,6 +2912,11 @@ class IsDistinctFrom(Predicate):
     A distinct from check statement
     """
 
+    __child_fields__ = (
+        "expr",
+        "right",
+    )
+
     expr: Expression = field(default_factory=Expression)
     right: Expression = field(default_factory=Expression)
 
@@ -2774,6 +2934,14 @@ class Case(Expression):
     """
     A case statement of branches
     """
+
+    __child_fields__ = (
+        "expr",
+        "conditions",
+        "else_result",
+        "operand",
+        "results",
+    )
 
     expr: Expression | None = None
     conditions: list[Expression] = field(default_factory=list)
@@ -2816,6 +2984,11 @@ class Subscript(Expression):
     Represents a subscript expression
     """
 
+    __child_fields__ = (
+        "expr",
+        "index",
+    )
+
     expr: Expression
     index: Expression
 
@@ -2842,6 +3015,11 @@ class Lambda(Expression):
     Represents a lambda expression
     """
 
+    __child_fields__ = (
+        "identifiers",
+        "expr",
+    )
+
     identifiers: list[Name]
     expr: Expression
 
@@ -2866,6 +3044,11 @@ class JoinCriteria(Node):
     Represents the criteria for a join relation in a FROM clause
     """
 
+    __child_fields__ = (
+        "on",
+        "using",
+    )
+
     on: Expression | None = None
     using: list[Named] | None = None
 
@@ -2882,6 +3065,11 @@ class Join(Node):
     """
     Represents a join relation in a FROM clause
     """
+
+    __child_fields__ = (
+        "right",
+        "criteria",
+    )
 
     join_type: str
     right: Expression
@@ -2910,6 +3098,13 @@ class InlineTable(TableExpression, Named):
     An inline table
     """
 
+    __child_fields__ = (
+        "name",
+        "alias",
+        "column_list",
+        "values",
+    )
+
     values: list[Expression] = field(default_factory=list)
     explicit_columns: bool = False
 
@@ -2933,6 +3128,13 @@ class FunctionTableExpression(TableExpression, Named, Operation):
     default where a FunctionTable is required but succeeds optional fields
     """
 
+    __child_fields__ = (
+        "name",
+        "alias",
+        "column_list",
+        "args",
+    )
+
     args: list[Expression] = field(default_factory=list)
 
 
@@ -2940,6 +3142,13 @@ class FunctionTable(FunctionTableExpression):
     """
     Represents a table-valued function used in a statement
     """
+
+    __child_fields__ = (
+        "name",
+        "alias",
+        "column_list",
+        "args",
+    )
 
     def __str__(self) -> str:
         cols = (
@@ -3022,6 +3231,8 @@ class LateralView(Node):
     Represents a lateral view expression
     """
 
+    __child_fields__ = ("func",)
+
     outer: bool = False
     func: FunctionTableExpression = field(default_factory=FunctionTableExpression)
 
@@ -3039,6 +3250,11 @@ class Relation(Node):
     Represents a relation
     """
 
+    __child_fields__ = (
+        "primary",
+        "extensions",
+    )
+
     primary: Expression
     extensions: list[Join] = field(default_factory=list)
 
@@ -3055,6 +3271,8 @@ class From(Node):
     """
     Represents the FROM clause of a SELECT statement
     """
+
+    __child_fields__ = ("relations",)
 
     relations: list[Relation] = field(default_factory=list)
 
@@ -3086,6 +3304,8 @@ class SetOp(Node):
     A set operation
     """
 
+    __child_fields__ = ("right",)
+
     kind: str = ""  # Union, intersect, ...
     right: SelectExpression | None = None
 
@@ -3098,6 +3318,8 @@ class Cast(Expression):
     """
     A cast to a specified type
     """
+
+    __child_fields__ = ("expression",)
 
     data_type: ColumnType
     expression: Expression
@@ -3130,6 +3352,8 @@ class SortItem(Node):
     Defines a sort item of an expression
     """
 
+    __child_fields__ = ("expr",)
+
     expr: Expression
     asc: str
     nulls: str
@@ -3143,6 +3367,11 @@ class Organization(Node):
     """
     Sets up organization for the query
     """
+
+    __child_fields__ = (
+        "order",
+        "sort",
+    )
 
     order: list[SortItem] = field(default_factory=list)
     sort: list[SortItem] = field(default_factory=list)
@@ -3162,6 +3391,11 @@ class Hint(Node):
     An Spark SQL hint statement
     """
 
+    __child_fields__ = (
+        "name",
+        "parameters",
+    )
+
     name: Name
     parameters: list[Column] = field(default_factory=list)
 
@@ -3180,6 +3414,20 @@ class SelectExpression(Aliasable, Expression):
     An uninitializable Type for Select for use as a default where
     a Select is required.
     """
+
+    __child_fields__ = (
+        "alias",
+        "projection",
+        "from_",
+        "group_by",
+        "having",
+        "where",
+        "lateral_views",
+        "set_op",
+        "limit",
+        "organization",
+        "hints",
+    )
 
     quantifier: str = ""  # Distinct, All
     projection: list[Aliasable | Expression | Column] = field(default_factory=list)
@@ -3255,6 +3503,8 @@ class QueryParameter(Expression):
     Represents a query parameter that can be substituted in a query
     """
 
+    __child_fields__ = ()
+
     name: str
     prefix: str = ":"
     quote_style: str = ""
@@ -3282,6 +3532,20 @@ class Select(SelectExpression):
     """
     A single select statement type
     """
+
+    __child_fields__ = (
+        "alias",
+        "projection",
+        "from_",
+        "group_by",
+        "having",
+        "where",
+        "lateral_views",
+        "set_op",
+        "limit",
+        "organization",
+        "hints",
+    )
 
     def __str__(self) -> str:
         parts = ["SELECT "]
@@ -3348,6 +3612,14 @@ class Query(TableExpression, UnNamed):
     """
     Overarching query type
     """
+
+    __child_fields__ = (
+        "name",
+        "alias",
+        "column_list",
+        "select",
+        "ctes",
+    )
 
     select: SelectExpression = field(default_factory=SelectExpression)
     ctes: list[Query] = field(default_factory=list)

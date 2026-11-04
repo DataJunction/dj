@@ -1043,6 +1043,51 @@ def test_push_without_force_does_not_set_flag(monkeypatch, tmp_path):
     assert "force" not in spec_sent
 
 
+def test_push_force_nodes_sets_list_in_spec(monkeypatch, tmp_path):
+    """push(force_nodes=[...]) must send the names as `force_nodes` in the spec."""
+    (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
+    (tmp_path / "bar.yaml").write_text(yaml.safe_dump({"name": "foo.bar"}))
+
+    client = MagicMock()
+    client.deploy.return_value = {
+        "uuid": "abc",
+        "status": "success",
+        "results": [],
+        "namespace": "foo",
+    }
+
+    svc = DeploymentService(client, console=Console(file=io.StringIO()))
+    monkeypatch.setattr(time, "sleep", lambda _: None)
+
+    svc.push(tmp_path, force_nodes=["foo.bar"])
+
+    spec_sent = client.deploy.call_args[0][0]
+    assert spec_sent.get("force_nodes") == ["foo.bar"]
+    assert "force" not in spec_sent
+
+
+def test_push_without_force_nodes_does_not_set_list(monkeypatch, tmp_path):
+    """push() without force_nodes must not include it in the spec."""
+    (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
+    (tmp_path / "bar.yaml").write_text(yaml.safe_dump({"name": "foo.bar"}))
+
+    client = MagicMock()
+    client.deploy.return_value = {
+        "uuid": "abc",
+        "status": "success",
+        "results": [],
+        "namespace": "foo",
+    }
+
+    svc = DeploymentService(client, console=Console(file=io.StringIO()))
+    monkeypatch.setattr(time, "sleep", lambda _: None)
+
+    svc.push(tmp_path)
+
+    spec_sent = client.deploy.call_args[0][0]
+    assert "force_nodes" not in spec_sent
+
+
 def test_push_times_out(monkeypatch, tmp_path):
     # minimal project structure so _reconstruct_deployment_spec works
     (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))

@@ -13,9 +13,12 @@ from starlette.requests import Request
 from strawberry.dataloader import DataLoader
 
 from datajunction_server.api.graphql.resolvers.nodes import load_node_options
+from datajunction_server.api.graphql.utils import _merge_fields
+from datajunction_server.construction.build_v3.filter_requirements import (
+    load_revision_filters,
+)
 from datajunction_server.construction.build_v3.loaders import find_upstream_node_names
 from datajunction_server.database.collection import Collection as DBCollection
-from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import (
     Node as DBNode,
 )
@@ -24,9 +27,9 @@ from datajunction_server.database.node import (
 )
 from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.internal.namespaces import (
-    get_parent_namespaces,
-    resolve_git_info_from_map,
+    get_git_info_for_namespaces,
 )
+from datajunction_server.models.filter_requirements import EffectiveFilterRequirement
 from datajunction_server.sql.decompose import (
     MetricComponent,
     MetricComponentExtractor,
@@ -180,6 +183,47 @@ def create_node_by_name_loader(request: Request) -> DataLoader[str, DBNode | Non
     )
 
 
+async def batch_load_nodes_with_fields(
+    keys: list[tuple[str, str]],
+    request: Request,
+) -> list[DBNode | None]:
+    """
+    Batch load nodes by name, eagerly loading the requested fields.
+
+    Keys are (node_name, fields_json) tuples, where fields_json is a
+    JSON-serialized dict of requested GraphQL fields for load_node_options.
+    """
+    names = [name for name, _ in keys]
+    all_fields: dict[str, Any] = {}
+    for _, fields_json in keys:
+        if fields_json:  # pragma: no branch
+            _merge_fields(all_fields, json.loads(fields_json))
+
+    async with session_context(request) as session:
+        # Reload nodes already in the session, which may lack requested fields.
+        statement = (
+            select(DBNode)
+            .where(DBNode.name.in_(names), DBNode.deactivated_at.is_(None))
+            .options(*load_node_options(all_fields))
+            .execution_options(populate_existing=True)
+        )
+        nodes = (await session.execute(statement)).unique().scalars().all()
+        node_map = {node.name: node for node in nodes}
+        return [node_map.get(name) for name in names]
+
+
+def create_node_with_fields_loader(
+    request: Request,
+) -> DataLoader[tuple[str, str], DBNode | None]:
+    """
+    Create a DataLoader for loading nodes by name with field-aware loading.
+    """
+    return InstrumentedDataLoader(
+        "node_with_fields",
+        load_fn=lambda keys: batch_load_nodes_with_fields(keys, request),
+    )
+
+
 async def batch_load_collection_nodes(
     keys: list[tuple[int, str]],
     request: Request,
@@ -247,47 +291,11 @@ async def batch_load_git_info(
     """
     Batch load git info for multiple namespaces in a single query.
 
-    Collects all ancestor namespaces across all requested namespaces,
-    loads them in one query, then resolves git info for each from the
-    shared map.
+    Resolves every requested namespace from one shared set of rows.
     """
-    # Collect all unique namespace names we need to look up
-    all_ancestor_names: set[str] = set()
-    for ns in namespaces:
-        ancestors = get_parent_namespaces(ns) + [ns]
-        all_ancestor_names.update(ancestors)
-
     async with session_context(request) as session:
-        # Single query to load all namespace rows
-        stmt = select(NodeNamespace).where(
-            NodeNamespace.namespace.in_(all_ancestor_names),
-        )
-        rows = (await session.execute(stmt)).scalars().all()
-        ns_map = {ns.namespace: ns for ns in rows}
-
-        # Handle FK hops: some branch namespaces point to a parent outside
-        # the string hierarchy. Collect missing parent_namespace values and
-        # load them in one extra query.
-        missing_fk_parents: set[str] = set()
-        for ns in namespaces:
-            ancestors = get_parent_namespaces(ns) + [ns]
-            for name in reversed(ancestors):
-                row = ns_map.get(name)
-                if row and row.git_branch:
-                    if row.parent_namespace and row.parent_namespace not in ns_map:
-                        missing_fk_parents.add(row.parent_namespace)
-                    break
-
-        if missing_fk_parents:
-            fk_stmt = select(NodeNamespace).where(
-                NodeNamespace.namespace.in_(missing_fk_parents),
-            )
-            fk_rows = (await session.execute(fk_stmt)).scalars().all()
-            for fk_row in fk_rows:
-                ns_map[fk_row.namespace] = fk_row
-
-    # Resolve git info for each requested namespace using the shared map
-    return [resolve_git_info_from_map(ns, ns_map) for ns in namespaces]
+        git_info = await get_git_info_for_namespaces(session, namespaces)
+    return [git_info[ns] for ns in namespaces]
 
 
 def create_git_info_loader(
@@ -382,6 +390,8 @@ async def batch_load_extracted_measures(
                             DBNodeRevision.name,
                             DBNodeRevision.query,
                             DBNodeRevision.reaggregate,
+                            DBNodeRevision.required_filters,
+                            DBNodeRevision.recommended_filters,
                         ),
                     ),
                 )
@@ -442,4 +452,37 @@ def create_extracted_measures_loader(
     return InstrumentedDataLoader(
         "extracted_measures",
         load_fn=lambda keys: batch_load_extracted_measures(keys, request),
+    )
+
+
+EffectiveFilters = tuple[
+    list[EffectiveFilterRequirement],
+    list[EffectiveFilterRequirement],
+]
+
+
+async def batch_load_effective_filters(
+    revision_ids: list[int],
+    request: Request,
+) -> list[EffectiveFilters]:
+    """
+    Load the (required, recommended) filters of many revisions in one batch.
+    """
+    async with session_context(
+        request,
+        session_label="graphql effective_filters batch",
+    ) as session:
+        found = await load_revision_filters(session, revision_ids)
+    return [found.get(rev_id, ([], [])) for rev_id in revision_ids]
+
+
+def create_effective_filters_loader(
+    request: Request,
+) -> DataLoader[int, EffectiveFilters]:
+    """
+    Create a DataLoader that batches effective filter lookups by revision id.
+    """
+    return InstrumentedDataLoader(
+        "effective_filters",
+        load_fn=lambda keys: batch_load_effective_filters(keys, request),
     )

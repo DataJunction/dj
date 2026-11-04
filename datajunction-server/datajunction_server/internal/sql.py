@@ -7,6 +7,7 @@ if TYPE_CHECKING:
     from datajunction_server.construction.build_v3.types import (
         GeneratedSQL as BuildV3GeneratedSQL,
     )
+    from datajunction_server.construction.build_v3.group_others import GroupOthers
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -137,7 +138,12 @@ async def build_node_sql(
 
     node = cast(
         Node,
-        await Node.get_by_name(session, node_name, raise_if_not_exists=True),
+        await Node.get_by_name(
+            session,
+            node_name,
+            raise_if_not_exists=True,
+            inherit=True,
+        ),
     )
     if not engine:  # pragma: no cover
         engine = node.current.catalog.engines[0]
@@ -153,7 +159,7 @@ async def build_node_sql(
 
     v3_result = await build_node_sql_v3(
         session=session,
-        node_name=node_name,
+        node_name=node.name,
         dimensions=dimensions or [],
         filters=filters or [],
         orderby=orderby or [],
@@ -191,6 +197,8 @@ async def generate_metrics_sql(
     endpoint: str = "/sql/metrics/v3/",
     populate_cube_metrics: bool = True,
     query_type: str | None = None,
+    enforce_filter_requirements: bool = True,
+    group_others: "GroupOthers | None" = None,
 ) -> "BuildV3GeneratedSQL":
     """
     Shared core for the "generate SQL for specific metrics" flow, used by both the
@@ -203,27 +211,29 @@ async def generate_metrics_sql(
       - If a cube revision is in play, prepend its stored ``cube_filters`` to the
         request filters. Metrics callers also fall back to the cube's metrics when
         none are explicit; dimensions callers disable that behavior.
-      - If ``dialect`` is None, auto-resolve it via
-        ``resolve_dialect_and_engine_for_metrics``; adopt that resolver's cube only
-        when no cube was otherwise provided (mirrors the canonical endpoint).
+      - If ``dialect`` is None, auto-resolve it (see ``prepare_metrics_query``);
+        adopt that resolver's cube only when no cube was otherwise provided
+        (mirrors the canonical endpoint).
       - Call and return the raw ``build_metrics_sql`` result; callers map it to
         their own response models.
       - Emit the build-latency metrics and ``[SQL]`` log here (tagged with
         ``endpoint``) so they reflect the merged, as-built values.
+      - Check the metrics' filter requirements (in ``prepare_metrics_query``)
+        unless ``enforce_filter_requirements`` is False. Distinct-value lookups
+        pass False: their metrics only scope the query to a cube.
     """
     # Imported lazily (like build_node_sql's build_v3 import below) to avoid an
     # import cycle: build_v3 pulls in modules that import this one.
     from datajunction_server.construction.build_v3 import (
         build_metrics_sql,
-        resolve_dialect_and_engine_for_metrics,
-        validate_pinned_cube_covers_filters,
+        prepare_metrics_query,
     )
 
     _t0 = time.monotonic()
     merged_filters = list(filters or [])
 
     if cube and matched_cube is None:
-        cube_node = await Node.get_cube_by_name(session, cube)
+        cube_node = await Node.get_cube_by_name(session, cube, inherit=True)
         if cube_node:
             matched_cube = cube_node.current
 
@@ -235,46 +245,37 @@ async def generate_metrics_sql(
             if not dimensions:
                 dimensions = matched_cube.cube_node_dimensions
 
-        # A pinned cube bypasses find_matching_cube's coverage check. When that
-        # cube will actually back the build (materialized, Druid or auto-dialect),
-        # verify it covers every filtered dimension so we fail loud here instead
-        # of emitting Druid SQL that references a column the cube table lacks.
-        if metrics and use_materialized and dialect in (None, Dialect.DRUID):
-            await validate_pinned_cube_covers_filters(
-                session,
-                matched_cube,
-                dimensions,
-                merged_filters,
-                metrics,
-            )
-
-    # Auto-resolve dialect if not explicitly provided.
-    resolved_dialect = dialect
-    if resolved_dialect is None:
-        execution_ctx = await resolve_dialect_and_engine_for_metrics(
-            session=session,
-            metrics=metrics,
-            dimensions=dimensions,
-            use_materialized=use_materialized,
-            matched_cube=matched_cube if metrics else None,
-            filters=merged_filters,
-        )
-        resolved_dialect = execution_ctx.dialect
-        # Only reuse the resolved cube if the caller didn't provide one.
-        if matched_cube is None:
-            matched_cube = execution_ctx.cube
+    # Check requirements, validate a pinned cube, and (without a dialect) pick
+    # the dialect, all on the merged filters.
+    prepared = await prepare_metrics_query(
+        session,
+        metrics,
+        dimensions,
+        merged_filters,
+        matched_cube=matched_cube,
+        use_materialized=use_materialized,
+        dialect=dialect,
+        resolve_execution=dialect is None,
+        enforce_filter_requirements=enforce_filter_requirements,
+    )
+    resolved_dialect = prepared.dialect
+    merged_filters = prepared.filters.filters
+    # Only reuse the resolved cube if the caller didn't provide one.
+    if matched_cube is None and prepared.execution is not None:
+        matched_cube = prepared.execution.cube
 
     result = await build_metrics_sql(
         session=session,
         metrics=metrics,
         dimensions=dimensions,
-        filters=merged_filters,
+        filters=prepared.filters,
         orderby=orderby,
         limit=limit,
         dialect=resolved_dialect,
         use_materialized=use_materialized,
         matched_cube=matched_cube,
         query_parameters=query_parameters,
+        group_others=group_others,
     )
 
     elapsed_ms = (time.monotonic() - _t0) * 1000
@@ -322,7 +323,7 @@ async def generate_dimensions_sql(
 ) -> "BuildV3GeneratedSQL":
     """Generate direct-domain or cube-scoped distinct dimension values."""
     if cube and matched_cube is None:
-        cube_node = await Node.get_cube_by_name(session, cube)
+        cube_node = await Node.get_cube_by_name(session, cube, inherit=True)
         if cube_node:
             matched_cube = cube_node.current
 
@@ -340,6 +341,7 @@ async def generate_dimensions_sql(
             endpoint=endpoint,
             populate_cube_metrics=False,
             query_type="dimensions",
+            enforce_filter_requirements=False,
         )
 
     from datajunction_server.construction.build_v3.node_query import (
@@ -368,6 +370,7 @@ async def generate_dimensions_sql(
         query_parameters=query_parameters,
         endpoint=endpoint,
         query_type="dimensions",
+        enforce_filter_requirements=False,
     )
     return project_dimension_values_sql(generated, dimensions, orderby, limit)
 

@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm.attributes import flag_modified
 
 from datajunction_server.api.helpers import (
     dedupe_cube_elements,
@@ -65,6 +66,7 @@ from datajunction_server.internal.access.authorization import (
 )
 from datajunction_server.internal.access.authorization.context import AuthContext
 from datajunction_server.internal.caching.interface import Cache
+from datajunction_server.internal.custom_metadata import validate_custom_metadata
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.materializations import (
     apply_cube_materialization_swap,
@@ -95,6 +97,12 @@ from datajunction_server.models.cube_materialization import (
     UpsertCubeMaterialization,
     principal_refs,
 )
+from datajunction_server.models.decompose import (
+    AggregationRule as DecomposeAggregationRule,
+)
+from datajunction_server.models.decompose import (
+    MetricComponent,
+)
 from datajunction_server.models.deployment import (
     ChangeTier,
     CubeSpec,
@@ -102,10 +110,6 @@ from datajunction_server.models.deployment import (
     bump_version,
     fold_change_tiers,
     version_change_tier,
-)
-from datajunction_server.models.decompose import (
-    AggregationRule as DecomposeAggregationRule,
-    MetricComponent,
 )
 from datajunction_server.models.dimensionlink import (
     JoinLinkInput,
@@ -133,6 +137,10 @@ from datajunction_server.models.node import (
 from datajunction_server.models.fixed_grain import fixed_grain_identity
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import QueryCreate
+from datajunction_server.models.filter_requirements import (
+    dump_filter_requirements,
+    filter_requirements_identity,
+)
 from datajunction_server.models.reaggregate import dump_reaggregate_spec
 from datajunction_server.models.table_metadata import TableMetadata, TableOwner
 from datajunction_server.service_clients import QueryServiceClient
@@ -142,12 +150,14 @@ from datajunction_server.sql.dag import (
     get_nodes_with_common_dimensions,
     topological_sort,
 )
-from datajunction_server.sql.decompose import MetricComponentExtractor
+from datajunction_server.sql.decompose import (
+    MetricComponentExtractor,
+    component_params_match,
+)
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import parse, parse_rule
 from datajunction_server.typing import UTCDatetime
-from datajunction_server.internal.custom_metadata import validate_custom_metadata
 from datajunction_server.utils import (
     SEPARATOR,
     Version,
@@ -595,7 +605,6 @@ async def create_node_revision(
         status=NodeStatus.VALID,
         query=data.query,
         mode=data.mode,
-        required_dimensions=data.required_dimensions or [],
         reaggregate=(
             dump_reaggregate_spec(data.reaggregate)
             if node_type == NodeType.METRIC
@@ -604,10 +613,16 @@ async def create_node_revision(
         # Passed through for every node type so `extra_validation` can reject
         # it, rather than silently dropping a declaration the author wrote.
         fixed_grain=data.fixed_grain,
+        required_filters=dump_filter_requirements(data.required_filters),
+        recommended_filters=dump_filter_requirements(data.recommended_filters),
         created_by_id=current_user.id,
         custom_metadata=data.custom_metadata,
     )
-    node_validator = await validate_node_data(node_revision, session)
+    node_validator = await validate_node_data(
+        node_revision,
+        session,
+        required_dimensions=data.required_dimensions or [],
+    )
 
     if node_validator.status == NodeStatus.INVALID:
         if node_revision.mode == NodeMode.DRAFT:
@@ -1084,6 +1099,7 @@ def _new_frozen_measure(
         upstream_revision_id=upstream_revision_id,
         expression=measure.expression,
         aggregation=measure.aggregation,
+        params=measure.params,
         rule=_frozen_measure_rule(measure.rule),
         used_by_node_revisions=[],
     )
@@ -1099,6 +1115,7 @@ def _raise_if_frozen_measure_conflicts(
     if (
         frozen_measure.expression == measure.expression
         and frozen_measure.aggregation == measure.aggregation
+        and component_params_match(measure, frozen_measure.params)
         and _aggregation_rule_identity(frozen_measure.rule)
         == _aggregation_rule_identity(measure.rule)
     ):
@@ -1106,7 +1123,7 @@ def _raise_if_frozen_measure_conflicts(
 
     raise DJInvalidInputException(
         f"Frozen measure `{measure.name}` already exists with a different "
-        "expression, aggregation, or aggregation rule.",
+        "expression, aggregation, aggregation rule, or tuning parameters.",
     )
 
 
@@ -1209,10 +1226,12 @@ async def copy_to_new_node(
         catalog=old_revision.catalog,
         schema_=old_revision.schema_,
         table=old_revision.table,
-        required_dimensions=list(old_revision.required_dimensions),
+        required_dimensions=[rd.copy() for rd in old_revision.required_dimensions],
         metric_metadata=old_revision.metric_metadata,
         reaggregate=old_revision.reaggregate,
         fixed_grain=old_revision.fixed_grain,
+        required_filters=old_revision.required_filters,
+        recommended_filters=old_revision.recommended_filters,
         cube_elements=list(old_revision.cube_elements),
         cube_filters=old_revision.cube_filters,
         status=old_revision.status,
@@ -1245,6 +1264,7 @@ async def copy_to_new_node(
                 join_sql=new_join_sql,
                 join_type=link.join_type,
                 join_cardinality=link.join_cardinality,
+                role=link.role,
                 materialization_conf=link.materialization_conf,
                 default_value=link.default_value,
                 spark_hints=link.spark_hints,
@@ -1988,6 +2008,7 @@ async def cube_metric_component_identities(
             FrozenMeasure.name,
             FrozenMeasure.expression,
             FrozenMeasure.aggregation,
+            FrozenMeasure.params,
         )
         .select_from(NodeRevisionFrozenMeasure)
         .join(
@@ -2003,8 +2024,12 @@ async def cube_metric_component_identities(
     rows = (await session.execute(statement)).all()
     return {
         f"{metric_name}:{component_name}:"
-        + measure_identity_token(compute_expression_hash(expression), aggregation)
-        for metric_name, component_name, expression, aggregation in rows
+        + measure_identity_token(
+            compute_expression_hash(expression),
+            aggregation,
+            params,
+        )
+        for metric_name, component_name, expression, aggregation, params in rows
     }
 
 
@@ -2625,10 +2650,12 @@ def copy_existing_node_revision(old_revision: NodeRevision, current_user: User):
         mode=old_revision.mode,
         materializations=old_revision.materializations,
         status=old_revision.status,
-        required_dimensions=list(old_revision.required_dimensions),
+        required_dimensions=[rd.copy() for rd in old_revision.required_dimensions],
         metric_metadata=old_revision.metric_metadata,
         reaggregate=old_revision.reaggregate,
         fixed_grain=old_revision.fixed_grain,
+        required_filters=old_revision.required_filters,
+        recommended_filters=old_revision.recommended_filters,
         dimension_links=[
             DimensionLink(
                 dimension_id=link.dimension_id,
@@ -2848,7 +2875,7 @@ async def create_new_revision_from_existing(
     required_dim_changes = (
         data
         and isinstance(data.required_dimensions, list)
-        and {col.name for col in old_revision.required_dimensions}
+        and {rd.ref for rd in old_revision.required_dimensions}
         != set(data.required_dimensions)
     )
     # An explicit null clears the grain, an absent one carries it forward; both
@@ -2863,10 +2890,30 @@ async def create_new_revision_from_existing(
     reaggregate_was_set = bool(
         data and "reaggregate" in data.model_fields_set,
     )
-    reaggregate_changes = (
-        reaggregate_was_set
-        and old_revision.reaggregate
-        != dump_reaggregate_spec(data.reaggregate if data else None)
+    reaggregate_changes = reaggregate_was_set and dump_reaggregate_spec(
+        old_revision.reaggregate,
+    ) != dump_reaggregate_spec(data.reaggregate if data else None)
+    required_filters_were_set = bool(
+        data and "required_filters" in data.model_fields_set,
+    )
+    new_required_filters = (
+        dump_filter_requirements(data.required_filters)
+        if required_filters_were_set and data
+        else old_revision.required_filters
+    )
+    recommended_filters_were_set = bool(
+        data and "recommended_filters" in data.model_fields_set,
+    )
+    new_recommended_filters = (
+        dump_filter_requirements(data.recommended_filters)
+        if recommended_filters_were_set and data
+        else old_revision.recommended_filters
+    )
+    filter_requirement_changes = filter_requirements_identity(
+        old_revision.required_filters,
+    ) != filter_requirements_identity(new_required_filters) or (
+        filter_requirements_identity(old_revision.recommended_filters)
+        != filter_requirements_identity(new_recommended_filters)
     )
     major_changes = (
         query_changes
@@ -2875,6 +2922,7 @@ async def create_new_revision_from_existing(
         or required_dim_changes
         or reaggregate_changes
         or fixed_grain_changes
+        or filter_requirement_changes
     )
 
     # If nothing has changed, do not create the new node revision
@@ -2932,18 +2980,26 @@ async def create_new_revision_from_existing(
             else old_revision.reaggregate
         ),
         fixed_grain=new_fixed_grain,
+        required_filters=new_required_filters,
+        recommended_filters=new_recommended_filters,
         dimension_links=[
             DimensionLink(
                 dimension_id=link.dimension_id,
                 join_sql=link.join_sql,
                 join_type=link.join_type,
                 join_cardinality=link.join_cardinality,
+                role=link.role,
                 materialization_conf=link.materialization_conf,
                 default_value=link.default_value,
                 spark_hints=link.spark_hints,
             )
             for link in old_revision.dimension_links
         ],
+        # Preserve required_dimensions by default -- previously omitted here,
+        # which meant a PATCH touching unrelated fields (but not
+        # required_dimensions) silently wiped it out once validation below
+        # reassigned `new_revision.required_dimensions` from an empty list.
+        required_dimensions=[rd.copy() for rd in old_revision.required_dimensions],
         created_by_id=current_user.id,
         custom_metadata=old_revision.custom_metadata,
     )
@@ -2952,15 +3008,22 @@ async def create_new_revision_from_existing(
     for col in new_revision.columns:
         col.node_revision = new_revision
 
-    if data and data.required_dimensions is not None:  # type: ignore
-        new_revision.required_dimensions = data.required_dimensions  # type: ignore
+    required_dimensions_override = (
+        data.required_dimensions  # type: ignore
+        if data and data.required_dimensions is not None  # type: ignore
+        else None
+    )
 
     if data and data.custom_metadata is not None:  # type: ignore
         new_revision.custom_metadata = data.custom_metadata
 
     # Link the new revision to its parents if a new revision was created and update its status
     if new_revision.type != NodeType.SOURCE:
-        node_validator = await validate_node_data(new_revision, session)
+        node_validator = await validate_node_data(
+            new_revision,
+            session,
+            required_dimensions=required_dimensions_override,
+        )
         new_revision.columns = node_validator.columns
         new_revision.status = node_validator.status
 
@@ -3049,8 +3112,13 @@ async def create_new_revision_from_existing(
                         ColumnAttribute(column=col, attribute_type=pk_attribute),
                     )
 
-        # Update the required dimensions if one was set in the input and the node is a metric
-        if node_validator.required_dimensions and new_revision.type == NodeType.METRIC:
+        # Replace the raw strings set above (line ~2818) with the resolved
+        # RequiredDimension rows from validation. Unconditional (not gated on
+        # truthiness): if validation resolved zero entries -- either because
+        # none were supplied or because all were invalid in draft mode -- the
+        # raw string list must still be cleared out, or it's left sitting in
+        # a relationship attribute that expects RequiredDimension rows.
+        if new_revision.type == NodeType.METRIC:
             new_revision.required_dimensions = node_validator.required_dimensions
 
         # Set the node's validity status
@@ -3505,6 +3573,9 @@ async def upsert_complex_dimension_link(
         )
         dimension_link.join_cardinality = link_input.join_cardinality
         dimension_link.default_value = link_input.default_value
+        # SQLAlchemy compares old and new with ==, which counts 1 and True
+        # as the same value and skips the column in the UPDATE.
+        flag_modified(dimension_link, "default_value")
         dimension_link.spark_hints = link_input.spark_hints
     else:
         # If there is no existing link, create new dimension link object
@@ -4873,6 +4944,7 @@ async def refresh_source(
                 join_sql=link.join_sql,
                 join_type=link.join_type,
                 join_cardinality=link.join_cardinality,
+                role=link.role,
                 materialization_conf=link.materialization_conf,
                 default_value=link.default_value,
                 spark_hints=link.spark_hints,

@@ -3,12 +3,14 @@
 import pytest
 from pydantic import ValidationError
 
+from datajunction_server.models import reaggregate as reaggregate_module
 from datajunction_server.models.reaggregate import (
     DimensionReaggregateRule,
     ReaggregateSpec,
     ReaggregationFunction,
     dimension_reaggregate_rules,
     dump_reaggregate_spec,
+    is_parameterized_reaggregate_function,
     parse_reaggregate_spec,
     unsupported_dimension_reaggregate_functions,
 )
@@ -28,6 +30,8 @@ def test_dump_reaggregate_spec_from_dict():
             ],
         },
     ) == {
+        "fn": None,
+        "params": None,
         "rules": [
             {
                 "dimension": "default.date_dim.date",
@@ -51,6 +55,8 @@ def test_dump_reaggregate_spec_from_model():
             ],
         ),
     ) == {
+        "fn": None,
+        "params": None,
         "rules": [
             {
                 "dimension": "default.date_dim.date",
@@ -86,7 +92,6 @@ def test_parse_reaggregate_spec_from_model():
 @pytest.mark.parametrize(
     "unknown_field",
     [
-        {"fn": "last_value"},
         {"weight": "default.orders.quantity"},
         {
             "rules": [
@@ -131,3 +136,59 @@ def test_unsupported_dimension_reaggregate_functions_handles_empty_and_invalid()
             ],
         },
     ) == ["sum"]
+
+
+def test_empty_params_allowed():
+    """
+    An absent or empty `params` declaration is preserved.
+    """
+    assert ReaggregateSpec().params is None
+    assert ReaggregateSpec(params={}).params == {}
+
+
+@pytest.mark.parametrize("fn", [None, ReaggregationFunction.AVG])
+def test_nonempty_params_require_parameterized_function(fn):
+    """Tuning parameters are invalid without a family that interprets them."""
+    with pytest.raises(
+        ValidationError,
+        match="requires a parameterized reaggregate.fn",
+    ):
+        ReaggregateSpec(fn=fn, params={"compression": 200})
+
+
+def test_params_accepted_for_parameterized_function(monkeypatch):
+    """
+    Registering a function as parameterized enables `params` assignment.
+    """
+    monkeypatch.setattr(
+        reaggregate_module,
+        "PARAMETERIZED_REAGGREGATE_FUNCTIONS",
+        frozenset({ReaggregationFunction.AVG}),
+    )
+    spec = ReaggregateSpec(fn=ReaggregationFunction.AVG, params={"compression": 200})
+    assert spec.params == {"compression": 200}
+    assert dump_reaggregate_spec(spec)["params"] == {"compression": 200}
+
+
+def test_only_sketch_families_are_parameterized():
+    """
+    Only a sketch family takes tuning parameters.
+    """
+    parameterized = {
+        fn for fn in ReaggregationFunction if is_parameterized_reaggregate_function(fn)
+    }
+
+    assert parameterized == {ReaggregationFunction.TDIGEST}
+
+
+def test_params_round_trip_through_parse():
+    """
+    `params` survives dict -> model -> dict without loss.
+    """
+    spec = parse_reaggregate_spec(
+        {"fn": "tdigest", "params": {"compression": 200}},
+    )
+    assert spec.params == {"compression": 200}
+    assert parse_reaggregate_spec(dump_reaggregate_spec(spec)).params == {
+        "compression": 200,
+    }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+import json
 from enum import Enum
 from typing import Any
 
@@ -37,6 +38,9 @@ from datajunction_server.api.graphql.scalars.metricmetadata import (
 )
 from datajunction_server.api.graphql.scalars.user import User
 from datajunction_server.api.graphql.utils import extract_fields
+from datajunction_server.construction.build_v3.dimension_refs import (
+    split_dimension_ref,
+)
 from datajunction_server.database.dimensionlink import (
     JoinCardinality as JoinCardinality_,
 )
@@ -48,6 +52,7 @@ from datajunction_server.models.node import NodeMode as NodeMode_
 from datajunction_server.models.node import NodeStatus as NodeStatus_
 from datajunction_server.models.node import NodeType as NodeType_
 from datajunction_server.models.reaggregate import parse_reaggregate_spec
+from datajunction_server.naming import SEPARATOR
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 
 NodeType = strawberry.enum(NodeType_)
@@ -214,7 +219,7 @@ class DimensionLink:
     join_cardinality: JoinCardinality | None  # type: ignore
     role: str | None
     foreign_keys: JSON
-    default_value: str | None
+    default_value: JSON | None
 
 
 @strawberry.type
@@ -244,8 +249,48 @@ class DimensionAttribute:
         dimension_node_name = self.name.rsplit(".", 1)[0]
 
         # Use the DataLoader from context to batch this lookup with other concurrent lookups
-        node_loader = info.context["node_loader"]
-        return await node_loader.load(dimension_node_name)  # type: ignore
+        node_loader = info.context["node_fields_loader"]
+        fields = json.dumps(extract_fields(info), sort_keys=True)
+        return await node_loader.load((dimension_node_name, fields))  # type: ignore
+
+
+def _required_dimension_name(ref: str) -> str:
+    """The column name in a required dimension reference."""
+    base, _ = split_dimension_ref(ref)
+    return base.rsplit(SEPARATOR, 1)[-1]
+
+
+def _effective_filters(entries: list) -> list[EffectiveFilterRequirement]:
+    """Convert loaded entries to the GraphQL type."""
+    return [
+        EffectiveFilterRequirement(  # type: ignore
+            dimension=list(entry.dimension),
+            default=entry.default,
+            declared_by=list(entry.declared_by),
+        )
+        for entry in entries
+    ]
+
+
+@strawberry.type
+class FilterRequirement:
+    """
+    A dimension attribute a metric requires or recommends filtering.
+    """
+
+    dimension: list[str]
+    default: str | None = None
+
+
+@strawberry.type
+class EffectiveFilterRequirement:
+    """
+    A filter a metric requires or recommends, with the metrics declaring it.
+    """
+
+    dimension: list[str]
+    default: str | None = None
+    declared_by: list[str]
 
 
 @strawberry.type
@@ -268,8 +313,10 @@ class NodeRevision:
     @strawberry.field
     def catalog(self, root: DBNodeRevision) -> Catalog | None:
         """
-        Catalog for the node
+        Catalog for the node, if it has one
         """
+        if root.catalog is None:
+            return None
         return Catalog.from_pydantic(root.catalog)  # type: ignore
 
     query: str | None = None
@@ -410,8 +457,97 @@ class NodeRevision:
     schema_: str | None
     table: str | None
 
-    # Only metrics will have these fields
-    required_dimensions: list[Column] | None = None
+    # Only metrics will have these fields.
+    @strawberry.field(
+        deprecation_reason="Use requiredDimensionRefs, which keeps the node and role.",
+    )
+    def required_dimensions(self, root: DBNodeRevision) -> list[Column] | None:
+        """
+        The metric's required dimensions. Only each column's name is filled in.
+        """
+        if root.type != NodeType_.METRIC:
+            return None
+        return [
+            Column(  # type: ignore
+                name=_required_dimension_name(ref),
+                display_name=None,
+                description=None,
+                type="unknown",
+                dimension=None,
+                partition=None,
+            )
+            for ref in root.required_dimensions_refs
+        ]
+
+    @strawberry.field
+    def required_dimension_refs(self, root: DBNodeRevision) -> list[str] | None:
+        """
+        The metric's required dimension references, including a role if specified.
+        """
+        if root.type != NodeType_.METRIC:
+            return None
+        return root.required_dimensions_refs
+
+    @strawberry.field
+    def required_filters(self, root: DBNodeRevision) -> list[FilterRequirement] | None:
+        """
+        Attributes a query for this metric must filter.
+        """
+        if root.type != NodeType.METRIC or root.required_filters is None:
+            return None
+        return [
+            FilterRequirement(  # type: ignore
+                dimension=list(entry["dimension"]),
+                default=entry.get("default"),
+            )
+            for entry in root.required_filters
+        ]
+
+    @strawberry.field
+    def recommended_filters(
+        self,
+        root: DBNodeRevision,
+    ) -> list[FilterRequirement] | None:
+        """
+        Attributes a query for this metric should filter.
+        """
+        if root.type != NodeType.METRIC or root.recommended_filters is None:
+            return None
+        return [
+            FilterRequirement(  # type: ignore
+                dimension=list(entry["dimension"]),
+                default=entry.get("default"),
+            )
+            for entry in root.recommended_filters
+        ]
+
+    @strawberry.field
+    async def effective_required_filters(
+        self,
+        root: DBNodeRevision,
+        info: Info,
+    ) -> list[EffectiveFilterRequirement] | None:
+        """
+        Required filters of this metric and of the metrics it is built from.
+        """
+        if root.type != NodeType.METRIC:
+            return None
+        required, _ = await info.context["effective_filters_loader"].load(root.id)
+        return _effective_filters(required)
+
+    @strawberry.field
+    async def effective_recommended_filters(
+        self,
+        root: DBNodeRevision,
+        info: Info,
+    ) -> list[EffectiveFilterRequirement] | None:
+        """
+        Recommended filters of this metric and of the metrics it is built from.
+        """
+        if root.type != NodeType.METRIC:
+            return None
+        _, recommended = await info.context["effective_filters_loader"].load(root.id)
+        return _effective_filters(recommended)
 
     @strawberry.field
     def fixed_grain(self, root: DBNodeRevision) -> list[str] | None:
@@ -433,6 +569,8 @@ class NodeRevision:
         if not spec:
             return None
         return ReaggregateSpec(
+            fn=spec.fn,
+            params=spec.params,
             rules=[
                 DimensionReaggregateRule(
                     dimension=rule.dimension,
@@ -675,7 +813,7 @@ class NodeRevision:
                 name=full_name + role,
                 attribute=element.name,
                 role=role,
-                _dimension_node=node_revision,
+                _dimension_node=None,
                 type=element.type,
                 properties=element.attribute_names(),
             )

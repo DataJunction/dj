@@ -103,6 +103,7 @@ async def python_client_code_for_setting_column_attributes(
             ),
         ],
         raise_if_not_exists=True,
+        inherit=True,
     )
     assert node is not None  # raise_if_not_exists=True ensures this
 
@@ -189,9 +190,7 @@ async def python_client_create_node(
             {"primary_key": [col.name for col in node.current.primary_key()]}
             if node.type != NodeType.METRIC
             else {
-                "required_dimensions": [  # type: ignore
-                    col.name for col in node.current.required_dimensions
-                ],
+                "required_dimensions": node.current.required_dimensions_refs,  # type: ignore
                 **(
                     {"reaggregate": node.current.reaggregate}  # type: ignore
                     if node.current.reaggregate

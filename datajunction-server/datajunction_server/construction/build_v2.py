@@ -14,7 +14,10 @@ from sqlalchemy import bindparam, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, noload, selectinload
 
-from datajunction_server.construction.utils import to_namespaced_name
+from datajunction_server.construction.utils import (
+    dimension_link_default_literal,
+    to_namespaced_name,
+)
 from datajunction_server.database import Engine
 from datajunction_server.database.attributetype import ColumnAttribute
 from datajunction_server.database.column import Column
@@ -267,8 +270,10 @@ class QueryBuilder:
 
         self._filters: list[str] = []
         self._parameters: dict[str, ast.Value] = {}
+        # NOTE: v2 has no role-aware join disambiguation like v3's
+        # find_join_path -- a roled ref is compared here as an opaque string.
         self._required_dimensions: list[str] = [
-            required.name for required in self.node_revision.required_dimensions
+            required.ref for required in self.node_revision.required_dimensions
         ]
         self._dimensions: list[str] = []
         self._orderby: list[str] = []
@@ -1171,8 +1176,11 @@ class CubeQueryBuilder:
         self.use_materialized = use_materialized
 
         self._filters: list[str] = []
+        # See the NOTE in QueryBuilder.__init__ above: build_v2 doesn't do
+        # role-aware dimension-link resolution, so a roled ref is compared
+        # as an opaque string here.
         self._required_dimensions: list[str] = [
-            required.name
+            required.ref
             for metric_node in self.metric_nodes
             for required in metric_node.current.required_dimensions
         ]
@@ -1931,7 +1939,13 @@ def build_dimension_attribute(
                 if link.default_value is not None:  # pragma: no cover
                     coalesce_expr = ast.Function(
                         ast.Name("COALESCE"),
-                        args=[column, ast.String(f"'{link.default_value}'")],
+                        args=[
+                            column,
+                            dimension_link_default_literal(
+                                link.default_value,
+                                str(col.type) if col.type else None,  # type: ignore
+                            ),
+                        ],
                     )
                     if alias:
                         aliased = coalesce_expr.set_alias(ast.Name(alias))

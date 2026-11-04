@@ -1,6 +1,7 @@
 """Focused coverage tests for build-v3 reaggregation helpers."""
 
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
@@ -21,6 +22,7 @@ from datajunction_server.construction.build_v3 import builder as builder_module
 from datajunction_server.construction.build_v3 import metrics as metrics_module
 from datajunction_server.construction.build_v3.builder import setup_build_context
 from datajunction_server.construction.build_v3.measures import (
+    _build_group_by,
     build_grain_group_sql,
     build_select_ast,
     build_window_metric_grain_groups,
@@ -40,8 +42,11 @@ from datajunction_server.construction.build_v3.types import (
     GeneratedMeasuresSQL,
     GrainGroup,
     GrainGroupSQL,
+    JoinPath,
     ResolvedDimension,
 )
+from datajunction_server.database.dimensionlink import DimensionLink
+from datajunction_server.database.node import Node
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.decompose import (
     Aggregability,
@@ -702,7 +707,7 @@ def test_build_select_ast_skips_non_output_dimensions():
         ),
     ]
 
-    query, _ = build_select_ast(
+    query, _, dimension_positions = build_select_ast(
         ctx,
         metric_expressions=[],
         resolved_dimensions=resolved_dimensions,
@@ -713,6 +718,62 @@ def test_build_select_ast_skips_non_output_dimensions():
     rendered = str(query)
     assert "t1.region" in rendered
     assert "t1.date_id AS date_id" not in rendered
+    assert dimension_positions == {
+        "test.parent.region": 0,
+        "test.parent.date_id": 1,
+    }
+
+
+def test_group_by_positions_include_coalesced_sibling_dimension():
+    """The position is recorded while the full-skip COALESCE is built."""
+    sibling_node = cast(Node, _source_node("test.customer"))
+    sibling_link = cast(
+        DimensionLink,
+        SimpleNamespace(
+            foreign_keys_reversed={
+                "test.customer.customer_id": "test.parent.customer_id",
+            },
+            dimension=sibling_node,
+            role=None,
+        ),
+    )
+    path = JoinPath(links=[sibling_link], target_dimension=sibling_node)
+    dimensions = [
+        ResolvedDimension(
+            original_ref="test.customer.customer_id",
+            node_name="test.customer",
+            column_name="customer_id",
+            role=None,
+            join_path=None,
+            is_local=True,
+            pre_skip_join_path=path,
+        ),
+        ResolvedDimension(
+            original_ref="test.customer.name",
+            node_name="test.customer",
+            column_name="name",
+            role=None,
+            join_path=path,
+            is_local=False,
+        ),
+    ]
+
+    group_by, positions = _build_group_by(
+        dimensions,
+        {("test.customer", ""): "t2"},
+        "t1",
+        [],
+        set(),
+        set(),
+        parent_node_name="test.parent",
+    )
+
+    assert positions == {
+        "test.customer.customer_id": 0,
+        "test.customer.name": 1,
+    }
+    assert str(group_by[0]) == "COALESCE(t1.customer_id, t2.customer_id)"
+    assert str(group_by[1]) == "t2.name"
 
 
 def test_build_grain_group_sql_handles_internal_alias_already_in_grain():

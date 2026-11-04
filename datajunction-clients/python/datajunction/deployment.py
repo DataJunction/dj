@@ -139,6 +139,7 @@ class DeploymentService:
         console: Console | None = None,
         verbose: bool = False,
         force: bool = False,
+        force_nodes: list[str] | None = None,
         allow_empty: bool = False,
         format: str = "text",
     ):
@@ -196,6 +197,8 @@ class DeploymentService:
                     )
         if force:
             deployment_spec["force"] = True
+        if force_nodes:
+            deployment_spec["force_nodes"] = list(force_nodes)
         if allow_empty:
             deployment_spec["allow_empty"] = True
         deployment_data = self.client.deploy(deployment_spec)

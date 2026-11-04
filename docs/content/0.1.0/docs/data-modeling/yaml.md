@@ -125,7 +125,10 @@ The **node name is derived** from the directory structure and file name. For exa
 | `columns` | No | Optional column-level settings (like `attributes` or `partition`) |
 | `tags` | No | A list of tags for this node |
 | `required_dimensions` | No | A list of required dimensions for this metric |
-| `fixed_grain` | No | Dimensions the aggregate is computed at. Omitted means the query grain; `[]` means the global grain. |
+| `fixed_grain` | No | Dimensions the aggregate is computed at, regardless of the query's grain. Omitted means the query grain; `[]` means the global grain. See [share of total metrics](../metrics/#share-of-total-metrics). |
+| `required_filters` | No | Attributes a query on this metric must filter, each with an optional `default` filter. A missing one without a default is a 422 naming the attribute. See [required / recommended filters](../metrics/#required-recommended-filters). |
+| `recommended_filters` | No | Attributes a query on this metric should filter. A missing one adds a warning; an optional `default` is applied instead. See [required / recommended filters](../metrics/#required-recommended-filters). |
+| `reaggregate` | No | Rules for dimensions this metric cannot be summed along, for semi-additive measures like snapshots. See [semi-additive metrics](../metrics/#semi-additive-metrics). |
 | `direction` | No | Direction of this metric (one of `higher_is_better`, `lower_is_better`, or `neutral`) |
 | `unit` | No | The unit of this metric |
 
@@ -165,7 +168,7 @@ dimension_links:
 | `join_on` | Yes, unless `join_type` is `cross` | The join condition, equating this node's foreign key column(s) to the dimension's primary key. There is no inference: a spec says nothing about which column is the foreign key, so the clause must be written out. |
 | `join_type` | No | The type of join (one of `left`, `right`, `inner`, `full`, `cross`). Defaults to `left`. |
 | `role` | No | The role this dimension represents |
-| `default_value` | No | A fallback value for NULL results from LEFT/RIGHT joins. When set, dimension columns are wrapped in `COALESCE(column, 'default_value')`. |
+| `default_value` | No | A string, number, or boolean fallback for NULL results from LEFT/RIGHT joins. When set, dimension columns are wrapped in `COALESCE(column, default_value)`, with the literal rendered to match the column's type. |
 | `spark_hints` | No | Spark join strategy hint for this dimension join. One of `broadcast`, `merge`, `shuffle_hash`, `shuffle_replicate_nl`. Emitted as a hint comment in the generated SELECT. Has no effect on non-Spark engines. |
 
 | Reference Link Fields | Required?  | Description |

@@ -42,6 +42,7 @@ from sqlalchemy.orm import (
     noload,
     relationship,
     selectinload,
+    undefer,
 )
 from sqlalchemy.sql.base import ExecutableOption
 from sqlalchemy.sql.operators import is_, or_
@@ -71,6 +72,7 @@ from datajunction_server.models.deployment import (
     SourceSpec,
     TransformSpec,
 )
+from datajunction_server.models.filter_requirements import parse_filter_requirements
 from datajunction_server.models.materialization import (
     DEFAULT_CUBE_RETENTION,
     MaterializationJobTypeEnum,
@@ -82,6 +84,7 @@ from datajunction_server.models.node import (
     NodeCursor,
     NodeMode,
     NodeStatus,
+    decode_sort_value,
 )
 from datajunction_server.internal.custom_metadata import custom_metadata_clause
 from datajunction_server.models.custom_metadata import CustomMetadataFilter
@@ -149,6 +152,37 @@ def _name_in(names: list[str]) -> sa.ColumnElement:
     can exceed once ``names`` gets large (e.g. all of a user's created nodes).
     """
     return Node.name == sa.any_(sa.literal(names, type_=ARRAY(String)))
+
+
+def _table_filter_clause(node_revision, tables: list[str]) -> sa.ColumnElement:
+    """
+    Build a predicate matching node revisions that point at any of the given
+    physical tables.
+
+    Each entry may be fully qualified (``catalog.schema.table``), partially
+    qualified (``schema.table``) or a bare ``table``; only the parts supplied
+    are required to match, and matching is case-insensitive. Parts are read
+    from the right, so a source node name (``source.catalog.schema.table``)
+    also works as an entry.
+    """
+    clauses = []
+    for table in tables:
+        parts = [part for part in table.strip().split(SEPARATOR) if part]
+        if not parts:
+            continue
+        conditions = [func.lower(node_revision.table) == parts[-1].lower()]
+        if len(parts) > 1:
+            conditions.append(func.lower(node_revision.schema_) == parts[-2].lower())
+        if len(parts) > 2:
+            conditions.append(
+                node_revision.catalog.has(
+                    func.lower(Catalog.name) == parts[-3].lower(),
+                ),
+            )
+        clauses.append(and_(*conditions))
+    # The false() seed makes an empty clause list match no rows -- no usable
+    # entry means the caller asked for nothing, not for everything.
+    return sa.or_(sa.false(), *clauses)
 
 
 def _normalize_for_search(text_col):
@@ -328,19 +362,24 @@ class CubeRelationship(Base):
     )
 
 
-class BoundDimensionsRelationship(Base):
+class RequiredDimension(Base):
     """
-    Join table for many-to-many relationships between metric nodes
-    and parent nodes for dimensions that are required.
+    A metric's required-dimension entry.
+
+    Stores the authored reference verbatim in ``ref`` (e.g. a bare parent
+    column like ``status``, or a full role-qualified path like
+    ``date.dateint[created_date]``) so it round-trips exactly on export,
+    plus an indexed ``dimension_id`` FK to the dimension node it points at
+    (when it's a full path) for graph visibility -- mirrors the shape of
+    ``Column.dimension_id`` / ``DimensionLink.dimension_id``. A bare
+    column ref resolves locally against the metric's own parent, so it
+    carries no ``dimension_id``.
     """
 
     __tablename__ = "metric_required_dimensions"
     __table_args__ = (
         Index("ix_metric_required_dimensions_metric_id", "metric_id"),
-        Index(
-            "ix_metric_required_dimensions_bound_dimension_id",
-            "bound_dimension_id",
-        ),
+        Index("ix_metric_required_dimensions_dimension_id", "dimension_id"),
     )
 
     metric_id: Mapped[int] = mapped_column(
@@ -352,14 +391,38 @@ class BoundDimensionsRelationship(Base):
         primary_key=True,
     )
 
-    bound_dimension_id: Mapped[int] = mapped_column(
+    # The authored reference, verbatim (source of truth for export/diff).
+    ref: Mapped[str] = mapped_column(String, primary_key=True)
+
+    # The dimension node this ref points at, when it's a full `node.column`
+    # (optionally role-qualified) path. NULL for a bare column ref, which
+    # resolves against the metric's own parent rather than a dimension node.
+    # SET NULL (not CASCADE) on dimension delete: the row -- and its `ref` --
+    # stays around for visibility/audit even though the reference will fail
+    # re-validation until the metric's required_dimensions are fixed up.
+    dimension_id: Mapped[int | None] = mapped_column(
         ForeignKey(
-            "column.id",
-            name="fk_metric_required_dimensions_bound_dimension_id_column",
-            ondelete="CASCADE",
+            "node.id",
+            name="fk_metric_required_dimensions_dimension_id_node",
+            ondelete="SET NULL",
         ),
-        primary_key=True,
     )
+    dimension: Mapped[Node | None] = relationship(
+        "Node",
+        foreign_keys=[dimension_id],
+        lazy="joined",
+    )
+    metric: Mapped[NodeRevision] = relationship(
+        "NodeRevision",
+        foreign_keys=[metric_id],
+        back_populates="required_dimensions",
+    )
+
+    def copy(self) -> RequiredDimension:
+        """
+        Returns a full copy of the required-dimension entry
+        """
+        return RequiredDimension(ref=self.ref, dimension_id=self.dimension_id)
 
 
 class MissingParent(Base):
@@ -656,14 +719,16 @@ class Node(Base):
                 legacy_from_md,
             )
 
-            # Every required dimension is exported as its fully-qualified `node.column` path.
-            required_dimensions_spec: list[str] = sorted(
-                col.full_name() for col in self.current.required_dimensions
-            )
             extra_kwargs.update(
-                required_dimensions=required_dimensions_spec,
+                required_dimensions=self.current.required_dimensions_refs,
                 reaggregate=parse_reaggregate_spec(self.current.reaggregate),
                 fixed_grain=self.current.fixed_grain,
+                required_filters=parse_filter_requirements(
+                    self.current.required_filters,
+                ),
+                recommended_filters=parse_filter_requirements(
+                    self.current.recommended_filters,
+                ),
                 direction=self.current.metric_metadata.direction
                 if self.current.metric_metadata
                 else None,
@@ -796,10 +861,16 @@ class Node(Base):
         raise_if_not_exists: bool = False,
         include_inactive: bool = False,
         for_update: bool = False,
+        inherit: bool = False,
     ) -> Node | None:
         """
-        Get a node by name
+        Get a node by name.
+
+        With ``inherit``, a name missing from its branch resolves to the
+        default branch's node. The node keeps the default branch's name.
         """
+        if inherit and for_update:
+            raise ValueError("An inherited node cannot be locked for update.")
         statement = select(Node).where(Node.name == name)
         options = options or [
             joinedload(Node.current).options(
@@ -815,6 +886,14 @@ class Node(Base):
             )
         result = await session.execute(statement)
         node = result.unique().scalar_one_or_none()
+        if not node and inherit:
+            inherited = await cls._inherited_nodes(
+                session,
+                [name],
+                options,
+                include_inactive,
+            )
+            node = inherited.get(name)
         if not node and raise_if_not_exists:
             raise DJNodeNotFound(
                 message=(f"A node with name `{name}` does not exist."),
@@ -823,15 +902,55 @@ class Node(Base):
         return node
 
     @classmethod
+    async def _inherited_nodes(
+        cls,
+        session: AsyncSession,
+        names: list[str],
+        options: list[ExecutableOption],
+        include_inactive: bool,
+        populate_existing: bool = False,
+    ) -> dict[str, Node]:
+        """
+        Default branch nodes for names missing from their own branch.
+
+        A deactivated row in the branch hides the default branch's node.
+        """
+        from datajunction_server.internal.branch_scope import inherited_names
+
+        wanted = await inherited_names(session, names)
+        if not wanted:
+            return {}
+        statement = (
+            select(Node)
+            .where(_name_in(list(wanted.values())))
+            .options(*options, undefer(Node.name))
+        )
+        if not include_inactive:
+            statement = statement.where(is_(Node.deactivated_at, None))
+        if populate_existing:
+            statement = statement.execution_options(populate_existing=True)
+        found = {
+            node.name: node
+            for node in (await session.execute(statement)).unique().scalars().all()
+        }
+        return {
+            name: found[parent] for name, parent in wanted.items() if parent in found
+        }
+
+    @classmethod
     async def get_by_names(
         cls,
         session: AsyncSession,
         names: list[str],
         options: list[ExecutableOption] | None = None,
         include_inactive: bool = False,
+        inherit: bool = False,
     ) -> list[Node]:
         """
-        Get nodes by names
+        Get nodes by names.
+
+        With ``inherit``, names missing from their branch resolve to the
+        default branch's nodes, which keep the default branch's names.
         """
         # Early return if no names provided to avoid useless query
         if not names:
@@ -851,6 +970,11 @@ class Node(Base):
         result = await session.execute(statement)
         nodes = result.unique().scalars().all()
         nodes_by_name = {node.name: node for node in nodes}
+        if inherit:
+            missing = [name for name in names if name not in nodes_by_name]
+            nodes_by_name.update(
+                await cls._inherited_nodes(session, missing, options, include_inactive),
+            )
         ordered_nodes = [nodes_by_name[name] for name in names if name in nodes_by_name]
         return ordered_nodes
 
@@ -861,6 +985,7 @@ class Node(Base):
         name: str,
         for_measures_sql: bool = False,
         with_metric_current: bool = False,
+        inherit: bool = False,
     ) -> Node | None:
         """
         Get a cube by name.
@@ -868,6 +993,8 @@ class Node(Base):
         Args:
             session: DB session
             name: cube node name
+            inherit: If True, a name missing from its branch resolves to the
+                default branch's cube, which keeps the default branch's name.
             for_measures_sql: If True, load only what the build_v3 measures/metrics
                 SQL pipeline needs (cube_filters, cube_elements for metric/dimension
                 names, columns with their joined partitions) and suppress selectin
@@ -953,6 +1080,15 @@ class Node(Base):
         )
         result = await session.execute(statement)
         node = result.unique().scalar_one_or_none()
+        if not node and inherit:
+            inherited = await cls._inherited_nodes(
+                session,
+                [name],
+                options,
+                include_inactive=True,
+                populate_existing=True,
+            )
+            node = inherited.get(name)
         return node
 
     @classmethod
@@ -1037,6 +1173,7 @@ class Node(Base):
         missing_description: bool = False,
         missing_owner: bool = False,
         dimensions: list[str] | None = None,
+        tables: list[str] | None = None,
         statuses: list[NodeStatus] | None = None,
         has_materialization: bool = False,
         orphaned_dimension: bool = False,
@@ -1103,6 +1240,11 @@ class Node(Base):
             )
         if names:
             statement = statement.where(_name_in(names))
+        if tables:
+            if not join_revision:
+                statement = statement.join(NodeRevisionAlias, Node.current)
+                join_revision = True
+            statement = statement.where(_table_filter_clause(NodeRevisionAlias, tables))
         if fragment:
             statement = statement.where(
                 or_(
@@ -1295,6 +1437,50 @@ class Node(Base):
 
         return statement, NodeRevisionAlias, search_score_expr, order_by
 
+    @staticmethod
+    def _cursor_filter(
+        cursor: NodeCursor,
+        order_by: Any,
+        ascending: bool,
+        backward: bool = False,
+    ):
+        """
+        Keyset filter for rows at or after ``cursor`` (at or before it when
+        ``backward``), inclusive of the cursor row, in the order ``order_by`` then
+        ``created_at`` DESC, ``id`` DESC. NULLs sort as the largest value: last
+        ascending, first descending (Postgres default), matching ``find_by``.
+        """
+        # A SQL row comparison: a plain Python tuple comparison would only compare
+        # ``created_at`` and silently drop the ``id`` tie-break.
+        cursor_tie = sa.tuple_(cursor.created_at, cursor.id)
+        in_tie_order = (
+            sa.tuple_(Node.created_at, Node.id) >= cursor_tie
+            if backward
+            else sa.tuple_(Node.created_at, Node.id) <= cursor_tie
+        )
+        if cursor.sort_by is None:
+            # Cursor from before sort-aware paging: default created_at DESC order.
+            return in_tie_order
+
+        if cursor.sort_by != order_by.key:
+            raise DJInvalidInputException(
+                f"Cursor was issued for sorting by '{cursor.sort_by}' but the "
+                f"request sorts by '{order_by.key}'. Restart from the first page "
+                "when changing the sort.",
+            )
+        value = decode_sort_value(cursor.sort_value, order_by)
+        # Moving ascending forward, or descending backward, heads toward larger values.
+        toward_larger = ascending != backward
+        if value is None:
+            # On a NULL (the largest value): nothing is larger; everything else is smaller.
+            same = and_(order_by.is_(None), in_tie_order)
+            return same if toward_larger else sa.or_(order_by.is_not(None), same)
+
+        same = and_(order_by == value, in_tie_order)
+        if toward_larger:
+            return sa.or_(order_by > value, order_by.is_(None), same)
+        return sa.or_(order_by < value, same)
+
     @classmethod
     async def find_by(
         cls,
@@ -1316,14 +1502,18 @@ class Node(Base):
         missing_description: bool = False,
         missing_owner: bool = False,
         dimensions: list[str] | None = None,
+        tables: list[str] | None = None,
         statuses: list[NodeStatus] | None = None,
         has_materialization: bool = False,
         orphaned_dimension: bool = False,
         search: str | None = None,
         custom_metadata_filters: list[CustomMetadataFilter] | None = None,
+        rank_search: bool = True,
     ) -> list[Node]:
         """
-        Finds a list of nodes by prefix
+        Finds a list of nodes by prefix. A ``search`` ranks the first page by
+        similarity unless ``rank_search`` is False; paginated callers turn it off
+        so every page follows ``order_by``.
         """
         if not order_by:
             order_by = Node.created_at
@@ -1346,6 +1536,7 @@ class Node(Base):
             missing_description=missing_description,
             missing_owner=missing_owner,
             dimensions=dimensions,
+            tables=tables,
             statuses=statuses,
             has_materialization=has_materialization,
             orphaned_dimension=orphaned_dimension,
@@ -1358,20 +1549,27 @@ class Node(Base):
 
         if after:
             cursor = NodeCursor.decode(after)
+            # Same ordering as the first page, so the cursor's position in the
+            # sort is the position the page boundary was cut at.
             statement = statement.where(
-                (Node.created_at, Node.id) <= (cursor.created_at, cursor.id),
-            ).order_by(Node.created_at.desc(), Node.id.desc())
+                cls._cursor_filter(cursor, order_by, ascending),
+            ).order_by(
+                order_by.asc() if ascending else order_by.desc(),
+                Node.created_at.desc(),
+                Node.id.desc(),
+            )
         elif before:
             cursor = NodeCursor.decode(before)
+            # The first page's order reversed, so the rows nearest the cursor
+            # come first; they are flipped back below.
             statement = statement.where(
-                (Node.created_at, Node.id) >= (cursor.created_at, cursor.id),
-            )
-            statement = statement.order_by(
-                order_by.asc() if ascending else order_by.desc(),
+                cls._cursor_filter(cursor, order_by, ascending, backward=True),
+            ).order_by(
+                order_by.desc() if ascending else order_by.asc(),
                 Node.created_at.asc(),
                 Node.id.asc(),
             )
-        elif search_score_expr is not None:
+        elif search_score_expr is not None and rank_search:
             statement = statement.order_by(
                 search_score_expr.desc(),
                 Node.created_at.desc(),
@@ -1409,6 +1607,7 @@ class Node(Base):
         missing_description: bool = False,
         missing_owner: bool = False,
         dimensions: list[str] | None = None,
+        tables: list[str] | None = None,
         statuses: list[NodeStatus] | None = None,
         has_materialization: bool = False,
         orphaned_dimension: bool = False,
@@ -1432,6 +1631,7 @@ class Node(Base):
             missing_description=missing_description,
             missing_owner=missing_owner,
             dimensions=dimensions,
+            tables=tables,
             statuses=statuses,
             has_materialization=has_materialization,
             orphaned_dimension=orphaned_dimension,
@@ -1461,6 +1661,7 @@ class Node(Base):
         missing_description: bool = False,
         missing_owner: bool = False,
         dimensions: list[str] | None = None,
+        tables: list[str] | None = None,
         statuses: list[NodeStatus] | None = None,
         has_materialization: bool = False,
         orphaned_dimension: bool = False,
@@ -1482,6 +1683,7 @@ class Node(Base):
             missing_description=missing_description,
             missing_owner=missing_owner,
             dimensions=dimensions,
+            tables=tables,
             statuses=statuses,
             has_materialization=has_materialization,
             orphaned_dimension=orphaned_dimension,
@@ -1607,6 +1809,14 @@ class NodeRevision(
     __table_args__ = (
         UniqueConstraint("version", "node_id"),
         Index("ix_noderevision_node_id", "node_id"),
+        # Backs the ``tables`` filter, which matches on lower(table) and
+        # lower(schema_); ``table`` leads so bare-table lookups use it too.
+        Index(
+            "ix_noderevision_table",
+            sa.text('lower("table")'),
+            sa.text("lower(schema_)"),
+            "catalog_id",
+        ),
         Index(
             "ix_noderevision_display_name",
             "display_name",
@@ -1687,13 +1897,24 @@ class NodeRevision(
     schema_: Mapped[str | None] = mapped_column(String, default=None)
     table: Mapped[str | None] = mapped_column(String, default=None)
 
-    # A list of columns from the metric's parent that
-    # are required for grouping when using the metric
-    required_dimensions: Mapped[list[Column]] = relationship(
-        secondary="metric_required_dimensions",
-        primaryjoin="NodeRevision.id==BoundDimensionsRelationship.metric_id",
-        secondaryjoin="Column.id==BoundDimensionsRelationship.bound_dimension_id",
+    # Dimensions (or parent columns) that are required for grouping when
+    # using the metric. An owned association-object list (not a plain
+    # many-to-many): each row stores the authored reference verbatim, see
+    # `RequiredDimension`.
+    required_dimensions: Mapped[list[RequiredDimension]] = relationship(
+        back_populates="metric",
+        foreign_keys="RequiredDimension.metric_id",
+        cascade="all, delete-orphan",
     )
+
+    @property
+    def required_dimensions_refs(self) -> list[str]:
+        """
+        Authored `required_dimensions` references, verbatim and sorted.
+        Shared by export (`to_spec`) and the metric API response so both
+        read the same source of truth instead of reconstructing the string.
+        """
+        return sorted(rd.ref for rd in self.required_dimensions)
 
     metric_metadata_id: Mapped[int | None] = mapped_column(
         ForeignKey(
@@ -1717,6 +1938,21 @@ class NodeRevision(
     # Declares how a metric should roll up across dimensions.
     # Stored as JSON here and validated at the API/deployment boundaries.
     reaggregate: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON,
+        nullable=True,
+        default=None,
+    )
+
+    # Dimension attributes a query must filter. Entries are validated by
+    # FilterRequirement at the API and deployment boundaries.
+    required_filters: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        JSON,
+        nullable=True,
+        default=None,
+    )
+
+    # Same shape as required_filters; a missing filter only warns.
+    recommended_filters: Mapped[list[dict[str, Any]] | None] = mapped_column(
         JSON,
         nullable=True,
         default=None,
@@ -1865,12 +2101,9 @@ class NodeRevision(
                 ),
                 joinedload(DimensionLink.node_revision),
             ),
-            selectinload(NodeRevision.required_dimensions).options(
-                # Column.node_revision back-ref is read by Column.full_name()
-                # during required-dimensions resolution; preload it so
-                # accessing it in async context doesn't trip MissingGreenlet.
-                joinedload(Column.node_revision).load_only(NodeRevision.name),
-            ),
+            # `.dimension` is a `lazy="joined"` relationship on RequiredDimension,
+            # so it's already eager-loaded as part of this selectinload.
+            selectinload(NodeRevision.required_dimensions),
             selectinload(NodeRevision.availability),
             # Load created_by for API responses (but noload in /sql/ endpoint's custom options)
             selectinload(NodeRevision.created_by),
@@ -1928,11 +2161,9 @@ class NodeRevision(
                 ),
                 joinedload(DimensionLink.node_revision),
             ),
-            selectinload(NodeRevision.required_dimensions).options(
-                # to_spec reads col.full_name() -> col.node_revision.name for
-                # off-graph required dimensions; preload it to avoid MissingGreenlet.
-                joinedload(Column.node_revision).load_only(NodeRevision.name),
-            ),
+            # to_spec reads `.required_dimensions_refs`, which only needs `.ref`;
+            # `.dimension` is `lazy="joined"` so it's eager-loaded here too.
+            selectinload(NodeRevision.required_dimensions),
             selectinload(NodeRevision.cube_elements)
             .selectinload(Column.node_revision)
             .options(
@@ -2087,6 +2318,14 @@ class NodeRevision(
             raise DJInvalidInputException(
                 f"Node {self.name} of type {self.type} cannot have "
                 "reaggregate settings which are only for metrics.",
+            )
+
+        if self.type != NodeType.METRIC and (
+            self.required_filters is not None or self.recommended_filters is not None
+        ):
+            raise DJInvalidInputException(
+                f"Node {self.name} of type {self.type} cannot have "
+                "filter requirements, which are only for metrics.",
             )
 
         if self.type == NodeType.METRIC:

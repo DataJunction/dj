@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import logging
 from collections import namedtuple
+from collections.abc import Iterable
+from typing import NamedTuple
 
 from sqlalchemy import bindparam, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,14 +16,12 @@ from sqlalchemy.orm import joinedload, load_only, noload, selectinload
 from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
 from datajunction_server.construction.build_v3.preagg_freshness import preagg_is_fresh
 from datajunction_server.construction.build_v3.types import BuildContext
-from datajunction_server.construction.build_v3.utils import (
-    collect_required_dimensions,
-    iter_namespaced_columns,
-)
+from datajunction_server.construction.build_v3.utils import iter_namespaced_columns
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import Column, Node, NodeRevision
 from datajunction_server.database.preaggregation import PreAggregation
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.utils import SEPARATOR
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +31,73 @@ JoinPathState = namedtuple(
     "JoinPathState",
     ["source_rev_id", "node_id", "path_so_far", "role_path", "visited"],
 )
+
+
+class JoinLinkRow(NamedTuple):
+    """A dimension link leaving a node, as one hop of the path search reads it."""
+
+    node_id: int
+    link_id: int
+    to_node_id: int
+    dim_name: str
+    link_role: str
+
+
+def advance_join_paths(
+    frontier: list[JoinPathState],
+    links: Iterable[JoinLinkRow],
+    targets: set[str],
+    found_paths: dict[tuple[int, str, str], list[int]],
+) -> list[JoinPathState]:
+    """
+    Extend every path in ``frontier`` by one link, recording the paths that
+    reach a target dimension in ``found_paths``. Returns the next frontier.
+
+    Shared by the database search below and by anything that walks links held
+    in memory, so both build role paths and avoid cycles the same way.
+    """
+    frontier_by_node: dict[int, list[JoinPathState]] = {}
+    for item in frontier:
+        frontier_by_node.setdefault(item.node_id, []).append(item)
+
+    new_frontier: list[JoinPathState] = []
+    for row in links:
+        for item in frontier_by_node.get(row.node_id, []):
+            # Cycle prevention: skip if we've already visited this node
+            if row.to_node_id in item.visited:
+                continue
+
+            # Build new path and role
+            new_path = item.path_so_far + [row.link_id]
+            # Only concatenate with '->' if both role_path and link_role are non-empty
+            if not item.role_path and not row.link_role:
+                new_role_path = ""
+            elif not item.role_path:
+                new_role_path = row.link_role
+            elif not row.link_role:
+                new_role_path = item.role_path
+            else:
+                new_role_path = item.role_path + "->" + row.link_role
+            new_visited = item.visited + [row.to_node_id]
+
+            # Check if this reaches a target
+            if row.dim_name in targets:
+                key = (item.source_rev_id, row.dim_name, new_role_path)
+                if key not in found_paths:  # pragma: no branch
+                    found_paths[key] = new_path
+
+            # Add to new frontier (explore further regardless of whether it's a target)
+            # This allows finding multi-hop paths through intermediate targets
+            new_frontier.append(
+                JoinPathState(
+                    source_rev_id=item.source_rev_id,
+                    node_id=row.to_node_id,
+                    path_so_far=new_path,
+                    role_path=new_role_path,
+                    visited=new_visited,
+                ),
+            )
+    return new_frontier
 
 
 def _collect_metric_expression_dim_nodes(ctx: BuildContext) -> set[str]:
@@ -89,6 +156,8 @@ async def batch_load_nodes_with_dependencies(
                     NodeRevision.schema_,
                     NodeRevision.fixed_grain,
                     NodeRevision.reaggregate,
+                    NodeRevision.required_filters,
+                    NodeRevision.recommended_filters,
                     NodeRevision.table,
                 ),
                 # NOTE: don't noload Column.attributes — Columns are identity-
@@ -108,16 +177,7 @@ async def batch_load_nodes_with_dependencies(
                 ),
                 # NOTE: don't noload Catalog.engines — see load_dimension_links_batch.
                 joinedload(NodeRevision.catalog),
-                selectinload(NodeRevision.required_dimensions).options(
-                    # Load the node_revision and node to reconstruct full dimension path
-                    joinedload(Column.node_revision).options(
-                        noload(NodeRevision.created_by),  # Prevent User N+1 queries
-                        joinedload(NodeRevision.node).options(
-                            noload(Node.created_by),  # Prevent User N+1 queries
-                            noload(Node.tags),  # Prevent Tag selectin chain
-                        ),
-                    ),
-                ),
+                selectinload(NodeRevision.required_dimensions),
                 joinedload(NodeRevision.availability),  # For materialization support
                 selectinload(NodeRevision.dimension_links).options(
                     # Load dimension node for link matching in temporal filters
@@ -146,7 +206,9 @@ async def find_upstream_node_names(
     Returns:
         Tuple of:
         - Set of all upstream node names (including the starting nodes)
-        - Dict mapping child_name -> list of parent_names (for metrics to find their parents)
+        - Dict mapping child_name -> list of parent_names (for metrics to find their parents),
+          ordered by parent name so a bare required-dimension ref resolves to the same
+          parent every run instead of whichever one Postgres happens to return first.
     """
     if not starting_node_names:  # pragma: no cover
         return set(), {}
@@ -178,7 +240,7 @@ async def find_upstream_node_names(
                 AND parent_n.current_version = parent_nr.version
             WHERE parent_n.deactivated_at IS NULL
         )
-        SELECT DISTINCT node_name, child_name FROM upstream
+        SELECT DISTINCT node_name, child_name FROM upstream ORDER BY child_name, node_name
     """).bindparams(bindparam("starting_names", expanding=True))
 
     result = await session.execute(
@@ -267,18 +329,7 @@ async def find_join_paths_batch(
             break
 
         # Expand frontier by one hop - BATCH query for all frontier nodes
-        new_frontier: list[JoinPathState] = []
-        targets_found_at_depth = set()
-
-        # Build a map: node_id -> list of frontier items with that node
-        frontier_by_node: dict[int, list[JoinPathState]] = {}
-        for item in frontier:
-            if item.node_id not in frontier_by_node:
-                frontier_by_node[item.node_id] = []
-            frontier_by_node[item.node_id].append(item)
-
-        # Single batched query for ALL frontier nodes at this depth
-        frontier_node_ids = list(frontier_by_node.keys())
+        frontier_node_ids = list(dict.fromkeys(item.node_id for item in frontier))
 
         expand_query = text("""
             SELECT
@@ -299,7 +350,7 @@ async def find_join_paths_batch(
                 expand_query,
                 {"node_ids": frontier_node_ids},
             )
-            rows = expand_result.fetchall()
+            rows = [JoinLinkRow(*row) for row in expand_result.fetchall()]
         except Exception as e:  # pragma: no cover
             logger.error(
                 "[BuildV3] find_join_paths_batch: Query failed at depth %d: %s",
@@ -308,47 +359,12 @@ async def find_join_paths_batch(
             )
             break
 
-        # Process results: for each link found, apply to all frontier items with that source node
-        for row in rows:
-            for item in frontier_by_node[row.node_id]:
-                # Cycle prevention: skip if we've already visited this node
-                if row.to_node_id in item.visited:
-                    continue
-
-                # Build new path and role
-                new_path = item.path_so_far + [row.link_id]
-                # Only concatenate with '->' if both role_path and link_role are non-empty
-                if not item.role_path and not row.link_role:
-                    new_role_path = ""
-                elif not item.role_path:
-                    new_role_path = row.link_role
-                elif not row.link_role:
-                    new_role_path = item.role_path
-                else:
-                    new_role_path = item.role_path + "->" + row.link_role
-                new_visited = item.visited + [row.to_node_id]
-
-                # Check if this reaches a target
-                if row.dim_name in target_dimension_names:
-                    key = (item.source_rev_id, row.dim_name, new_role_path)
-                    if key not in found_paths:  # pragma: no branch
-                        found_paths[key] = new_path
-                        targets_found_at_depth.add(row.dim_name)
-
-                # Add to new frontier (explore further regardless of whether it's a target)
-                # This allows finding multi-hop paths through intermediate targets
-                new_frontier.append(
-                    JoinPathState(
-                        source_rev_id=item.source_rev_id,
-                        node_id=row.to_node_id,
-                        path_so_far=new_path,
-                        role_path=new_role_path,
-                        visited=new_visited,
-                    ),
-                )
-
-        # Update frontier for next iteration
-        frontier = new_frontier
+        frontier = advance_join_paths(
+            frontier,
+            rows,
+            target_dimension_names,
+            found_paths,
+        )
 
         # Continue exploring even if we found some targets, because:
         # 1. We might need the same dimension with different roles (multi-hop paths)
@@ -502,29 +518,73 @@ async def load_nodes(ctx: BuildContext) -> None:
         ).all()
         ctx.reference_dimension_names = {row[0]: row[1] for row in rows}
 
-    # Collect required dimensions from metrics and add to context
-    # Required dimensions are stored as Column objects, so they don't have role info.
-    # We need to check if a user-requested dimension already covers the same (node, column).
-    required_dims = collect_required_dimensions(ctx.nodes, ctx.metrics)
-    for req_dim in required_dims:
+    # Collect required dimensions from metrics and add to context. These are
+    # stored verbatim (role included), so parse_dimension_ref below resolves
+    # the declared role exactly rather than falling back to a sort order.
+    # We still need to check if a user-requested dimension already covers the
+    # same (node, column) -- e.g. the user asked for the un-roled column.
+    #
+    # A bare ref is resolved against the parents of the metric that declared
+    # it, not against every requested metric's parents -- two metrics can
+    # each have a same-named column on unrelated parents, and resolving
+    # against the wrong one would silently misattribute the ref.
+    resolved_required_dims: set[str] = set()
+    for metric_name in ctx.metrics:
+        metric_node = ctx.nodes.get(metric_name)
+        if not metric_node or not metric_node.current:
+            continue
+        for required_dim in metric_node.current.required_dimensions:
+            req_dim = required_dim.ref
+            if SEPARATOR not in req_dim:
+                # Bare column ref (resolves against a direct parent of the
+                # metric, not a separate dimension node -- see
+                # RequiredDimension). parse_dimension_ref requires a
+                # fully-qualified `node.column` path, so reconstruct one from
+                # whichever direct parent of *this* metric actually has this
+                # column; the *stored* ref stays bare either way.
+                resolved_ref = None
+                for parent_name in ctx.parent_map.get(metric_name, []):
+                    parent_node = ctx.nodes.get(parent_name)
+                    if (
+                        parent_node
+                        and parent_node.current
+                        and any(
+                            col.name == req_dim for col in parent_node.current.columns
+                        )
+                    ):
+                        resolved_ref = f"{parent_name}{SEPARATOR}{req_dim}"
+                        break
+                if not resolved_ref:  # pragma: no cover
+                    continue
+                req_dim = resolved_ref
+            resolved_required_dims.add(req_dim)
+
+    for req_dim in sorted(resolved_required_dims):
         dim_ref = parse_dimension_ref(req_dim)
         if dim_ref.node_name:  # pragma: no branch
             target_dim_names.add(dim_ref.node_name)
 
-            # Check if any existing dimension already covers this (node, column)
-            # This handles cases like: user requests v3.date.week[order],
-            # required dim is v3.date.week (no role) - they're the same column
+            # Check if any existing dimension already covers this (node, column,
+            # role). A required dim with no role is covered by any role of the
+            # same column (e.g. user requests v3.date.week[order], required dim
+            # is v3.date.week with no role -- same underlying column). A
+            # required dim WITH a role must match that exact role, otherwise
+            # the join the metric actually needs would be silently dropped.
             is_covered = False
             for existing_dim in ctx.dimensions:
                 existing_ref = parse_dimension_ref(existing_dim)
                 if (
                     existing_ref.node_name == dim_ref.node_name
                     and existing_ref.column_name == dim_ref.column_name
+                    and (dim_ref.role is None or existing_ref.role == dim_ref.role)
                 ):
                     is_covered = True
                     logger.debug(
                         f"[BuildV3] Required dimension {req_dim} already covered by {existing_dim}",
                     )
+                    # A filter-only dimension is hidden from the grain; a required
+                    # one must stay grouped since the filter may keep several values.
+                    ctx.filter_dimensions.discard(existing_dim)
                     break
 
             if not is_covered:

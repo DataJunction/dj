@@ -40,6 +40,7 @@ from datajunction_server.models.decompose import (
     MetricComponent,
     PreAggMeasure,
 )
+from datajunction_server.models.materialization import MaterializationTarget
 from datajunction_server.models.partition import Granularity, PartitionType
 from datajunction_server.models.query import V3ColumnMetadata
 from datajunction_server.sql.parsing import ast
@@ -985,15 +986,28 @@ class TestPreAggTableFunctions:
         )
 
         gg = _create_grain_group(
-            sql="SELECT date_id, SUM(amount) AS revenue_sum FROM orders GROUP BY date_id",
+            sql=(
+                "SELECT date_id, region, SUM(amount) AS revenue_sum FROM orders "
+                "GROUP BY date_id, region"
+            ),
             columns=[
-                {"name": "date_id", "semantic_type": "dimension"},
+                {
+                    "name": "date_id",
+                    "semantic_name": "sem.date_id",
+                    "semantic_type": "dimension",
+                },
+                {
+                    "name": "region",
+                    "semantic_name": "sem.region",
+                    "semantic_type": "dimension",
+                },
                 {"name": "revenue_sum", "semantic_type": "metric_component"},
             ],
-            grain=["date_id"],
+            grain=["region", "date_id"],
             parent_name="orders",
             components=[component],
         )
+        gg.dimension_group_by_positions = {"sem.date_id": 0, "sem.region": 1}
 
         result = _build_grain_group_from_preagg_table(
             gg,
@@ -1013,7 +1027,50 @@ class TestPreAggTableFunctions:
         assert "SUM(" in sql.upper()
 
         # Grain should be preserved
-        assert result.grain == ["date_id"]
+        assert result.grain == ["region", "date_id"]
+        assert result.dimension_group_by_positions == {
+            "sem.region": 0,
+            "sem.date_id": 1,
+        }
+
+    def test_preagg_table_merge_converts_for_druid(self):
+        """The cube combiner converts sketches and reports the stored type."""
+        component = MetricComponent(
+            name="digest",
+            expression="amount",
+            aggregation="build_digest(amount, 200)",
+            merge="merge_digest",
+            merge_args=["200"],
+            serialize="digest_to_bytes({})",
+            serialize_targets=[MaterializationTarget.DRUID],
+            serialize_type="binary",
+            rule=AggregationRule(type=Aggregability.FULL),
+        )
+        gg = _create_grain_group(
+            sql="SELECT date_id, build_digest(amount, 200) AS digest FROM orders GROUP BY date_id",
+            columns=[
+                {"name": "date_id", "semantic_type": "dimension"},
+                {
+                    "name": "digest",
+                    "semantic_type": "metric_component",
+                    "type": "struct",
+                },
+            ],
+            grain=["date_id"],
+            components=[component],
+        )
+
+        raw = _build_grain_group_from_preagg_table(gg, "wh.preaggs.t")
+        druid = _build_grain_group_from_preagg_table(
+            gg,
+            "wh.preaggs.t",
+            MaterializationTarget.DRUID,
+        )
+
+        assert "digest_to_bytes" not in str(raw.query)
+        assert raw.columns[1].type == "struct"
+        assert "digest_to_bytes(merge_digest(digest, 200))" in str(druid.query)
+        assert druid.columns[1].type == "binary"
 
     def test_build_grain_group_from_preagg_table_no_merge_function(self):
         """

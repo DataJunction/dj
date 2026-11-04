@@ -281,9 +281,35 @@ class Settings(BaseSettings):  # pragma: no cover
     # Cache expiration for SQL endpoints
     query_cache_timeout: int = 86400 * 300
 
+    # Top-level GraphQL query fields whose whole response may be served from the
+    # cache, by field name (for example ``findNodes``). A query is cached only if
+    # every top-level field it selects is listed. Empty turns response caching
+    # off. Only list fields whose result does not depend on who asks. A write
+    # replaces a version kept in the cache, so it needs a cache shared by every
+    # server process; with the default in-process one, responses are not cached.
+    graphql_cacheable_fields: list[str] = []
+
+    # How long a cached GraphQL response may be kept, in seconds. A response is
+    # only served while no node, link or tag has changed since it was stored, so
+    # this is a backstop, not the staleness bound.
+    graphql_response_cache_ttl: int = 6 * 3600
+
+    # How long the version that cached responses are stored under is kept, in
+    # seconds. When it expires, responses stored under it are no longer served,
+    # so it only needs to outlast them. Some shared caches cap how long any value
+    # may live (a longer value is refused), so keep it within that cap.
+    graphql_response_cache_version_ttl: int = 7 * 24 * 3600
+
     # Maximum number of concurrent background cache refreshes.
     # Caps how many SQL rebuilds run simultaneously to avoid DB connection spikes.
     query_cache_max_concurrent_refreshes: int = 3
+    # While one request builds a query, others for the same key wait this long
+    # for it to land in the cache before building it themselves. The lease is the
+    # shortest the shared cache allows; it only matters if the builder dies.
+    query_cache_lock_wait: float = 10.0
+    query_cache_lock_lease: int = 60
+    # How long the error a build failed with is kept for the requests waiting on it.
+    query_cache_error_ttl: int = 10
 
     # How many parsed node definitions to keep. Each entry retains its parser
     # and token stream, per worker process.
@@ -358,6 +384,20 @@ class Settings(BaseSettings):  # pragma: no cover
         )
 
     seed_setup: SeedSetup = SeedSetup()
+
+    # Seconds a shutting-down server waits for running deployments to finish
+    # before marking them interrupted. Keep below the platform kill grace period.
+    deployment_drain_timeout: int = 600
+
+    # Seconds between heartbeats written by a running deployment.
+    deployment_heartbeat_interval: int = 10
+
+    # Seconds without a heartbeat before a deployment counts as interrupted.
+    # Also applies to pending deployments that no server ever started.
+    deployment_stale_after: int = 300
+
+    # Seconds between sweeps that mark stale deployments interrupted.
+    deployment_sweep_interval: int = 30
 
     @property
     def effective_reader_concurrency(self) -> int:

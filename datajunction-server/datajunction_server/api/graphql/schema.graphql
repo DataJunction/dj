@@ -148,12 +148,18 @@ type DimensionLink {
   joinCardinality: JoinCardinality
   role: String
   foreignKeys: JSON!
-  defaultValue: String
+  defaultValue: JSON
 }
 
 type DimensionReaggregateRule {
   dimension: String!
   fn: ReaggregationFunction!
+}
+
+type EffectiveFilterRequirement {
+  dimension: [String!]!
+  default: String
+  declaredBy: [String!]!
 }
 
 type Engine {
@@ -188,6 +194,10 @@ enum ErrorCode {
   QUERY_SERVICE_ERROR
   INVALID_ORDER_BY
   FANOUT_RISK
+  REQUIRED_FILTER_MISSING
+  RECOMMENDED_FILTER_MISSING
+  DEFAULT_FILTER_APPLIED
+  CONFLICTING_DEFAULT_FILTERS
   COMPOUND_BUILD_EXCEPTION
   MISSING_PARENT
   TYPE_INFERENCE
@@ -206,6 +216,11 @@ enum ErrorCode {
   TAG_NOT_FOUND
   CATALOG_NOT_FOUND
   INVALID_NAMESPACE
+}
+
+type FilterRequirement {
+  dimension: [String!]!
+  default: String
 }
 
 type GeneratedSQL {
@@ -288,6 +303,11 @@ type MaterializationPlan {
   units: [MaterializationUnit!]!
 }
 
+enum MaterializationTarget {
+  DRUID
+  ICEBERG
+}
+
 type MaterializationUnit {
   upstream: VersionedRef!
   grainDimensions: [VersionedRef!]!
@@ -303,6 +323,11 @@ type MetricComponent {
   merge: String
   rule: AggregationRule!
   grainAlias: String
+  params: JSON
+  mergeArgs: [String!]!
+  serialize: String
+  serializeTargets: [MaterializationTarget!]!
+  serializeType: String
 }
 
 enum MetricDirection {
@@ -398,12 +423,17 @@ type NodeRevision {
   parents: [NodeNameVersion!]!
   schema_: String
   table: String
-  requiredDimensions: [Column!]
   catalog: Catalog
   columns(attributes: [String!] = null): [Column!]!
   dimensionLinks: [DimensionLink!]!
   availability: AvailabilityState
   materializations: [MaterializationConfig!]
+  requiredDimensions: [Column!] @deprecated(reason: "Use requiredDimensionRefs, which keeps the node and role.")
+  requiredDimensionRefs: [String!]
+  requiredFilters: [FilterRequirement!]
+  recommendedFilters: [FilterRequirement!]
+  effectiveRequiredFilters: [EffectiveFilterRequirement!]
+  effectiveRecommendedFilters: [EffectiveFilterRequirement!]
   fixedGrain: [String!]
   reaggregate: ReaggregateSpec
   primaryKey: [String!]!
@@ -518,6 +548,11 @@ type Query {
     """
     dimensions: [String!] = null
 
+    """
+    Filter to nodes backed by any of these physical tables. Each entry may be fully qualified (catalog.schema.table), partially qualified (schema.table) or a bare table name; matching is case-insensitive. Only source nodes carry a table, so this returns source nodes -- use downstreamNodes to reach the transforms and metrics built on them.
+    """
+    tables: [String!] = null
+
     """Filter to nodes edited by this user"""
     editedBy: String = null
 
@@ -582,6 +617,11 @@ type Query {
     Filter to nodes that have ALL of these dimensions. Accepts dimension node names or dimension attributes
     """
     dimensions: [String!] = null
+
+    """
+    Filter to nodes backed by any of these physical tables. Each entry may be fully qualified (catalog.schema.table), partially qualified (schema.table) or a bare table name; matching is case-insensitive. Only source nodes carry a table, so this returns source nodes -- use downstreamNodes to reach the transforms and metrics built on them.
+    """
+    tables: [String!] = null
 
     """Filter to nodes edited by this user"""
     editedBy: String = null
@@ -665,6 +705,29 @@ type Query {
     includeDeactivated: Boolean! = false
   ): [Node!]!
 
+  """
+  Find the nodes associated with a physical table: the source nodes on that table and, unless disabled, everything downstream of them.
+  """
+  nodesForTable(
+    """
+    The physical table to look up. May be fully qualified (catalog.schema.table), partially qualified (schema.table) or a bare table name; matching is case-insensitive.
+    """
+    table: String!
+
+    """
+    Filter the returned nodes to these node types. Applies to the whole result, the source nodes included.
+    """
+    nodeTypes: [NodeType!] = null
+
+    """
+    Also return everything transitively downstream of the source nodes on this table (transforms, dimensions, metrics, cubes).
+    """
+    includeDownstream: Boolean! = true
+
+    """Whether to include deactivated downstream nodes."""
+    includeDeactivated: Boolean! = false
+  ): [Node!]!
+
   """Get measures SQL for a list of metrics, dimensions, and filters."""
   measuresSql(
     cube: CubeDefinition!
@@ -726,7 +789,9 @@ type Query {
 }
 
 type ReaggregateSpec {
+  fn: ReaggregationFunction
   rules: [DimensionReaggregateRule!]!
+  params: JSON
 }
 
 enum ReaggregationFunction {
@@ -738,6 +803,7 @@ enum ReaggregationFunction {
   FIRST_VALUE
   MIN
   MAX
+  TDIGEST
 }
 
 type SemanticEntity {

@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.availabilitystate import AvailabilityState
-from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.node import Node, NodeRevision, RequiredDimension
 from datajunction_server.models.node import (
     AvailabilityStateBase,
     NodeCursor,
@@ -217,7 +217,7 @@ def test_extra_validation() -> None:
         node=node,
         version="1",
         query="SELECT * FROM B",
-        required_dimensions=["B.x"],
+        required_dimensions=[RequiredDimension(ref="B.x")],
     )
     with pytest.raises(Exception) as excinfo:
         node_revision.extra_validation()
@@ -250,6 +250,24 @@ def test_extra_validation() -> None:
         "Node A of type transform cannot have "
         "reaggregate settings which are only for metrics."
     )
+
+    for field in ("required_filters", "recommended_filters"):
+        node = Node(name="A", type=NodeType.TRANSFORM, current_version="1")
+        node_revision = NodeRevision(
+            name=node.name,
+            type=node.type,
+            node=node,
+            version="1",
+            query="SELECT * FROM B",
+            **{field: [{"dimension": ["B.x"]}]},
+        )
+        with pytest.raises(Exception) as excinfo:
+            node_revision.extra_validation()
+
+        assert str(excinfo.value) == (
+            "Node A of type transform cannot have "
+            "filter requirements, which are only for metrics."
+        )
 
 
 def test_merging_availability_simple_no_partitions() -> None:
@@ -432,11 +450,15 @@ def test_node_cursors() -> None:
 
     cursor = NodeCursor(created_at=created_at, id=1010)
 
-    encoded_cursor = (
-        "eyJjcmVhdGVkX2F0IjogIjIwMjQtMDEtMDFUMTI6MzA6MzMiLCAiaWQiOiAxMDEwfQ=="
-    )
+    encoded_cursor = "eyJjcmVhdGVkX2F0IjogIjIwMjQtMDEtMDFUMTI6MzA6MzMiLCAiaWQiOiAxMDEwLCAic29ydF9ieSI6IG51bGwsICJzb3J0X3ZhbHVlIjogbnVsbH0="
     assert cursor.encode() == encoded_cursor
 
     decoded_cursor = NodeCursor.decode(encoded_cursor)
     assert decoded_cursor.created_at == cursor.created_at
     assert decoded_cursor.id == cursor.id
+
+    # Cursors minted before they carried a sort field still decode.
+    legacy_cursor = NodeCursor.decode(
+        "eyJjcmVhdGVkX2F0IjogIjIwMjQtMDEtMDFUMTI6MzA6MzMiLCAiaWQiOiAxMDEwfQ==",
+    )
+    assert legacy_cursor == cursor

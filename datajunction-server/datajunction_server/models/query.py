@@ -18,6 +18,7 @@ from pydantic import (
 from pydantic.main import BaseModel
 
 from datajunction_server.enum import IntEnum
+from datajunction_server.errors import DJWarning
 from datajunction_server.typing import QueryState, Row
 
 
@@ -154,6 +155,7 @@ class QueryWithResults(BaseModel):
     previous: AnyHttpUrl | None = None
     errors: list[str] = []
     links: list[AnyHttpUrl] | None = None
+    warnings: list[DJWarning] = []
 
     @field_serializer("next", "previous")
     def serialize_single_url(self, url: AnyHttpUrl | None) -> str | None:

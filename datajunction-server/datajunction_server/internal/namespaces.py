@@ -61,6 +61,7 @@ from datajunction_server.models.deployment import (
     NodeSpec,
 )
 from datajunction_server.models.dimensionlink import LinkType
+from datajunction_server.models.filter_requirements import FilterRequirement
 from datajunction_server.models.namespace import (
     BranchInfo,
     HardDeleteResponse,
@@ -354,6 +355,8 @@ def resolve_git_info_from_map(
 async def get_git_info_for_namespace(
     session: AsyncSession,
     namespace: str,
+    *,
+    active_only: bool = False,
 ) -> dict | None:
     """
     Return git repository info for a namespace.
@@ -369,27 +372,58 @@ async def get_git_info_for_namespace(
     3. Take ``default_branch`` from the first row that has one, in the same
        order — branch namespaces carry the repo path but not the default branch.
     """
-    ancestor_names = get_parent_namespaces(namespace) + [namespace]
-    stmt = select(NodeNamespace).where(NodeNamespace.namespace.in_(ancestor_names))
+    git_info = await get_git_info_for_namespaces(
+        session,
+        [namespace],
+        active_only=active_only,
+    )
+    return git_info[namespace]
+
+
+async def get_git_info_for_namespaces(
+    session: AsyncSession,
+    namespaces: list[str],
+    *,
+    active_only: bool = False,
+) -> dict[str, dict | None]:
+    """
+    Return git repository info for many namespaces in at most two queries.
+
+    Loads every ancestor in one query, then the git roots that branch
+    namespaces link to outside their own hierarchy in a second.
+    """
+    ancestors = {
+        namespace: get_parent_namespaces(namespace) + [namespace]
+        for namespace in namespaces
+    }
+    all_names = {name for names in ancestors.values() for name in names}
+    stmt = select(NodeNamespace).where(NodeNamespace.namespace.in_(all_names))
+    if active_only:
+        stmt = stmt.where(NodeNamespace.deactivated_at.is_(None))
     rows = (await session.execute(stmt)).scalars().all()
     ns_map = {ns.namespace: ns for ns in rows}
 
-    # Handle FK hop: if the branch ns points outside the string hierarchy, load it
-    reversed_names = list(reversed(ancestor_names))
-    branch_ns = next(
-        (ns_map[n] for n in reversed_names if ns_map.get(n) and ns_map[n].git_branch),
-        None,
-    )
-    if (
-        branch_ns
-        and branch_ns.parent_namespace
-        and branch_ns.parent_namespace not in ns_map
-    ):
-        fk_parent = await session.get(NodeNamespace, branch_ns.parent_namespace)
-        if fk_parent:  # pragma: no branch
-            ns_map[fk_parent.namespace] = fk_parent
+    missing_parents: set[str] = set()
+    for names in ancestors.values():
+        for name in reversed(names):
+            row = ns_map.get(name)
+            if row and row.git_branch:
+                if row.parent_namespace and row.parent_namespace not in ns_map:
+                    missing_parents.add(row.parent_namespace)
+                break
+    if missing_parents:
+        parent_stmt = select(NodeNamespace).where(
+            NodeNamespace.namespace.in_(missing_parents),
+        )
+        if active_only:
+            parent_stmt = parent_stmt.where(NodeNamespace.deactivated_at.is_(None))
+        parent_rows = (await session.execute(parent_stmt)).scalars().all()
+        ns_map.update({ns.namespace: ns for ns in parent_rows})
 
-    return resolve_git_info_from_map(namespace, ns_map)
+    return {
+        namespace: resolve_git_info_from_map(namespace, ns_map)
+        for namespace in namespaces
+    }
 
 
 async def create_namespace(
@@ -1271,9 +1305,11 @@ def _metric_project_config(node: Node, namespace_requested: str) -> dict:
         "description": node.current.description,
         "query": node.current.query,
         "tags": [tag.name for tag in node.tags],
-        "required_dimensions": [dim.name for dim in node.current.required_dimensions],
+        "required_dimensions": node.current.required_dimensions_refs,
         "reaggregate": node.current.reaggregate,
         "fixed_grain": node.current.fixed_grain,
+        "required_filters": node.current.required_filters,
+        "recommended_filters": node.current.recommended_filters,
         "direction": (
             node.current.metric_metadata.direction.name.lower()
             if node.current.metric_metadata and node.current.metric_metadata.direction
@@ -1551,6 +1587,22 @@ def inject_prefixes(unparameterized_string: str, prefix: str) -> str:
     return unparameterized_string.replace(f"{prefix}" + SEPARATOR, "${prefix}")
 
 
+# A single-quoted SQL string, where '' is an escaped quote.
+_SQL_STRING = re.compile(r"('(?:[^']|'')*')")
+
+
+def inject_prefixes_outside_strings(text: str, prefix: str) -> str:
+    """
+    inject_prefixes, leaving single-quoted SQL strings unchanged.
+    """
+    parts = _SQL_STRING.split(text)
+    # re.split puts the quoted strings at odd indexes.
+    return "".join(
+        part if index % 2 else inject_prefixes(part, prefix)
+        for index, part in enumerate(parts)
+    )
+
+
 def _get_node_suffix(full_name: str, namespace_prefix: str) -> str | None:
     """
     Extract the suffix of a node name after the namespace prefix.
@@ -1699,6 +1751,28 @@ async def get_node_specs_for_export(
                     )
                     for dim in metric_spec.fixed_grain
                 ]
+            for requirements in (
+                metric_spec.required_filters,
+                metric_spec.recommended_filters,
+            ):
+                for index, entry in enumerate(requirements or []):
+                    requirements[index] = FilterRequirement(  # type: ignore[index]
+                        dimension=tuple(
+                            _inject_prefix_for_cube_ref(
+                                dim,
+                                namespace,
+                                parent_namespace,
+                                namespace_suffixes,
+                            )
+                            for dim in entry.dimension
+                        ),
+                        default=inject_prefixes_outside_strings(
+                            entry.default,
+                            namespace,
+                        )
+                        if entry.default
+                        else None,
+                    )
             if metric_spec.reaggregate:
                 for rule in metric_spec.reaggregate.rules:
                     rule.dimension = _inject_prefix_for_cube_ref(

@@ -253,6 +253,22 @@ async def test_read_resource_returns_not_found() -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_metric_data_description_states_the_execution_policy() -> None:
+    """The description is what a model reads before deciding to call the tool.
+
+    It used to say the tool refuses every query without a materialized cube,
+    while ``_execute_metrics_query`` runs ad-hoc queries on the default engine
+    unless the scan estimate exceeds ``_AD_HOC_SCAN_LIMIT_BYTES``. A model that
+    believed the description never tried a perfectly cheap query.
+    """
+    result: list[types.Tool] = await server.list_tools()
+    description = next(t.description for t in result if t.name == "get_metric_data")
+    assert "Only queries with materialized cubes will execute" not in description
+    assert "ad-hoc" in description
+    assert tools._format_bytes(tools._AD_HOC_SCAN_LIMIT_BYTES) in description
+
+
+@pytest.mark.asyncio
 async def test_list_tools_returns_full_surface() -> None:
     """The tool surface is the contract every MCP client codes against —
     lock the names so any change is intentional."""

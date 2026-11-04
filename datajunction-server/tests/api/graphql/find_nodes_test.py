@@ -6,12 +6,15 @@ from unittest import mock
 
 import pytest
 import pytest_asyncio
+import sqlalchemy as sa
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.construction.build_v3.loaders import find_upstream_node_names
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
+from datajunction_server.models.node import NodeCursor
 from datajunction_server.models.node_type import NodeType
 
 
@@ -638,6 +641,7 @@ async def test_find_metric(
                 requiredDimensions {
                     name
                 }
+                requiredDimensionRefs
                 extractedMeasures {
                     components {
                         name
@@ -680,6 +684,7 @@ async def test_find_metric(
                     },
                 ],
                 "requiredDimensions": [],
+                "requiredDimensionRefs": [],
                 "extractedMeasures": {
                     "components": [
                         {
@@ -915,6 +920,182 @@ async def test_find_cubes(
             "type": "CUBE",
         },
     ]
+
+
+@pytest.mark.asyncio
+async def test_cube_dimensions_dimension_node(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    cubeDimensions dimensionNode resolves to Node objects.
+    """
+    response = await client_with_roads.post(
+        "/nodes/cube/",
+        json={
+            "metrics": ["default.num_repair_orders"],
+            "dimensions": [
+                "default.hard_hat.city",
+                "default.dispatcher.company_name",
+            ],
+            "description": "Cube for dimension node test",
+            "mode": "published",
+            "name": "default.dim_node_test_cube",
+        },
+    )
+    assert response.status_code < 400, response.json()
+
+    query = """
+    {
+        findNodes(names: ["default.dim_node_test_cube"]) {
+            current {
+                cubeDimensions {
+                    name
+                    dimensionNode {
+                        name
+                        type
+                        currentVersion
+                        current {
+                            columns {
+                                name
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    """
+    response = await client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    assert response.json() == {
+        "data": {
+            "findNodes": [
+                {
+                    "current": {
+                        "cubeDimensions": [
+                            {
+                                "name": "default.hard_hat.city",
+                                "dimensionNode": {
+                                    "name": "default.hard_hat",
+                                    "type": "DIMENSION",
+                                    "currentVersion": "v1.1",
+                                    "current": {
+                                        "columns": [
+                                            {"name": "hard_hat_id"},
+                                            {"name": "last_name"},
+                                            {"name": "first_name"},
+                                            {"name": "title"},
+                                            {"name": "birth_date"},
+                                            {"name": "hire_date"},
+                                            {"name": "address"},
+                                            {"name": "city"},
+                                            {"name": "state"},
+                                            {"name": "postal_code"},
+                                            {"name": "country"},
+                                            {"name": "manager"},
+                                            {"name": "contractor_id"},
+                                        ],
+                                    },
+                                },
+                            },
+                            {
+                                "name": "default.dispatcher.company_name",
+                                "dimensionNode": {
+                                    "name": "default.dispatcher",
+                                    "type": "DIMENSION",
+                                    "currentVersion": "v1.0",
+                                    "current": {
+                                        "columns": [
+                                            {"name": "dispatcher_id"},
+                                            {"name": "company_name"},
+                                            {"name": "phone"},
+                                        ],
+                                    },
+                                },
+                            },
+                        ],
+                    },
+                },
+            ],
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_cube_dimensions_dimension_node_overlapping_selections(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    Aliased dimensionNode selections with different nested fields all load.
+    """
+    response = await client_with_roads.post(
+        "/nodes/cube/",
+        json={
+            "metrics": ["default.num_repair_orders"],
+            "dimensions": ["default.dispatcher.company_name"],
+            "description": "Cube for overlapping selection test",
+            "mode": "published",
+            "name": "default.overlap_test_cube",
+        },
+    )
+    assert response.status_code < 400, response.json()
+
+    query = """
+    {
+        findNodes(names: ["default.overlap_test_cube"]) {
+            current {
+                cubeDimensions {
+                    name
+                    withColumns: dimensionNode {
+                        current {
+                            columns {
+                                name
+                            }
+                        }
+                    }
+                    withParents: dimensionNode {
+                        current {
+                            parents {
+                                name
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    """
+    response = await client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    assert response.json() == {
+        "data": {
+            "findNodes": [
+                {
+                    "current": {
+                        "cubeDimensions": [
+                            {
+                                "name": "default.dispatcher.company_name",
+                                "withColumns": {
+                                    "current": {
+                                        "columns": [
+                                            {"name": "dispatcher_id"},
+                                            {"name": "company_name"},
+                                            {"name": "phone"},
+                                        ],
+                                    },
+                                },
+                                "withParents": {
+                                    "current": {
+                                        "parents": [{"name": "default.dispatchers"}],
+                                    },
+                                },
+                            },
+                        ],
+                    },
+                },
+            ],
+        },
+    }
 
 
 @pytest.mark.asyncio
@@ -4076,3 +4257,687 @@ async def test_node_counts_scoped_to_namespace(
             },
         )
         assert resp.json()["data"]["findNodesPaginated"]["totalCount"] == count
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "order_by, ascending",
+    [
+        ("NAME", True),
+        ("NAME", False),
+        ("DISPLAY_NAME", True),
+        ("DISPLAY_NAME", False),
+        ("TYPE", True),
+        ("STATUS", False),
+        ("UPDATED_AT", True),
+        ("CREATED_AT", True),
+        ("CREATED_AT", False),
+    ],
+)
+async def test_find_nodes_paginated_follows_order_by(
+    client_with_roads: AsyncClient,
+    order_by: str,
+    ascending: bool,
+) -> None:
+    """
+    Paging with ``after`` must keep the requested ordering: the pages together
+    return exactly what one big page does, with no repeated or skipped nodes.
+    """
+    query = """
+    query ListNodes($after: String, $limit: Int, $orderBy: NodeSortField, $asc: Boolean) {
+      findNodesPaginated(limit: $limit, after: $after, orderBy: $orderBy, ascending: $asc) {
+        pageInfo { hasNextPage endCursor }
+        edges { node { name } }
+      }
+    }
+    """
+
+    async def fetch(limit: int, after: str | None = None) -> dict:
+        response = await client_with_roads.post(
+            "/graphql",
+            json={
+                "query": query,
+                "variables": {
+                    "limit": limit,
+                    "after": after,
+                    "orderBy": order_by,
+                    "asc": ascending,
+                },
+            },
+        )
+        assert response.status_code == 200, response.text
+        return response.json()["data"]["findNodesPaginated"]
+
+    expected = [e["node"]["name"] for e in (await fetch(1000))["edges"]]
+    assert len(expected) > 5
+
+    paged: list[str] = []
+    after = None
+    while True:
+        page = await fetch(5, after)
+        paged += [e["node"]["name"] for e in page["edges"]]
+        if not page["pageInfo"]["hasNextPage"]:
+            break
+        after = page["pageInfo"]["endCursor"]
+
+    assert len(paged) == len(set(paged))
+    assert paged == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "order_by, ascending",
+    [
+        ("NAME", True),
+        ("NAME", False),
+        ("TYPE", True),
+        ("STATUS", False),
+        ("CREATED_AT", False),
+    ],
+)
+async def test_find_nodes_paginated_before_follows_order_by(
+    client_with_roads: AsyncClient,
+    order_by: str,
+    ascending: bool,
+) -> None:
+    """
+    Paging backward with ``before`` must keep the requested ordering: walking
+    from the last page to the first returns every node once, in reverse page order.
+    """
+    query = """
+    query ListNodes($before: String, $after: String, $limit: Int, $orderBy: NodeSortField, $asc: Boolean) {
+      findNodesPaginated(limit: $limit, before: $before, after: $after, orderBy: $orderBy, ascending: $asc) {
+        pageInfo { hasNextPage startCursor endCursor }
+        edges { node { name } }
+      }
+    }
+    """
+
+    async def fetch(limit: int, **cursor: str | None) -> dict:
+        response = await client_with_roads.post(
+            "/graphql",
+            json={
+                "query": query,
+                "variables": {
+                    "limit": limit,
+                    "orderBy": order_by,
+                    "asc": ascending,
+                    **cursor,
+                },
+            },
+        )
+        assert response.status_code == 200, response.text
+        return response.json()["data"]["findNodesPaginated"]
+
+    def names(page: dict) -> list[str]:
+        return [e["node"]["name"] for e in page["edges"]]
+
+    expected = names(await fetch(1000))
+    assert len(expected) > 10
+
+    pages = [await fetch(5)]
+    while pages[-1]["pageInfo"]["hasNextPage"]:
+        pages.append(await fetch(5, after=pages[-1]["pageInfo"]["endCursor"]))
+
+    # Walk back from the last page; each page is the one just before the cursor.
+    cursor = pages[-1]["pageInfo"]["startCursor"]
+    for page in reversed(pages[:-1]):
+        previous = await fetch(5, before=cursor)
+        assert names(previous) == names(page)
+        cursor = previous["pageInfo"]["startCursor"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ascending", [True, False])
+async def test_find_nodes_paginated_pages_through_null_sort_values(
+    client_with_roads: AsyncClient,
+    session: AsyncSession,
+    ascending: bool,
+) -> None:
+    """
+    Nodes whose sort field is NULL are paged through in both directions without
+    repeats or gaps, including when a cursor lands on one of them.
+    """
+    await session.execute(
+        sa.update(NodeRevision)
+        .where(NodeRevision.name.like("default.%"))
+        .values(display_name=None),
+    )
+    await session.commit()
+
+    query = """
+    query ListNodes($before: String, $after: String, $asc: Boolean) {
+      findNodesPaginated(limit: 4, before: $before, after: $after, orderBy: DISPLAY_NAME, ascending: $asc) {
+        pageInfo { hasNextPage startCursor endCursor }
+        edges { node { name } }
+      }
+    }
+    """
+
+    async def fetch(**cursor: str | None) -> dict:
+        response = await client_with_roads.post(
+            "/graphql",
+            json={"query": query, "variables": {"asc": ascending, **cursor}},
+        )
+        assert response.status_code == 200, response.text
+        return response.json()["data"]["findNodesPaginated"]
+
+    def names(page: dict) -> list[str]:
+        return [e["node"]["name"] for e in page["edges"]]
+
+    pages = [await fetch()]
+    while pages[-1]["pageInfo"]["hasNextPage"]:
+        pages.append(await fetch(after=pages[-1]["pageInfo"]["endCursor"]))
+    paged = [name for page in pages for name in names(page)]
+    assert len(paged) == len(set(paged))
+
+    cursor = pages[-1]["pageInfo"]["startCursor"]
+    for page in reversed(pages[:-1]):
+        previous = await fetch(before=cursor)
+        assert names(previous) == names(page)
+        cursor = previous["pageInfo"]["startCursor"]
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_paginated_accepts_legacy_cursor(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    A cursor with only created_at and id (minted before cursors carried a sort
+    value) still resumes the default order.
+    """
+    query = """
+    query ($after: String) {
+      findNodesPaginated(limit: 3, after: $after) {
+        pageInfo { endCursor }
+        edges { node { name } }
+      }
+    }
+    """
+
+    async def fetch(after: str | None) -> dict:
+        response = await client_with_roads.post(
+            "/graphql",
+            json={"query": query, "variables": {"after": after}},
+        )
+        assert response.status_code == 200, response.text
+        return response.json()["data"]["findNodesPaginated"]
+
+    first = await fetch(None)
+    cursor = NodeCursor.decode(first["pageInfo"]["endCursor"])
+    legacy = NodeCursor(created_at=cursor.created_at, id=cursor.id).encode()
+
+    assert await fetch(legacy) == await fetch(first["pageInfo"]["endCursor"])
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_paginated_rejects_cursor_from_another_sort(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    A cursor holds a value of the field it was sorted by, so reusing it after the
+    sort changes is an error rather than a comparison against the wrong column.
+    """
+    query = """
+    query ($after: String, $orderBy: NodeSortField) {
+      findNodesPaginated(limit: 3, after: $after, orderBy: $orderBy, ascending: true) {
+        pageInfo { endCursor }
+      }
+    }
+    """
+
+    async def post(after: str | None, order_by: str):
+        response = await client_with_roads.post(
+            "/graphql",
+            json={
+                "query": query,
+                "variables": {"after": after, "orderBy": order_by},
+            },
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    cursor = (await post(None, "NAME"))["data"]["findNodesPaginated"]["pageInfo"][
+        "endCursor"
+    ]
+    assert "errors" not in await post(cursor, "NAME")
+
+    result = await post(cursor, "UPDATED_AT")
+    assert "Restart from the first page" in result["errors"][0]["message"]
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_paginated_search_pages_follow_order_by(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    With ``search`` set, paging still follows ``orderBy`` on every page instead of
+    ranking the first page by similarity.
+    """
+    query = """
+    query ($after: String, $limit: Int) {
+      findNodesPaginated(
+        search: "repair"
+        limit: $limit
+        after: $after
+        orderBy: NAME
+        ascending: true
+      ) {
+        pageInfo { hasNextPage endCursor }
+        edges { node { name } }
+      }
+    }
+    """
+
+    async def fetch(limit: int, after: str | None = None) -> dict:
+        response = await client_with_roads.post(
+            "/graphql",
+            json={"query": query, "variables": {"limit": limit, "after": after}},
+        )
+        assert response.status_code == 200, response.text
+        return response.json()["data"]["findNodesPaginated"]
+
+    expected = [e["node"]["name"] for e in (await fetch(1000))["edges"]]
+    assert expected == sorted(expected)
+    assert len(expected) > 2
+
+    paged: list[str] = []
+    after = None
+    while True:
+        page = await fetch(2, after)
+        paged += [e["node"]["name"] for e in page["edges"]]
+        if not page["pageInfo"]["hasNextPage"]:
+            break
+        after = page["pageInfo"]["endCursor"]
+    assert paged == expected
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_filter_requirements(client_with_build_v3: AsyncClient):
+    """Metrics expose their required and recommended filters."""
+    query = (await client_with_build_v3.get("/nodes/v3.total_revenue/")).json()["query"]
+    created = await client_with_build_v3.post(
+        "/nodes/metric/",
+        json={
+            "name": "v3.gql_filtered",
+            "description": "d",
+            "query": query,
+            "mode": "published",
+            "required_filters": [{"dimension": "v3.date.date_id"}],
+            "recommended_filters": [
+                {
+                    "dimension": "v3.location.country",
+                    "default": "v3.location.country = 'US'",
+                },
+            ],
+        },
+    )
+    assert created.status_code == 201, created.text
+    response = await client_with_build_v3.post(
+        "/graphql",
+        json={
+            "query": """
+            {
+              findNodes(names: ["v3.gql_filtered", "v3.total_revenue", "v3.order_details"]) {
+                name
+                current {
+                  requiredFilters { dimension default }
+                  recommendedFilters { dimension default }
+                }
+              }
+            }
+            """,
+        },
+    )
+    body = response.json()
+    assert body.get("errors") is None
+    assert {node["name"]: node["current"] for node in body["data"]["findNodes"]} == {
+        "v3.gql_filtered": {
+            "requiredFilters": [{"dimension": ["v3.date.date_id"], "default": None}],
+            "recommendedFilters": [
+                {
+                    "dimension": ["v3.location.country"],
+                    "default": "v3.location.country = 'US'",
+                },
+            ],
+        },
+        "v3.total_revenue": {
+            "requiredFilters": None,
+            "recommendedFilters": None,
+        },
+        "v3.order_details": {
+            "requiredFilters": None,
+            "recommendedFilters": None,
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_find_nodes_effective_filter_requirements(
+    client_with_build_v3: AsyncClient,
+):
+    """Derived metrics list the filters of the metrics they are built from."""
+    client = client_with_build_v3
+    query = (await client.get("/nodes/v3.total_revenue/")).json()["query"]
+    for name, fields in {
+        "v3.gql_base": {
+            "required_filters": [{"dimension": "v3.date.date_id"}],
+            "recommended_filters": [{"dimension": "v3.location.country"}],
+        },
+        "v3.gql_other": {
+            "required_filters": [
+                {"dimension": "v3.date.date_id", "default": "v3.date.date_id = 1"},
+            ],
+            "recommended_filters": [{"dimension": "v3.location.country"}],
+        },
+    }.items():
+        created = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": name,
+                "description": "d",
+                "query": query,
+                "mode": "published",
+                **fields,
+            },
+        )
+        assert created.status_code == 201, created.text
+    for name, derived_query in {
+        "v3.gql_mid": "SELECT v3.gql_base / 2",
+        "v3.gql_top": "SELECT v3.gql_mid / v3.gql_other",
+    }.items():
+        created = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": name,
+                "description": "d",
+                "query": derived_query,
+                "mode": "published",
+            },
+        )
+        assert created.status_code == 201, created.text
+
+    with mock.patch(
+        "datajunction_server.construction.build_v3.filter_requirements."
+        "find_upstream_node_names",
+        wraps=find_upstream_node_names,
+    ) as upstream:
+        response = await client.post(
+            "/graphql",
+            json={
+                "query": """
+                {
+                  findNodes(names: [
+                    "v3.gql_top", "v3.gql_mid", "v3.gql_base",
+                    "v3.total_revenue", "v3.order_details"
+                  ]) {
+                    name
+                    current {
+                      requiredFilters { dimension default }
+                      effectiveRequiredFilters { dimension default declaredBy }
+                      effectiveRecommendedFilters { dimension default declaredBy }
+                    }
+                  }
+                }
+                """,
+            },
+        )
+    assert upstream.call_count == 1
+    body = response.json()
+    assert body.get("errors") is None
+    country = {
+        "dimension": ["v3.location.country"],
+        "default": None,
+        "declaredBy": ["v3.gql_base", "v3.gql_other"],
+    }
+    assert {node["name"]: node["current"] for node in body["data"]["findNodes"]} == {
+        "v3.gql_top": {
+            "requiredFilters": None,
+            "effectiveRequiredFilters": [
+                {
+                    "dimension": ["v3.date.date_id"],
+                    "default": None,
+                    "declaredBy": ["v3.gql_base"],
+                },
+                {
+                    "dimension": ["v3.date.date_id"],
+                    "default": "v3.date.date_id = 1",
+                    "declaredBy": ["v3.gql_other"],
+                },
+            ],
+            "effectiveRecommendedFilters": [country],
+        },
+        "v3.gql_mid": {
+            "requiredFilters": None,
+            "effectiveRequiredFilters": [
+                {
+                    "dimension": ["v3.date.date_id"],
+                    "default": None,
+                    "declaredBy": ["v3.gql_base"],
+                },
+            ],
+            "effectiveRecommendedFilters": [
+                {**country, "declaredBy": ["v3.gql_base"]},
+            ],
+        },
+        "v3.gql_base": {
+            "requiredFilters": [{"dimension": ["v3.date.date_id"], "default": None}],
+            "effectiveRequiredFilters": [
+                {
+                    "dimension": ["v3.date.date_id"],
+                    "default": None,
+                    "declaredBy": ["v3.gql_base"],
+                },
+            ],
+            "effectiveRecommendedFilters": [
+                {**country, "declaredBy": ["v3.gql_base"]},
+            ],
+        },
+        "v3.total_revenue": {
+            "requiredFilters": None,
+            "effectiveRequiredFilters": [],
+            "effectiveRecommendedFilters": [],
+        },
+        "v3.order_details": {
+            "requiredFilters": None,
+            "effectiveRequiredFilters": None,
+            "effectiveRecommendedFilters": None,
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_effective_filters_follow_each_revision(
+    client_with_build_v3: AsyncClient,
+):
+    """Each revision lists its own filters, not the current revision's."""
+    client = client_with_build_v3
+    query = (await client.get("/nodes/v3.total_revenue/")).json()["query"]
+    created = await client.post(
+        "/nodes/metric/",
+        json={
+            "name": "v3.gql_rev",
+            "description": "d",
+            "query": query,
+            "mode": "published",
+            "required_filters": [{"dimension": "v3.location.country"}],
+        },
+    )
+    assert created.status_code == 201, created.text
+    patched = await client.patch(
+        "/nodes/v3.gql_rev/",
+        json={"required_filters": [{"dimension": "v3.date.date_id"}]},
+    )
+    assert patched.status_code == 200, patched.text
+    response = await client.post(
+        "/graphql",
+        json={
+            "query": """
+            {
+              findNodes(names: ["v3.gql_rev"]) {
+                revisions {
+                  version
+                  requiredFilters { dimension default }
+                  effectiveRequiredFilters { dimension default declaredBy }
+                }
+              }
+            }
+            """,
+        },
+    )
+    body = response.json()
+    assert body.get("errors") is None
+    revisions = body["data"]["findNodes"][0]["revisions"]
+    assert {rev["version"]: rev for rev in revisions} == {
+        "v1.0": {
+            "version": "v1.0",
+            "requiredFilters": [
+                {"dimension": ["v3.location.country"], "default": None},
+            ],
+            "effectiveRequiredFilters": [
+                {
+                    "dimension": ["v3.location.country"],
+                    "default": None,
+                    "declaredBy": ["v3.gql_rev"],
+                },
+            ],
+        },
+        "v2.0": {
+            "version": "v2.0",
+            "requiredFilters": [{"dimension": ["v3.date.date_id"], "default": None}],
+            "effectiveRequiredFilters": [
+                {
+                    "dimension": ["v3.date.date_id"],
+                    "default": None,
+                    "declaredBy": ["v3.gql_rev"],
+                },
+            ],
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_required_dimensions_null_for_non_metric(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    ``requiredDimensions`` is a metric-only field, so a node of any other type
+    resolves it to null rather than an empty list.
+    """
+    query = """
+    {
+      findNodes(names: ["default.repair_orders"]) {
+        type
+        current { requiredDimensions { name } requiredDimensionRefs }
+      }
+    }
+    """
+    resp = await client_with_roads.post("/graphql", json={"query": query})
+    assert resp.status_code == 200
+    assert resp.json()["data"]["findNodes"] == [
+        {
+            "type": "SOURCE",
+            "current": {"requiredDimensions": None, "requiredDimensionRefs": None},
+        },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_required_dimensions_and_refs_for_a_metric(
+    client_with_roads: AsyncClient,
+) -> None:
+    """
+    ``requiredDimensions`` keeps returning ``Column`` objects (name only) for
+    existing clients, while ``requiredDimensionRefs`` returns the references as
+    written.
+    """
+    response = await client_with_roads.patch(
+        "/nodes/default.total_repair_cost/",
+        json={
+            "query": "SELECT count(price) FROM default.repair_order_details",
+            "required_dimensions": ["repair_order_id", "price"],
+        },
+    )
+    assert response.status_code == 200, response.json()
+
+    query = """
+    {
+      findNodes(names: ["default.total_repair_cost"]) {
+        current { requiredDimensions { name type attributes { attributeType { name } } } requiredDimensionRefs }
+      }
+    }
+    """
+    resp = await client_with_roads.post("/graphql", json={"query": query})
+    assert resp.status_code == 200
+    assert resp.json()["data"]["findNodes"] == [
+        {
+            "current": {
+                "requiredDimensions": [
+                    {"name": "price", "type": "unknown", "attributes": []},
+                    {"name": "repair_order_id", "type": "unknown", "attributes": []},
+                ],
+                "requiredDimensionRefs": ["price", "repair_order_id"],
+            },
+        },
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "selection,expected",
+    [
+        (
+            "requiredDimensionRefs",
+            {"requiredDimensionRefs": ["price", "repair_order_id"]},
+        ),
+        (
+            "requiredDimensions { name }",
+            {"requiredDimensions": [{"name": "price"}, {"name": "repair_order_id"}]},
+        ),
+    ],
+    ids=["refs-only", "names-only"],
+)
+async def test_required_dimension_fields_load_on_their_own(
+    client_with_roads: AsyncClient,
+    session: AsyncSession,
+    selection: str,
+    expected: dict,
+) -> None:
+    """
+    Each required dimension field loads the data it reads when it is the only
+    one requested, so a client selecting just one never sees an empty list.
+    """
+    response = await client_with_roads.patch(
+        "/nodes/default.total_repair_cost/",
+        json={
+            "query": "SELECT count(price) FROM default.repair_order_details",
+            "required_dimensions": ["repair_order_id", "price"],
+        },
+    )
+    assert response.status_code == 200, response.json()
+    # The shared test session still holds what the patch loaded.
+    session.expunge_all()
+
+    query = (
+        '{ findNodes(names: ["default.total_repair_cost"]) '
+        "{ current { " + selection + " } } }"
+    )
+    resp = await client_with_roads.post("/graphql", json={"query": query})
+    assert resp.status_code == 200
+    assert resp.json()["data"]["findNodes"] == [{"current": expected}]
+
+
+@pytest.mark.parametrize(
+    "ref,expected",
+    [
+        ("price", "price"),
+        ("default.repair_order_details.price", "price"),
+        ("default.date.dateint[created_date]", "dateint"),
+        ("price[role.with.dots]", "price"),
+    ],
+)
+def test_required_dimension_name(ref: str, expected: str) -> None:
+    """The column name is the last part of a reference, without its role."""
+    from datajunction_server.api.graphql.scalars.node import _required_dimension_name
+
+    assert _required_dimension_name(ref) == expected

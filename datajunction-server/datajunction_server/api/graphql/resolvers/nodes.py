@@ -230,11 +230,13 @@ async def find_nodes_by(
     missing_description: bool = False,
     missing_owner: bool = False,
     dimensions: list[str] | None = None,
+    tables: list[str] | None = None,
     statuses: list[NodeStatus] | None = None,
     has_materialization: bool = False,
     orphaned_dimension: bool = False,
     search: str | None = None,
     custom_metadata_filters: list[CustomMetadataFilter] | None = None,
+    rank_search: bool = True,
 ) -> list[DBNode]:
     """
     Finds nodes based on the search parameters. This function also tries to optimize
@@ -249,6 +251,10 @@ async def find_nodes_by(
             if "edges" in fields
             else fields
         )
+        if order_by.column.class_ is DBNodeRevision and "current" not in node_fields:
+            # The pagination cursor records each node's sort value, which lives
+            # on the current revision.
+            node_fields = {**node_fields, "current": {}}
         options = load_node_options(node_fields)
 
         # Decide whether to attach raw cube scalars to current below. The cube
@@ -295,8 +301,10 @@ async def find_nodes_by(
             has_materialization=has_materialization,
             orphaned_dimension=orphaned_dimension,
             dimensions=dimensions,
+            tables=tables,
             search=search,
             custom_metadata_filters=custom_metadata_filters,
+            rank_search=rank_search,
         )
 
         # For the scalar-only cube path, fetch column data as raw tuples instead
@@ -328,6 +336,7 @@ async def count_nodes_by(
     missing_description: bool = False,
     missing_owner: bool = False,
     dimensions: list[str] | None = None,
+    tables: list[str] | None = None,
     statuses: list[NodeStatus] | None = None,
     has_materialization: bool = False,
     orphaned_dimension: bool = False,
@@ -362,6 +371,7 @@ async def count_nodes_by(
             missing_description=missing_description,
             missing_owner=missing_owner,
             dimensions=dimensions,
+            tables=tables,
             statuses=statuses,
             has_materialization=has_materialization,
             orphaned_dimension=orphaned_dimension,
@@ -675,7 +685,10 @@ def load_node_revision_options(node_revision_fields, is_current: bool = True):
         options.append(noload(DBNodeRevision.dimension_links))
 
     # Handle required_dimensions
-    if "required_dimensions" in node_revision_fields:
+    if (
+        "required_dimensions" in node_revision_fields
+        or "required_dimension_refs" in node_revision_fields
+    ):
         options.append(
             selectinload(DBNodeRevision.required_dimensions),
         )

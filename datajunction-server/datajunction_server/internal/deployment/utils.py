@@ -61,6 +61,20 @@ def extract_upstream_candidates(
     return tables
 
 
+def extract_dimension_attribute_nodes(query_ast: ast.Query) -> set[str]:
+    """Node names that a metric's namespaced columns point at.
+
+    `MAX(ns.dim.attr)` gives `ns.dim`. Unlike `extract_upstream_candidates`, this
+    covers metrics with a FROM clause, whose dimension nodes are not parents.
+    """
+    prefixes = {
+        ".".join(part.name for part in column.namespace)
+        for column in query_ast.find_all(ast.Column)
+        if column.namespace
+    }
+    return {prefix for prefix in prefixes if SEPARATOR in prefix}
+
+
 def extract_dimension_refs_from_filters(
     filters: list[str],
 ) -> list[tuple[str, str]]:

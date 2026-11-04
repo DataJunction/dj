@@ -5,6 +5,7 @@ Model for nodes.
 import enum
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from types import UnionType
 from typing import Any, Union, cast, get_origin
 
@@ -19,7 +20,7 @@ from pydantic import (
 )
 from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.sql.schema import Column as SqlaColumn
-from sqlalchemy.types import Enum
+from sqlalchemy.types import DateTime, Enum
 from typing_extensions import TypedDict
 
 from datajunction_server.api.graphql.scalars import Cursor
@@ -33,6 +34,7 @@ from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import MaterializationConfigOutput
 from datajunction_server.models.node_type import NodeNameOutput, NodeType
 from datajunction_server.models.partition import PartitionOutput
+from datajunction_server.models.filter_requirements import FilterRequirement
 from datajunction_server.models.reaggregate import ReaggregateSpec
 from datajunction_server.models.tag import TagMinimum, TagOutput
 from datajunction_server.models.unit import (
@@ -882,6 +884,8 @@ class MetricNodeFields(BaseModel):
     # Grain the aggregate is computed at; omitted means the query grain.
     fixed_grain: list[str] | None = None
     reaggregate: ReaggregateSpec | None = None
+    required_filters: list[FilterRequirement] | None = None
+    recommended_filters: list[FilterRequirement] | None = None
     metric_metadata: MetricMetadataInput | None = None
 
 
@@ -1039,6 +1043,8 @@ class NodeRevisionOutput(BaseModel):
     metric_metadata: MetricMetadataOutput | None = None
     fixed_grain: list[str] | None = None
     reaggregate: ReaggregateSpec | None = None
+    required_filters: list[FilterRequirement] | None = None
+    recommended_filters: list[FilterRequirement] | None = None
     dimension_links: list[LinkDimensionOutput] | None = None
     custom_metadata: dict | None = None
 
@@ -1073,6 +1079,8 @@ class NodeOutput(GenericNodeOutputModel):
     metric_metadata: MetricMetadataOutput | None = None
     fixed_grain: list[str] | None = None
     reaggregate: ReaggregateSpec | None = None
+    required_filters: list[FilterRequirement] | None = None
+    recommended_filters: list[FilterRequirement] | None = None
     dimension_links: list[LinkDimensionOutput] = Field(default_factory=list)
     created_at: UTCDatetime
     created_by: UserNameOnly | None = None
@@ -1232,7 +1240,41 @@ class NodeCursor(Cursor):
 
     created_at: UTCDatetime
     id: int
+    # The sort field (e.g. ``name``) and this node's value for it, encoded by
+    # ``encode_sort_value``. Cursors without them (minted before sort-aware
+    # paging, or for the default ``created_at`` order) page by ``created_at``/``id``.
+    sort_by: str | None = None
+    sort_value: str | None = None
 
     @classmethod
     def decode(cls, serialized: str) -> "NodeCursor":
         return cast(NodeCursor, super().decode(serialized))
+
+
+# Prefix keeps the cursor decoder from turning date-like strings (a display name
+# of "20240101") into datetimes.
+_SORT_VALUE_PREFIX = "v:"
+
+
+def encode_sort_value(value: Any) -> str | None:
+    """Serialize a node's sort value for a cursor. ``None`` (SQL NULL) stays ``None``."""
+    if value is None:
+        return None
+    if isinstance(value, enum.Enum):
+        value = value.name
+    elif isinstance(value, datetime):
+        value = value.isoformat()
+    return f"{_SORT_VALUE_PREFIX}{value}"
+
+
+def decode_sort_value(raw: str | None, column: Any) -> Any:
+    """Inverse of ``encode_sort_value``, typed to match the sort ``column``."""
+    if raw is None:
+        return None
+    text = raw[len(_SORT_VALUE_PREFIX) :]
+    column_type = column.type
+    if isinstance(column_type, Enum):
+        return column_type.enum_class[text]  # type: ignore
+    if isinstance(column_type, DateTime):
+        return datetime.fromisoformat(text)
+    return text

@@ -2,6 +2,7 @@
 Main DJ server app.
 """
 
+import asyncio
 import logging
 from http import HTTPStatus
 
@@ -50,6 +51,7 @@ from datajunction_server.api import (
 )
 from datajunction_server.api.access.authentication import basic, service_account, whoami
 from datajunction_server.api.attributes import default_attribute_types
+from datajunction_server.api.deployments import executor
 from datajunction_server.api.graphql.main import graphql_app
 from datajunction_server.constants import AUTH_COOKIE, LOGGED_IN_FLAG_COOKIE
 from datajunction_server.errors import DJException
@@ -57,6 +59,7 @@ from datajunction_server.instrumentation.middleware import DJInstrumentationMidd
 from datajunction_server.internal.access.authorization.readiness import (
     verify_rbac_admins,
 )
+from datajunction_server.internal.deployment.liveness import sweep_forever
 from datajunction_server.internal.seed import seed_default_catalogs
 from datajunction_server.utils import get_session_manager, get_settings
 
@@ -82,7 +85,10 @@ async def lifespan(app: FastAPI):  # pragma: no cover
         await seed_default_catalogs(session)
         await verify_rbac_admins(session, settings)
 
+    sweeper = asyncio.create_task(sweep_forever())
     yield
+    sweeper.cancel()
+    await executor.drain(settings.deployment_drain_timeout)
 
 
 def create_app(lifespan):

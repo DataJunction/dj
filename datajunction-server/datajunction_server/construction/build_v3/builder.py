@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
     from datajunction_server.database.node import NodeRevision
+    from datajunction_server.construction.build_v3.group_others import GroupOthers
 
 from datajunction_server.construction.build_v3.cte import (
     detect_window_metrics_requiring_grain_groups,
@@ -25,6 +26,10 @@ from datajunction_server.construction.build_v3.decomposition import (
     missing_reaggregate_dimensions,
 )
 from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
+from datajunction_server.construction.build_v3.filter_requirements import (
+    CheckedFilters,
+    check_filter_requirements,
+)
 from datajunction_server.construction.build_v3.filters import (
     get_filter_column_references,
 )
@@ -59,6 +64,7 @@ from datajunction_server.database.partition import Partition
 from datajunction_server.errors import DJError, DJInvalidInputException, ErrorCode
 from datajunction_server.instrumentation import events
 from datajunction_server.models.dialect import Dialect
+from datajunction_server.models.materialization import MaterializationTarget
 from datajunction_server.models.partition import PartitionType
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
@@ -252,6 +258,8 @@ async def setup_build_context(
     include_temporal_filters: bool = False,
     lookback_window: str | None = None,
     matched_cube: NodeRevision | None = None,
+    materialization_target: MaterializationTarget | None = None,
+    combiner_dialect: Dialect | None = None,
 ) -> BuildContext:
     """
     Create and initialize a BuildContext with all setup done.
@@ -269,6 +277,8 @@ async def setup_build_context(
         dimensions: List of dimension names
         filters: Optional list of filter expressions
         dialect: SQL dialect for output
+        combiner_dialect: Optional dialect for metric combiners when they run
+            somewhere other than the measures SQL engine.
         use_materialized: Whether to use materialized tables
         include_temporal_filters: Whether to include temporal partition filters from cube
         lookback_window: Lookback window for temporal filters
@@ -291,6 +301,8 @@ async def setup_build_context(
         dimensions=list(dimensions),
         filters=filters or [],
         dialect=dialect,
+        combiner_dialect=combiner_dialect,
+        materialization_target=materialization_target,
         use_materialized=use_materialized,
         temporal_partition_columns=temporal_partition_columns or {},
         lookback_window=lookback_window,
@@ -302,7 +314,7 @@ async def setup_build_context(
     add_dimensions_from_filters(ctx)
 
     # Snapshot dimension node names before load_nodes so we can detect any roots
-    # that load_nodes adds internally (via collect_required_dimensions).
+    # that load_nodes adds internally via metrics' required dimensions.
     dim_roots_before_load = {
         parse_dimension_ref(d).node_name
         for d in ctx.dimensions
@@ -337,8 +349,8 @@ async def setup_build_context(
 
     # A second load_nodes pass is needed when either:
     # 1. metric expressions introduced dimension nodes not yet in ctx.nodes, OR
-    # 2. load_nodes itself added required dimension roots via collect_required_dimensions
-    #    whose upstream source nodes haven't been traversed yet (those nodes land in
+    # 2. load_nodes itself added required dimension roots (from metrics'
+    #    required_dimensions) whose upstream source nodes haven't been traversed yet (those nodes land in
     #    ctx.nodes via preload_join_paths but without their upstream dependencies).
     dim_roots_after = {
         parse_dimension_ref(d).node_name
@@ -377,6 +389,8 @@ async def build_measures_sql(
     lookback_window: str | None = None,
     query_parameters: dict[str, Any] | None = None,
     matched_cube: NodeRevision | None = None,
+    materialization_target: MaterializationTarget | None = None,
+    combiner_dialect: Dialect | None = None,
 ) -> GeneratedMeasuresSQL:
     """
     Build measures SQL for a set of metrics, dimensions, and filters.
@@ -392,6 +406,8 @@ async def build_measures_sql(
         dimensions: List of dimension names (format: "node.column" or "node.column[role]")
         filters: Optional list of filter expressions
         dialect: SQL dialect for output
+        combiner_dialect: Optional dialect for metric combiners when they run
+            somewhere other than the measures SQL engine.
         use_materialized: If True (default), use materialized tables when available.
             Set to False when generating SQL for materialization refresh to avoid
             circular references.
@@ -420,6 +436,8 @@ async def build_measures_sql(
         include_temporal_filters=include_temporal_filters,
         lookback_window=lookback_window,
         matched_cube=matched_cube,
+        materialization_target=materialization_target,
+        combiner_dialect=combiner_dialect,
     )
 
     # Build grain groups from context
@@ -521,6 +539,51 @@ async def build_metrics_sql(
     session: AsyncSession,
     metrics: list[str],
     dimensions: list[str],
+    filters: list[str] | CheckedFilters | None = None,
+    orderby: list[str] | None = None,
+    limit: int | None = None,
+    dialect: Dialect | None = None,
+    use_materialized: bool = True,
+    matched_cube: NodeRevision | None = None,
+    query_parameters: dict[str, Any] | None = None,
+    lookback_window: str | None = None,
+    group_others: GroupOthers | None = None,
+) -> GeneratedSQL:
+    """
+    Build metrics SQL for a set of metrics and dimensions.
+
+    Plain filters are checked against the metrics' filter requirements first:
+    a missing required filter raises, and defaults are added. The warnings
+    from that check come first in the result's warnings. Pass CheckedFilters
+    when the check already ran.
+    """
+    checked = (
+        filters
+        if isinstance(filters, CheckedFilters)
+        else await check_filter_requirements(session, metrics, filters)
+    )
+    result = await _build_metrics_sql(
+        session=session,
+        metrics=metrics,
+        dimensions=dimensions,
+        filters=checked.filters or None,
+        orderby=orderby,
+        limit=limit,
+        dialect=dialect,
+        use_materialized=use_materialized,
+        matched_cube=matched_cube,
+        query_parameters=query_parameters,
+        lookback_window=lookback_window,
+        group_others=group_others,
+    )
+    result.warnings = [*checked.warnings, *(result.warnings or [])]
+    return result
+
+
+async def _build_metrics_sql(
+    session: AsyncSession,
+    metrics: list[str],
+    dimensions: list[str],
     filters: list[str] | None = None,
     orderby: list[str] | None = None,
     limit: int | None = None,
@@ -529,6 +592,7 @@ async def build_metrics_sql(
     matched_cube: NodeRevision | None = None,
     query_parameters: dict[str, Any] | None = None,
     lookback_window: str | None = None,
+    group_others: GroupOthers | None = None,
 ) -> GeneratedSQL:
     """
     Build metrics SQL for a set of metrics and dimensions.
@@ -596,6 +660,13 @@ async def build_metrics_sql(
         lookback_window=lookback_window,
     )
 
+    if group_others is not None:
+        from datajunction_server.construction.build_v3.group_others import (
+            validate_group_others_window_order,
+        )
+
+        validate_group_others_window_order(ctx, group_others)
+
     if not metrics:
         # Imported lazily because node_query also uses the shared ordering helper
         # from this module.
@@ -642,8 +713,21 @@ async def build_metrics_sql(
         if not measures_result.grain_groups:  # pragma: no cover
             raise DJInvalidInputException("No grain groups produced from measures SQL")
 
+        output_dimension_filters = None
+        if group_others is not None:
+            from datajunction_server.construction.build_v3.group_others import (
+                apply_group_others,
+            )
+
+            output_dimension_filters = apply_group_others(measures_result, group_others)
+
         result = apply_orderby_limit(
-            generate_metrics_sql(ctx, measures_result, ctx.decomposed_metrics),
+            generate_metrics_sql(
+                ctx,
+                measures_result,
+                ctx.decomposed_metrics,
+                output_dimension_filters=output_dimension_filters,
+            ),
             orderby,
             limit,
         )

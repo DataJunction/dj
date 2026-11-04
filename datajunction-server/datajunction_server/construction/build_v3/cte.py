@@ -410,32 +410,6 @@ GRAIN_LEVEL_AGGREGATION_FUNCTIONS = frozenset(
 )
 
 
-def needs_grain_level_aggregation(expr_ast: ast.Node) -> bool:
-    """
-    Check if an expression uses LAG/LEAD window functions that need grain-level aggregation.
-
-    LAG/LEAD functions compare values across rows at a specific grain (e.g., week-over-week).
-    Unlike frame-based functions (SUM OVER ROWS BETWEEN), these need pre-aggregation to the
-    ORDER BY grain before the window function is applied.
-
-    Args:
-        expr_ast: The AST expression to check
-
-    Returns:
-        True if the expression contains LAG/LEAD window functions
-    """
-    for func in expr_ast.find_all(ast.Function):
-        if func.over and func.name:
-            func_name = (
-                str(func.name.name).upper()
-                if hasattr(func.name, "name")
-                else str(func.name).upper()
-            )
-            if func_name in GRAIN_LEVEL_AGGREGATION_FUNCTIONS:
-                return True
-    return False
-
-
 def get_grain_level_window_info(expr_ast: ast.Node) -> list[tuple[str, set[str]]]:
     """
     Get information about LAG/LEAD window functions that need grain-level aggregation.
@@ -495,31 +469,17 @@ def detect_window_metrics_requiring_grain_groups(
     Returns:
         Dict mapping metric_name -> set of ORDER BY column refs (e.g., {"v3.date.week"})
     """
-    from datajunction_server.construction.build_v3.types import DecomposedMetricInfo
-
     window_metric_grains: dict[str, set[str]] = {}
-
-    for metric_name in ctx.metrics:
-        # Skip base metrics - they're already in grain groups
+    for metric_name in decomposed_metrics:
         if metric_name in base_grain_group_metrics:
             continue
-
-        decomposed = decomposed_metrics.get(metric_name)
-        if not decomposed:
-            continue  # pragma: no cover
-
-        # Check if this metric uses LAG/LEAD that needs grain-level aggregation
-        if (  # pragma: no branch
-            isinstance(decomposed, DecomposedMetricInfo) and decomposed.combiner_ast
-        ):
-            if needs_grain_level_aggregation(decomposed.combiner_ast):
-                # Get the ORDER BY columns for this metric
-                grain_info = get_grain_level_window_info(decomposed.combiner_ast)
-                order_by_cols: set[str] = set()
-                for _, cols in grain_info:
-                    order_by_cols.update(cols)
-                if order_by_cols:  # pragma: no branch
-                    window_metric_grains[metric_name] = order_by_cols
+        # A derived formula can inherit a window without owning its grain.
+        definition = ctx.get_parsed_query(ctx.nodes[metric_name])
+        order_by_cols = {
+            col for _, cols in get_grain_level_window_info(definition) for col in cols
+        }
+        if order_by_cols:
+            window_metric_grains[metric_name] = order_by_cols
 
     return window_metric_grains
 
@@ -1018,7 +978,7 @@ def _enclosing_selects(
 def _select_bindings(
     arm: ast.SelectExpression,
     cte_names: set[str],
-) -> tuple[dict[ast.SelectExpression, dict[str, str]], set[str]]:
+) -> tuple[dict[int, dict[str, str]], set[str]]:
     """
     Map each select to its CTE bindings, and the CTEs the statement reads.
 
@@ -1029,7 +989,7 @@ def _select_bindings(
         FROM a AS x WHERE EXISTS (SELECT 1 FROM b AS x ...)
         {outer: {"a": "a", "x": "a"}, EXISTS: {"b": "b", "x": "b"}}
     """
-    bindings: dict[ast.SelectExpression, dict[str, str]] = {arm: {}}
+    bindings: dict[int, dict[str, str]] = {id(arm): {}}
     read: set[str] = set()
     for part in _arm_parts(arm):
         for table in part.find_all(ast.Table):
@@ -1039,7 +999,7 @@ def _select_bindings(
             read.add(name)
             owner = _enclosing_selects(table, arm)
             # Detached tables go in the outermost map.
-            bound = bindings.setdefault(owner[0] if owner else arm, {})
+            bound = bindings.setdefault(id(owner[0] if owner else arm), {})
             bound[name] = name
             if alias := _table_alias(table):
                 bound[alias.identifier(quotes=False)] = name
@@ -1051,7 +1011,7 @@ def _record_column_use(
     qualifier: str | None,
     wanted: str,
     arm: ast.SelectExpression,
-    bindings: dict[ast.SelectExpression, dict[str, str]],
+    bindings: dict[int, dict[str, str]],
     read: set[str],
     live: dict[str, set[str]],
 ) -> None:
@@ -1060,7 +1020,7 @@ def _record_column_use(
     """
     if qualifier is not None:
         for select in _enclosing_selects(node, arm):
-            bound = bindings.get(select, {}).get(qualifier)
+            bound = bindings.get(id(select), {}).get(qualifier)
             if bound is not None:
                 live[bound].add(wanted)
                 return
@@ -1070,7 +1030,7 @@ def _record_column_use(
 
 def _record_select_uses(
     arm: ast.SelectExpression,
-    bindings: dict[ast.SelectExpression, dict[str, str]],
+    bindings: dict[int, dict[str, str]],
     read: set[str],
     live: dict[str, set[str]],
 ) -> None:
@@ -1656,7 +1616,7 @@ def _resolve_pushdown_filters_for_cte(
     # alias while ``alloc_group_id`` resolves to the fact's alias, even
     # though both share the same parent qualifier in the outer scope.
     scope_column_aliases = (
-        _build_all_scope_column_alias_maps(cte_query, ctx) if ctx else {}
+        _build_all_scope_column_alias_maps(cte_query, ctx) if ctx else []
     )
 
     # Identify "wrapped UNION arms" — arms of a set-op chain that
@@ -1727,7 +1687,7 @@ def _resolve_pushdown_filters_for_cte(
         # Runs regardless of primary success.  Includes target_select when
         # primary failed: FK-linked source tables read at the top level (not
         # in a nested subquery) only appear in the target_select scope map.
-        for inner_select, col_to_alias in scope_column_aliases.items():
+        for inner_select, col_to_alias in scope_column_aliases:
             if inner_select is target_select and rewritten is not None:
                 continue  # primary already handled target_select
             if id(inner_select) in alias_subst_scopes:
@@ -1894,7 +1854,7 @@ def _build_local_dim_aliases(node: Node) -> dict[str, str]:
 def _build_all_scope_column_alias_maps(
     cte_query: ast.Query,
     ctx: BuildContext,
-) -> dict[ast.Select, dict[str, tuple[str, str]]]:
+) -> list[tuple[ast.Select, dict[str, tuple[str, str]]]]:
     """For every distinct ``ast.Select`` scope reachable through the
     target Select's FROM subtree (subqueries inside JOINs, nested
     derived tables, etc.), build a ``{column_name → alias}`` map.
@@ -1927,7 +1887,7 @@ def _build_all_scope_column_alias_maps(
     retargeting: each scope can qualify the same filter differently
     based on which alias actually exposes each column there.
     """
-    result: dict[ast.Select, dict[str, tuple[str, str]]] = {}
+    result: list[tuple[ast.Select, dict[str, tuple[str, str]]]] = []
     target_select = cte_query.select
     if not isinstance(target_select, ast.Select):  # pragma: no cover
         return result
@@ -1969,7 +1929,7 @@ def _build_all_scope_column_alias_maps(
         seen.add(id(sel))
         col_alias: dict[str, tuple[str, str]] = {}
         if not sel.from_:  # pragma: no cover
-            result[sel] = col_alias
+            result.append((sel, col_alias))
             continue
         for relation in sel.from_.relations:
             sides = [relation.primary, *(j.right for j in relation.extensions)]
@@ -1981,7 +1941,7 @@ def _build_all_scope_column_alias_maps(
                     cte_name_to_node,
                     physical_to_node,
                 )
-        result[sel] = col_alias
+        result.append((sel, col_alias))
     return result
 
 
@@ -2054,8 +2014,13 @@ def _populate_scope_column_aliases(
                 for dim_pk_fqn, fk_fqn in (link.foreign_keys_reversed or {}).items():
                     if not fk_fqn:  # pragma: no cover
                         continue
+                    resolution = (alias_name, get_short_name(fk_fqn))
                     if dim_pk_fqn not in col_alias:  # pragma: no branch
-                        col_alias[dim_pk_fqn] = (alias_name, get_short_name(fk_fqn))
+                        col_alias[dim_pk_fqn] = resolution
+                    # A role-qualified filter resolves only through a link with
+                    # that role, so register the link under its role as well.
+                    if link.role:
+                        col_alias.setdefault(f"{dim_pk_fqn}[{link.role}]", resolution)
             # If the target IS itself a dimension node, register
             # entries for its own primary-key columns pointing at
             # this alias — without this, filters on the dim's own
@@ -2090,6 +2055,42 @@ def _projection_output_name(proj: object) -> str | None:
     if isinstance(proj, ast.Column) and proj.name:  # pragma: no cover
         return proj.name.name
     return None  # pragma: no cover
+
+
+def _ref_is_blocked(ref: str, blocked_refs: set[str]) -> bool:
+    """Whether a filter's dim ref is blocked.
+
+    A role-qualified ref is blocked by its own entry or a role-less one for the
+    dimension, not by another role's. A role-less ref is blocked by any role of
+    the dimension, since it can resolve through any of them.
+    """
+    if ref in blocked_refs:
+        return True
+    base = ref.split("[")[0]
+    if base != ref:
+        return base in blocked_refs
+    return any(blocked.startswith(f"{ref}[") for blocked in blocked_refs)
+
+
+def _filter_touches_blocked_ref(
+    filter_ast: ast.Expression,
+    blocked_refs: set[str],
+) -> bool:
+    """Whether any dim ref in the filter is blocked, keeping each ref's role."""
+    refs: list[str] = []
+    role_columns: set[int] = set()
+    for subscript in filter_ast.find_all(ast.Subscript):
+        if isinstance(subscript.expr, ast.Column):  # pragma: no branch
+            ref = dimension_ref_of_expression(subscript)
+            if ref:  # pragma: no branch
+                refs.append(ref)
+                role_columns.add(id(subscript.expr))
+    for col in filter_ast.find_all(ast.Column):
+        if id(col) not in role_columns:
+            ref = get_column_full_name(col)
+            if ref:  # pragma: no branch
+                refs.append(ref)
+    return any(_ref_is_blocked(ref, blocked_refs) for ref in refs)
 
 
 def _rewrite_filter_for_scope(
@@ -2130,15 +2131,35 @@ def _rewrite_filter_for_scope(
     # (outer-only / FK-name collision) must never be retargeted into a scope —
     # it stays at the outer WHERE.  Checked up front so it holds regardless of
     # whether this scope's resolver map happens to be empty.
-    if blocked_refs:
-        for col in cols:
-            full = get_column_full_name(col)
-            if full and (full in blocked_refs or full.split("[")[0] in blocked_refs):
-                return None
+    if blocked_refs and _filter_touches_blocked_ref(filter_ast, blocked_refs):
+        return None
     if not column_to_alias:
         return None
-    rewrites: list[tuple[ast.Column, ast.Column]] = []
+    rewrites: list[tuple[ast.Expression, ast.Column]] = []
+    # Role-qualified refs are ``Subscript(Column(dim.col), role)``.  They resolve
+    # only through a link with that role, and the whole subscript is replaced so
+    # no ``[role]`` suffix is left in the SQL.  A role the scope can't resolve
+    # means this scope can't take the filter: pushing the rest would leave the
+    # unresolved ref behind.
+    handled_col_ids: set[int] = set()
+    for subscript in filter_ast.find_all(ast.Subscript):
+        if not isinstance(subscript.expr, ast.Column):  # pragma: no cover
+            continue
+        full_name = dimension_ref_of_expression(subscript)
+        if full_name is None:  # pragma: no cover
+            continue
+        handled_col_ids.add(id(subscript.expr))
+        if isinstance(subscript.index, ast.Column):  # pragma: no branch
+            handled_col_ids.add(id(subscript.index))
+        resolution = column_to_alias.get(full_name)
+        if resolution is None:
+            return None
+        target_alias, emit_col = resolution
+        new_name = ast.Name(emit_col, namespace=ast.Name(target_alias))
+        rewrites.append((subscript, ast.Column(name=new_name)))
     for col in cols:
+        if id(col) in handled_col_ids:
+            continue
         full = get_column_full_name(col)
         if not full:  # pragma: no cover
             continue
@@ -2150,9 +2171,9 @@ def _rewrite_filter_for_scope(
         rewrites.append((col, ast.Column(name=new_name)))
     if not rewrites:  # pragma: no cover
         return None
-    for old_col, new_col in rewrites:
-        if old_col.parent is not None:  # pragma: no branch
-            old_col.parent.replace(old_col, new_col, copy=False)
+    for old_expr, new_col in rewrites:
+        if old_expr.parent is not None:  # pragma: no branch
+            old_expr.parent.replace(old_expr, new_col, copy=False)
     return filter_ast
 
 
@@ -2278,13 +2299,10 @@ def _rewrite_filter_for_select(
     # column is the raw FK value, not the attribute.  If the filter touches
     # one, bail entirely so the predicate stays in the post-join outer WHERE;
     # a partial push would either bind to the wrong column or leave the rest
-    # of an OR-predicate dangling.  Role-qualified refs surface here as their
-    # role-stripped base column, which is what ``blocked_refs`` is keyed on.
-    if blocked_refs:
-        for col in filter_ast.find_all(ast.Column):
-            ref = get_column_full_name(col)
-            if ref and (ref in blocked_refs or ref.split("[")[0] in blocked_refs):
-                return None
+    # of an OR-predicate dangling.  Role-qualified refs are checked with their
+    # role, so a blocked role doesn't block a filter on another role.
+    if blocked_refs and _filter_touches_blocked_ref(filter_ast, blocked_refs):
+        return None
 
     # First pass: plan the rewrites by walking the AST.  Role-qualified refs
     # appear as Subscript(Column(base), Column/Lambda(role)) and are handled
@@ -2615,7 +2633,6 @@ def process_metric_combiner_expression(
     component, metric, and dimension references with qualified column refs.
 
     Used by:
-    - build_derived_metric_expr in generate_metrics_sql
     - cube materialization for storing metric_expression in config
 
     Transformations applied (in order):

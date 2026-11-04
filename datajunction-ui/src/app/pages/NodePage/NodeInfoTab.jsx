@@ -1,6 +1,7 @@
 import { useState, useContext, useEffect } from 'react';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import foundation from 'react-syntax-highlighter/dist/esm/styles/hljs/foundation';
+import LinkedSQL from '../../components/LinkedSQL';
 import sql from 'react-syntax-highlighter/dist/esm/languages/hljs/sql';
 import NodeStatus from './NodeStatus';
 import NodeChecks from './NodeChecks';
@@ -72,7 +73,7 @@ export default function NodeInfoTab({ node }) {
           : null;
       setMetricInfo({
         metric_metadata: metric.current.metricMetadata,
-        required_dimensions: metric.current.requiredDimensions,
+        required_dimensions: metric.current.requiredDimensionRefs,
         upstream_node: upstreamNode,
         expression: metric.current.metricMetadata?.expression,
         incompatible_druid_functions:
@@ -170,13 +171,12 @@ export default function NodeInfoTab({ node }) {
           }}
         >
           <h6 className="mb-0 w-100">Query</h6>
-          <SyntaxHighlighter
-            language="sql"
-            style={foundation}
-            wrapLongLines={true}
-          >
-            {node?.query}
-          </SyntaxHighlighter>
+          <LinkedSQL
+            sql={node?.query}
+            upstreams={(node?.parents || [])
+              .map(parent => parent.name)
+              .filter(Boolean)}
+          />
         </div>
       </div>
     </div>
@@ -421,9 +421,9 @@ export default function NodeInfoTab({ node }) {
                 className="rounded-pill badge bg-secondary-soft PrimaryKey"
               >
                 {metricInfo?.upstream_node ? (
-                  <a href={`/nodes/${metricInfo?.upstream_node}`}>{dim.name}</a>
+                  <a href={`/nodes/${metricInfo?.upstream_node}`}>{dim}</a>
                 ) : (
-                  dim.name
+                  dim
                 )}
               </span>
             ))}

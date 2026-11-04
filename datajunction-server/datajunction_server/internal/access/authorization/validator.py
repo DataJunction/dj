@@ -185,6 +185,16 @@ class AccessChecker:
             for decision in await self.check(on_denied=AccessDenialMode.FILTER)
         ]
 
+    async def approved_resource_keys(self) -> set[tuple[ResourceType, str]]:
+        """Get approved resources while preserving their types."""
+        return {
+            (
+                decision.request.access_object.resource_type,
+                decision.request.access_object.name,
+            )
+            for decision in await self.check(on_denied=AccessDenialMode.FILTER)
+        }
+
 
 def get_access_checker(
     auth_context: AuthContext = Depends(get_auth_context),

@@ -19,18 +19,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, joinedload, selectinload
 from sqlalchemy.sql.operators import is_
 
-from datajunction_server.database.column import Column as DBColumn
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import (
-    BoundDimensionsRelationship,
     Node,
     NodeRelationship,
     NodeRevision,
+    RequiredDimension,
 )
 from datajunction_server.database.user import User
 from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.internal.deployment.dimension_reachability import (
     DimensionReachability,
+)
+from datajunction_server.internal.deployment.dimension_reachability import (
+    reachable_dimensions_by_node,
+)
+from datajunction_server.internal.deployment.utils import (
+    extract_dimension_attribute_nodes,
+    extract_upstream_candidates,
 )
 from datajunction_server.internal.deployment.type_inference import (
     columns_signature_changed,
@@ -283,26 +289,19 @@ async def _propagate_via_parent_graph(
             )
         ).all()
 
-        parent_revision = aliased(NodeRevision)
         metric_revision = aliased(NodeRevision)
+        # Bare-column refs have `dimension_id` NULL, so they're naturally
+        # excluded by the `in_(frontier_ids)` filter below.
         required_dimension_rows = (
             await session.execute(
-                select(metric_revision.node_id, parent_revision.node_id)
-                .select_from(BoundDimensionsRelationship)
-                .join(
-                    DBColumn,
-                    DBColumn.id == BoundDimensionsRelationship.bound_dimension_id,
-                )
-                .join(
-                    parent_revision,
-                    parent_revision.id == DBColumn.node_revision_id,
-                )
+                select(metric_revision.node_id, RequiredDimension.dimension_id)
+                .select_from(RequiredDimension)
                 .join(
                     metric_revision,
-                    metric_revision.id == BoundDimensionsRelationship.metric_id,
+                    metric_revision.id == RequiredDimension.metric_id,
                 )
                 .join(Node, Node.id == metric_revision.node_id)
-                .where(parent_revision.node_id.in_(frontier_ids))
+                .where(RequiredDimension.dimension_id.in_(frontier_ids))
                 .where(Node.current_version == metric_revision.version),
             )
         ).all()
@@ -517,6 +516,18 @@ async def _revalidate_and_apply(
         _parse_all_queries(),
     )
 
+    dimension_nodes = await _load_referenced_dimensions(
+        session,
+        loaded_nodes,
+        nodes_by_name,
+        pre_parsed,
+    )
+    reachable_dimensions = await _reachable_dimensions(
+        session,
+        loaded_nodes,
+        pre_parsed,
+    )
+
     # Seed with deleted and invalid root nodes — their children should
     # not see their columns during revalidation.
     failed_names: set[str] = {n.name for n in ctx.deleted_by_id.values()} | {
@@ -538,6 +549,8 @@ async def _revalidate_and_apply(
                 session,
                 failed_names,
                 pre_parsed_query=parsed_ast,
+                dimension_nodes=dimension_nodes,
+                reachable_dimensions=reachable_dimensions,
             )
             if revalidated.impact_type == ImpactType.WILL_INVALIDATE:
                 failed_names.add(impact.name)
@@ -732,6 +745,58 @@ async def _batch_load_nodes_for_revalidation(
     return {n.name: n for n in nodes}
 
 
+async def _reachable_dimensions(
+    session: AsyncSession,
+    loaded_nodes: dict[str, Node],
+    pre_parsed: dict[str, ast.Query | Exception],
+) -> dict[str, set[str]]:
+    """Dimension nodes that parents of metrics reach through dimension links,
+    for the dimensions those metrics name in their queries."""
+    sources: dict[str, int] = {}
+    candidates: set[str] = set()
+    for name, parsed in pre_parsed.items():
+        node = loaded_nodes.get(name)
+        if isinstance(parsed, Exception) or not node or node.type != NodeType.METRIC:
+            continue
+        named = extract_dimension_attribute_nodes(parsed)
+        if not named:
+            continue
+        candidates |= named
+        for parent in node.current.parents or []:
+            if parent.type != NodeType.METRIC and parent.current:
+                sources[parent.name] = parent.current.id
+    if not sources:
+        return {}
+    return await reachable_dimensions_by_node(session, sources, candidates)
+
+
+async def _load_referenced_dimensions(
+    session: AsyncSession,
+    loaded_nodes: dict[str, Node],
+    nodes_by_name: dict[str, Node],
+    pre_parsed: dict[str, ast.Query | Exception],
+) -> dict[str, Node]:
+    """Load nodes that derived metrics reference by dotted column name."""
+    names: set[str] = set()
+    for name, parsed in pre_parsed.items():
+        node = loaded_nodes.get(name)
+        if isinstance(parsed, Exception) or not node or node.type != NodeType.METRIC:
+            continue
+        names |= extract_upstream_candidates(parsed, is_metric=True)
+        names |= extract_dimension_attribute_nodes(parsed)
+    names -= loaded_nodes.keys() | nodes_by_name.keys()
+    if not names:
+        return {}
+    nodes = await Node.get_by_names(
+        session,
+        sorted(names),
+        options=[
+            joinedload(Node.current).options(selectinload(NodeRevision.columns)),
+        ],
+    )
+    return {n.name: n for n in nodes}
+
+
 def _revalidate_single_node(
     impact: DownstreamImpact,
     loaded_nodes: dict[str, Node],
@@ -739,6 +804,8 @@ def _revalidate_single_node(
     session: AsyncSession,
     failed_names: set[str],
     pre_parsed_query: ast.Query | None = None,
+    dimension_nodes: dict[str, Node] | None = None,
+    reachable_dimensions: dict[str, set[str]] | None = None,
 ) -> DownstreamImpact:
     """Revalidate a single downstream node using validate_node_query.
 
@@ -763,6 +830,33 @@ def _revalidate_single_node(
         nodes_by_name,
         failed_names,
     )
+    if node.type == NodeType.METRIC:
+        pre_parsed_query = pre_parsed_query or parse_query(query)
+        reachable = set().union(
+            *(
+                (reachable_dimensions or {}).get(parent.name, set())
+                for parent in node.current.parents or []
+            ),
+        )
+        for name in extract_upstream_candidates(
+            pre_parsed_query,
+            is_metric=True,
+        ) | (extract_dimension_attribute_nodes(pre_parsed_query) & reachable):
+            referenced = (
+                loaded_nodes.get(name)
+                or nodes_by_name.get(name)
+                or (dimension_nodes or {}).get(name)
+            )
+            if (
+                name not in parent_columns_map
+                and name not in failed_names
+                and referenced
+                and referenced.current
+                and referenced.current.columns
+            ):
+                parent_columns_map[name] = {
+                    col.name: col.type for col in referenced.current.columns
+                }
 
     # Validate the query and resolve output columns
     validation = validate_node_query(

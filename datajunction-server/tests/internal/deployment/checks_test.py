@@ -11,10 +11,13 @@ from datajunction_server.internal.custom_metadata import upsert_schema_specs
 from datajunction_server.internal.deployment.checks import (
     DeclaredSchemas,
     build_fixtures,
+    merge_columns,
     project_column,
     project_link,
     project_node,
+    project_owners,
     resolve_declared_schemas,
+    resolve_owner_kinds,
     resolve_tag_types,
     unsupported_ruleset_guards,
 )
@@ -32,6 +35,7 @@ from datajunction_server.models.deployment import (
     DeploymentSpec,
     DimensionJoinLinkSpec,
     DimensionReferenceLinkSpec,
+    CubeSpec,
     DimensionSpec,
     MetricSpec,
     NodeSpec,
@@ -39,7 +43,11 @@ from datajunction_server.models.deployment import (
     TagSpec,
     TransformSpec,
 )
+from datajunction_server.database.deployment import Deployment
+from datajunction_server.database.user import OAuthProvider, PrincipalKind, User
+from datajunction_server.models.deployment import DeploymentStatus
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.unit import AtomicUnit, UnitKind
 
 NAMESPACE = "checks_demo"
 
@@ -915,6 +923,84 @@ async def test_a_check_can_require_a_tag_of_a_given_type(session, current_user):
     assert by_name[f"{NAMESPACE}.bare"] == DeploymentResult.Status.WARNING
 
 
+def test_owners_project_with_their_kind():
+    spec = transform("one", owners=["alice", "team", "bot", "ghost"])
+    kinds = {"alice": "user", "team": "group", "bot": "service_account"}
+    assert project_node(spec, {}, {}, kinds)["owners"] == [
+        {"name": "alice", "kind": "user"},
+        {"name": "team", "kind": "group"},
+        {"name": "bot", "kind": "service_account"},
+        # An owner with no user row yet reads as a user.
+        {"name": "ghost", "kind": "user"},
+    ]
+
+
+def test_owners_default_to_users_without_kinds():
+    assert project_owners(["alice"], {}) == [{"name": "alice", "kind": "user"}]
+    assert project_node(None, {}, {})["owners"] == []
+
+
+async def _add_principal(session, username, kind):
+    session.add(
+        User(
+            username=username,
+            password=None,
+            email=f"{username}@example.com",
+            name=username,
+            oauth_provider=OAuthProvider.BASIC,
+            is_admin=False,
+            kind=kind,
+        ),
+    )
+    await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_owner_kinds_resolve_in_one_batch(session):
+    await _add_principal(session, "owner_alice", PrincipalKind.USER)
+    await _add_principal(session, "owner_team", PrincipalKind.GROUP)
+    await _add_principal(session, "owner_bot", PrincipalKind.SERVICE_ACCOUNT)
+    resolved = await resolve_owner_kinds(
+        session,
+        ["owner_alice", "owner_team", "owner_bot", "owner_missing", "owner_team"],
+    )
+    assert resolved == {
+        "owner_alice": "user",
+        "owner_team": "group",
+        "owner_bot": "service_account",
+    }
+    assert await resolve_owner_kinds(session, []) == {}
+
+
+@pytest.mark.asyncio
+async def test_a_check_can_require_a_group_owner(session, current_user):
+    await _add_principal(session, "owner_team", PrincipalKind.GROUP)
+    orchestrator = make_orchestrator(
+        session,
+        current_user,
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.group_owned",
+                condition="node.owners.exists(o, o.kind == 'group')",
+                gate="warn",
+            ),
+        ],
+    )
+    await orchestrator._run_governance_checks(
+        make_plan(
+            to_deploy=[
+                transform("grouped", owners=["owner_team"]),
+                transform("personal", owners=["someone"]),
+            ],
+        ),
+    )
+    by_name = {row.name: row.status for row in check_rows(orchestrator)}
+    assert by_name == {
+        f"{NAMESPACE}.grouped": DeploymentResult.Status.SUCCESS,
+        f"{NAMESPACE}.personal": DeploymentResult.Status.WARNING,
+    }
+
+
 @pytest.mark.asyncio
 async def test_one_row_per_node_however_many_checks_ran(session, current_user):
     """
@@ -1077,6 +1163,21 @@ def test_a_column_carries_every_field_the_spec_declares():
     assert project_column(ColumnSpec(name="c", type="string"))["order"] is None
 
 
+def test_a_columns_unit_projects_to_plain_strings():
+    """
+    `UnitKind` subclasses the stdlib Enum rather than the server's StrEnum, and
+    CEL has no value type for an enum member, so leaving one in the projection
+    failed the whole deploy the first time a node declared a unit.
+    """
+    column = project_column(
+        ColumnSpec(name="c", type="bigint", unit=AtomicUnit(kind=UnitKind.UNITLESS)),
+    )
+    # An enum member compares equal to its value, so only the type tells the
+    # converted projection from the one CEL rejects.
+    assert type(column["unit"]["kind"]) is str
+    assert column["unit"]["kind"] == "unitless"
+
+
 def test_a_metrics_columns_are_projected():
     """
     MetricSpec excludes `columns` from the dump, so a column rule used to read
@@ -1091,3 +1192,266 @@ def test_a_metrics_columns_are_projected():
     assert [column["name"] for column in project_node(spec, {}, {})["columns"]] == [
         "first",
     ]
+
+
+def described(name, description, type_="string", order=None):
+    return ColumnSpec(
+        name=name,
+        type=type_,
+        description=description,
+        order=order,
+    )
+
+
+def merged_view(declared, outputs):
+    """Name, type, order and description of each merged column."""
+    return [
+        (c.name, c.type, c.order, c.description)
+        for c in merge_columns(declared, outputs)
+    ]
+
+
+def test_columns_match_when_declared_equals_output():
+    declared = [described("a", "A", order=0), described("b", "B", order=1)]
+    outputs = [
+        ColumnSpec(name="a", type="int", order=0),
+        ColumnSpec(name="b", type="string", order=1),
+    ]
+    assert merged_view(declared, outputs) == [
+        ("a", "int", 0, "A"),
+        ("b", "string", 1, "B"),
+    ]
+
+
+def test_undeclared_output_columns_get_empty_defaults():
+    spec = TransformSpec(
+        name="t",
+        namespace=NAMESPACE,
+        query="SELECT 1",
+        columns=[described("a", "A")],
+    )
+    outputs = [
+        ColumnSpec(name="a", type="int", order=0),
+        ColumnSpec(name="extra", type="bigint", order=1),
+    ]
+    columns = project_node(spec, {}, {}, outputs=outputs)["columns"]
+    assert columns == [
+        project_column(described("a", "A", "int", 0)),
+        project_column(ColumnSpec(name="extra", type="bigint", order=1)),
+    ]
+    assert columns[1]["description"] == ""
+    assert columns[1]["attributes"] == []
+
+
+def test_declared_column_missing_from_output_is_kept_last():
+    declared = [described("gone", "Gone"), described("a", "A")]
+    outputs = [ColumnSpec(name="a", type="int", order=0)]
+    assert merged_view(declared, outputs) == [
+        ("a", "int", 0, "A"),
+        ("gone", "string", None, "Gone"),
+    ]
+
+
+def test_a_node_without_declared_columns_lists_its_outputs():
+    spec = transform("t")
+    outputs = [
+        ColumnSpec(name="x", type="int", order=0),
+        ColumnSpec(name="y", type="int", order=1),
+    ]
+    columns = project_node(spec, {}, {}, outputs=outputs)["columns"]
+    assert columns == [
+        project_column(ColumnSpec(name="x", type="int", order=0)),
+        project_column(ColumnSpec(name="y", type="int", order=1)),
+    ]
+
+
+def test_columns_stay_declared_when_outputs_are_unknown():
+    spec = transform("t", columns=[described("a", "A")])
+    assert project_node(spec, {}, {})["columns"] == [
+        project_column(described("a", "A")),
+    ]
+
+
+def test_a_cubes_columns_merge_with_its_outputs():
+    spec = CubeSpec(
+        name="c",
+        namespace=NAMESPACE,
+        metrics=[f"{NAMESPACE}.m"],
+        dimensions=[f"{NAMESPACE}.d.x"],
+        columns=[described(f"{NAMESPACE}.m", "Metric")],
+    )
+    outputs = [
+        ColumnSpec(name=f"{NAMESPACE}.m", type="bigint", order=0),
+        ColumnSpec(name=f"{NAMESPACE}.d.x", type="string", order=1),
+    ]
+    assert project_node(spec, {}, {}, outputs=outputs)["columns"] == [
+        project_column(described(f"{NAMESPACE}.m", "Metric", "bigint", 0)),
+        project_column(ColumnSpec(name=f"{NAMESPACE}.d.x", type="string", order=1)),
+    ]
+
+
+def test_a_cubes_prefixed_column_names_match_its_outputs():
+    spec = CubeSpec(
+        name="c",
+        namespace=NAMESPACE,
+        metrics=["${prefix}m"],
+        dimensions=["${prefix}d.x"],
+        columns=[described("${prefix}m", "Metric")],
+    )
+    outputs = [
+        ColumnSpec(name=f"{NAMESPACE}.m", type="bigint", order=0),
+        ColumnSpec(name=f"{NAMESPACE}.d.x", type="string", order=1),
+    ]
+    assert project_node(spec, {}, {}, outputs=outputs)["columns"] == [
+        project_column(described(f"{NAMESPACE}.m", "Metric", "bigint", 0)),
+        project_column(ColumnSpec(name=f"{NAMESPACE}.d.x", type="string", order=1)),
+    ]
+    assert project_node(spec, {}, {})["columns"] == [
+        project_column(described(f"{NAMESPACE}.m", "Metric")),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_unchanged_nodes_use_their_deployed_columns(session, current_user):
+    """A skipped node's undeclared columns count toward column rules."""
+    unchanged = transform("one", columns=[described("a", "A")])
+    deployed = transform(
+        "one",
+        columns=[
+            ColumnSpec(name="a", type="int", order=0),
+            ColumnSpec(name="b", type="int", order=1),
+        ],
+    )
+    orchestrator = make_orchestrator(
+        session,
+        current_user,
+        checks=[
+            DeploymentCheckSpec(
+                name="demo.all_described",
+                condition="node.columns.all(c, c.description != '')",
+                gate="warn",
+            ),
+        ],
+    )
+    await orchestrator._run_governance_checks(
+        make_plan(
+            to_skip=[unchanged],
+            existing_specs={f"{NAMESPACE}.one": deployed},
+        ),
+    )
+    assert check_rows(orchestrator)[0].status == DeploymentResult.Status.WARNING
+
+
+DESCRIBED = DeploymentCheckSpec(
+    name="demo.described",
+    condition="node.description != ''",
+    gate="warn",
+    description="Every node has a description.",
+)
+
+
+async def _record_deployment(session, current_user, checks, rulesets=None):
+    """A successful deploy of this namespace, as the scoping check reads it."""
+    session.add(
+        Deployment(
+            namespace=NAMESPACE,
+            status=DeploymentStatus.SUCCESS,
+            spec=DeploymentSpec(
+                namespace=NAMESPACE,
+                nodes=[],
+                checks=checks,
+                rulesets=rulesets,
+            ).model_dump(),
+            results=[],
+            created_by_id=current_user.id,
+        ),
+    )
+    await session.commit()
+
+
+def test_a_changed_node_drags_in_the_nodes_that_read_it():
+    """
+    A check reads a node's direct upstreams, so changing one moves the bindings
+    of everything one hop downstream even though those specs are untouched.
+    """
+    changed = transform("changed")
+    reader = transform("reader")
+    bystander = transform("bystander")
+    plan = make_plan(
+        to_deploy=[changed],
+        to_skip=[reader, bystander],
+        node_graph={
+            f"{NAMESPACE}.changed": [],
+            f"{NAMESPACE}.reader": [f"{NAMESPACE}.changed"],
+            f"{NAMESPACE}.bystander": [],
+        },
+    )
+    entities = DeploymentOrchestrator._checked_entities(plan)
+    affected = DeploymentOrchestrator._affected_entities(plan, entities)
+    assert {spec.rendered_name for spec, _ in affected} == {
+        f"{NAMESPACE}.changed",
+        f"{NAMESPACE}.reader",
+    }
+
+
+def test_a_deploy_that_changes_nothing_checks_nothing():
+    plan = make_plan(to_skip=[transform("untouched")])
+    entities = DeploymentOrchestrator._checked_entities(plan)
+    assert DeploymentOrchestrator._affected_entities(plan, entities) == []
+
+
+@pytest.mark.asyncio
+async def test_an_unchanged_manifest_only_checks_what_moved(session, current_user):
+    """
+    The expensive case is a redeploy where almost nothing changed, so an
+    untouched node is not re-projected just to reach the verdict it already had.
+    """
+    await _record_deployment(session, current_user, [DESCRIBED])
+    changed = transform("changed", description="described")
+    untouched = transform("untouched", description="described")
+    orchestrator = make_orchestrator(session, current_user, [DESCRIBED])
+    await orchestrator._run_governance_checks(
+        make_plan(to_deploy=[changed], to_skip=[untouched]),
+    )
+    assert [results.node for results in orchestrator.check_results] == [
+        f"{NAMESPACE}.changed",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_new_check_is_answered_for_by_every_node(session, current_user):
+    """
+    Narrowing to changed nodes is only sound while the manifest holds still: a
+    check added in this deploy has never been answered by the untouched ones.
+    """
+    await _record_deployment(session, current_user, [DESCRIBED])
+    added = DeploymentCheckSpec(
+        name="demo.tagged",
+        condition="size(node.tags) > 0",
+        gate="warn",
+        description="Every node carries a tag.",
+    )
+    orchestrator = make_orchestrator(session, current_user, [DESCRIBED, added])
+    await orchestrator._run_governance_checks(
+        make_plan(
+            to_deploy=[transform("changed", description="d")],
+            to_skip=[transform("untouched", description="d")],
+        ),
+    )
+    assert {results.node for results in orchestrator.check_results} == {
+        f"{NAMESPACE}.changed",
+        f"{NAMESPACE}.untouched",
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_first_deploy_checks_every_node(session, current_user):
+    """No previous deploy means no node has answered for anything yet."""
+    orchestrator = make_orchestrator(session, current_user, [DESCRIBED])
+    await orchestrator._run_governance_checks(
+        make_plan(
+            to_deploy=[transform("changed", description="d")],
+            to_skip=[transform("untouched", description="d")],
+        ),
+    )
+    assert len(orchestrator.check_results) == 2

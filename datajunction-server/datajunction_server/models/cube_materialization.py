@@ -16,11 +16,12 @@ from datajunction_server.models.decompose import (
 )
 from datajunction_server.models.materialization import (
     DEFAULT_CUBE_RETENTION,
-    DRUID_AGG_MAPPING,
     CoverageSpec,
     MaterializationJobTypeEnum,
     MaterializationStrategy,
+    MaterializationTarget,
     SparkSpec,
+    get_druid_aggregator_spec,
 )
 from datajunction_server.models.node_type import NodeNameVersion
 from datajunction_server.models.partition import Granularity
@@ -385,22 +386,31 @@ class CombineMaterialization(BaseModel):
         Returns the Druid metrics spec for ingestion
         """
         column_mapping = {col.name: col.type for col in self.columns}  # type: ignore
-        return [
-            {
-                "fieldName": measure.name,
-                "name": measure.name,
-                "type": DRUID_AGG_MAPPING[
-                    (column_mapping[measure.name], measure.aggregation.lower())
-                ],
-            }
-            for measure in self.measures
-            if measure.aggregation
-            and (
-                column_mapping.get(measure.name),
-                measure.aggregation.lower(),
+        specs = []
+        for measure in self.measures:
+            spec = get_druid_aggregator_spec(
+                column_name=measure.name,
+                column_type=column_mapping.get(measure.name),
+                aggregation=measure.aggregation,
+                merge=measure.merge,
+                params=measure.params,
             )
-            in DRUID_AGG_MAPPING
-        ]
+            if spec is None and (
+                measure.params or measure.serializes_for(MaterializationTarget.DRUID)
+            ):
+                raise DJInvalidInputException(
+                    message=(
+                        f"No Druid aggregator is registered for sketch measure "
+                        f"`{measure.name}` with column type "
+                        f"`{column_mapping.get(measure.name)}` and merge function "
+                        f"`{measure.merge or measure.aggregation}`."
+                    ),
+                )
+            if spec is not None:
+                specs.append(spec)
+        # Unmappable measures are omitted, as they always have been here -- the
+        # cube API substitutes longSum instead. See get_druid_aggregator_spec.
+        return specs
 
     @computed_field  # type: ignore[misc]
     @property
@@ -611,6 +621,10 @@ class CubeMaterializeRequest(BaseModel):
         default=True,
         description="Whether to run an initial backfill",
     )
+    platform: dict[str, Any] | None = Field(
+        default=None,
+        description="Platform settings passed through verbatim, e.g. druid_cluster.",
+    )
 
 
 class PreAggTableInfo(BaseModel):
@@ -742,6 +756,10 @@ class CubeMaterializationV2Input(BaseModel):
         default=None,
         description="Lookback window for incremental. None for FULL strategy.",
     )
+    platform: dict[str, Any] | None = Field(
+        default=None,
+        description="Platform settings passed through verbatim, e.g. druid_cluster.",
+    )
 
 
 # The name every cube planner materialization row is stored under. The two cube
@@ -835,6 +853,11 @@ class DruidCubeV3Config(BaseModel):
     workflow_names: list[str] = Field(
         default_factory=list,
         description="Workflow names for deactivation",
+    )
+
+    platform: dict[str, Any] | None = Field(
+        default=None,
+        description="Platform settings the workflow was built with.",
     )
 
     @computed_field  # type: ignore[misc]

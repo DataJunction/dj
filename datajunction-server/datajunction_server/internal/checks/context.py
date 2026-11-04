@@ -31,6 +31,17 @@ ColumnProjection = dict[str, Any]
 TagTypes = Mapping[str, str]
 
 
+# Owner username -> the owner's `PrincipalKind` value.
+OwnerKinds = Mapping[str, str]
+
+
+class OwnerProjection(TypedDict):
+    """One of a node's owners."""
+
+    name: str
+    kind: str
+
+
 class TagProjection(TypedDict):
     """One of a node's tags."""
 

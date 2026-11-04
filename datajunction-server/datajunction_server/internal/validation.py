@@ -2,12 +2,21 @@
 
 from dataclasses import dataclass, field
 
+from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import MissingGreenlet
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.api.helpers import find_required_dimensions
+from datajunction_server.construction.build_v3.filter_requirements import (
+    ref_covers_attribute,
+)
+from datajunction_server.construction.build_v3.utils import (
+    extract_filter_dimension_refs,
+)
 from datajunction_server.database import Node, NodeRevision
 from datajunction_server.database.column import Column, ColumnAttribute
+from datajunction_server.database.dimensionlink import DimensionLink
+from datajunction_server.database.node import RequiredDimension
 from datajunction_server.errors import (
     DJError,
     DJException,
@@ -16,12 +25,20 @@ from datajunction_server.errors import (
     ErrorCode,
 )
 from datajunction_server.instrumentation.provider import timed
+from datajunction_server.internal.deployment.dimension_reachability import (
+    reachable_dimensions_by_node,
+)
 from datajunction_server.internal.deployment.type_inference import validate_node_query
 from datajunction_server.internal.deployment.utils import (
     classify_parents,
+    extract_dimension_attribute_nodes,
     extract_upstream_candidates,
 )
 from datajunction_server.models.base import labelize
+from datajunction_server.naming import SEPARATOR
+from datajunction_server.models.filter_requirements import (
+    parse_filter_requirements,
+)
 from datajunction_server.models.node import NodeRevisionBase, NodeStatus
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.reaggregate import (
@@ -31,7 +48,11 @@ from datajunction_server.models.reaggregate import (
 )
 from datajunction_server.sql.decompose import validate_fixed_grain_shape
 from datajunction_server.sql.parsing import ast
-from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
+from datajunction_server.sql.parsing.backends.antlr4 import (
+    SqlParsingError,
+    SqlSyntaxError,
+    parse,
+)
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.sql.parsing.types import ListType, MapType, StructType
 
@@ -86,6 +107,113 @@ def derived_metric_fixed_grain_error(
     )
 
 
+def filter_requirement_errors(
+    required: list[dict] | None,
+    recommended: list[dict] | None,
+    node_name: str,
+) -> list[DJError]:
+    """
+    Problems in a metric's filter requirements that need no database lookup.
+    """
+    errors: list[DJError] = []
+    required_entries = parse_filter_requirements(required) or []
+    recommended_entries = parse_filter_requirements(recommended) or []
+    in_required = {attr for entry in required_entries for attr in entry.dimension}
+    in_recommended = {attr for entry in recommended_entries for attr in entry.dimension}
+    for attr in sorted(in_required & in_recommended):
+        errors.append(
+            DJError(
+                code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                message=(
+                    f"Metric `{node_name}` lists {attr} in both "
+                    "required_filters and recommended_filters."
+                ),
+            ),
+        )
+    for entry in required_entries + recommended_entries:
+        for attr in entry.dimension:
+            if _is_bare(attr):
+                errors.append(
+                    DJError(
+                        code=ErrorCode.INVALID_COLUMN,
+                        message=(
+                            f"Metric `{node_name}` has a filter requirement on "
+                            f"{attr}, which is not in node.column form."
+                        ),
+                    ),
+                )
+        if entry.default is None:
+            continue
+        try:
+            refs = extract_filter_dimension_refs([entry.default], include_bare=True)
+        except (SqlParsingError, DJInvalidInputException, DJParseException):
+            errors.append(
+                DJError(
+                    code=ErrorCode.INVALID_SQL_QUERY,
+                    message=(
+                        f"Metric `{node_name}` has a default filter that does "
+                        f"not parse: {entry.default}"
+                    ),
+                ),
+            )
+            continue
+        bare = [ref for ref in refs if _is_bare(ref)]
+        if bare:
+            errors.append(
+                DJError(
+                    code=ErrorCode.INVALID_COLUMN,
+                    message=(
+                        f"Metric `{node_name}` has a default filter with "
+                        f"columns not in node.column form ({', '.join(bare)}): "
+                        f"{entry.default}"
+                    ),
+                ),
+            )
+            continue
+        if not any(
+            ref_covers_attribute(attr, ref) for attr in entry.dimension for ref in refs
+        ):
+            errors.append(
+                DJError(
+                    code=ErrorCode.INVALID_COLUMN,
+                    message=(
+                        f"Metric `{node_name}` has a default filter that does "
+                        f"not filter on {', '.join(entry.dimension)}: "
+                        f"{entry.default}"
+                    ),
+                ),
+            )
+    return errors
+
+
+def _is_bare(attribute: str) -> bool:
+    """True when an attribute has no node prefix."""
+    return SEPARATOR not in attribute.split("[", 1)[0]
+
+
+def filter_requirement_attributes(
+    required: list[dict] | None,
+    recommended: list[dict] | None,
+) -> list[str]:
+    """
+    Every attribute named by an entry or by an entry's default filter.
+
+    Roles are kept.
+    """
+    attributes: list[str] = []
+    for entry in (parse_filter_requirements(required) or []) + (
+        parse_filter_requirements(recommended) or []
+    ):
+        attributes.extend(entry.dimension)
+        if entry.default:
+            try:
+                attributes.extend(extract_filter_dimension_refs([entry.default]))
+            except (SqlParsingError, DJInvalidInputException, DJParseException):
+                # Reported by filter_requirement_errors.
+                continue
+    return sorted(set(attributes))
+
+
 def _reparse_parent_column_types(dependencies_map: dict) -> None:
     """Re-parse string column types on parent nodes before type inference.
 
@@ -126,6 +254,88 @@ def update_ast_column_types(node: ast.Node) -> None:
         update_ast_column_types(child)
 
 
+async def _dimension_links_for_required_dimensions(
+    session: AsyncSession,
+    parents: list[NodeRevision],
+) -> tuple[list[DimensionLink], set[str]]:
+    """
+    Dimension links visible for required_dimensions role validation, and the
+    names of the nodes they hang off.
+
+    Fetched with a dedicated query rather than read off `parent.dimension_links`
+    -- that relationship's eager-load state is inconsistent across the
+    different ways `parents` gets populated here (AST-driven dependency
+    extraction vs. `Node.get_by_names`), so trusting it risks either a
+    MissingGreenlet or an incorrectly-empty collection.
+
+    A derived metric's direct "parents" are other metrics, which have no
+    dimension links of their own -- a roled required_dimensions entry on a
+    derived metric (including a nested one, e.g. a period-over-period metric
+    on a ratio metric on two base metrics) is only reachable through the
+    non-metric parents at the bottom of that chain, so metric parents are
+    unwound via `get_metric_parents_map` (which already recurses through
+    nested derived metrics).
+    """
+    from datajunction_server.sql.dag import get_metric_parents_map
+
+    revision_ids: set[int] = {p.id for p in parents if p.type != NodeType.METRIC}
+    names = {p.name for p in parents if p.type != NodeType.METRIC}
+    metric_parent_names = [p.name for p in parents if p.type == NodeType.METRIC]
+    if metric_parent_names:
+        metric_nodes = await Node.get_by_names(session, metric_parent_names)
+        base_parents_map = await get_metric_parents_map(session, metric_nodes)
+        # get_metric_parents_map only eager-loads id/name/type/current_version
+        # on these Nodes (see its docstring) -- `.current` is never loaded, so
+        # reading it here would risk a MissingGreenlet. Resolve the current
+        # revision ids with a batch query on (name, current_version) instead.
+        base_parent_versions = {
+            (base_parent.name, base_parent.current_version)
+            for base_parents in base_parents_map.values()
+            for base_parent in base_parents
+        }
+        if base_parent_versions:
+            revision_rows = await session.execute(
+                select(NodeRevision.id).where(
+                    or_(
+                        *[
+                            and_(
+                                NodeRevision.name == name,
+                                NodeRevision.version == version,
+                            )
+                            for name, version in base_parent_versions
+                        ],
+                    ),
+                ),
+            )
+            revision_ids.update(row[0] for row in revision_rows)
+            names.update(name for name, _ in base_parent_versions)
+    if not revision_ids:
+        return [], names
+    result = await session.execute(
+        select(DimensionLink).where(DimensionLink.node_revision_id.in_(revision_ids)),
+    )
+    return list(result.scalars().all()), names
+
+
+def _required_dimension_strings(
+    validated_node: NodeRevision,
+    override: list[str] | None,
+) -> list[str]:
+    """
+    Required dimension references to resolve for this validation pass.
+
+    `override`, if given, takes precedence (new raw input to validate).
+    Otherwise falls back to `.ref` on already-resolved `RequiredDimension`
+    rows (or raw strings, for a fresh `NodeRevision(**data.model_dump())`).
+    """
+    if override is not None:
+        return list(override)
+    return [
+        rd.ref if isinstance(rd, RequiredDimension) else rd
+        for rd in validated_node.required_dimensions
+    ]
+
+
 @dataclass
 class NodeValidator:
     """
@@ -134,7 +344,7 @@ class NodeValidator:
 
     status: NodeStatus = NodeStatus.VALID
     columns: list[Column] = field(default_factory=list)
-    required_dimensions: list[Column] = field(default_factory=list)
+    required_dimensions: list["RequiredDimension"] = field(default_factory=list)
     dependencies_map: dict[NodeRevision, list[ast.Table]] = field(default_factory=dict)
     missing_parents_map: dict[str, list[ast.Table]] = field(default_factory=dict)
     type_inference_failures: list[str] = field(default_factory=list)
@@ -160,16 +370,23 @@ class NodeValidator:
 
 @timed(
     "dj.node_validation.ms",
-    lambda data, session: {"node_type": str(data.type)},
+    lambda data, session, **_kwargs: {"node_type": str(data.type)},
 )
 async def validate_node_data(
     data: NodeRevisionBase | NodeRevision,
     session: AsyncSession,
+    *,
+    required_dimensions: list[str] | None = None,
 ) -> NodeValidator:
     """
     Validate a node. This function should never raise any errors.
     It will build the lists of issues (including errors) and return them all
     for the caller to decide what to do.
+
+    `required_dimensions`, if given, overrides whatever's already resolvable
+    off `data` (raw input strings to (re)validate); otherwise falls back to
+    `data.required_dimensions` (raw strings for fresh input, or `.ref` off
+    already-resolved `RequiredDimension` rows when copy-forwarding a revision).
     """
     node_validator = NodeValidator()
 
@@ -408,11 +625,17 @@ async def validate_node_data(
         parent_columns = [
             col for parent in dependencies_map.keys() for col in parent.columns
         ]
-        # Get required dimensions as strings (may be Column objects if already resolved)
-        required_dim_strings = [
-            col.full_name() if isinstance(col, Column) else col
-            for col in validated_node.required_dimensions
-        ]
+        (
+            parent_dimension_links,
+            parent_names,
+        ) = await _dimension_links_for_required_dimensions(
+            session,
+            list(dependencies_map.keys()),
+        )
+        required_dim_strings = _required_dimension_strings(
+            validated_node,
+            required_dimensions,
+        )
         (
             invalid_required_dimensions,
             matched_bound_columns,
@@ -420,6 +643,7 @@ async def validate_node_data(
             session,
             required_dim_strings,
             parent_columns,
+            parent_dimension_links,
         )
         node_validator.required_dimensions = matched_bound_columns
         reaggregate_spec = parse_reaggregate_spec(validated_node.reaggregate)
@@ -436,6 +660,7 @@ async def validate_node_data(
                 session,
                 reaggregate_dimensions,
                 parent_columns,
+                parent_dimension_links,
             )
             invalid_reaggregate_dimensions.update(
                 invalid_reaggregate_dimension_references(reaggregate_dimensions),
@@ -450,6 +675,7 @@ async def validate_node_data(
                 session,
                 list(validated_node.fixed_grain),
                 parent_columns,
+                parent_dimension_links,
             )
         # `is not None` here: unlike the dimension check above, `[]` still
         # needs its shape checked -- e.g. COUNT(DISTINCT ...) with `[]` has
@@ -462,7 +688,24 @@ async def validate_node_data(
                 )
             except DJInvalidInputException as exc:
                 unsupported_fixed_grain_shape = str(exc)
+        filter_requirement_problems = filter_requirement_errors(
+            validated_node.required_filters,
+            validated_node.recommended_filters,
+            validated_node.name,
+        )
+        invalid_filter_attributes, _ = await find_required_dimensions(
+            session,
+            filter_requirement_attributes(
+                validated_node.required_filters,
+                validated_node.recommended_filters,
+            ),
+            parent_columns,
+            parent_dimension_links,
+            parent_names=parent_names,
+        )
     except MissingGreenlet:
+        filter_requirement_problems = []
+        invalid_filter_attributes = set()
         invalid_required_dimensions = set()
         invalid_reaggregate_dimensions = set()
         invalid_reaggregate_functions = []
@@ -478,6 +721,8 @@ async def validate_node_data(
         or invalid_reaggregate_functions
         or invalid_fixed_grain_dimensions
         or unsupported_fixed_grain_shape
+        or filter_requirement_problems
+        or invalid_filter_attributes
     ):
         # update status
         node_validator.status = NodeStatus.INVALID
@@ -589,6 +834,25 @@ async def validate_node_data(
             if unsupported_fixed_grain_shape
             else []
         )
+        invalid_filter_attributes_error = (
+            [
+                DJError(
+                    code=ErrorCode.INVALID_COLUMN,
+                    message=(
+                        f"Metric `{validated_node.name}` has filter "
+                        "requirements that name attributes that could not "
+                        "be resolved."
+                    ),
+                    debug={
+                        "invalid_filter_requirement_attributes": sorted(
+                            invalid_filter_attributes,
+                        ),
+                    },
+                ),
+            ]
+            if invalid_filter_attributes
+            else []
+        )
         errors = (
             missing_parents_error
             + type_inference_error
@@ -597,6 +861,8 @@ async def validate_node_data(
             + invalid_reaggregate_functions_error
             + invalid_fixed_grain_dimensions_error
             + unsupported_fixed_grain_shape_error
+            + filter_requirement_problems
+            + invalid_filter_attributes_error
         )
         node_validator.errors.extend(errors)
 
@@ -676,11 +942,13 @@ def _build_columns_from_output(
 
 @timed(
     "dj.node_validation.v2.ms",
-    lambda data, session: {"node_type": str(data.type)},
+    lambda data, session, **_kwargs: {"node_type": str(data.type)},
 )
 async def validate_node_data_v2(
     data: NodeRevisionBase | NodeRevision,
     session: AsyncSession,
+    *,
+    required_dimensions: list[str] | None = None,
 ) -> NodeValidator:
     """
     New node validator — shares primitives (extract_upstream_candidates,
@@ -766,6 +1034,56 @@ async def validate_node_data_v2(
         if parent.current and parent.current.columns:
             parent_columns_map[parent.name] = {
                 col.name: col.type for col in parent.current.columns
+            }
+    if is_derived_metric:
+        # Dimension nodes aren't parents, but their columns need types.
+        dimension_revisions: dict[NodeRevision, list] = {
+            node.current: []
+            for name, node in dep_nodes.items()
+            if name not in parent_columns_map
+            and node.type != NodeType.METRIC
+            and node.current
+            and node.current.columns
+        }
+        _reparse_parent_column_types(dimension_revisions)
+        for revision in dimension_revisions:
+            parent_columns_map[revision.name] = {
+                col.name: col.type for col in revision.columns
+            }
+    elif is_metric:
+        # A dimension attribute in a metric's query types it, though the
+        # dimension is not a parent.
+        dimension_names = sorted(
+            extract_dimension_attribute_nodes(query_ast) - parent_columns_map.keys(),
+        )
+        if dimension_names:
+            reachable = await reachable_dimensions_by_node(
+                session,
+                {
+                    parent.name: parent.current.id
+                    for parent in parents
+                    if parent.current
+                },
+                set(dimension_names),
+            )
+            dimension_names = [
+                name
+                for name in dimension_names
+                if any(name in nodes for nodes in reachable.values())
+            ]
+        dimension_revisions = {
+            node.current: []
+            for node in (
+                await Node.get_by_names(session, dimension_names)
+                if dimension_names
+                else []
+            )
+            if node.type != NodeType.METRIC and node.current and node.current.columns
+        }
+        _reparse_parent_column_types(dimension_revisions)
+        for revision in dimension_revisions:
+            parent_columns_map[revision.name] = {
+                col.name: col.type for col in revision.columns
             }
     # Include missing parents with empty columns so validate_node_query doesn't
     # choke on unknown-table errors for refs we've already tracked.
@@ -881,68 +1199,100 @@ async def validate_node_data_v2(
         )
         node_validator.status = NodeStatus.INVALID
 
-    # --- Step 11: required dimensions. Parents come from Node.get_by_names's
-    # default_load_options which eagerly loads NodeRevision.columns, so the
-    # `parent.columns` access here doesn't trigger a lazy load. Let any real
-    # MissingGreenlet propagate rather than silently swallowing it — that
-    # would hide a genuine eager-load regression.
-    parent_columns = [
-        col
-        for parent in node_validator.dependencies_map.keys()
-        for col in parent.columns
-    ]
-    required_dim_strings = [
-        col.full_name() if isinstance(col, Column) else col
-        for col in validated_node.required_dimensions
-    ]
-    (
-        invalid_required_dimensions,
-        matched_bound_columns,
-    ) = await find_required_dimensions(
-        session,
-        required_dim_strings,
-        parent_columns,
-    )
-    node_validator.required_dimensions = matched_bound_columns
-    reaggregate_spec = parse_reaggregate_spec(validated_node.reaggregate)
+    # --- Step 11: required dimensions. Metric-only, like Step 9 -- these
+    # fields are always empty for other node types, so skip the DB round
+    # trips (dimension-link lookup, metric-parents resolution) entirely.
+    invalid_required_dimensions: set[str] = set()
     invalid_reaggregate_dimensions: set[str] = set()
     invalid_reaggregate_functions: list[str] = []
     invalid_fixed_grain_dimensions: set[str] = set()
-    if reaggregate_spec and reaggregate_spec.rules:
-        reaggregate_dimensions = [rule.dimension for rule in reaggregate_spec.rules]
+    unsupported_fixed_grain_shape: str | None = None
+    filter_requirement_problems: list[DJError] = []
+    invalid_filter_attributes: set[str] = set()
+    if is_metric:
+        # Parents come from Node.get_by_names's default_load_options which
+        # eagerly loads NodeRevision.columns, so the `parent.columns` access
+        # here doesn't trigger a lazy load. Let any real MissingGreenlet
+        # propagate rather than silently swallowing it — that would hide a
+        # genuine eager-load regression.
+        parent_columns = [
+            col
+            for parent in node_validator.dependencies_map.keys()
+            for col in parent.columns
+        ]
         (
-            invalid_reaggregate_dimensions,
-            _,
+            parent_dimension_links,
+            parent_names,
+        ) = await _dimension_links_for_required_dimensions(
+            session,
+            list(node_validator.dependencies_map.keys()),
+        )
+        required_dim_strings = _required_dimension_strings(
+            validated_node,
+            required_dimensions,
+        )
+        (
+            invalid_required_dimensions,
+            matched_bound_columns,
         ) = await find_required_dimensions(
             session,
-            reaggregate_dimensions,
+            required_dim_strings,
             parent_columns,
+            parent_dimension_links,
         )
-        invalid_reaggregate_dimensions.update(
-            invalid_reaggregate_dimension_references(reaggregate_dimensions),
-        )
-        invalid_reaggregate_functions = unsupported_dimension_reaggregate_functions(
-            reaggregate_spec,
-        )
-    # Truthiness, not `is not None`: `[]` is the global grain.
-    if validated_node.fixed_grain:
-        invalid_fixed_grain_dimensions, _ = await find_required_dimensions(
-            session,
-            list(validated_node.fixed_grain),
-            parent_columns,
-        )
-    # `is not None` here: unlike the dimension check above, `[]` still needs
-    # its shape checked -- e.g. COUNT(DISTINCT ...) with `[]` has no
-    # dimension to resolve but still can't carry a broadcast.
-    unsupported_fixed_grain_shape: str | None = None
-    if validated_node.fixed_grain is not None:
-        try:
-            validate_fixed_grain_shape(
-                validated_node.query,  # type: ignore
-                list(validated_node.fixed_grain),
+        node_validator.required_dimensions = matched_bound_columns
+        reaggregate_spec = parse_reaggregate_spec(validated_node.reaggregate)
+        if reaggregate_spec and reaggregate_spec.rules:
+            reaggregate_dimensions = [rule.dimension for rule in reaggregate_spec.rules]
+            (
+                invalid_reaggregate_dimensions,
+                _,
+            ) = await find_required_dimensions(
+                session,
+                reaggregate_dimensions,
+                parent_columns,
+                parent_dimension_links,
             )
-        except DJInvalidInputException as exc:
-            unsupported_fixed_grain_shape = str(exc)
+            invalid_reaggregate_dimensions.update(
+                invalid_reaggregate_dimension_references(reaggregate_dimensions),
+            )
+            invalid_reaggregate_functions = unsupported_dimension_reaggregate_functions(
+                reaggregate_spec,
+            )
+        # Truthiness, not `is not None`: `[]` is the global grain.
+        if validated_node.fixed_grain:
+            invalid_fixed_grain_dimensions, _ = await find_required_dimensions(
+                session,
+                list(validated_node.fixed_grain),
+                parent_columns,
+                parent_dimension_links,
+            )
+        # `is not None` here: unlike the dimension check above, `[]` still
+        # needs its shape checked -- e.g. COUNT(DISTINCT ...) with `[]` has
+        # no dimension to resolve but still can't carry a broadcast.
+        if validated_node.fixed_grain is not None:
+            try:
+                validate_fixed_grain_shape(
+                    validated_node.query,  # type: ignore
+                    list(validated_node.fixed_grain),
+                )
+            except DJInvalidInputException as exc:
+                unsupported_fixed_grain_shape = str(exc)
+        filter_requirement_problems = filter_requirement_errors(
+            validated_node.required_filters,
+            validated_node.recommended_filters,
+            validated_node.name,
+        )
+        invalid_filter_attributes, _ = await find_required_dimensions(
+            session,
+            filter_requirement_attributes(
+                validated_node.required_filters,
+                validated_node.recommended_filters,
+            ),
+            parent_columns,
+            parent_dimension_links,
+            parent_names=parent_names,
+        )
 
     # --- Step 12: final error assembly for missing parents + invalid required
     #              dims (matches legacy code shapes).
@@ -953,8 +1303,27 @@ async def validate_node_data_v2(
         or invalid_reaggregate_functions
         or invalid_fixed_grain_dimensions
         or unsupported_fixed_grain_shape
+        or filter_requirement_problems
+        or invalid_filter_attributes
     ):
         node_validator.status = NodeStatus.INVALID
+        node_validator.errors.extend(filter_requirement_problems)
+        if invalid_filter_attributes:
+            node_validator.errors.append(
+                DJError(
+                    code=ErrorCode.INVALID_COLUMN,
+                    message=(
+                        f"Metric `{validated_node.name}` has filter "
+                        "requirements that name attributes that could not "
+                        "be resolved."
+                    ),
+                    debug={
+                        "invalid_filter_requirement_attributes": sorted(
+                            invalid_filter_attributes,
+                        ),
+                    },
+                ),
+            )
         if node_validator.missing_parents_map:
             node_validator.errors.append(
                 DJError(

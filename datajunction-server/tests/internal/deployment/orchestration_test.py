@@ -28,6 +28,7 @@ from datajunction_server.errors import (
     DJAuthorizationException,
     DJError,
     DJInvalidDeploymentConfig,
+    DJInvalidInputException,
     ErrorCode,
 )
 from datajunction_server.internal.access.authorization import (
@@ -944,6 +945,42 @@ class TestDeploymentPlanning:
         to_deploy, _, _ = orchestrator.filter_nodes_to_deploy(existing)
         assert to_deploy == [incoming[1]]
 
+    def test_filter_nodes_redeploys_cube_when_only_a_column_description_changes(
+        self,
+    ):
+        incoming = CubeSpec(
+            name="cube",
+            metrics=["test.revenue"],
+            dimensions=["test.date.dateint"],
+            columns=[
+                ColumnSpec(name="test.revenue", description="Total revenue."),
+            ],
+        )
+        existing = CubeSpec(
+            name="cube",
+            namespace="test",
+            metrics=["test.revenue"],
+            dimensions=["test.date.dateint"],
+            columns=[ColumnSpec(name="test.revenue")],
+        )
+        orchestrator = DeploymentOrchestrator(
+            deployment_spec=DeploymentSpec(namespace="test", nodes=[incoming]),
+            deployment_id="cube-description-filter",
+            session=MagicMock(),
+            context=MagicMock(),
+        )
+
+        to_deploy, to_skip, _ = orchestrator.filter_nodes_to_deploy(
+            {"test.cube": existing},
+        )
+        assert to_deploy == [incoming]
+        assert to_skip == []
+
+        changed_fields, reordered_fields = existing.semantic_diff(incoming)
+        assert changed_fields == ["column_descriptions"]
+        assert reordered_fields == []
+        assert CubeSpec.change_tier(changed_fields) == ChangeTier.MINOR
+
     def test_filter_nodes_to_deploy_with_force(
         self,
         session,
@@ -976,6 +1013,59 @@ class TestDeploymentPlanning:
         assert len(to_deploy) == len(sample_deployment_spec.nodes)
         assert to_skip == []
         assert to_delete == []
+
+    def test_filter_nodes_to_deploy_with_force_nodes(
+        self,
+        sample_deployment_spec,
+    ):
+        """`force_nodes` re-deploys only the named nodes; the rest stay skipped."""
+        forced = sample_deployment_spec.nodes[1]
+        orchestrator = DeploymentOrchestrator(
+            deployment_spec=DeploymentSpec(
+                namespace=sample_deployment_spec.namespace,
+                nodes=sample_deployment_spec.nodes,
+                tags=sample_deployment_spec.tags,
+                force_nodes=[forced.rendered_name],
+            ),
+            deployment_id="scoped-force-deployment",
+            session=MagicMock(),
+            context=MagicMock(),
+        )
+        existing_specs = {
+            node.rendered_name: node for node in sample_deployment_spec.nodes
+        }
+        to_deploy, to_skip, to_delete = orchestrator.filter_nodes_to_deploy(
+            existing_specs,
+        )
+        assert to_deploy == [forced]
+        assert [spec.rendered_name for spec in to_skip] == [
+            spec.rendered_name
+            for spec in sample_deployment_spec.nodes
+            if spec is not forced
+        ]
+        assert to_delete == []
+
+    def test_filter_nodes_to_deploy_rejects_unknown_force_nodes(
+        self,
+        sample_deployment_spec,
+    ):
+        """A `force_nodes` name that matches nothing is an error, not a silent no-op."""
+        orchestrator = DeploymentOrchestrator(
+            deployment_spec=DeploymentSpec(
+                namespace=sample_deployment_spec.namespace,
+                nodes=sample_deployment_spec.nodes,
+                tags=sample_deployment_spec.tags,
+                force_nodes=["test.no_such_node"],
+            ),
+            deployment_id="unknown-force-node",
+            session=MagicMock(),
+            context=MagicMock(),
+        )
+        existing_specs = {
+            node.rendered_name: node for node in sample_deployment_spec.nodes
+        }
+        with pytest.raises(DJInvalidInputException, match="test.no_such_node"):
+            orchestrator.filter_nodes_to_deploy(existing_specs)
 
 
 class TestOrchestrationFlow:
@@ -1422,7 +1512,7 @@ class TestCubeDeployment:
         session,
         current_user,
     ):
-        """Test that partitions from cube spec columns are applied during deployment"""
+        """Test that partitions and descriptions from cube spec columns are applied"""
         # Create a cube spec with column partition
         cube_spec = CubeSpec(
             name="test.sales_cube",
@@ -1431,9 +1521,11 @@ class TestCubeDeployment:
             dimensions=["test.date.dateint"],
             namespace="test",
             columns=[
+                ColumnSpec(name="test.revenue", description="Total revenue."),
                 ColumnSpec(
                     name="test.date.dateint",
                     display_name="Date",
+                    description="Date as yyyyMMdd.",
                     attributes=["primary_key"],
                     partition=PartitionSpec(
                         type=PartitionType.TEMPORAL,
@@ -1573,6 +1665,11 @@ class TestCubeDeployment:
         assert date_cube_column.partition.type_ == PartitionType.TEMPORAL
         assert date_cube_column.partition.granularity == Granularity.DAY
         assert date_cube_column.partition.format == "yyyyMMdd"
+
+        assert {col.name: col.description for col in node_revision.columns} == {
+            "test.revenue": "Total revenue.",
+            "test.date.dateint": "Date as yyyyMMdd.",
+        }
 
     @pytest.mark.asyncio
     async def test_multiple_cubes_with_partition_no_autoflush_error(

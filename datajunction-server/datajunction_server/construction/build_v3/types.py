@@ -13,6 +13,7 @@ from datajunction_server.database.node import Node
 from datajunction_server.errors import DJInvalidInputException, DJWarning
 from datajunction_server.models.decompose import Aggregability, MetricComponent
 from datajunction_server.models.dialect import Dialect
+from datajunction_server.models.materialization import MaterializationTarget
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import to_sql
@@ -43,6 +44,11 @@ class BuildContext:
     dimensions: list[str]
     filters: list[str] = field(default_factory=list)
     dialect: Dialect = Dialect.SPARK
+    # The measures may run in Spark while their metric combiner runs in Druid.
+    combiner_dialect: Dialect | None = None
+    # Set only when this build is producing a measures table for materialization.
+    # None for query-time builds, which never serialize.
+    materialization_target: MaterializationTarget | None = None
     alias_registry: AliasRegistry = field(default_factory=AliasRegistry)
 
     # Filter classification (populated early in setup)
@@ -312,9 +318,15 @@ class GrainGroupSQL:
     aggregability: Aggregability
     metrics: list[str]  # Metric names covered by this grain group
     parent_name: str  # Name of the parent node (fact/transform) for this grain group
+    # Semantic dimension ref -> position in the query's GROUP BY. Built alongside
+    # the grain; positions remain distinct when two dimensions use the same SQL.
+    dimension_group_by_positions: dict[str, int] = field(default_factory=dict)
     # Mapping from component name (hashed) to actual SQL alias in the output
     # Used by metrics SQL to correctly reference component columns
     component_aliases: dict[str, str] = field(default_factory=dict)
+    # Raw input name -> private output name when GROUP_OTHERS buckets an input
+    # still needed by a non-decomposable metric such as MAX_BY.
+    raw_metric_input_aliases: dict[str, str] = field(default_factory=dict)
 
     # Active semi-additive components that need collapse in the metrics layer.
     # Maps component.name -> protected dimension column alias emitted by this CTE.
@@ -487,116 +499,12 @@ class DimensionRef:
     role: str | None = None
 
 
-class ColumnType:
-    """Types of columns that can be resolved."""
-
-    METRIC = "metric"
-    COMPONENT = "component"
-    DIMENSION = "dimension"
-
-
 @dataclass
 class ColumnRef:
     """Reference to a column in a CTE."""
 
     cte_alias: str
     column_name: str
-    column_type: str = ColumnType.COMPONENT  # Default for backward compatibility
-
-
-@dataclass
-class ColumnResolver:
-    """
-    Resolves semantic references (metric names, component names, dimension refs)
-    to their CTE column locations.
-
-    Provides a unified interface for looking up where any reference should
-    resolve to in the generated SQL.
-    """
-
-    _entries: dict[str, ColumnRef] = field(default_factory=dict)
-
-    @classmethod
-    def from_base_metrics(
-        cls,
-        base_metrics_result: BaseMetricsResult,
-        dimension_aliases: dict[str, str],
-        dim_cte_alias: str,
-    ) -> ColumnResolver:
-        """
-        Create a ColumnResolver from base metrics processing results.
-
-        Args:
-            base_metrics_result: Result from process_base_metrics
-            dimension_aliases: Mapping from dimension refs to column aliases
-            dim_cte_alias: CTE alias for dimension columns
-
-        Returns:
-            Populated ColumnResolver
-        """
-        resolver = cls()
-
-        # Register metrics
-        for name, info in base_metrics_result.metric_exprs.items():
-            resolver.register(name, info.cte_alias, info.short_name, ColumnType.METRIC)
-
-        # Register components
-        for name, ref in base_metrics_result.component_refs.items():
-            resolver.register(
-                name,
-                ref.cte_alias,
-                ref.column_name,
-                ColumnType.COMPONENT,
-            )
-
-        # Register dimensions
-        for dim_ref, col_alias in dimension_aliases.items():
-            resolver.register(dim_ref, dim_cte_alias, col_alias, ColumnType.DIMENSION)
-
-        return resolver
-
-    def register(
-        self,
-        name: str,
-        cte_alias: str,
-        column_name: str,
-        column_type: str,
-    ) -> None:
-        """Register a name -> column mapping."""
-        self._entries[name] = ColumnRef(cte_alias, column_name, column_type)
-
-    def resolve(self, name: str) -> ColumnRef | None:
-        """Resolve a name to its column reference."""
-        return self._entries.get(name)  # pragma: no cover
-
-    def get_by_type(self, col_type: str) -> dict[str, ColumnRef]:
-        """Get all entries of a specific type."""
-        return {k: v for k, v in self._entries.items() if v.column_type == col_type}
-
-    # Compatibility methods for existing replace_*_refs_in_ast functions
-    def metric_refs(self) -> dict[str, tuple[str, str]]:
-        """Get metric refs as tuples for replace_metric_refs_in_ast."""
-        return {
-            name: (ref.cte_alias, ref.column_name)
-            for name, ref in self._entries.items()
-            if ref.column_type == ColumnType.METRIC
-        }
-
-    def component_refs(self) -> dict[str, tuple[str, str]]:
-        """Get component refs as tuples for replace_component_refs_in_ast."""
-        return {
-            name: (ref.cte_alias, ref.column_name)
-            for name, ref in self._entries.items()
-            if ref.column_type == ColumnType.COMPONENT
-        }
-
-    def dimension_refs(self) -> dict[str, tuple[str, str]]:
-        """Get dimension refs as tuples for replace_dimension_refs_in_ast."""
-        return {
-            name: (ref.cte_alias, ref.column_name)
-            for name, ref in self._entries.items()
-            if ref.column_type == ColumnType.DIMENSION
-        }
 
 
 @dataclass

@@ -7,11 +7,20 @@ import re
 import time
 from dataclasses import dataclass, field
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from datajunction_server.api.helpers import _resolve_required_dimensions
+from datajunction_server.api.helpers import (
+    FilterGraph,
+    FilterLink,
+    _resolve_required_dimensions,
+    attribute_nodes,
+    link_keys,
+    load_filter_graph,
+    nodes_upstream,
+)
+from datajunction_server.construction.build_v3.loaders import find_upstream_node_names
 from datajunction_server.database.dimensionlink import DimensionLink
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.errors import (
@@ -20,7 +29,16 @@ from datajunction_server.errors import (
     ErrorCode,
 )
 from datajunction_server.internal.deployment.type_inference import validate_node_query
+from datajunction_server.internal.deployment.dimension_reachability import (
+    reachable_dimensions_by_node,
+    walk_links,
+)
+from datajunction_server.internal.deployment.utils import (
+    extract_dimension_attribute_nodes,
+)
 from datajunction_server.internal.validation import (
+    filter_requirement_attributes,
+    filter_requirement_errors,
     derived_metric_fixed_grain_error,
     derived_metric_reaggregate_error,
     invalid_reaggregate_dimension_references,
@@ -31,6 +49,7 @@ from datajunction_server.models.deployment import (
     DimensionJoinLinkSpec,
     DimensionReferenceLinkSpec,
     LinkableNodeSpec,
+    MetricSpec,
     NodeSpec,
 )
 from datajunction_server.models.dimensionlink import (
@@ -38,11 +57,12 @@ from datajunction_server.models.dimensionlink import (
     misplaced_node_column_message,
     missing_join_on_message,
 )
+from datajunction_server.models.filter_requirements import dump_filter_requirements
 from datajunction_server.models.node import NodeStatus, NodeType
 from datajunction_server.models.reaggregate import (
     unsupported_dimension_reaggregate_functions,
 )
-from datajunction_server.sql.dag import get_dimensions
+from datajunction_server.sql.dag import get_dimensions, get_metric_parents_map
 from datajunction_server.sql.decompose import validate_fixed_grain_shape
 from datajunction_server.sql.parsing.ast import fast_parse_mode
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse_rule
@@ -50,6 +70,79 @@ from datajunction_server.sql.parsing.types import ListType, MapType, StructType
 from datajunction_server.utils import SEPARATOR
 
 logger = logging.getLogger(__name__)
+
+
+async def _revision_names(
+    session: AsyncSession,
+    versions: set[tuple[str, str]],
+) -> dict[int, str]:
+    """Node name by revision id, for these (name, version) pairs."""
+    if not versions:
+        return {}
+    rows = await session.execute(
+        select(NodeRevision.id, NodeRevision.name).where(
+            or_(
+                *[
+                    and_(NodeRevision.name == name, NodeRevision.version == version)
+                    for name, version in versions
+                ],
+            ),
+        ),
+    )
+    return {revision_id: name for revision_id, name in rows}
+
+
+async def parent_link_inputs(
+    session: AsyncSession,
+    parents: list[Node],
+    deployment_link_roles: dict[str, set],
+) -> tuple[list[DimensionLink], set[tuple[str, str | None]]]:
+    """
+    Saved links and links a deployment declares, for these parents and for the
+    nodes beneath any metric among them. A derived metric's parents are metrics,
+    which have no links of their own.
+    """
+    metric_parents = [parent for parent in parents if parent.type == NodeType.METRIC]
+    base_parents = await get_metric_parents_map(session, metric_parents)
+    revision_names = {
+        parent.current.id: parent.name
+        for parent in parents
+        if parent.type != NodeType.METRIC and parent.current
+    }
+    revision_names.update(
+        await _revision_names(
+            session,
+            {
+                (base.name, base.current_version)
+                for bases in base_parents.values()
+                for base in bases
+            },
+        ),
+    )
+    names = set(revision_names.values())
+    result = await session.execute(
+        select(DimensionLink).where(
+            DimensionLink.node_revision_id.in_(revision_names),
+        ),
+    )
+    links = list(result.scalars().all())
+    pending = {
+        pair for name in names for pair in deployment_link_roles.get(name, set())
+    }
+    return links, pending
+
+
+def _declared_link_keys(node: str, link: DimensionJoinLinkSpec) -> frozenset[str]:
+    """Join keys of a declared link, or none when its join cannot be read."""
+    try:
+        return link_keys(
+            node,
+            link.rendered_dimension_node,
+            link.rendered_join_on,
+            link.join_type,
+        )
+    except Exception:
+        return frozenset()
 
 
 def _reparse_column_types(dependency_nodes: dict[str, Node]) -> None:
@@ -85,6 +178,11 @@ class ValidationContext:
     # cross-fact check uses this to see dimensions the committed graph can't yet.
     # Empty for single-node validation.
     deployment_link_targets: dict[str, set] = field(default_factory=dict)
+    # Linkable node name -> (dimension node, role) pairs its links declare in
+    # this deployment, so role checks see links that aren't saved yet.
+    deployment_link_roles: dict[str, set] = field(default_factory=dict)
+    # Linkable node name -> the link specs it declares in this deployment.
+    deployment_links: dict[str, list] = field(default_factory=dict)
 
 
 @dataclass
@@ -147,6 +245,25 @@ class NodeSpecBulkValidator:
         # Computed during _prefetch_dimension_link_nodes (async context) so that
         # the sync _validate_*_link methods never trigger ORM lazy loads.
         self._dim_link_col_names: dict[str, set] = {}
+        # Populated by _prefetch_parent_dimension_links before per-node
+        # validation. Keys: dependency node name; values: its DimensionLink
+        # rows. Computed with a dedicated query (async context) rather than
+        # read off `dep_node.current.dimension_links` -- that relationship's
+        # eager-load state isn't reliable here (dependency_nodes can come
+        # from the in-flight registry as well as the DB), so accessing it
+        # directly risks a MissingGreenlet from this class's sync validation
+        # methods.
+        self._parent_dimension_links: dict[str, list[DimensionLink]] = {}
+        # Derived metric parent -> the non-metric nodes it reads from, filled by
+        # the same prefetch. Metrics have no links of their own.
+        self._base_parents: dict[str, list[str]] = {}
+        # Parent node name -> dimension nodes its links reach, filled by
+        # _prefetch_reachable_dimensions for metrics that name dimension attributes.
+        self._reachable_dimensions: dict[str, set[str]] = {}
+        # Metric -> the nodes its filter requirements are checked from.
+        self._filter_parents: dict[str, set[str]] = {}
+        # Links and references for those checks.
+        self._filter_graph = FilterGraph()
 
     async def validate(self, node_specs: list[NodeSpec]) -> list[NodeValidationResult]:
         """
@@ -170,11 +287,18 @@ class NodeSpecBulkValidator:
         # Pre-fetch dimension nodes for metric dimension-reference validation
         await self._prefetch_required_dimension_nodes(specs_needing_parse)
 
+        # Pre-fetch dimension links for required_dimensions role validation
+        await self._prefetch_parent_dimension_links(specs_needing_parse)
+        await self._prefetch_filter_reachability(specs_needing_parse)
+
         # Pre-fetch dimension sets for cross-fact derived metric validation
         await self._prefetch_metric_dimensions(specs_needing_parse)
 
         # Pre-fetch dimension nodes referenced in dimension_links
         await self._prefetch_dimension_link_nodes(specs_needing_parse)
+
+        # Pre-fetch which dimensions metric parents link to
+        await self._prefetch_reachable_dimensions(specs_needing_parse)
 
         # Build results in original order.  Each spec's query_ast is lazily
         # parsed and cached (pre-populated by extract_node_graph).
@@ -545,6 +669,8 @@ class NodeSpecBulkValidator:
             if fixed_grain_shape_error is not None:
                 errors.append(fixed_grain_shape_error)
 
+            errors.extend(self._check_filter_requirements(spec))
+
             cross_fact_error = self._check_cross_fact_dimensions(spec)
             if cross_fact_error is not None:
                 errors.append(cross_fact_error)  # pragma: no cover
@@ -574,6 +700,25 @@ class NodeSpecBulkValidator:
                 parent_map[parent_name] = {
                     col.name: col.type for col in parent_node.current.columns
                 }
+        if spec.node_type == NodeType.METRIC and spec.query_ast is not None:
+            reachable = set().union(
+                *(
+                    self._reachable_dimensions.get(name, set())
+                    for name in self.context.node_graph.get(spec.rendered_name, [])
+                ),
+            )
+            for dim_name in extract_dimension_attribute_nodes(spec.query_ast):
+                dim_node = self.context.dependency_nodes.get(dim_name)
+                if (
+                    dim_name in reachable
+                    and dim_name not in parent_map
+                    and dim_node
+                    and dim_node.current
+                    and dim_node.current.columns
+                ):
+                    parent_map[dim_name] = {
+                        col.name: col.type for col in dim_node.current.columns
+                    }
         return parent_map
 
     @staticmethod
@@ -732,6 +877,9 @@ class NodeSpecBulkValidator:
                 if SEPARATOR in grain_dim:
                     dim_node_name = grain_dim.rsplit(SEPARATOR, 1)[0]
                     req_dim_node_names.add(dim_node_name)
+            for attribute in getattr(spec, "filter_requirement_dimensions", None) or []:
+                if SEPARATOR in attribute:
+                    req_dim_node_names.add(attribute.rsplit(SEPARATOR, 1)[0])
 
         self._all_dim_nodes = dict(self.context.dependency_nodes)
 
@@ -803,6 +951,239 @@ class NodeSpecBulkValidator:
                     col.name for col in node.current.columns
                 }
 
+    async def _prefetch_reachable_dimensions(self, specs: list[NodeSpec]) -> None:
+        """
+        For metrics naming dimension attributes, find the dimensions their
+        parents link to, through saved links and links this deployment declares.
+        """
+        sources: dict[str, int] = {}
+        candidates: set[str] = set()
+        for spec in specs:
+            if spec.node_type != NodeType.METRIC or spec.query_ast is None:
+                continue
+            parent_names = self.context.node_graph.get(spec.rendered_name, [])
+            named = extract_dimension_attribute_nodes(spec.query_ast) - set(
+                parent_names,
+            )
+            if not named:
+                continue
+            candidates |= named
+            sources.update(
+                {
+                    name: parent.current.id
+                    for name in parent_names
+                    for parent in [self.context.dependency_nodes.get(name)]
+                    if parent and parent.type != NodeType.METRIC and parent.current
+                },
+            )
+        if sources:
+            self._reachable_dimensions = await reachable_dimensions_by_node(
+                self.context.session,
+                sources,
+                candidates,
+                self.context.deployment_link_targets,
+            )
+
+    async def _prefetch_parent_dimension_links(
+        self,
+        specs: list[NodeSpec],
+    ) -> None:
+        """
+        Batch-fetch DimensionLink rows for every dependency node referenced by
+        a metric spec with required_dimensions, reaggregate, fixed_grain or
+        filter requirements, keyed by dependency node name.
+        """
+        dep_names: set[str] = set()
+        for spec in specs:
+            if not isinstance(spec, MetricSpec) or not (
+                spec.required_dimensions
+                or spec.rendered_reaggregate
+                or spec.rendered_fixed_grain
+                or spec.required_filters
+                or spec.recommended_filters
+            ):
+                continue
+            dep_names.update(self.context.node_graph.get(spec.rendered_name, []))
+
+        metric_parents = [
+            node
+            for dep_name in sorted(dep_names)
+            for node in [self.context.dependency_nodes.get(dep_name)]
+            if node and node.type == NodeType.METRIC
+        ]
+        base_parents = await get_metric_parents_map(
+            self.context.session,
+            metric_parents,
+        )
+        self._base_parents = {
+            metric: [parent.name for parent in parents]
+            for metric, parents in base_parents.items()
+        }
+
+        revision_id_to_name: dict[int, str] = {}
+        for dep_name in dep_names:
+            dep_node = self.context.dependency_nodes.get(dep_name)
+            if dep_node and dep_node.current:  # pragma: no branch
+                revision_id_to_name[dep_node.current.id] = dep_name
+
+        revision_id_to_name.update(
+            {
+                revision_id: name
+                for revision_id, name in (
+                    await _revision_names(
+                        self.context.session,
+                        {
+                            (parent.name, parent.current_version)
+                            for parents in base_parents.values()
+                            for parent in parents
+                        },
+                    )
+                ).items()
+                if revision_id not in revision_id_to_name
+            },
+        )
+
+        if not revision_id_to_name:
+            return
+
+        result = await self.context.session.execute(
+            select(DimensionLink).where(
+                DimensionLink.node_revision_id.in_(revision_id_to_name),
+            ),
+        )
+        for link in result.scalars().all():
+            # The query above already filters on node_revision_id IN
+            # revision_id_to_name, so this is always a hit -- .get() only
+            # satisfies mypy's nullable-column typing, not a real runtime case.
+            resolved_dep_name = revision_id_to_name.get(link.node_revision_id)
+            if resolved_dep_name:  # pragma: no branch
+                self._parent_dimension_links.setdefault(resolved_dep_name, []).append(
+                    link,
+                )
+
+    async def _prefetch_filter_reachability(self, specs: list[NodeSpec]) -> None:
+        """
+        Load what can_filter_on needs for metrics with filter requirements.
+
+        Upstream nodes come from this deployment's node graph and, for saved
+        nodes, their saved parents. Nodes in this deployment use only the
+        links and references it declares, so a removed link does not count.
+        """
+        targets: set[str] = set()
+        for spec in specs:
+            if not isinstance(spec, MetricSpec):
+                continue
+            names = filter_requirement_attributes(
+                dump_filter_requirements(spec.rendered_required_filters),
+                dump_filter_requirements(spec.rendered_recommended_filters),
+            )
+            if not names:
+                continue
+            dep_names = self.context.node_graph.get(spec.rendered_name, [])
+            self._filter_parents[spec.rendered_name] = set(
+                self._parent_names(dep_names),
+            )
+            targets |= attribute_nodes(names)
+        parents = {name for names in self._filter_parents.values() for name in names}
+        if not parents:
+            return
+        upstream = await self._upstream_by_parent(parents)
+        ancestors = {name for names in upstream.values() for name in names}
+        self._filter_graph = await load_filter_graph(
+            self.context.session,
+            upstream,
+            targets,
+            self._declared_filter_graph(ancestors, targets),
+            set(self.context.node_graph),
+        )
+
+    async def _upstream_by_parent(self, parents: set[str]) -> dict[str, set[str]]:
+        """
+        Every node upstream of each parent.
+
+        Nodes in this deployment use its node graph, and saved nodes use
+        their saved parents, loaded in one query.
+        """
+        graph = self.context.node_graph
+        in_graph = {
+            name: nodes_upstream(name, lambda child: graph.get(child, []))
+            for name in parents
+        }
+        saved_names = {
+            name
+            for parent, upstream in in_graph.items()
+            for name in upstream | {parent}
+            if name not in graph
+        }
+        _, parent_map = (
+            await find_upstream_node_names(self.context.session, sorted(saved_names))
+            if saved_names
+            else (set(), {})
+        )
+        return {
+            name: nodes_upstream(
+                name,
+                lambda child: graph.get(child, []) + parent_map.get(child, []),
+            )
+            for name in parents
+        }
+
+    def _declared_filter_graph(
+        self,
+        ancestors: set[str],
+        targets: set[str],
+    ) -> FilterGraph:
+        """
+        Links and references this deployment declares. Join keys are read
+        only for upstream links to a target, as for saved links.
+        """
+        declared = FilterGraph()
+        for name, links in self.context.deployment_links.items():
+            for link in links:
+                dimension = link.rendered_dimension_node
+                if isinstance(link, DimensionReferenceLinkSpec):
+                    declared.references.setdefault(name, set()).add(
+                        (dimension, link.dimension_attribute),
+                    )
+                    continue
+                keys: frozenset[str] = frozenset()
+                if name in ancestors and dimension in targets:
+                    keys = _declared_link_keys(name, link)
+                declared.links.setdefault(name, set()).add(
+                    FilterLink(dimension, link.role or None, keys),
+                )
+        return declared
+
+    def _parent_names(self, dep_names: list[str]) -> list[str]:
+        """Parents, with a derived metric's parents read through."""
+        return list(
+            dict.fromkeys(
+                name
+                for dep_name in dep_names
+                for name in self._base_parents.get(dep_name, [dep_name])
+            ),
+        )
+
+    def _parent_link_inputs(
+        self,
+        dep_names: list[str],
+    ) -> tuple[list[DimensionLink], set[tuple[str, str | None]]]:
+        """
+        Saved links and links declared in this deployment, for these parents.
+        """
+        names = self._parent_names(dep_names)
+        links = [
+            link
+            for name in names
+            for link in self._parent_dimension_links.get(name, [])
+        ]
+        pending = {
+            pair
+            for name in names
+            for pair in self.context.deployment_link_roles.get(name, set())
+        }
+        return links, pending
+
     def _check_required_dimensions(self, spec: NodeSpec) -> DJError | None:
         """
         Validate that every entry in required_dimensions resolves to a real column.
@@ -826,11 +1207,16 @@ class NodeSpecBulkValidator:
             if dep_node and dep_node.current
             for col in dep_node.current.columns
         ]
+        parent_dimension_links, pending_link_roles = self._parent_link_inputs(
+            dep_names,
+        )
 
         invalid, _ = _resolve_required_dimensions(
             required_dimensions,
             parent_columns,
             self._all_dim_nodes,
+            parent_dimension_links,
+            pending_link_roles,
         )
 
         if not invalid:
@@ -886,10 +1272,15 @@ class NodeSpecBulkValidator:
         ]
 
         reaggregate_dimensions = [rule.dimension for rule in reaggregate.rules]
+        parent_dimension_links, pending_link_roles = self._parent_link_inputs(
+            dep_names,
+        )
         invalid, _ = _resolve_required_dimensions(
             reaggregate_dimensions,
             parent_columns,
             self._all_dim_nodes,
+            parent_dimension_links,
+            pending_link_roles,
         )
         invalid.update(
             invalid_reaggregate_dimension_references(reaggregate_dimensions),
@@ -927,10 +1318,15 @@ class NodeSpecBulkValidator:
             for col in dep_node.current.columns
         ]
 
+        parent_dimension_links, pending_link_roles = self._parent_link_inputs(
+            dep_names,
+        )
         invalid, _ = _resolve_required_dimensions(
             list(fixed_grain),
             parent_columns,
             self._all_dim_nodes,
+            parent_dimension_links,
+            pending_link_roles,
         )
 
         if not invalid:
@@ -944,6 +1340,56 @@ class NodeSpecBulkValidator:
             ),
             debug={"invalid_fixed_grain_dimensions": list(invalid)},
         )
+
+    def _check_filter_requirements(self, spec: NodeSpec) -> list[DJError]:
+        """
+        Validate filter requirements, including that attributes resolve.
+        """
+        required = dump_filter_requirements(
+            getattr(spec, "rendered_required_filters", None),
+        )
+        recommended = dump_filter_requirements(
+            getattr(spec, "rendered_recommended_filters", None),
+        )
+        if not required and not recommended:
+            return []
+        errors = filter_requirement_errors(required, recommended, spec.rendered_name)
+        dep_names = self.context.node_graph.get(spec.rendered_name, [])
+        parent_columns = [
+            col
+            for dep_name in dep_names
+            for dep_node in [self.context.dependency_nodes.get(dep_name)]
+            if dep_node and dep_node.current
+            for col in dep_node.current.columns
+        ]
+        parent_dimension_links, pending_link_roles = self._parent_link_inputs(
+            dep_names,
+        )
+        invalid, _ = _resolve_required_dimensions(
+            filter_requirement_attributes(required, recommended),
+            parent_columns,
+            self._all_dim_nodes,
+            parent_dimension_links,
+            pending_link_roles,
+            filter_parents=self._filter_parents.get(spec.rendered_name),
+            filter_graph=(
+                self._filter_graph
+                if spec.rendered_name in self._filter_parents
+                else None
+            ),
+        )
+        if invalid:
+            errors.append(
+                DJError(
+                    code=ErrorCode.INVALID_COLUMN,
+                    message=(
+                        "Node definition declares filter requirements that "
+                        "name attributes that could not be resolved."
+                    ),
+                    debug={"invalid_filter_requirement_attributes": sorted(invalid)},
+                ),
+            )
+        return errors
 
     def _check_fixed_grain_shape(self, spec: NodeSpec) -> DJError | None:
         """
@@ -1098,16 +1544,10 @@ class NodeSpecBulkValidator:
                 nodes.add(base.rsplit(".", 1)[0])
 
         # Walk this deployment's links from the base metric's parent node(s).
-        pending = self.context.deployment_link_targets
-        frontier = list(self.context.node_graph.get(base_metric_name, []))
-        seen = set(frontier)
-        while frontier:
-            current = frontier.pop()
-            for target in pending.get(current, set()):
-                nodes.add(target)
-                if target not in seen:
-                    seen.add(target)
-                    frontier.append(target)
+        nodes |= walk_links(
+            self.context.deployment_link_targets,
+            list(self.context.node_graph.get(base_metric_name, [])),
+        )
         return nodes
 
     def _create_error_result(
@@ -1197,6 +1637,8 @@ async def bulk_validate_node_data(
     dependency_nodes: dict[str, Node],
     deployment_namespace: str | None = None,
     deployment_link_targets: dict[str, set] | None = None,
+    deployment_link_roles: dict[str, set] | None = None,
+    deployment_links: dict[str, list] | None = None,
 ) -> list[NodeValidationResult]:
     """
     Bulk validate node specifications.
@@ -1220,6 +1662,8 @@ async def bulk_validate_node_data(
         dependency_nodes=dependency_nodes,
         deployment_namespace=deployment_namespace,
         deployment_link_targets=deployment_link_targets or {},
+        deployment_link_roles=deployment_link_roles or {},
+        deployment_links=deployment_links or {},
     )
     validator = NodeSpecBulkValidator(context)
 

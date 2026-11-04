@@ -322,6 +322,44 @@ If you prefer to use tox, these flags all work the same way.
 
     tox tests/sql/parsing/queries/tpcds/test_tpcds.py::test_parsing_sparksql_tpcds_queries -- --tpcds
 
+Property-Based Tests
+--------------------
+
+``datajunction-server/tests/property/`` holds `Hypothesis <https://hypothesis.readthedocs.io/>`_ tests. They generate
+metric definitions, small fact and dimension tables, requests, and SQL expressions to check correctness rules. Most
+execute DJ's SQL on DuckDB and compare it with a direct calculation or query:
+
+- ``metric_decomposition_test.py``: a metric rolled up from its components equals the metric computed directly.
+- ``sql_roundtrip_test.py``: parsing and printing SQL keeps its meaning.
+- ``ast_printing_test.py``: AST-built expressions with unambiguous operator precedence print as equivalent SQL.
+- ``random_graph_test.py``: SQL for a random graph and request matches a plain query over the raw tables.
+- ``materialization_test.py``: a request served from a pre-aggregation matches the same request computed from raw
+  tables. Both paths use DJ-generated SQL; ``random_graph_test.py`` supplies the independent raw-table comparison.
+
+``tests/property/scenario.py`` defines the immutable case, generated metric and filter specifications, and strategies.
+Each metric's raw-table reference expression is written separately from its DJ definition. ``graph.py`` installs a
+case through DJ's API and runs the direct DuckDB reference query. Add new case variants in ``scenario.py`` so the same
+specifications can be reused across properties.
+
+They run with the rest of the server suite. ``DJ_PBT_PROFILE`` selects ``dev`` (the default locally, random with
+shrinking), ``ci`` (the default when ``CI`` is set, a fixed sequence without shrinking), or ``nightly`` (ten times the
+examples, random with shrinking). CI runs only ``ci``, which replays the same examples every time, so it does not
+search for new bugs. ``nightly`` is not scheduled anywhere; run it by hand for a deeper search. The API-backed properties need the same Postgres test setup as the server suite;
+locally, the test fixtures start it through Docker.
+
+.. code-block:: sh
+
+    cd datajunction-server
+    uv run pytest tests/property -n auto
+    DJ_PBT_PROFILE=nightly uv run pytest tests/property -n auto
+
+In ``dev`` and ``nightly``, Hypothesis shrinks failures to a smaller example. The ``ci`` profile reports its failing
+example without shrinking. The ``@reproduce_failure`` decorator in failure output can replay an example exactly.
+
+Bugs found this way and not yet fixed are listed in ``tests/property/known_issues.py``. The generated tests exclude
+affected inputs or metric families, and each listed bug has a small repro marked ``xfail(strict=True)``. Fixing a bug
+makes its repro pass, which fails the run; then remove the marker and its corresponding exclusion.
+
 Enabling ``pdb`` When Running Tests
 -----------------------------------
 

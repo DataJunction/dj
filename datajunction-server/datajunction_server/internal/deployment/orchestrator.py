@@ -1,6 +1,8 @@
+import asyncio
 import logging
 import re
 import time
+from functools import cached_property
 from collections import Counter, defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -12,6 +14,7 @@ from sqlalchemy import func, or_, select, text
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer, joinedload, load_only, noload, selectinload
+from sqlalchemy.orm.attributes import flag_modified
 
 from datajunction_server.api.helpers import (
     COLUMN_NAME_REGEX,
@@ -51,13 +54,24 @@ from datajunction_server.internal.access.authorization import (
 from datajunction_server.internal.access.authorization.context import AuthContext
 from datajunction_server.internal.checks.engine import CheckResult
 from datajunction_server.internal.checks.engine import evaluate as evaluate_checks
-from datajunction_server.internal.checks.manifest import to_manifest_checks
-from datajunction_server.internal.checks.validator import CheckGate, load_checks
+from datajunction_server.internal.checks.context import OwnerKinds, TagTypes
+from datajunction_server.internal.checks.manifest import (
+    ManifestChecks,
+    to_manifest_checks,
+)
+from datajunction_server.internal.checks.validator import (
+    CheckGate,
+    LoadedChecks,
+    load_checks,
+)
 from datajunction_server.internal.custom_metadata import upsert_schema_specs
 from datajunction_server.internal.deployment.checks import (
+    DeclaredSchemas,
     build_bindings,
+    checks_match_last_deployment,
     build_fixtures,
     resolve_declared_schemas,
+    resolve_owner_kinds,
     resolve_tag_types,
     roll_up,
     unsupported_ruleset_guards,
@@ -73,6 +87,7 @@ from datajunction_server.internal.deployment.utils import (
     DeploymentContext,
     classify_parents,
     creates_cycle,
+    extract_dimension_attribute_nodes,
     extract_dimension_refs_from_filters,
     extract_node_graph,
     topological_levels,
@@ -81,6 +96,7 @@ from datajunction_server.internal.deployment.validation import (
     CubeValidationData,
     NodeValidationResult,
     bulk_validate_node_data,
+    parent_link_inputs,
 )
 from datajunction_server.internal.history import EntityType
 from datajunction_server.internal.impact import ReusableQuery, propagate_impact
@@ -143,6 +159,7 @@ from datajunction_server.models.deployment import (
 from datajunction_server.models.dimensionlink import (
     JoinLinkInput,
     LinkType,
+    default_value_key,
     misplaced_node_column_message,
     missing_join_on_message,
 )
@@ -157,6 +174,7 @@ from datajunction_server.models.node import (
     NodeStatus,
     NodeType,
 )
+from datajunction_server.models.filter_requirements import dump_filter_requirements
 from datajunction_server.models.reaggregate import dump_reaggregate_spec
 from datajunction_server.models.unit import (
     AtomicUnit,
@@ -580,9 +598,6 @@ class DeploymentOrchestrator:
         # SAVEPOINT, so setup-phase writes roll back too.
         await self._authorize_deployment_plan(deployment_plan)
 
-        with self._timer.phase("governance checks"):
-            await self._run_governance_checks(deployment_plan)
-
         if deployment_plan.is_empty() and not self.deployment_spec.hierarchies:
             # Pre-aggregations still need reconciling on an otherwise-empty
             # deploy: to register specs, or to delete external pre-aggs that were
@@ -605,6 +620,8 @@ class DeploymentOrchestrator:
                 isinstance(spec, CubeSpec) for spec in self.deployment_spec.nodes
             )
             if not needs_preagg_reconcile and not declares_cube:
+                with self._timer.phase("governance checks"):
+                    await self._run_governance_checks(deployment_plan)
                 with self._timer.phase("build semantic fingerprints"):
                     await self._build_and_apply_semantic_fingerprints(
                         deployment_plan,
@@ -619,6 +636,10 @@ class DeploymentOrchestrator:
                 )
 
         downstream = await self._execute_deployment_plan(deployment_plan)
+        # After the apply, so every node's output columns are known. A blocking
+        # failure raises inside the SAVEPOINT, which undoes the deploy.
+        with self._timer.phase("governance checks"):
+            await self._run_governance_checks(deployment_plan)
         return DeploymentExecuteResult(
             results=self.deployed_results,
             downstream_impacts=downstream,
@@ -670,8 +691,8 @@ class DeploymentOrchestrator:
     async def _run_governance_checks(self, plan: DeploymentPlan) -> None:
         """
         Compile the manifest's checks once, then evaluate them against every node
-        the deploy declares or removes. Runs before the plan is applied, so a
-        blocking failure refuses the deploy rather than undoing it.
+        the deploy declares or removes. Runs after the plan is applied, so a
+        blocking failure undoes the deploy.
         """
         if not self.deployment_spec.checks:
             return
@@ -681,6 +702,14 @@ class DeploymentOrchestrator:
             self.deployment_spec.rulesets,
         )
         entities = self._checked_entities(plan)
+        # Only check affected nodes
+        if await checks_match_last_deployment(
+            self.session,
+            self.deployment_spec.namespace,
+            self.deployment_spec.checks,
+            self.deployment_spec.rulesets,
+        ):
+            entities = self._affected_entities(plan, entities)
         node_types = {spec.node_type for spec, _ in entities}
         declared = await resolve_declared_schemas(
             self.session,
@@ -691,6 +720,17 @@ class DeploymentOrchestrator:
             self.session,
             self.deployment_spec.tags,
             {tag for spec, _ in entities for tag in spec.tags},
+        )
+        owner_kinds = await resolve_owner_kinds(
+            self.session,
+            {
+                owner
+                for spec in [
+                    *plan.to_deploy,
+                    *plan.existing_specs.values(),
+                ]
+                for owner in spec.owners
+            },
         )
         loaded = load_checks(manifest.checks, build_fixtures(declared, node_types))
         malformed = loaded.malformed + unsupported_ruleset_guards(manifest.rulesets)
@@ -710,6 +750,44 @@ class DeploymentOrchestrator:
                 errors=self.errors,
                 warnings=self.warnings,
             )
+        deployed_columns = await self._load_deployed_columns(entities)
+        # Projecting and evaluating is pure CPU for as long as it takes, and on
+        # the event loop it stops the worker answering its arbiter, which kills
+        # the worker mid-deploy and leaves the deployment with no final status.
+        blocked = await asyncio.to_thread(
+            self._evaluate_checks,
+            plan,
+            manifest,
+            loaded,
+            declared,
+            tag_types,
+            owner_kinds,
+            entities,
+            deployed_columns,
+        )
+
+        if blocked:
+            raise DJInvalidDeploymentConfig(
+                message=f"Deployment blocked by {len(blocked)} failing check(s)",
+                errors=self.errors,
+                warnings=self.warnings,
+            )
+
+    def _evaluate_checks(
+        self,
+        plan: DeploymentPlan,
+        manifest: ManifestChecks,
+        loaded: LoadedChecks,
+        declared: DeclaredSchemas,
+        tag_types: TagTypes,
+        owner_kinds: OwnerKinds,
+        entities: list[tuple[NodeSpec, DeploymentResult.Operation]],
+        deployed_columns: dict[str, list[ColumnSpec]],
+    ) -> list[str]:
+        """
+        Evaluate every node against the compiled checks, returning the blocking
+        failures. Synchronous so the caller can hand it to a worker thread.
+        """
         in_flight = {spec.rendered_name: spec for spec in plan.to_deploy}
         # The spec this deploy will write wins over the one already deployed.
         current_specs = {**plan.existing_specs, **in_flight}
@@ -718,10 +796,13 @@ class DeploymentOrchestrator:
             check.gate == CheckGate.BLOCK_ON_REGRESSION for check in loaded.checks
         )
         # A deploy can change a node's upstreams, so the deployed state has its
-        # own graph. Only block_on_regression reads it, and extracting it means
-        # parsing every deployed query.
+        # own graph. Building it parses a query per node, so parse only the
+        # nodes being checked rather than everything already deployed.
+        checked = {spec.rendered_name for spec, _ in entities}
         previous_graph = (
-            extract_node_graph(list(plan.existing_specs.values()))
+            extract_node_graph(
+                [spec for name, spec in plan.existing_specs.items() if name in checked],
+            )
             if wants_previous
             else {}
         )
@@ -741,6 +822,13 @@ class DeploymentOrchestrator:
                 operation=operation,
                 declared=declared.properties,
                 tag_types=tag_types,
+                owner_kinds=owner_kinds,
+                outputs=self._deployed_columns(
+                    plan,
+                    name,
+                    operation,
+                    deployed_columns,
+                ),
             )
             previous_bindings = None
             if wants_previous and previous is not None:
@@ -755,6 +843,7 @@ class DeploymentOrchestrator:
                     operation=DeploymentResult.Operation.NOOP,
                     declared=declared.properties,
                     tag_types=tag_types,
+                    owner_kinds=owner_kinds,
                 )
             results = evaluate_checks(loaded.checks, bindings, previous_bindings)
             for result in results:
@@ -809,12 +898,56 @@ class DeploymentOrchestrator:
                 ),
             )
 
-        if blocked:
-            raise DJInvalidDeploymentConfig(
-                message=f"Deployment blocked by {len(blocked)} failing check(s)",
-                errors=self.errors,
-                warnings=self.warnings,
+        return blocked
+
+    async def _load_deployed_columns(
+        self,
+        entities: list[tuple[NodeSpec, DeploymentResult.Operation]],
+    ) -> dict[str, list[ColumnSpec]]:
+        """
+        Each checked node's output columns as saved, by node name. Removed nodes
+        are left out; their last deployed spec stands in.
+        """
+        names = [
+            spec.rendered_name
+            for spec, operation in entities
+            if operation is not DeploymentResult.Operation.DELETE
+        ]
+        rows = await self.session.execute(
+            select(Node.name, Column.name, Column.type, Column.order)
+            .join(
+                NodeRevision,
+                (NodeRevision.node_id == Node.id)
+                & (NodeRevision.version == Node.current_version),
             )
+            .join(Column, Column.node_revision_id == NodeRevision.id)
+            .where(Node.name.in_(names), Node.deactivated_at.is_(None))
+            .order_by(Node.name, Column.order),
+        )
+        columns: dict[str, list[ColumnSpec]] = {}
+        for node_name, column_name, column_type, order in rows:
+            columns.setdefault(node_name, []).append(
+                ColumnSpec(name=column_name, type=str(column_type), order=order),
+            )
+        return columns
+
+    @staticmethod
+    def _deployed_columns(
+        plan: DeploymentPlan,
+        name: str,
+        operation: DeploymentResult.Operation,
+        deployed_columns: dict[str, list[ColumnSpec]],
+    ) -> list[ColumnSpec] | None:
+        """
+        A node's output columns once the deploy is applied. A node not saved
+        yet falls back to its last deployed columns when it was skipped.
+        """
+        if name in deployed_columns:
+            return deployed_columns[name]
+        existing = plan.existing_specs.get(name)
+        if operation is not DeploymentResult.Operation.NOOP or existing is None:
+            return None
+        return getattr(existing, "columns", None) or []
 
     @staticmethod
     def _checked_entities(
@@ -834,6 +967,29 @@ class DeploymentOrchestrator:
             ),
             *((spec, operation.NOOP) for spec in plan.to_skip),
             *((spec, operation.DELETE) for spec in plan.to_delete),
+        ]
+
+    @staticmethod
+    def _affected_entities(
+        plan: DeploymentPlan,
+        entities: list[tuple[NodeSpec, DeploymentResult.Operation]],
+    ) -> list[tuple[NodeSpec, DeploymentResult.Operation]]:
+        """The nodes this deploy affects"""
+        changed = {
+            spec.rendered_name
+            for spec, operation in entities
+            if operation is not DeploymentResult.Operation.NOOP
+        }
+        if not changed:
+            return []
+        affected = set(changed)
+        for name, upstreams in plan.node_graph.items():
+            if changed.intersection(upstreams):
+                affected.add(name)
+        return [
+            (spec, operation)
+            for spec, operation in entities
+            if spec.rendered_name in affected
         ]
 
     @staticmethod
@@ -2049,7 +2205,7 @@ class DeploymentOrchestrator:
                 for spec in non_cube_specs
             }
         else:
-            node_graph = extract_node_graph(non_cube_specs)
+            node_graph = await asyncio.to_thread(extract_node_graph, non_cube_specs)
 
         incoming_names = {s.rendered_name for s in self.deployment_spec.nodes}
         all_referenced = set(node_graph.keys()) | {
@@ -2169,7 +2325,8 @@ class DeploymentOrchestrator:
         external_deps: set[str] = set()
         if to_deploy or to_delete:
             with self._timer.phase("  plan: extract node graph") as p:
-                node_graph = self._extract_plan_node_graph(
+                node_graph = await asyncio.to_thread(
+                    self._extract_plan_node_graph,
                     [node for node in to_deploy if not isinstance(node, CubeSpec)],
                 )
                 p.append(f"{len(node_graph)} nodes in graph")
@@ -2290,7 +2447,8 @@ class DeploymentOrchestrator:
                             existing_node.name,
                         )
 
-                node_graph = self._extract_plan_node_graph(
+                node_graph = await asyncio.to_thread(
+                    self._extract_plan_node_graph,
                     [node for node in to_deploy if not isinstance(node, CubeSpec)],
                 )
 
@@ -2526,8 +2684,10 @@ class DeploymentOrchestrator:
                 continue
             # A fixed grain names dimensions the same way, and needs them to
             # exist for the same reason.
-            ordering_dims = list(node_spec.rendered_required_dimensions or []) + list(
-                node_spec.rendered_fixed_grain or [],
+            ordering_dims = (
+                list(node_spec.rendered_required_dimensions or [])
+                + list(node_spec.rendered_fixed_grain or [])
+                + node_spec.filter_requirement_dimensions
             )
             for required_dim in ordering_dims:
                 if SEPARATOR not in required_dim:
@@ -2538,6 +2698,17 @@ class DeploymentOrchestrator:
                 deps = ordering_graph.setdefault(node_spec.rendered_name, [])
                 if dim_node not in deps:
                     deps.append(dim_node)
+
+        # A dimension attribute named in a metric's query types the metric, so
+        # that dimension deploys first too.
+        for node_spec in plan.to_deploy:
+            if isinstance(node_spec, MetricSpec) and node_spec.query_ast is not None:
+                deps = ordering_graph.setdefault(node_spec.rendered_name, [])
+                for dim_node in sorted(
+                    extract_dimension_attribute_nodes(node_spec.query_ast),
+                ):
+                    if dim_node != node_spec.rendered_name and dim_node not in deps:
+                        deps.append(dim_node)
 
         # Each linked dimension is an ordering edge too, so a link onto a column
         # this same push adds to an existing dimension validates against the new
@@ -4588,6 +4759,7 @@ class DeploymentOrchestrator:
             element_key = node_column.cube_element_name
             if element_key in column_spec_map:
                 col_spec = column_spec_map[element_key]
+                node_column.description = col_spec.description
                 if col_spec.partition:  # pragma: no branch
                     node_column.partition = Partition(
                         type_=col_spec.partition.type,
@@ -4937,12 +5109,21 @@ class DeploymentOrchestrator:
         to_skip: list[NodeSpec] = []
         revalidation_only: set[str] = set()
         force = self.deployment_spec.force
+        force_nodes = set(self.deployment_spec.force_nodes)
+        unknown_force_nodes = force_nodes - {
+            node_spec.rendered_name for node_spec in self.deployment_spec.nodes
+        }
+        if unknown_force_nodes:
+            raise DJInvalidInputException(
+                "`force_nodes` names nodes that are not in this deployment: "
+                f"{', '.join(sorted(unknown_force_nodes))}",
+            )
         for node_spec in self.deployment_spec.nodes:
             existing_spec = existing_nodes_map.get(node_spec.rendered_name)
             if not existing_spec:
                 to_create.append(node_spec)
             else:
-                if force:
+                if force or node_spec.rendered_name in force_nodes:
                     to_update.append(node_spec)
                     continue
                 existing_spec.namespace = node_spec.namespace
@@ -5303,6 +5484,30 @@ class DeploymentOrchestrator:
 
         return to_deploy, []
 
+    @cached_property
+    def _deployment_link_roles(self) -> dict[str, set[tuple[str, str | None]]]:
+        """
+        Map each linkable node to the (dimension node, role) pairs its links
+        declare in this deployment.
+        """
+        roles: dict[str, set[tuple[str, str | None]]] = {}
+        for node_spec in self.deployment_spec.nodes:
+            if isinstance(node_spec, LinkableNodeSpec):
+                for link in node_spec.dimension_links:
+                    roles.setdefault(node_spec.rendered_name, set()).add(
+                        (link.rendered_dimension_node, link.role),
+                    )
+        return roles
+
+    @cached_property
+    def _deployment_links(self) -> dict[str, list]:
+        """Map each linkable node to the link specs it declares."""
+        return {
+            node_spec.rendered_name: list(node_spec.dimension_links)
+            for node_spec in self.deployment_spec.nodes
+            if isinstance(node_spec, LinkableNodeSpec) and node_spec.dimension_links
+        }
+
     def _deployment_link_targets(self) -> dict[str, set[str]]:
         """Map each linkable node to the dimension nodes it links to, across the
         whole deployment (rendered names, to match node_graph).
@@ -5365,6 +5570,8 @@ class DeploymentOrchestrator:
                     dependency_nodes=dependency_nodes,
                     deployment_namespace=self.deployment_spec.namespace,
                     deployment_link_targets=self._deployment_link_targets(),
+                    deployment_link_roles=self._deployment_link_roles,
+                    deployment_links=self._deployment_links,
                 )
             p.append(f"{len(validation_results)} results")
 
@@ -6029,16 +6236,29 @@ class DeploymentOrchestrator:
                     if parent.current
                     for col in parent.current.columns
                 ]
-                _, matched_columns = _resolve_required_dimensions(
+                parent_dimension_links, pending_link_roles = await parent_link_inputs(
+                    self.session,
+                    new_revision.parents,
+                    self._deployment_link_roles,
+                )
+                _, resolved_required_dims = _resolve_required_dimensions(
                     metric_spec.rendered_required_dimensions,
                     parent_columns,
                     dependency_nodes,
+                    parent_dimension_links,
+                    pending_link_roles,
                 )
-                new_revision.required_dimensions = matched_columns
+                new_revision.required_dimensions = resolved_required_dims
             new_revision.reaggregate = dump_reaggregate_spec(
                 metric_spec.rendered_reaggregate,
             )
             new_revision.fixed_grain = metric_spec.rendered_fixed_grain
+            new_revision.required_filters = dump_filter_requirements(
+                metric_spec.rendered_required_filters,
+            )
+            new_revision.recommended_filters = dump_filter_requirements(
+                metric_spec.rendered_recommended_filters,
+            )
         return new_revision
 
     def _resolve_metric_unit(
@@ -6201,7 +6421,8 @@ class DeploymentOrchestrator:
             if link.join_sql == link_input.join_on
             and link.join_type == join_type
             and link.join_cardinality == link_input.join_cardinality
-            and link.default_value == link_input.default_value
+            and default_value_key(link.default_value)
+            == default_value_key(link_input.default_value)
             and link.spark_hints == link_input.spark_hints
         ]
         if exact_match:
@@ -6216,6 +6437,9 @@ class DeploymentOrchestrator:
             dimension_link.join_type = join_type
             dimension_link.join_cardinality = link_input.join_cardinality
             dimension_link.default_value = link_input.default_value
+            # SQLAlchemy compares old and new with ==, which counts 1 and True
+            # as the same value and skips the column in the UPDATE.
+            flag_modified(dimension_link, "default_value")
             dimension_link.spark_hints = link_input.spark_hints
         else:
             # No single candidate to update — create a new dimension link object

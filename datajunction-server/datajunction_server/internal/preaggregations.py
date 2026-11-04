@@ -28,6 +28,7 @@ from datajunction_server.database.preaggregation import (
     compute_grain_group_hash,
     compute_preagg_hash,
     get_measure_identities,
+    measure_identity_token,
 )
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.decompose import PreAggMeasure
@@ -195,7 +196,7 @@ async def register_external_preaggregations(
     #    identity -- (expression hash, Phase-1 aggregation) -- to the declared
     #    column. Keying on the hash alone would collapse SUM(x) and MAX(x),
     #    silently discarding one metric's declared column.
-    measure_identity_to_column: dict[tuple[str, str], str] = {}
+    measure_identity_to_column: dict[str, str] = {}
     for metric_name, physical_column in measure_columns.items():
         node = await Node.get_by_name(
             session,
@@ -224,9 +225,10 @@ async def register_external_preaggregations(
         # is_measure guarantees exactly one component.
         component = components[0]
         measure_identity_to_column[
-            (
+            measure_identity_token(
                 compute_expression_hash(component.expression),
-                component.normalized_aggregation,
+                component.aggregation,
+                component.params,
             )
         ] = physical_column
 
@@ -311,7 +313,11 @@ async def register_external_preaggregations(
         grain_measures: list[PreAggMeasure] = []
         for component in grain_group.components:
             expr_hash = compute_expression_hash(component.expression)
-            identity = (expr_hash, component.normalized_aggregation)
+            identity = measure_identity_token(
+                expr_hash,
+                component.aggregation,
+                component.params,
+            )
             if identity not in measure_identity_to_column:
                 raise DJInvalidInputException(
                     message=(

@@ -1,6 +1,7 @@
 """Metric metadata scalars"""
 
 import strawberry
+from strawberry.scalars import JSON
 
 from datajunction_server.models.cube_materialization import (
     Aggregability as Aggregability_,
@@ -15,6 +16,9 @@ from datajunction_server.models.cube_materialization import (
     MetricComponent as MetricComponent_,
 )
 from datajunction_server.models.node import MetricDirection as MetricDirection_
+from datajunction_server.models.materialization import (
+    MaterializationTarget as MaterializationTarget_,
+)
 from datajunction_server.models.reaggregate import (
     DimensionReaggregateRule as DimensionReaggregateRule_,
     ReaggregateSpec as ReaggregateSpec_,
@@ -24,6 +28,7 @@ from datajunction_server.models.reaggregate import (
 MetricDirection = strawberry.enum(MetricDirection_)
 Aggregability = strawberry.enum(Aggregability_)
 ReaggregationFunction = strawberry.enum(ReaggregationFunction_)
+MaterializationTarget = strawberry.enum(MaterializationTarget_)
 
 
 @strawberry.type
@@ -45,16 +50,44 @@ class Unit:
 class DimensionReaggregateRule: ...
 
 
-@strawberry.experimental.pydantic.type(model=ReaggregateSpec_, all_fields=True)
-class ReaggregateSpec: ...
+@strawberry.experimental.pydantic.type(model=ReaggregateSpec_)
+class ReaggregateSpec:
+    """
+    Metric reaggregation declaration.
+
+    Fields are listed explicitly rather than via `all_fields` because `params`
+    is an open dict, which has no automatic GraphQL mapping.
+    """
+
+    fn: strawberry.auto
+    rules: strawberry.auto
+    params: JSON | None = None
 
 
 @strawberry.experimental.pydantic.type(model=AggregationRule_, all_fields=True)
 class AggregationRule: ...
 
 
-@strawberry.experimental.pydantic.type(model=MetricComponent_, all_fields=True)
-class MetricComponent: ...
+@strawberry.experimental.pydantic.type(model=MetricComponent_)
+class MetricComponent:
+    """
+    A single measure with accumulate/merge phases.
+
+    Fields are listed explicitly rather than via `all_fields` because `params`
+    is an open dict, which has no automatic GraphQL mapping.
+    """
+
+    name: strawberry.auto
+    expression: strawberry.auto
+    aggregation: strawberry.auto
+    merge: strawberry.auto
+    merge_args: strawberry.auto
+    rule: strawberry.auto
+    grain_alias: strawberry.auto
+    params: JSON | None = None
+    serialize: strawberry.auto
+    serialize_targets: strawberry.auto
+    serialize_type: strawberry.auto
 
 
 @strawberry.experimental.pydantic.type(model=DecomposedMetric_, all_fields=True)

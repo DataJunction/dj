@@ -1,21 +1,38 @@
 """DJ graphql"""
 
+import gzip
+import hashlib
 import inspect
+import json
 import logging
 import time
+from dataclasses import dataclass
 from functools import wraps
 
 import strawberry
-from fastapi import BackgroundTasks, Depends, Request
+from graphql import (
+    GraphQLSyntaxError,
+    FieldNode,
+    OperationType,
+    get_operation_ast,
+    parse,
+    print_ast,
+)
+from fastapi import BackgroundTasks, Depends, Request, Response
 from strawberry.extensions import SchemaExtension
 from strawberry.fastapi import GraphQLRouter
+from strawberry.http import GraphQLRequestData
+from starlette.concurrency import run_in_threadpool
 from strawberry.types import Info
+from strawberry.types.unset import UNSET
 
 from datajunction_server.api.graphql.dataloaders import (
     create_collection_nodes_loader,
+    create_effective_filters_loader,
     create_extracted_measures_loader,
     create_git_info_loader,
     create_node_by_name_loader,
+    create_node_with_fields_loader,
 )
 from datajunction_server.api.graphql.queries.catalogs import list_catalogs
 from datajunction_server.api.graphql.queries.collections import list_collections
@@ -35,6 +52,7 @@ from datajunction_server.api.graphql.queries.sql import (
     materialization_plan,
     measures_sql,
 )
+from datajunction_server.api.graphql.queries.tables import nodes_for_table
 from datajunction_server.api.graphql.queries.tags import (
     list_tag_types,
     list_tags,
@@ -61,9 +79,13 @@ from datajunction_server.api.graphql.scalars.tag import Tag
 from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.internal.access.authentication.http import DJHTTPBearer
 from datajunction_server.internal.caching.cachelib_cache import get_cache
+from datajunction_server.internal.caching.data_version import read_data_version
 from datajunction_server.utils import get_session, get_settings
 
+from cross_web import HTTPException
+
 logger = logging.getLogger(__name__)
+_warned_unshared: set[type] = set()
 
 # Resolvers that take longer than this are logged at WARNING with their path
 # so slow fields are visible without enabling per-resolver timing for everyone.
@@ -178,21 +200,37 @@ class GraphQLErrorReporter(SchemaExtension):
                 },
             )
 
-    async def resolve(self, _next, root, info, *args, **kwargs):
+    def resolve(self, _next, root, info, *args, **kwargs):
+        # Sync on purpose: an ``async def`` here makes every field resolution
+        # awaitable, so graphql-core schedules a task per field per list item
+        # even for plain attribute reads. Only an awaitable result needs a
+        # coroutine to time it.
         start = time.monotonic()
         try:
             result = _next(root, info, *args, **kwargs)
-            if inspect.isawaitable(result):
-                result = await result
-            return result
+        except BaseException:
+            self._log_if_slow(start, info)
+            raise
+        if inspect.isawaitable(result):
+            return self._time_awaitable(result, start, info)
+        self._log_if_slow(start, info)
+        return result
+
+    async def _time_awaitable(self, result, start, info):
+        try:
+            return await result
         finally:
-            elapsed_ms = (time.monotonic() - start) * 1000
-            if elapsed_ms >= SLOW_RESOLVER_THRESHOLD_MS:
-                logger.warning(
-                    "[GQL] slow_resolver path=%s elapsed_ms=%.1f",
-                    info.path.as_list(),
-                    elapsed_ms,
-                )
+            self._log_if_slow(start, info)
+
+    @staticmethod
+    def _log_if_slow(start, info):
+        elapsed_ms = (time.monotonic() - start) * 1000
+        if elapsed_ms >= SLOW_RESOLVER_THRESHOLD_MS:
+            logger.warning(
+                "[GQL] slow_resolver path=%s elapsed_ms=%.1f",
+                info.path.as_list(),
+                elapsed_ms,
+            )
 
 
 async def get_context(
@@ -216,9 +254,11 @@ async def get_context(
 
     return {
         "node_loader": create_node_by_name_loader(request),
+        "node_fields_loader": create_node_with_fields_loader(request),
         "collection_nodes_loader": create_collection_nodes_loader(request),
         "git_info_loader": create_git_info_loader(request),
         "extracted_measures_loader": create_extracted_measures_loader(request),
+        "effective_filters_loader": create_effective_filters_loader(request),
         "settings": get_settings(),
         "request": request,
         "background_tasks": background_tasks,
@@ -272,6 +312,11 @@ class Query:
     upstream_nodes: list[Node] = strawberry.field(
         resolver=log_resolver(upstream_nodes),
         description="Find upstream nodes (optionally, of a given type) from a given node.",
+    )
+    nodes_for_table: list[Node] = strawberry.field(
+        resolver=log_resolver(nodes_for_table),
+        description="Find the nodes associated with a physical table: the source "
+        "nodes on that table and, unless disabled, everything downstream of them.",
     )
 
     # Generate SQL queries
@@ -330,4 +375,151 @@ class DJSchema(strawberry.Schema):
 
 schema = DJSchema(query=Query, extensions=[GraphQLErrorReporter])
 
-graphql_app = GraphQLRouter(schema, context_getter=get_context)
+
+@dataclass(frozen=True)
+class CacheableRequest:
+    """A request whose response may be cached."""
+
+    fields: str
+    key: str
+
+
+def _cacheable_request(data: GraphQLRequestData) -> CacheableRequest | None:
+    """
+    The request, if it is a query that only selects fields allowed to be cached.
+
+    The operation is the one GraphQL would run: the one named by
+    ``operationName``, or the only one in the document. Every top-level field it
+    selects must be allowed, by its field name whatever the alias; a top-level
+    fragment is not looked into, so it is not cached. The key is built from the
+    printed document, so formatting does not matter, plus the variables.
+    """
+    allowed = get_settings().graphql_cacheable_fields
+    if not allowed or data.query is None:
+        # Nothing to cache, so don't parse every request.
+        return None
+    try:
+        document = parse(data.query)
+    except GraphQLSyntaxError:
+        return None
+    operation = get_operation_ast(document, data.operation_name)
+    if operation is None or operation.operation != OperationType.QUERY:
+        return None
+    selections = operation.selection_set.selections
+    if not all(
+        isinstance(selection, FieldNode) and selection.name.value in allowed
+        for selection in selections
+    ):
+        return None
+    canonical = json.dumps(
+        [data.operation_name, print_ast(document), data.variables or {}],
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return CacheableRequest(
+        # Sorted and without repeats: this is a metric tag, so aliases or
+        # ordering must not mint new values.
+        fields=",".join(
+            sorted({selection.name.value for selection in selections}),  # type: ignore[attr-defined]
+        ),
+        key=f"graphql:response:{hashlib.sha256(canonical.encode()).hexdigest()}",
+    )
+
+
+class CachingGraphQLRouter(GraphQLRouter):
+    """
+    GraphQL router that can serve the whole response of an allowed operation
+    from the shared cache until something changes.
+
+    Opt-in per top-level field (``graphql_cacheable_fields``), for queries
+    only: the cached response is the same for every caller, so only list
+    fields whose result does not depend on who asks. A response is stored
+    under a version of the data it reads (see ``read_data_version``), read before
+    the query runs, so any later change makes it unreachable;
+    ``graphql_response_cache_ttl`` only bounds how long it is kept. Responses
+    with errors are not cached. The request's cache (which honors
+    ``Cache-Control: no-cache``) does the storing.
+    """
+
+    async def run(self, request, context=UNSET, root_value=UNSET):  # type: ignore[no-untyped-def]
+        if request.method != "POST":
+            return await super().run(request, context, root_value)
+        try:
+            data = await self.parse_http_body(self.request_adapter_class(request))
+        except HTTPException:
+            # Let the normal path answer an invalid request.
+            return await super().run(request, context, root_value)
+        # A batch, which this schema does not enable, is a list.
+        cacheable = (
+            _cacheable_request(data) if isinstance(data, GraphQLRequestData) else None
+        )
+        cache = context.get("cache") if isinstance(context, dict) else None
+        if cacheable is None or cache is None:
+            return await super().run(request, context, root_value)
+        if not getattr(cache, "shared", True):
+            # An edit replaces the version in one process only, so the others
+            # would keep serving what they stored.
+            if type(cache) not in _warned_unshared:
+                _warned_unshared.add(type(cache))
+                logger.warning(
+                    "GraphQL response caching needs a cache shared by every server "
+                    "process; %s is not, so it is skipped",
+                    type(cache).__name__,
+                )
+            return await super().run(request, context, root_value)
+
+        request.state.read_from_writer = True
+        # Read before the query runs: the data is then at least this new. The
+        # cache clients are blocking network calls, so keep them off the loop.
+        # A cache that is down or refuses a value must not fail the request.
+        try:
+            version = await run_in_threadpool(
+                read_data_version,
+                cache,
+                data.query,
+                get_settings().graphql_response_cache_version_ttl,
+            )
+            key = f"{cacheable.key}:{version}"
+            stored = (
+                await run_in_threadpool(cache.get, key) if version is not None else None
+            )
+        except Exception as exc:
+            # The error is in the message too: log pipelines may drop tracebacks.
+            logger.exception(
+                "GraphQL response cache unavailable (%r); running the query",
+                exc,
+            )
+            return await super().run(request, context, root_value)
+        if stored is not None:
+            get_metrics_provider().counter(
+                "dj.graphql.response_cache",
+                tags={"fields": cacheable.fields, "result": "hit"},
+            )
+            return Response(gzip.decompress(stored), media_type="application/json")
+
+        response = await super().run(request, context, root_value)
+        body = bytes(response.body)
+        # Anywhere in the body: an error message can be arbitrarily long. A data
+        # key named ``errors`` would only mean skipping the cache.
+        if (
+            version is not None
+            and response.status_code == 200
+            and b'"errors"' not in body
+        ):
+            try:
+                await run_in_threadpool(
+                    cache.set,
+                    key,
+                    gzip.compress(body, compresslevel=1),
+                    timeout=get_settings().graphql_response_cache_ttl,
+                )
+            except Exception as exc:
+                logger.exception("Could not store the GraphQL response (%r)", exc)
+        get_metrics_provider().counter(
+            "dj.graphql.response_cache",
+            tags={"fields": cacheable.fields, "result": "miss"},
+        )
+        return response
+
+
+graphql_app = CachingGraphQLRouter(schema, context_getter=get_context)

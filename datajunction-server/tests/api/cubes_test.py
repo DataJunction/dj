@@ -3651,6 +3651,11 @@ async def test_cube_materialization_metadata(
                     "aggregation": "COUNT",
                     "expression": "*",
                     "grain_alias": None,
+                    "params": None,
+                    "merge_args": [],
+                    "serialize": None,
+                    "serialize_targets": [],
+                    "serialize_type": None,
                     "merge": "SUM",
                     "name": "count_c8e42e74",
                     "rule": {
@@ -3664,6 +3669,11 @@ async def test_cube_materialization_metadata(
                     "aggregation": "SUM",
                     "expression": "if(discount > 0.0, 1, 0)",
                     "grain_alias": None,
+                    "params": None,
+                    "merge_args": [],
+                    "serialize": None,
+                    "serialize_targets": [],
+                    "serialize_type": None,
                     "merge": "SUM",
                     "name": "discount_sum_30b84e6c",
                     "rule": {
@@ -3677,6 +3687,11 @@ async def test_cube_materialization_metadata(
                     "aggregation": "COUNT",
                     "expression": "price",
                     "grain_alias": None,
+                    "params": None,
+                    "merge_args": [],
+                    "serialize": None,
+                    "serialize_targets": [],
+                    "serialize_type": None,
                     "merge": "SUM",
                     "name": "price_count_935e7117",
                     "rule": {
@@ -3690,6 +3705,11 @@ async def test_cube_materialization_metadata(
                     "aggregation": "SUM",
                     "expression": "price * discount",
                     "grain_alias": None,
+                    "params": None,
+                    "merge_args": [],
+                    "serialize": None,
+                    "serialize_targets": [],
+                    "serialize_type": None,
                     "merge": "SUM",
                     "name": "price_discount_sum_e4ba5456",
                     "rule": {
@@ -3703,6 +3723,11 @@ async def test_cube_materialization_metadata(
                     "aggregation": "SUM",
                     "expression": "price",
                     "grain_alias": None,
+                    "params": None,
+                    "merge_args": [],
+                    "serialize": None,
+                    "serialize_targets": [],
+                    "serialize_type": None,
                     "merge": "SUM",
                     "name": "price_sum_935e7117",
                     "rule": {
@@ -3716,6 +3741,11 @@ async def test_cube_materialization_metadata(
                     "aggregation": "COUNT",
                     "expression": "repair_order_id",
                     "grain_alias": None,
+                    "params": None,
+                    "merge_args": [],
+                    "serialize": None,
+                    "serialize_targets": [],
+                    "serialize_type": None,
                     "merge": "SUM",
                     "name": "repair_order_id_count_bd241964",
                     "rule": {
@@ -3729,6 +3759,11 @@ async def test_cube_materialization_metadata(
                     "aggregation": "SUM",
                     "expression": "total_repair_cost",
                     "grain_alias": None,
+                    "params": None,
+                    "merge_args": [],
+                    "serialize": None,
+                    "serialize_targets": [],
+                    "serialize_type": None,
                     "merge": "SUM",
                     "name": "total_repair_cost_sum_67874507",
                     "rule": {
@@ -3850,6 +3885,11 @@ async def test_cube_materialization_metadata(
                     "aggregation": "SUM",
                     "expression": "price",
                     "grain_alias": None,
+                    "params": None,
+                    "merge_args": [],
+                    "serialize": None,
+                    "serialize_targets": [],
+                    "serialize_type": None,
                     "merge": "SUM",
                     "name": "price_sum_252381cf",
                     "rule": {
@@ -4106,6 +4146,11 @@ async def test_cube_materialization_metadata(
                     "name": "count_c8e42e74",
                     "expression": "*",
                     "grain_alias": None,
+                    "params": None,
+                    "merge_args": [],
+                    "serialize": None,
+                    "serialize_targets": [],
+                    "serialize_type": None,
                     "aggregation": "COUNT",
                     "merge": "SUM",
                     "rule": {
@@ -4119,6 +4164,11 @@ async def test_cube_materialization_metadata(
                     "name": "discount_sum_30b84e6c",
                     "expression": "if(discount > 0.0, 1, 0)",
                     "grain_alias": None,
+                    "params": None,
+                    "merge_args": [],
+                    "serialize": None,
+                    "serialize_targets": [],
+                    "serialize_type": None,
                     "aggregation": "SUM",
                     "merge": "SUM",
                     "rule": {
@@ -4132,6 +4182,11 @@ async def test_cube_materialization_metadata(
                     "name": "price_count_935e7117",
                     "expression": "price",
                     "grain_alias": None,
+                    "params": None,
+                    "merge_args": [],
+                    "serialize": None,
+                    "serialize_targets": [],
+                    "serialize_type": None,
                     "aggregation": "COUNT",
                     "merge": "SUM",
                     "rule": {
@@ -4145,6 +4200,11 @@ async def test_cube_materialization_metadata(
                     "name": "price_discount_sum_e4ba5456",
                     "expression": "price * discount",
                     "grain_alias": None,
+                    "params": None,
+                    "merge_args": [],
+                    "serialize": None,
+                    "serialize_targets": [],
+                    "serialize_type": None,
                     "aggregation": "SUM",
                     "merge": "SUM",
                     "rule": {
@@ -4158,6 +4218,11 @@ async def test_cube_materialization_metadata(
                     "name": "price_sum_935e7117",
                     "expression": "price",
                     "grain_alias": None,
+                    "params": None,
+                    "merge_args": [],
+                    "serialize": None,
+                    "serialize_targets": [],
+                    "serialize_type": None,
                     "aggregation": "SUM",
                     "merge": "SUM",
                     "rule": {
@@ -4171,6 +4236,11 @@ async def test_cube_materialization_metadata(
                     "name": "repair_order_id_count_bd241964",
                     "expression": "repair_order_id",
                     "grain_alias": None,
+                    "params": None,
+                    "merge_args": [],
+                    "serialize": None,
+                    "serialize_targets": [],
+                    "serialize_type": None,
                     "aggregation": "COUNT",
                     "merge": "SUM",
                     "rule": {
@@ -4184,6 +4254,11 @@ async def test_cube_materialization_metadata(
                     "name": "total_repair_cost_sum_67874507",
                     "expression": "total_repair_cost",
                     "grain_alias": None,
+                    "params": None,
+                    "merge_args": [],
+                    "serialize": None,
+                    "serialize_targets": [],
+                    "serialize_type": None,
                     "aggregation": "SUM",
                     "merge": "SUM",
                     "rule": {
@@ -4197,6 +4272,11 @@ async def test_cube_materialization_metadata(
                     "name": "price_sum_252381cf",
                     "expression": "price",
                     "grain_alias": None,
+                    "params": None,
+                    "merge_args": [],
+                    "serialize": None,
+                    "serialize_targets": [],
+                    "serialize_type": None,
                     "aggregation": "SUM",
                     "merge": "SUM",
                     "rule": {
@@ -5142,6 +5222,83 @@ class TestCubeMaterializeV2SuccessPaths:
         assert data["schedule"] == "0 0 * * *"
         assert "workflow_urls" in data
         assert len(data["workflow_urls"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_materialize_cube_forwards_platform(
+        self,
+        client_with_repairs_cube: AsyncClient,
+        mocker,
+    ):
+        """The declared platform reaches the query service and the stored config."""
+        cube_name = "default.test_materialize_platform_cube"
+        await make_a_test_cube(
+            client_with_repairs_cube,
+            cube_name,
+            with_materialization=False,
+        )
+        mock_combined_result = _create_mock_combined_result(
+            mocker,
+            columns=[
+                V3ColumnMetadata(
+                    name="state",
+                    type="string",
+                    semantic_name="default.hard_hat.state",
+                    semantic_type="dimension",
+                ),
+                V3ColumnMetadata(
+                    name="date_id",
+                    type="int",
+                    semantic_name="default.hard_hat.hire_date",
+                    semantic_type="dimension",
+                ),
+                V3ColumnMetadata(
+                    name="total_repair_cost",
+                    type="double",
+                    semantic_name="default.total_repair_cost",
+                    semantic_type="measure",
+                ),
+            ],
+            shared_dimensions=["default.hard_hat.state", "default.hard_hat.hire_date"],
+            sql_string="SELECT state, date_id, SUM(cost) AS total_repair_cost FROM preagg GROUP BY state, date_id",
+        )
+        mocker.patch(
+            "datajunction_server.api.cubes.build_combiner_sql_from_preaggs",
+            return_value=(
+                mock_combined_result,
+                [
+                    PreAggSourceInfo(
+                        table_ref="catalog.schema.preagg_table1",
+                        parent_name="default.repair_orders",
+                        strategy=None,
+                    ),
+                ],
+                TemporalPartitionInfo(
+                    column_name="date_id",
+                    format="yyyyMMdd",
+                    granularity="day",
+                ),
+            ),
+        )
+        qs_client = client_with_repairs_cube.app.dependency_overrides[
+            get_query_service_client
+        ]()
+        materialize = mocker.patch.object(
+            qs_client,
+            "materialize_cube_v2",
+            return_value=mocker.MagicMock(urls=["http://workflow/cube-workflow"]),
+        )
+
+        response = await client_with_repairs_cube.post(
+            f"/cubes/{cube_name}/materialize",
+            json={
+                "strategy": "full",
+                "schedule": "0 0 * * *",
+                "platform": {"druid_cluster": "prod"},
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        assert materialize.call_args[0][0].platform == {"druid_cluster": "prod"}
 
     @pytest.mark.asyncio
     async def test_materialize_cube_surfaces_fanout_warning(

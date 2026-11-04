@@ -27,7 +27,9 @@ from datajunction_server.construction.build_v3.cte import (
 )
 from datajunction_server.construction.build_v3.decomposition import (
     analyze_grain_groups,
+    apply_component_serialize,
     build_component_expression,
+    build_merge_call,
     merge_grain_groups,
 )
 from datajunction_server.construction.build_v3.dimensions import (
@@ -72,15 +74,18 @@ from datajunction_server.construction.build_v3.utils import (
     make_column_ref,
     make_name,
 )
+from datajunction_server.construction.utils import dimension_link_default_literal
 from datajunction_server.database.node import Node
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.scan_estimation import calculate_scan_estimate
 from datajunction_server.models.decompose import Aggregability, MetricComponent
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.materialization import MaterializationTarget
 from datajunction_server.sql.functions import function_registry
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing import types as ct
 from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.utils import SEPARATOR
 
 _logger = logging.getLogger(__name__)
@@ -156,10 +161,57 @@ def _parse_type_string(type_str: str | None) -> ct.ColumnType | None:
     return _TYPE_STRING_MAP.get(normalized)
 
 
+def _multi_argument_accumulate_types(
+    aggregation: str,
+    parent_node: Node | None,
+) -> list[ct.ColumnType] | None:
+    """
+    Argument types of an accumulate whose outermost call takes more than one.
+
+    Type inference feeds a component exactly one input type, which is right for
+    every aggregation that takes one argument -- including the templated ones,
+    whose outermost call is still a single-argument ``SUM``. A sketch breaks
+    that assumption: ``nflx_tdigest(latency_ms, CAST(200.0 AS DOUBLE))`` needs
+    two, so calling ``infer_type`` with one raises ``TypeError``, and the caller
+    quietly falls back to the metric's own type. That is how a struct-valued
+    sketch column comes to be recorded as ``double``.
+
+    Returns None whenever this does not apply or an argument cannot be typed,
+    so the single-argument path is left exactly as it was.
+    """
+    if parent_node is None:
+        return None
+    call = parse(f"SELECT {aggregation}").select.projection[0]
+    if not isinstance(call, ast.Function) or len(call.args) < 2:
+        return None
+
+    arg_types: list[ct.ColumnType] = []
+    for arg in call.args:
+        # A parsed arithmetic or nested-function argument still has unbound
+        # columns. Resolve them before asking the whole expression for its type.
+        if isinstance(arg, ast.Expression):
+            for column in arg.find_all(ast.Column):
+                column_type = _parse_type_string(
+                    get_column_type(parent_node, column.name.name),
+                )
+                if column_type is None:
+                    return None
+                column.add_type(column_type)
+        try:
+            resolved = arg.type
+        except (DJParseException, TypeError, AttributeError):
+            return None
+        if resolved is None or isinstance(resolved, list):
+            return None
+        arg_types.append(resolved)
+    return arg_types
+
+
 def infer_component_type(
     component: MetricComponent,
     metric_type: str,
     parent_node: Node | None = None,
+    materialization_target: MaterializationTarget | None = None,
 ) -> str:
     """
     Infer the SQL type of a metric component based on its aggregation function.
@@ -176,6 +228,14 @@ def infer_component_type(
     Returns:
         The inferred SQL type string
     """
+    # A serialized column stores the converted type, and the family declares it.
+    # Checked first: inference below cannot see the conversion, and for a
+    # multi-argument sketch accumulate it falls back to `metric_type` entirely,
+    # so leaving this to inference records a type that makes the Druid
+    # aggregator lookup miss and drop the measure with no error.
+    if component.serializes_for(materialization_target) and component.serialize_type:
+        return component.serialize_type
+
     if not component.aggregation:
         return metric_type  # pragma: no cover
 
@@ -200,16 +260,21 @@ def infer_component_type(
         col_type_str = get_column_type(parent_node, component.expression)
         input_type = _parse_type_string(col_type_str)
 
+    multi_arg_types = _multi_argument_accumulate_types(agg_str, parent_node)
+
     try:
-        if input_type:
+        if multi_arg_types is not None:
+            result_type = func_class.infer_type(*multi_arg_types)
+        elif input_type:
             result_type = func_class.infer_type(input_type)
         else:  # pragma: no cover
             # Fallback: try with a generic ColumnType
             result_type = func_class.infer_type(ct.ColumnType("unknown", "unknown"))
-        return str(result_type)
     except (TypeError, NotImplementedError, AttributeError):
         # Function may require more specific types - fall back to metric type
         return metric_type
+
+    return str(result_type)
 
 
 def _get_filter_column_name_for_dimension(
@@ -492,18 +557,16 @@ def outer_only_filter_refs(
     parent's FK column through ``foreign_keys_reversed`` — both override this
     restriction where the ref maps to a real local column.
 
-    Both the role-qualified ref (``v3.location.country[customer->home]``) and
-    its role-stripped base (``v3.location.country``) are included so callers
-    can match either form.
+    Refs are reported as requested, role included
+    (``v3.location.country[customer->home]``).  A role-less entry therefore
+    means the dimension was requested without a role, not that some role of it
+    was joined.
     """
-    refs: set[str] = set()
-    for resolved_dim in resolved_dimensions:
-        if resolved_dim.is_local:
-            continue
-        refs.add(resolved_dim.original_ref)
-        if "[" in resolved_dim.original_ref:
-            refs.add(resolved_dim.original_ref.split("[")[0])
-    return refs
+    return {
+        resolved_dim.original_ref
+        for resolved_dim in resolved_dimensions
+        if not resolved_dim.is_local
+    }
 
 
 def build_outer_where(
@@ -703,6 +766,15 @@ def _absorb_filtered_joins_for_outer_safety(
             continue
         side_alias = _get_relation_side_id(jn.right)
         if side_alias and side_alias in atoms_by_alias:
+            # The wrapper holds only the parent and absorbed joins, so a join
+            # whose ON reaches any other alias must stay in the outer query.
+            on_aliases = (
+                {column_table_name(c) for c in jn.criteria.on.find_all(ast.Column)}
+                if jn.criteria and jn.criteria.on
+                else set()
+            )
+            if on_aliases - {main_alias, side_alias} - absorbed_aliases:
+                continue
             to_absorb_idx.append(i)
             absorbed_aliases.add(side_alias)
 
@@ -853,14 +925,23 @@ def build_dimension_col_expr(
     col_ref = make_column_ref(resolved_dim.column_name, table_alias)
 
     default_value = None
+    column_type = None
     if resolved_dim.join_path and resolved_dim.join_path.links:
         last_link = resolved_dim.join_path.links[-1]
         default_value = last_link.default_value
+        if ctx and resolved_dim.node_name in ctx.nodes:
+            column_type = get_column_type(
+                ctx.nodes[resolved_dim.node_name],
+                resolved_dim.column_name,
+            )
 
     if default_value is not None:
         coalesce_func = ast.Function(
             ast.Name("COALESCE"),
-            args=[col_ref, ast.String(f"'{default_value}'")],
+            args=[
+                col_ref,
+                dimension_link_default_literal(default_value, column_type),
+            ],
         )
         col_expr = coalesce_func.set_alias(ast.Name(clean_alias))
         col_expr.set_as(True)
@@ -912,7 +993,7 @@ def _build_group_by(
     projected_dim_col_names: set[str],
     filter_dimensions: set[str],
     parent_node_name: str | None = None,
-) -> list[ast.Expression]:
+) -> tuple[list[ast.Expression], dict[str, int]]:
     """Build the GROUP BY clause from dimensions and grain columns.
 
     Dimensions marked as filter-only are excluded.  Grain columns that are
@@ -925,10 +1006,12 @@ def _build_group_by(
     the NULL-side alone.
     """
     group_by: list[ast.Expression] = []
+    dimension_positions: dict[str, int] = {}
 
     for resolved_dim in resolved_dimensions:
         if resolved_dim.original_ref in filter_dimensions:
             continue
+        dimension_positions[resolved_dim.original_ref] = len(group_by)
         table_alias = get_dimension_table_alias(resolved_dim, main_alias, dim_aliases)
         col_ref = make_column_ref(resolved_dim.column_name, table_alias)
         group_by.append(
@@ -954,7 +1037,7 @@ def _build_group_by(
             # "Column ... cannot be resolved".  Spark accepts both forms.
             group_by.append(deepcopy(gc_expr))
 
-    return group_by
+    return group_by, dimension_positions
 
 
 def _parse_grain_col_specs(
@@ -1083,7 +1166,7 @@ def build_select_ast(
     internal_dimension_aliases: dict[str, str] | None = None,
     filters: list[str] | None = None,
     skip_aggregation: bool = False,
-) -> tuple[ast.Query, list[str]]:
+) -> tuple[ast.Query, list[str], dict[str, int]]:
     """
     Build a SELECT AST for measures SQL with JOIN support.
 
@@ -1109,7 +1192,7 @@ def build_select_ast(
                           metrics where raw rows need to be passed through.
 
     Returns:
-        Tuple of (query, scanned_sources):
+        Tuple of (query, scanned_sources, dimension_group_by_positions):
         - query: AST Query node
         - scanned_sources: List of source node names accessed during SQL generation
     """
@@ -1213,7 +1296,7 @@ def build_select_ast(
         clean_alias = ctx.alias_registry.register(alias_name)
         projection.append(_build_metric_col_expr(expr, clean_alias, main_alias))
 
-    group_by = _build_group_by(
+    group_by, dimension_group_by_positions = _build_group_by(
         resolved_dimensions,
         dim_aliases,
         main_alias,
@@ -1416,7 +1499,11 @@ def build_select_ast(
     # Now that every reader exists, each CTE can be trimmed to what they read.
     prune_cte_projections(query)
 
-    return query, scanned_sources
+    return (
+        query,
+        scanned_sources,
+        {} if skip_aggregation else dimension_group_by_positions,
+    )
 
 
 def build_lookback_filter(
@@ -1746,6 +1833,7 @@ def build_grain_group_from_preagg(
     # Dimension (grain) columns.
     grain_col_names: list[str] = []
     group_by: list[ast.Expression] = []
+    dimension_group_by_positions: dict[str, int] = {}
     # Dimension ref -> (column, table alias) backing it, for the filter pushdown.
     ref_columns: dict[str, tuple[str, str | None]] = {}
     for dim in resolved_dimensions:
@@ -1799,6 +1887,8 @@ def build_grain_group_from_preagg(
             group_by.append(_preagg_column(scan_name, scan_alias))
             ref_columns[dim.original_ref] = (scan_name, scan_alias)
 
+        dimension_group_by_positions[dim.original_ref] = len(group_by) - 1
+
         columns.append(
             ColumnMetadata(
                 name=output_alias,
@@ -1848,9 +1938,15 @@ def build_grain_group_from_preagg(
         # If no merge function, output column directly (e.g., grain column for LIMITED)
         # Otherwise, apply the merge function for re-aggregation
         if component.merge:
-            agg_expr = ast.Function(
-                name=ast.Name(component.merge),
-                args=[_preagg_column(scan_name, scan_alias)],
+            agg_expr: ast.Expression = build_merge_call(
+                component.merge,
+                component.merge_args,
+                _preagg_column(scan_name, scan_alias),
+            )
+            agg_expr = apply_component_serialize(
+                agg_expr,
+                component,
+                ctx.materialization_target,
             )
             aliased = ast.Alias(child=agg_expr, alias=ast.Name(output_alias))
             select_items.append(aliased)
@@ -1862,6 +1958,11 @@ def build_grain_group_from_preagg(
 
         # Get type from pre-agg columns
         col_type = preagg.get_column_type(measure_col, default="double")
+        if (
+            component.serializes_for(ctx.materialization_target)
+            and component.serialize_type
+        ):
+            col_type = component.serialize_type
         columns.append(
             ColumnMetadata(
                 name=output_alias,
@@ -1975,6 +2076,7 @@ def build_grain_group_from_preagg(
         aggregability=grain_group.aggregability,
         metrics=list(metrics_covered),
         parent_name=parent_node.name,
+        dimension_group_by_positions=dimension_group_by_positions,
         component_aliases=component_aliases,
         reaggregate_dimension_aliases=reaggregate_dimension_aliases,
         is_merged=grain_group.is_merged,
@@ -2130,7 +2232,10 @@ def build_grain_group_sql(
                 # FULL: apply aggregation at finest grain, will be re-aggregated in final SELECT
                 # Always use component.name for consistency - no special case for single-component
                 component_alias = component.name
-                expr_ast = build_component_expression(component)
+                expr_ast = build_component_expression(
+                    component,
+                    ctx.materialization_target,
+                )
                 component_expressions.append((component_alias, expr_ast))
                 component_metadata.append(
                     (component_alias, component, metric_node),
@@ -2149,7 +2254,7 @@ def build_grain_group_sql(
         # Always use component.name for consistency - no special case for single-component
         component_alias = component.name
 
-        expr_ast = build_component_expression(component)
+        expr_ast = build_component_expression(component, ctx.materialization_target)
         component_expressions.append((component_alias, expr_ast))
         component_metadata.append((component_alias, component, metric_node))
 
@@ -2174,6 +2279,13 @@ def build_grain_group_sql(
             if c.name:  # pragma: no branch
                 component_col_names.add(c.name.name)
 
+    # A column that is already a grain column is projected there; selecting it
+    # again for a non-decomposable argument (``MAX_BY(x, <grain column>)``) would
+    # emit a duplicate name that downstream consumers reject.
+    grain_col_names = set(grain_group.grain_columns) | set(
+        grain_group.grain_col_aliases.values(),
+    )
+
     for decomposed in grain_group.non_decomposable_metrics:
         metrics_covered.add(decomposed.metric_node.name)
 
@@ -2185,6 +2297,7 @@ def build_grain_group_sql(
                 col_name
                 and col_name not in seen_components
                 and col_name not in component_col_names
+                and col_name not in grain_col_names
             ):  # pragma: no branch
                 seen_components.add(col_name)
                 col_ast = make_column_ref(col_name)
@@ -2247,7 +2360,7 @@ def build_grain_group_sql(
         pass_through_columns = effective_grain_columns + [
             col_name for col_name, _ in non_decomposable_columns
         ]
-        query_ast, scanned_sources = build_select_ast(
+        query_ast, scanned_sources, dimension_group_by_positions = build_select_ast(
             ctx,
             metric_expressions=[],  # No aggregated expressions
             resolved_dimensions=effective_resolved_dimensions,
@@ -2270,7 +2383,7 @@ def build_grain_group_sql(
             grain_group.non_decomposable_metrics
             and grain_group.aggregability == Aggregability.NONE,
         )
-        query_ast, scanned_sources = build_select_ast(
+        query_ast, scanned_sources, dimension_group_by_positions = build_select_ast(
             ctx,
             metric_expressions=all_metric_expressions,
             resolved_dimensions=effective_resolved_dimensions,
@@ -2394,7 +2507,12 @@ def build_grain_group_sql(
                 ColumnMetadata(
                     name=ctx.alias_registry.get_alias(comp_alias) or comp_alias,
                     semantic_name=f"{metric_node.name}:{component.name}",
-                    type=infer_component_type(component, metric_type, parent_node),
+                    type=infer_component_type(
+                        component,
+                        metric_type,
+                        parent_node,
+                        ctx.materialization_target,
+                    ),
                     semantic_type="metric_component",
                 ),
             )
@@ -2449,6 +2567,7 @@ def build_grain_group_sql(
         aggregability=grain_group.aggregability,
         metrics=list(metrics_covered),
         parent_name=grain_group.parent_node.name,
+        dimension_group_by_positions=dimension_group_by_positions,
         component_aliases=component_aliases,
         fixed_grain_partition_aliases=fixed_grain_partition_aliases,
         reaggregate_dimension_aliases=reaggregate_dimension_aliases,

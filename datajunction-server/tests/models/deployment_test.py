@@ -291,6 +291,7 @@ def test_deployment_spec():
         "source": None,
         "auto_register_sources": True,
         "force": False,
+        "force_nodes": [],
         "allow_empty": False,
         "default_catalog": None,
     }
@@ -477,6 +478,48 @@ def test_dimension_join_link_spec_with_default_value():
     # Test hash includes default_value (for use in sets/dicts)
     assert hash(link_spec) == hash(same_link)
     assert hash(link_spec) != hash(different_default)
+
+
+@pytest.mark.parametrize(
+    "default_value",
+    [0, -1, 1.5, True, False, "Unknown"],
+)
+def test_dimension_join_link_spec_default_value_types(default_value):
+    """A default value keeps the type it was authored with."""
+    link_spec = DimensionJoinLinkSpec(
+        dimension_node="some.dimension.users",
+        join_type="left",
+        join_on="events.user_id = some.dimension.users.id",
+        default_value=default_value,
+    )
+    assert link_spec.default_value == default_value
+    assert type(link_spec.default_value) is type(default_value)
+    assert hash(link_spec) == hash(link_spec)
+
+
+@pytest.mark.parametrize(
+    "one, other",
+    [(1, True), (0, False), (1, 1.0), (0, 0.0)],
+)
+def test_dimension_join_link_spec_default_value_type_change(one, other):
+    """
+    Values Python counts as equal are still different defaults.
+
+    `1`, `1.0` and `True` each render as a different SQL literal, so a spec
+    that swaps one for another has changed and must not compare equal.
+    """
+
+    def spec(default_value):
+        return DimensionJoinLinkSpec(
+            dimension_node="some.dimension.users",
+            join_type="left",
+            join_on="events.user_id = some.dimension.users.id",
+            default_value=default_value,
+        )
+
+    assert one == other  # Python says these are the same value
+    assert spec(one) != spec(other)
+    assert hash(spec(one)) != hash(spec(other))
 
 
 def test_dimension_join_link_spec_with_join_cardinality():
@@ -1062,6 +1105,21 @@ def test_cube_spec_eq_is_order_sensitive_for_metrics_and_dimensions():
     assert a_cube() != a_cube(metrics=["ns.b", "ns.a"])
     assert a_cube() != a_cube(dimensions=["ns.d.two", "ns.d.one"])
     assert a_cube() != a_cube(metrics=["ns.a"])
+
+
+def test_cube_spec_eq_sees_column_description_changes():
+    def cube(description):
+        return CubeSpec(
+            name="cube",
+            metrics=["m"],
+            dimensions=["d.col"],
+            columns=[ColumnSpec(name="m", description=description)],
+        )
+
+    assert cube("Total.") == cube("Total.")
+    assert cube("Total.") != cube("Sum.")
+    assert cube("Total.") != cube(None)
+    assert cube(None) == cube("")
 
 
 def test_cube_spec_eq_treats_filters_as_a_set():
@@ -1957,7 +2015,7 @@ GOLDEN_FINGERPRINTS = {
     "source": "71dcbc388988c2bdd850670427710384687b58565ee38ca392dc220adfed868d",
     "transform": "978e692880c7bcfb1bd78ece85895a1ec1558e85377b064a8dac3f3719cff2a5",
     "dimension": "f7b3c87a61fdadf9997432fd9334befdf43f2488874ef555e3f7d4c4ba86e3e1",
-    "metric": "adf0927eb31f1ff500f064d7b6a7f286aa1381265e61e2e3421920059d9a2922",
+    "metric": "86cd19032016a7114dcfbf7114893b0386e0b56327113cac570c900d18135406",
     "cube": "9b0a56d974d1e3769bc2db94e2cfbae7a6a4839f664eebd2a4387ef112ceea81",
 }
 
@@ -2291,6 +2349,8 @@ def test_metric_presentation_fields_preserve_semantic_fingerprint():
             "required_dimensions",
             "reaggregate",
             "fixed_grain",
+            "required_filters",
+            "recommended_filters",
         }
     )
     assert all(
@@ -2458,6 +2518,35 @@ def test_required_dimensions_normalization_falls_back_for_invalid_query():
     assert normalize_field(metric, "required_dimensions") == [
         "analytics.orders.order_id",
     ]
+
+
+def test_filter_requirements_normalization_mixed_defaults():
+    metric = MetricSpec(
+        name="orders",
+        query="SELECT COUNT(*) FROM orders",
+        required_filters=[
+            {"dimension": "a.b", "default": "a.b = 1"},
+            {"dimension": "a.b"},
+        ],
+    )
+
+    assert normalize_field(metric, "required_filters") == [
+        (["a.b"], None),
+        (["a.b"], "a.b = 1"),
+    ]
+
+
+def test_metric_spec_rejects_params_for_nonparameterized_reaggregation():
+    """Deployment specs reject invalid tuning parameters during input parsing."""
+    with pytest.raises(
+        ValidationError,
+        match="requires a parameterized reaggregate.fn",
+    ):
+        MetricSpec(
+            name="orders",
+            query="SELECT AVG(amount) FROM orders",
+            reaggregate={"fn": "avg", "params": {"compression": 200}},
+        )
 
 
 @pytest.mark.parametrize(

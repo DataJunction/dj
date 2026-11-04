@@ -14,6 +14,7 @@ from datajunction_server.construction.build_v3.types import (
 )
 from datajunction_server.database.node import Column, Node, NodeRevision
 from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.internal.branch_scope import fetch_with_inherited
 from datajunction_server.models.column import SemanticType
 from datajunction_server.models.cube_materialization import (
     CombineMaterialization,
@@ -24,7 +25,10 @@ from datajunction_server.models.cube_materialization import (
     UpsertCubeMaterialization,
 )
 from datajunction_server.models.dialect import Dialect
-from datajunction_server.models.materialization import MaterializationStrategy
+from datajunction_server.models.materialization import (
+    MaterializationStrategy,
+    MaterializationTarget,
+)
 from datajunction_server.models.node_type import NodeNameVersion
 from datajunction_server.models.partition import Granularity
 from datajunction_server.models.query import ColumnMetadata
@@ -199,6 +203,27 @@ def _v3_col_to_model_column(col) -> ColumnMetadata:
     )
 
 
+async def _display_names(
+    session: AsyncSession,
+    names: list[str],
+) -> dict[str, str]:
+    """
+    Maps node names to the display names of their current revisions.
+    """
+    rows = (
+        await session.execute(
+            select(Node.name, NodeRevision.display_name)
+            .join(
+                NodeRevision,
+                (NodeRevision.node_id == Node.id)
+                & (NodeRevision.version == Node.current_version),
+            )
+            .where(Node.name.in_(names)),
+        )
+    ).all()
+    return dict(rows)
+
+
 async def _v3_grain_group_to_measures_query(
     session: AsyncSession,
     gg: GrainGroupSQL,
@@ -370,7 +395,13 @@ async def build_cube_materialization(
         dimensions=current_revision.cube_node_dimensions,
         filters=(current_revision.cube_filters or []) + extra_filters,
         dialect=Dialect.SPARK,
+        combiner_dialect=Dialect.DRUID,
         use_materialized=True,
+        # Measures SQL runs in Spark for every target, so the dialect above
+        # cannot say where the output is headed. Druid is the only cube target
+        # (`UpsertCubeMaterialization.job` is Literal["druid_cube"]), and this is
+        # the one caller that knows it.
+        materialization_target=MaterializationTarget.DRUID,
     )
     measures_queries = sorted(
         [
@@ -481,18 +512,11 @@ async def build_cube_materialization(
     # MissingGreenlet under AsyncSession).
     cube_metrics = current_revision.cube_metrics()
     metric_names = [m.name for m in cube_metrics]
-    display_name_rows = (
-        await session.execute(
-            select(Node.name, NodeRevision.display_name)
-            .join(
-                NodeRevision,
-                (NodeRevision.node_id == Node.id)
-                & (NodeRevision.version == Node.current_version),
-            )
-            .where(Node.name.in_(metric_names)),
-        )
-    ).all()
-    metric_display_names = dict(display_name_rows)
+    metric_display_names = await fetch_with_inherited(
+        session,
+        metric_names,
+        lambda names: _display_names(session, names),
+    )
 
     missing_from_build = [m.name for m in cube_metrics if m.name not in metrics_mapping]
     if missing_from_build:  # pragma: no cover
