@@ -444,21 +444,86 @@ async def test_hidden_filter_constrains_authored_outer_join(
 
 
 @pytest.mark.parametrize("endpoint", ["node", "measures", "metrics"])
-async def test_hidden_filter_rejects_nullable_query_boundary(
+@pytest.mark.parametrize("boundary", ["derived", "with", "node", "nested"])
+@pytest.mark.parametrize(
+    "predicate, expected",
+    [
+        ("v3.date.date_id = 20240101", [(1, "active")]),
+        ("v3.date.date_id IS NULL", [(3, "active"), (4, "active")]),
+        (
+            "v3.date.date_id = 20240101 OR v3.filtered_fact.status = 'inactive'",
+            [(1, "active"), (2, "inactive")],
+        ),
+    ],
+)
+async def test_hidden_filter_crosses_plain_nullable_query_boundaries(
     customer_date_link,
     endpoint,
+    boundary,
+    predicate,
+    expected,
+):
+    client = customer_date_link
+    stage = "SELECT customer_id FROM v3.src_customers"
+    relation = f"({stage})"
+    prefix = ""
+    if boundary == "with":
+        prefix = f"WITH history AS ({stage}) "
+        relation = "history"
+    elif boundary == "node":
+        response = await client.post(
+            "/nodes/transform/",
+            json={"name": "v3.customer_history", "query": stage, "mode": "published"},
+        )
+        assert response.status_code == 201, response.json()
+        relation = "v3.customer_history"
+    elif boundary == "nested":
+        relation = f"(SELECT s.customer_id FROM ({stage}) s)"
+    response = await filtered_node_response(
+        client,
+        endpoint,
+        prefix
+        + "SELECT o.order_id, o.status FROM v3.src_orders o LEFT JOIN "
+        + relation
+        + " c ON o.customer_id = c.customer_id",
+        [predicate],
+        "COUNT(order_id)",
+    )
+    sql = response_sql(response, endpoint)
+    assert execute(sql, CUSTOMER_ORDERS) == (
+        expected if endpoint == "node" else [(len(expected),)]
+    )
+    if endpoint == "node":
+        assert len(response.json()["columns"]) == 2
+        assert all(
+            "__dj_filter_" not in col["name"] for col in response.json()["columns"]
+        )
+
+
+@pytest.mark.parametrize("endpoint", ["node", "measures", "metrics"])
+@pytest.mark.parametrize(
+    "stage",
+    [
+        "SELECT customer_id FROM v3.src_customers GROUP BY customer_id",
+        "SELECT DISTINCT customer_id FROM v3.src_customers",
+        "SELECT customer_id FROM v3.src_customers LIMIT 1",
+    ],
+)
+async def test_hidden_filter_rejects_non_plain_nullable_query_boundary(
+    customer_date_link,
+    endpoint,
+    stage,
 ):
     response = await filtered_node_response(
         customer_date_link,
         endpoint,
         "SELECT o.order_id FROM v3.src_orders o LEFT JOIN "
-        "(SELECT customer_id FROM v3.src_customers) c "
-        "ON o.customer_id = c.customer_id",
+        f"({stage}) c ON o.customer_id = c.customer_id",
         ["v3.date.date_id = 20240101"],
         "COUNT(order_id)",
     )
     assert response.status_code == 422, response.json()
-    assert "nullable query boundary" in str(response.json())
+    assert "plain projection" in str(response.json())
 
 
 @pytest.mark.parametrize("endpoint", ["node", "measures", "metrics"])

@@ -19,6 +19,7 @@ from datajunction_server.construction.build_v3.types import (
 )
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 
@@ -222,25 +223,46 @@ def test_local_filter_leaves_shared_fact_definition_to_its_consumer():
     assert rows(f"WITH fact AS ({fact}) {reader}") == [(2,)]
 
 
-def test_complete_hidden_predicate_cannot_span_different_select_scopes():
+def test_complete_hidden_predicate_can_span_plain_select_scopes():
     query = parse(
         "SELECT o.amount FROM orders o JOIN (SELECT product_id FROM products) p "
         "ON o.amount = p.product_id",
     )
-    before = str(query)
     ctx = context(
         {
             ("fact", "date.date_id"): [("orders", "date_id")],
             ("fact", "product.category"): [("products", "category")],
         },
     )
-    with pytest.raises(DJInvalidInputException, match="complete predicate"):
-        place_filters(
-            ctx,
-            {"fact": query},
-            request(["date.date_id = 20240101 OR product.category = 'B'"]),
-        )
-    assert str(query) == before
+    place_filters(
+        ctx,
+        {"fact": query},
+        request(["date.date_id = 20240101 OR product.category = 20230101"]),
+    )
+    assert rows(
+        f"WITH products AS (SELECT amount AS product_id, date_id AS category FROM orders) {query}",
+    ) == [(10,), (5,)]
+
+
+def test_complete_hidden_predicate_can_span_sibling_subqueries():
+    query = parse(
+        "SELECT o.amount FROM (SELECT amount FROM orders) o "
+        "JOIN (SELECT product_id FROM products) p ON o.amount = p.product_id",
+    )
+    ctx = context(
+        {
+            ("fact", "date.date_id"): [("orders", "date_id")],
+            ("fact", "product.category"): [("products", "category")],
+        },
+    )
+    place_filters(
+        ctx,
+        {"fact": query},
+        request(["date.date_id = 20240101 OR product.category = 20230101"]),
+    )
+    assert rows(
+        f"WITH products AS (SELECT amount AS product_id, date_id AS category FROM orders) {query}",
+    ) == [(10,), (5,)]
 
 
 def test_complete_hidden_predicate_keeps_or_on_one_consumer():
@@ -319,13 +341,62 @@ def test_hidden_filter_constrains_nullable_input_at_its_owning_select(
         "SELECT a.id FROM (SELECT 1 AS id) a LEFT JOIN history h ON a.id = h.amount",
     ],
 )
-def test_hidden_key_behind_nullable_query_boundary_is_rejected_atomically(body):
+@pytest.mark.parametrize(
+    "predicate, expected",
+    [("= 20240101", []), ("IS NULL", [(1,)])],
+)
+def test_hidden_key_crosses_plain_nullable_query_boundaries(body, predicate, expected):
     queries = {"fact": parse(body), "history": parse("SELECT amount FROM orders")}
-    before = {name: str(query) for name, query in queries.items()}
     ctx = context({("fact", "date.date_id"): [("orders", "date_id")]})
-    with pytest.raises(DJInvalidInputException, match="nullable query boundary"):
-        place_filters(ctx, queries, request())
-    assert {name: str(query) for name, query in queries.items()} == before
+    place_filters(ctx, queries, request([f"date.date_id {predicate}"]))
+    sql = str(queries["fact"])
+    if not queries["fact"].ctes:
+        sql = f"WITH history AS ({queries['history']}) {sql}"
+    assert rows(sql) == expected
+
+
+@pytest.mark.parametrize(
+    "join",
+    [
+        "orders a LEFT JOIN ({body}) q",
+        "({body}) q RIGHT JOIN orders a",
+        "orders a FULL JOIN ({body}) q",
+    ],
+)
+@pytest.mark.parametrize(
+    "predicate, expected",
+    [("= 20240101", [(10,)]), ("IS NULL", [(5,)])],
+)
+def test_propagated_key_preserves_null_fill_across_multiple_hops(
+    join,
+    predicate,
+    expected,
+):
+    body = "SELECT h.amount FROM (SELECT amount FROM events) h"
+    query = parse(
+        f"SELECT a.amount FROM {join.format(body=body)} "
+        "ON a.amount = q.amount AND a.date_id = 20240101",
+    )
+    ctx = context({("fact", "date.date_id"): [("events", "date_id")]})
+    place_filters(ctx, {"fact": query}, request([f"date.date_id {predicate}"]))
+    assert (
+        rows(f"WITH events AS (SELECT amount, date_id FROM orders) {query}") == expected
+    )
+
+
+def test_key_only_moves_to_the_select_above_its_nullable_boundary():
+    query = parse(
+        "SELECT SUM(w.amount) AS total FROM (SELECT a.amount FROM orders a "
+        "LEFT JOIN (SELECT amount FROM events) h ON a.amount = h.amount "
+        "AND a.date_id = 20240101) w",
+    )
+    ctx = context({("fact", "date.date_id"): [("events", "date_id")]})
+    place_filters(ctx, {"fact": query}, request())
+    assert rows(f"WITH events AS (SELECT amount, date_id FROM orders) {query}") == [
+        (10,),
+    ]
+    assert query.select.where is None
+    assert len(query.select.projection) == 1
 
 
 @pytest.mark.parametrize("combined", [False, True])
@@ -341,17 +412,15 @@ def test_hidden_and_local_conjuncts_can_use_different_scopes(combined):
     assert rows(query) == [(10,)]
 
 
-def test_mixed_or_requires_one_enforceable_select():
+def test_mixed_or_can_lift_a_hidden_key_to_the_local_scope():
     query = parse("SELECT date_id FROM (SELECT amount AS date_id FROM orders) q")
-    before = str(query)
     ctx = context({("fact", "date.date_id"): [("orders", "date_id")]})
-    with pytest.raises(DJInvalidInputException, match="one SELECT scope"):
-        place_filters(
-            ctx,
-            {"fact": query},
-            request(["date.date_id = 20240101 OR fact.date_id = 10"]),
-        )
-    assert str(query) == before
+    place_filters(
+        ctx,
+        {"fact": query},
+        request(["date.date_id = 20240101 OR fact.date_id = 5"]),
+    )
+    assert rows(query) == [(10,), (5,)]
 
 
 def test_mixed_or_can_bind_local_and_hidden_references_in_one_select():
@@ -388,6 +457,203 @@ def test_all_filters_validate_before_any_query_is_changed():
             ctx,
             {"fact": query},
             request(["date.date_id = 20240101", "product.category = 'B'"]),
+        )
+    assert str(query) == before
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "SELECT amount FROM orders GROUP BY amount",
+        "SELECT amount FROM orders HAVING amount > 0",
+        "SELECT DISTINCT amount FROM orders",
+        "SELECT amount FROM orders LIMIT 1",
+        "SELECT SUM(amount) AS amount FROM orders",
+        "SELECT amount, ROW_NUMBER() OVER (ORDER BY amount) AS rank FROM orders",
+        "SELECT amount FROM orders LATERAL VIEW EXPLODE(ARRAY(1)) x AS item",
+        "SELECT amount FROM orders NATURAL JOIN (SELECT 1 AS amount) other",
+    ],
+)
+def test_propagation_refuses_non_plain_projections_atomically(body):
+    query = parse(
+        "SELECT a.amount FROM (SELECT 10 AS amount) a LEFT JOIN "
+        f"({body}) h ON a.amount = h.amount",
+    )
+    before = str(query)
+    ctx = context({("fact", "date.date_id"): [("orders", "date_id")]})
+    with pytest.raises(DJInvalidInputException, match="plain projection"):
+        place_filters(ctx, {"fact": query}, request())
+    assert str(query) == before
+
+
+@pytest.mark.parametrize(
+    "body, error",
+    [
+        (
+            "SELECT h.* FROM (SELECT amount FROM orders) h",
+            "wildcard reader",
+        ),
+        (
+            "SELECT h.amount FROM (SELECT * FROM orders) h",
+            "wildcard reader",
+        ),
+        (
+            "SELECT h.amount FROM (SELECT amount FROM orders) h(amount)",
+            "plain projection",
+        ),
+        (
+            "WITH h(amount) AS (SELECT amount FROM orders) SELECT h.amount FROM h",
+            "plain projection",
+        ),
+        (
+            "SELECT h.amount FROM (SELECT 10 AS amount) a NATURAL LEFT JOIN "
+            "(SELECT amount FROM orders) h",
+            "plain projection",
+        ),
+    ],
+)
+def test_propagation_protects_readers(body, error):
+    query = parse(body)
+    before = str(query)
+    ctx = context({("fact", "date.date_id"): [("orders", "date_id")]})
+    with pytest.raises(DJInvalidInputException, match=error):
+        place_filters(
+            ctx,
+            {"fact": query},
+            request(["date.date_id = 20240101 OR fact.date_id = 5"]),
+        )
+    assert str(query) == before
+
+
+def test_propagation_reuses_projections_and_avoids_alias_collisions():
+    query = parse(
+        "SELECT q.date_id FROM ("
+        "SELECT h.date_id, h.exposed, 1 AS __DJ_FILTER_1 FROM ("
+        "SELECT amount AS date_id, o.date_id AS exposed FROM orders o"
+        ") h) q",
+    )
+    ctx = context({("fact", "date.date_id"): [("orders", "date_id")]})
+    place_filters(
+        ctx,
+        {"fact": query},
+        request(
+            [
+                "date.date_id >= 20230101 OR fact.date_id = 10",
+                "date.date_id <= 20240101 OR fact.date_id = 5",
+            ],
+        ),
+    )
+    assert rows(query) == [(10,), (5,)]
+    # Both hops reuse existing columns; no internal projections are needed.
+    assert "__dj_filter_" not in str(query)
+
+
+def test_propagation_rejects_wildcards_inside_reader_expressions():
+    query = parse(
+        "SELECT COUNT(h.*) FROM (SELECT 10 AS amount) a "
+        "LEFT JOIN (SELECT amount FROM orders) h ON a.amount = h.amount",
+    )
+    before = str(query)
+    ctx = context({("fact", "date.date_id"): [("orders", "date_id")]})
+    with pytest.raises(DJInvalidInputException, match="wildcard reader"):
+        place_filters(ctx, {"fact": query}, request())
+    assert str(query) == before
+
+
+def test_propagation_protects_wildcard_readers_in_join_conditions():
+    query = parse(
+        "SELECT a.amount FROM (SELECT 10 AS amount) a "
+        "LEFT JOIN (SELECT amount FROM orders) h ON HASH(h.*) = a.amount",
+    )
+    before = str(query)
+    ctx = context({("fact", "date.date_id"): [("orders", "date_id")]})
+    with pytest.raises(DJInvalidInputException, match="wildcard reader"):
+        place_filters(ctx, {"fact": query}, request())
+    assert str(query) == before
+
+
+def test_propagation_preserves_quoted_aliases_and_cached_queries():
+    ctx = context({("fact", "date.date_id"): [("orders", "date_id")]})
+    node = ctx.nodes["fact"]
+    node.current.query = (
+        "SELECT `outer scope`.date_id FROM (SELECT 1 AS id) a LEFT JOIN ("
+        "SELECT `inner scope`.date_id, `inner scope`.`event date` AS `filter date` "
+        "FROM (SELECT o.amount AS date_id, o.date_id AS `event date` FROM orders o) "
+        "`inner scope`) `outer scope` ON 1 = 1"
+    )
+    authored = ctx.get_parsed_query(node)
+    before = str(authored)
+    query = deepcopy(authored)
+    place_filters(
+        ctx,
+        {"fact": query},
+        request(["date.date_id = 20240101"]),
+    )
+    assert rows(query) == [(10,)]
+    assert "__dj_filter_" not in str(query)
+    assert str(ctx.get_parsed_query(node)) == before
+
+
+def test_reusing_an_exposed_key_does_not_change_a_wildcard_reader():
+    query = parse(
+        "SELECT h.* FROM (SELECT o.amount AS date_id, o.date_id AS exposed FROM orders o) h",
+    )
+    ctx = context({("fact", "date.date_id"): [("orders", "date_id")]})
+    place_filters(
+        ctx,
+        {"fact": query},
+        request(["date.date_id = 20240101 OR fact.date_id = 5"]),
+    )
+    assert rows(query) == [(10, 20240101), (5, 20230101)]
+    assert "__dj_filter_" not in str(query)
+
+
+def test_propagation_deduplicates_internal_columns_and_preserves_namespaces():
+    query = parse(
+        "SELECT q.date_id FROM (SELECT h.date_id, 1 AS __DJ_FILTER_1 FROM ("
+        "SELECT o.amount AS date_id, wrong.date_id AS other_date "
+        "FROM orders o CROSS JOIN (SELECT 0 AS date_id) wrong) h) q",
+    )
+    ctx = context({("fact", "date.date_id"): [("orders", "date_id")]})
+    place_filters(
+        ctx,
+        {"fact": query},
+        request(
+            [
+                "date.date_id = 20240101 OR fact.date_id = 5",
+                "date.date_id >= 20230101 OR fact.date_id = 10",
+            ],
+        ),
+    )
+    assert rows(query) == [(10,), (5,)]
+    internal = [
+        item.alias.name
+        for select in query.find_all(ast.Select)
+        for item in select.projection
+        if item.alias and item.alias.name.startswith("__dj_filter_")
+    ]
+    assert sorted(internal) == ["__dj_filter_2", "__dj_filter_3"]
+
+
+def test_later_rejection_does_not_apply_queued_projections_or_aliases():
+    query = parse("SELECT h.amount FROM (SELECT amount FROM orders) h")
+    before = str(query)
+    ctx = context(
+        {
+            ("fact", "date.date_id"): [("orders", "date_id")],
+            ("fact", "product.category"): [("products", "category")],
+        },
+    )
+    with pytest.raises(DJInvalidInputException, match="eligible relational owners"):
+        place_filters(
+            ctx,
+            {"fact": query},
+            request(
+                [
+                    "date.date_id = 20240101 OR fact.date_id = 5",
+                    "product.category = 'B'",
+                ],
+            ),
         )
     assert str(query) == before
 

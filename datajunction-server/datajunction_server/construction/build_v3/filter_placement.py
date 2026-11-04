@@ -8,7 +8,8 @@ from typing import cast
 
 from datajunction_server.construction.build_v3.cte import (
     _filter_bindings_for_select,
-    _get_relation_side_id,
+    _is_star,
+    _joins_naturally,
     _non_preserved_sides,
     _rewrite_filter_for_cte,
 )
@@ -42,19 +43,23 @@ def _definition(table: ast.Table, queries: dict[str, ast.Query]) -> ast.Query | 
 
 
 @dataclass
+class _Step:
+    query: ast.Query
+    relation: ast.Expression
+    nullable: bool
+
+
+@dataclass
 class _Binding:
-    table: ast.Table
     column: str
-    path: tuple[ast.Query, ...]
-    crosses_nullable_boundary: bool
+    path: tuple[_Step, ...]
 
 
 def _find_bindings(
     query: ast.Query,
     candidates: list[tuple[str, str]],
     queries: dict[str, ast.Query],
-    path: tuple[ast.Query, ...] = (),
-    crosses_nullable_boundary: bool = False,
+    path: tuple[_Step, ...] = (),
 ) -> list[_Binding]:
     """Find explicit links through FROM/JOIN edges, never expression subqueries.
 
@@ -62,22 +67,14 @@ def _find_bindings(
     if one of its inputs also declares the same link. Repeated occurrences stay
     distinct so callers can reject an ambiguous owner rather than filter both.
     """
-    if any(query is scope for scope in path) or query.select.set_op is not None:
+    if any(query is step.query for step in path) or query.select.set_op is not None:
         return []
-    path = (*path, query)
     result: list[_Binding] = []
 
     def visit(relation: ast.Expression, nullable: bool) -> None:
+        steps = (*path, _Step(query, relation, nullable))
         if isinstance(relation, ast.Query):
-            result.extend(
-                _find_bindings(
-                    relation,
-                    candidates,
-                    queries,
-                    path,
-                    crosses_nullable_boundary or nullable,
-                ),
-            )
+            result.extend(_find_bindings(relation, candidates, queries, steps))
         elif isinstance(relation, ast.Table):
             name = relation.name.identifier(quotes=False)
             definition = _definition(relation, queries)
@@ -87,18 +84,14 @@ def _find_bindings(
                 if owner == name and definition is queries.get(name)
             ]
             if columns:
-                result.extend(
-                    _Binding(relation, column, path, crosses_nullable_boundary)
-                    for column in columns
-                )
+                result.extend(_Binding(column, steps) for column in columns)
             elif definition is not None:
                 result.extend(
                     _find_bindings(
                         definition,
                         candidates,
                         queries,
-                        path,
-                        crosses_nullable_boundary or nullable,
+                        steps,
                     ),
                 )
 
@@ -111,6 +104,50 @@ def _find_bindings(
     return result
 
 
+def _can_extend_projection(query: ast.Query) -> bool:
+    """Adding a column must preserve the authored rows and their grain."""
+    select = query.select
+    return not (
+        query.column_list
+        or select.group_by
+        or select.having is not None
+        or (select.quantifier or "").upper() == "DISTINCT"
+        or select.limit is not None
+        or select.lateral_views
+        or any(expr.is_aggregation() for expr in select.projection)  # type: ignore[union-attr]
+        or any(func.over is not None for func in select.find_all(ast.Function))
+        or _joins_naturally(select)
+    )
+
+
+def _reference(
+    relation: ast.Expression,
+    column: ast.Name,
+    aliases: dict[int, ast.Table],
+) -> ast.Name:
+    qualifier = getattr(relation, "alias", None)
+    if isinstance(relation, ast.Table):
+        aliases[id(relation)] = relation
+        qualifier = qualifier or relation.name
+    assert qualifier is not None
+    return ast.Name(
+        column.name,
+        quote_style=column.quote_style,
+        namespace=ast.Name(qualifier.name, quote_style=qualifier.quote_style),
+    )
+
+
+def _projected_name(select: ast.Select, reference: ast.Name) -> ast.Name | None:
+    """Reuse only an unchanged column, never a cast or computed expression."""
+    for expr in select.projection:
+        inner = getattr(expr, "child", expr)
+        if isinstance(inner, ast.Column) and inner.name.identifier(
+            quotes=False,
+        ) == reference.identifier(quotes=False):
+            return cast(ast.Aliasable, expr).alias_or_name
+    return None
+
+
 def place_filters(
     ctx: BuildContext,
     queries: dict[str, ast.Query],
@@ -120,8 +157,8 @@ def place_filters(
 
     Local predicates can constrain the fact definition only when it has no
     other readers. Hidden-key predicates constrain the SELECT that reads their
-    explicit link. Shared definitions and nullable boundaries hiding the key
-    cannot enforce the predicate for this consumer and are refused.
+    explicit link, exposing keys through plain projections when a predicate
+    must move above a nullable join or span multiple SELECT scopes.
     """
     hidden = {
         ref: candidates
@@ -147,6 +184,12 @@ def place_filters(
     )
     placements: dict[int, tuple[ast.Select, list[ast.Expression]]] = {}
     aliases: dict[int, ast.Table] = {}
+    projections: dict[int, tuple[ast.Select, dict[str, ast.Alias]]] = {}
+    names = {
+        name.name.casefold()
+        for query in queries.values()
+        for name in query.find_all(ast.Name)
+    }
     consumed: set[str] = set()
     root_select = cast(ast.Select, root.select)
     node = ctx.nodes[request.parent_node_name]
@@ -190,7 +233,7 @@ def place_filters(
         if bindings is None:
             invalid("local references cannot bind to the fact output")
         assert bindings is not None
-        target = root_select if local_refs else None
+        owners: dict[str, _Binding] = {}
         for ref in refs:
             if ref not in hidden:
                 continue
@@ -198,20 +241,63 @@ def place_filters(
             if len(matches) != 1:
                 invalid(f"{ref} has {len(matches)} eligible relational owners")
             binding = matches[0]
-            table, column, path = binding.table, binding.column, binding.path
-            if readers[id(root)] or any(readers[id(scope)] > 1 for scope in path[1:]):
+            if readers[id(root)] or any(
+                readers[id(step.query)] > 1 for step in binding.path[1:]
+            ):
                 invalid(f"{ref} requires narrowing a shared query definition")
-            if binding.crosses_nullable_boundary:
-                invalid(f"{ref} crosses a nullable query boundary that hides the key")
-            scope = cast(ast.Select, path[-1].select)
-            if target is not None and scope is not target:
-                invalid("the complete predicate does not bind to one SELECT scope")
-            target = scope
-            qualifier = _get_relation_side_id(cast(ast.Expression, table))
-            assert qualifier is not None
-            bindings[ref] = ast.Name(column, namespace=ast.Name(qualifier))
-            aliases[id(table)] = table
-        assert target is not None
+            owners[ref] = binding
+
+        # The deepest common SELECT, lifted above any NULL-filling boundary.
+        paths = [binding.path for binding in owners.values()]
+        depth = 0
+        if not local_refs:
+            for index, steps in enumerate(zip(*paths)):
+                if any(step.query is not steps[0].query for step in steps):
+                    break
+                depth = index
+        for path in paths:
+            depth = min(
+                [depth, *(i for i, step in enumerate(path[:-1]) if step.nullable)],
+            )
+        target = cast(ast.Select, paths[0][depth].query.select)
+
+        for ref, binding in owners.items():
+            path = binding.path
+            reference = _reference(path[-1].relation, ast.Name(binding.column), aliases)
+            for index in range(len(path) - 1, depth, -1):
+                step, parent = path[index], path[index - 1]
+                select = cast(ast.Select, step.query.select)
+                if (
+                    not _can_extend_projection(step.query)
+                    or getattr(parent.relation, "column_list", [])
+                    or _joins_naturally(parent.query.select)
+                ):
+                    invalid("propagation requires a plain projection boundary")
+                output = _projected_name(select, reference)
+                if output is None:
+                    if any(
+                        any(scope.filter(_is_star))
+                        for scope in (select, parent.query.select)
+                    ):
+                        invalid(
+                            "propagation requires explicit projections without wildcard readers",
+                        )
+                    additions = projections.setdefault(id(select), (select, {}))[1]
+                    key = reference.identifier(quotes=False)
+                    if key not in additions:
+                        suffix = 1
+                        internal_name = f"__dj_filter_{suffix}"
+                        while internal_name.casefold() in names:
+                            suffix += 1
+                            internal_name = f"__dj_filter_{suffix}"
+                        names.add(internal_name.casefold())
+                        additions[key] = ast.Alias(
+                            child=ast.Column(name=reference),
+                            alias=ast.Name(internal_name),
+                        )
+                    output = additions[key].alias_or_name
+                reference = _reference(parent.relation, output, aliases)
+            bindings[ref] = reference
         rewritten = resolve_filter_references(parse_filter(filter_str), bindings)
         placements.setdefault(id(target), (target, []))[1].append(rewritten)
         consumed.add(filter_str)
@@ -219,7 +305,9 @@ def place_filters(
     # Apply only after every predicate has a complete, enforceable placement.
     for table in aliases.values():
         if table.alias is None:
-            table.alias = ast.Name(table.name.name)
+            table.alias = ast.Name(table.name.name, quote_style=table.name.quote_style)
+    for select, additions in projections.values():
+        select.projection = [*select.projection, *additions.values()]
     for select, predicates in placements.values():
         select.where = combine_filters(
             [select.where, *predicates] if select.where is not None else predicates,

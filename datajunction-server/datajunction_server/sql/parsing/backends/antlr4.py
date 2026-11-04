@@ -1169,6 +1169,10 @@ def _(ctx: sbp.CtesContext) -> list[ast.Select]:
             raise SqlSyntaxError(f"Duplicate CTE definition names: {namedQuery.name}")
         query = visit(namedQuery.query())
         query = query.set_alias(visit(namedQuery.name))
+        if namedQuery.columnAliases:
+            query.column_list = [
+                ast.Column(name) for name in visit(namedQuery.columnAliases)
+            ]
         if namedQuery.AS():
             query = query.set_as(True)
         query.parenthesized = True
@@ -1215,6 +1219,7 @@ def _(ctx: sbp.AliasedQueryContext) -> ast.Select:
     query.parenthesized = True
     table_alias = ctx.tableAlias()
     ident, col_aliases = visit(table_alias)
+    query.column_list = [ast.Column(name) for name in col_aliases]
     if ident:
         query = query.set_alias(ident)
     if table_alias.AS():
