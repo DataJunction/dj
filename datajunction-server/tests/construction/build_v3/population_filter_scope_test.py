@@ -321,3 +321,82 @@ async def test_or_filter_across_both_sides_is_rejected(exp_model):
         ["exp.allocation.cell = 'A' OR exp.device_d.device_type = 'tv'"],
     )
     assert response.status_code == 422, response.text
+
+
+def _union_sql(grain, device):
+    """Union-all-with-NULL version, hand-written over the same tables."""
+    where = f"WHERE device = '{device}' OR device IS NULL" if device else ""
+    select = (
+        "account_id, SUM(secs)"
+        if grain == "account"
+        else "cell, SUM(secs) / COUNT(DISTINCT account_id)"
+    )
+    return f"""
+    WITH events AS (
+      SELECT a.account_id, a.cell, p.device_type AS device, p.secs
+      FROM "default".exp.allocation a
+      LEFT JOIN "default".exp.play p ON a.account_id = p.account_id
+      UNION ALL
+      SELECT account_id, cell, NULL, NULL FROM "default".exp.allocation
+    )
+    SELECT {select} FROM events {where} GROUP BY 1
+    """
+
+
+def _zero_filled(rows):
+    # NULL (no matching plays) and 0 mean the same here, so compare as 0.
+    return sorted((key, value or 0) for key, value in rows)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "device, filters, expected_by_account, expected_by_cell",
+    [
+        (
+            "tv",
+            ["exp.device_d.device_type = 'tv'"],
+            [(1, 100.0), (2, 0), (3, 60.0), (4, 0)],
+            [("A", 50.0), ("B", 30.0)],
+        ),
+        (
+            "phone",
+            ["exp.device_d.device_type = 'phone'"],
+            [(1, 50.0), (2, 30.0), (3, 0), (4, 0)],
+            [("A", 40.0), ("B", 0)],
+        ),
+        (
+            None,
+            [],
+            [(1, 150.0), (2, 30.0), (3, 60.0), (4, 0)],
+            [("A", 90.0), ("B", 30.0)],
+        ),
+    ],
+)
+async def test_matches_union_all_with_null(
+    exp_model,
+    exp_tables,
+    device,
+    filters,
+    expected_by_account,
+    expected_by_cell,
+):
+    by_account = await _query(exp_model, filters, ["exp.allocation.account_id"])
+    by_cell = await _query(exp_model, filters)
+    assert by_account.status_code == 200, by_account.text
+    assert by_cell.status_code == 200, by_cell.text
+
+    dj_account = _zero_filled(
+        exp_tables.execute(transpile_to_duckdb(by_account.json()["sql"])).fetchall(),
+    )
+    union_account = _zero_filled(
+        exp_tables.execute(_union_sql("account", device)).fetchall(),
+    )
+    assert dj_account == expected_by_account
+    assert union_account == expected_by_account
+
+    dj_cell = _zero_filled(
+        exp_tables.execute(transpile_to_duckdb(by_cell.json()["sql"])).fetchall(),
+    )
+    union_cell = _zero_filled(exp_tables.execute(_union_sql("cell", device)).fetchall())
+    assert dj_cell == expected_by_cell
+    assert union_cell == expected_by_cell
