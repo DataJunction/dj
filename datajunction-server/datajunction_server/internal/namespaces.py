@@ -33,6 +33,11 @@ from datajunction_server.errors import (
     DJDoesNotExistException,
     DJInvalidInputException,
 )
+from datajunction_server.internal.access.authorization import (
+    AccessChecker,
+    AccessDenialMode,
+    AuthContext,
+)
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.materializations import (
     collect_materialization_teardowns,
@@ -977,6 +982,45 @@ async def hard_delete_nodes(
     )
 
 
+async def authorize_namespace_deletions(
+    session: AsyncSession,
+    namespaces: Sequence[str],
+    current_user: User,
+    *,
+    include_descendants: bool = False,
+    lock_lifecycle: bool = True,
+) -> None:
+    """Require management grants for governed boundaries removed by a deletion."""
+    if not namespaces:
+        return
+    if lock_lifecycle:
+        await lock_namespace_boundary_lifecycle(session)
+    targets = [NodeNamespace.namespace.in_(namespaces)]
+    if include_descendants:
+        targets.extend(
+            NodeNamespace.namespace.startswith(f"{namespace}.", autoescape=True)
+            for namespace in namespaces
+        )
+    governed_boundaries = (
+        (
+            await session.execute(
+                select(NodeNamespace.namespace)
+                .where(NodeNamespace.is_governed_boundary.is_(True), or_(*targets))
+                .order_by(NodeNamespace.namespace),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if governed_boundaries:
+        checker = AccessChecker(await AuthContext.from_user(session, current_user))
+        checker.add_namespaces(list(governed_boundaries), ResourceAction.MANAGE)
+        await checker.check(
+            on_denied=AccessDenialMode.RAISE,
+            require_explicit_grant=True,
+        )
+
+
 async def hard_delete_namespace(
     session: AsyncSession,
     namespace: str,
@@ -994,6 +1038,12 @@ async def hard_delete_namespace(
     the nodes, so a namespace deleted without this leaves the query service running
     jobs no one can find again, let alone stop.
     """
+    await authorize_namespace_deletions(
+        session,
+        [namespace],
+        current_user,
+        include_descendants=True,
+    )
     node_rows = (
         await session.execute(
             select(Node.id, Node.name, Node.type)

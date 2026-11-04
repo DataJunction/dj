@@ -373,6 +373,135 @@ async def test_hard_delete_ancestor_requires_manage_on_every_boundary(
             assert await session.scalar(select(Node.name).where(Node.name == node_name))
 
 
+@pytest.mark.parametrize("operation", ["deactivate", "restore"])
+async def test_namespace_cascade_authorizes_all_nodes_before_mutation(
+    client: AsyncClient,
+    session: AsyncSession,
+    current_user: User,
+    mocker,
+    operation: str,
+):
+    """A parent cascade needs grants for governed child nodes before changing state."""
+    root = f"cascade_{operation}"
+    child = f"{root}.governed"
+    names = [f"{root}.a_source", f"{child}.z_source"]
+    session.add_all(
+        [
+            NodeNamespace(namespace=root),
+            NodeNamespace(namespace=child, is_governed_boundary=True),
+        ],
+    )
+    await session.commit()
+
+    for name in names:
+        response = await client.post(
+            "/nodes/source/",
+            json={
+                "name": name,
+                "catalog": "default",
+                "schema_": "public",
+                "table": name.rsplit(".", 1)[-1],
+                "columns": [{"name": "id", "type": "int"}],
+            },
+        )
+        assert response.status_code == HTTPStatus.OK, response.json()
+
+    if operation == "restore":
+        now = datetime.now(UTC)
+        root_namespace = await session.get(NodeNamespace, root)
+        root_namespace.deactivated_at = now
+        for name in names:
+            node = await session.scalar(select(Node).where(Node.name == name))
+            node.deactivated_at = now
+        await session.commit()
+
+    action = (
+        ResourceAction.DELETE if operation == "deactivate" else ResourceAction.WRITE
+    )
+    role = Role(name=f"{root}-role", created_by_id=current_user.id)
+    session.add(role)
+    await session.flush()
+    session.add_all(
+        [
+            RoleAssignment(
+                principal_id=current_user.id,
+                role_id=role.id,
+                granted_by_id=current_user.id,
+            ),
+            RoleScope(
+                role_id=role.id,
+                action=action,
+                scope_type=ResourceType.NAMESPACE,
+                scope_value=root,
+            ),
+            RoleScope(
+                role_id=role.id,
+                action=action,
+                scope_type=ResourceType.NODE,
+                scope_value=names[0],
+            ),
+        ],
+    )
+    await session.commit()
+
+    service_settings = mocker.patch(
+        "datajunction_server.internal.access.authorization.service.settings",
+    )
+    service_settings.default_access_policy = "permissive"
+    service_settings.restrictive_scopes = []
+    context_settings = mocker.patch(
+        "datajunction_server.internal.access.authorization.context.settings",
+    )
+    context_settings.default_access_role = None
+    mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: RBACAuthorizationService())
+
+    async def cascade_request():
+        if operation == "deactivate":
+            return await client.delete(f"/namespaces/{root}/?cascade=true")
+        return await client.post(f"/namespaces/{root}/restore/?cascade=true")
+
+    response = await cascade_request()
+    assert response.status_code == HTTPStatus.FORBIDDEN, response.json()
+
+    root_namespace = await session.get(NodeNamespace, root)
+    await session.refresh(root_namespace)
+    nodes = [
+        await session.scalar(select(Node).where(Node.name == name)) for name in names
+    ]
+    for node in nodes:
+        await session.refresh(node)
+    if operation == "deactivate":
+        assert root_namespace.deactivated_at is None
+        assert all(node.deactivated_at is None for node in nodes)
+    else:
+        assert root_namespace.deactivated_at is not None
+        assert all(node.deactivated_at is not None for node in nodes)
+
+    session.add(
+        RoleScope(
+            role_id=role.id,
+            action=action,
+            scope_type=ResourceType.NODE,
+            scope_value=names[1],
+        ),
+    )
+    await session.commit()
+    response = await cascade_request()
+    assert response.status_code == (
+        HTTPStatus.OK if operation == "deactivate" else HTTPStatus.CREATED
+    ), response.json()
+
+    await session.refresh(root_namespace)
+    for node in nodes:
+        await session.refresh(node)
+    if operation == "deactivate":
+        assert root_namespace.deactivated_at is not None
+        assert all(node.deactivated_at is not None for node in nodes)
+    else:
+        assert root_namespace.deactivated_at is None
+        assert all(node.deactivated_at is None for node in nodes)
+
+
 @pytest.mark.parametrize("outside_governed", [False, True])
 async def test_hard_delete_namespace_preserves_underscore_collision(
     client: AsyncClient,

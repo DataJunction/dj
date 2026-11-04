@@ -33,10 +33,8 @@ from datajunction_server.internal.git.yaml_export import (
     fetch_existing_yaml_map,
     generate_namespace_yaml_files,
 )
-from datajunction_server.internal.namespace_locks import (
-    lock_namespace_boundary_lifecycle,
-)
 from datajunction_server.internal.namespaces import (
+    authorize_namespace_deletions,
     create_or_reactivate_namespace,
     detect_parent_cycle,
     get_git_info_for_namespace,
@@ -355,9 +353,16 @@ async def deactivate_a_namespace(
             content={"message": message},
         )
 
-    # If cascade=true is set, we'll deactivate all nodes in this namespace and then
-    # subsequently deactivate this namespace
+    # Check every node before starting the cascade so a denied child cannot leave
+    # the namespace partially deactivated.
     if cascade:
+        for node_name in node_names:
+            access_checker.add_request_by_node_name(
+                node_name,
+                ResourceAction.DELETE,
+            )
+        await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
         for node_name in node_names:
             await deactivate_node(
                 session=session,
@@ -435,6 +440,13 @@ async def restore_a_namespace(
     # subsequently restore this namespace
     if cascade:
         for node_name in node_names:
+            access_checker.add_request_by_node_name(
+                node_name,
+                ResourceAction.WRITE,
+            )
+        await access_checker.check(on_denied=AccessDenialMode.RAISE)
+
+        for node_name in node_names:
             await activate_node(
                 name=node_name,
                 session=session,
@@ -495,9 +507,6 @@ async def hard_delete_node_namespace(
     is set to true. If cascade is set to false, we'll raise an error. This should be used
     with caution, as the impact may be large.
     """
-    # Hold the provisioning lock until deletion commits so a new governed
-    # boundary cannot appear between authorization and removing the subtree.
-    await lock_namespace_boundary_lifecycle(session)
     namespace_exists = await NodeNamespace.get(
         session,
         namespace,
@@ -513,37 +522,12 @@ async def hard_delete_node_namespace(
     access_checker.add_namespace(namespace, action)
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
 
-    # Every retained boundary in the deleted subtree requires MANAGE, including
-    # empty and deactivated descendants deleted without cascade. Explicit checks
-    # also cover boundaries provisioned after the request's context was loaded.
-    governed_boundaries = (
-        (
-            await session.execute(
-                select(NodeNamespace.namespace).where(
-                    NodeNamespace.is_governed_boundary.is_(True),
-                    or_(
-                        NodeNamespace.namespace == namespace,
-                        NodeNamespace.namespace.startswith(
-                            f"{namespace}.",
-                            autoescape=True,
-                        ),
-                    ),
-                ),
-            )
-        )
-        .scalars()
-        .all()
+    await authorize_namespace_deletions(
+        session,
+        [namespace],
+        current_user,
+        include_descendants=True,
     )
-    if governed_boundaries:
-        boundary_checker = AccessChecker(access_checker.auth_context)
-        boundary_checker.add_namespaces(
-            list(governed_boundaries),
-            ResourceAction.MANAGE,
-        )
-        await boundary_checker.check(
-            on_denied=AccessDenialMode.RAISE,
-            require_explicit_grant=True,
-        )
 
     # Only apply the default-branch guard when the namespace exists. Git config
     # is inherited from ancestors, so a missing namespace under a git-backed root

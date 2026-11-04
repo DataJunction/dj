@@ -99,7 +99,10 @@ from datajunction_server.internal.materializations import (
     stop_materialization_workflows,
     swap_cube_materializations,
 )
-from datajunction_server.internal.namespaces import get_git_info_for_namespace
+from datajunction_server.internal.namespaces import (
+    authorize_namespace_deletions,
+    get_git_info_for_namespace,
+)
 from datajunction_server.internal.nodes import (
     derive_frozen_measures_bulk,
     is_non_trivial_cube_change,
@@ -630,8 +633,9 @@ class DeploymentOrchestrator:
         nodes and namespaces, so re-authorize here against the deploying user,
         matching how the HTTP endpoints govern each resource: WRITE on the
         namespace a node is written into, DELETE on nodes and namespaces being
+        removed, and explicit MANAGE on governed namespace boundaries being
         removed. Names are the rendered (fully-qualified) names, since that is
-        what the deploy actually mutates and what RBAC scopes match against.
+        what the deploy mutates and what RBAC scopes match against.
         """
         auth_context = await AuthContext.from_user(
             self.session,
@@ -656,6 +660,12 @@ class DeploymentOrchestrator:
             access_checker.add_namespace(namespace, ResourceAction.DELETE)
 
         await access_checker.check(on_denied=AccessDenialMode.RAISE)
+        await authorize_namespace_deletions(
+            self.session,
+            plan.to_delete_namespaces,
+            self.context.current_user,
+            lock_lifecycle=False,
+        )
 
     async def _run_governance_checks(self, plan: DeploymentPlan) -> None:
         """
@@ -4840,6 +4850,11 @@ class DeploymentOrchestrator:
         was blocked earlier (e.g. external references). Per-result FAILED
         entries surface the reason to the caller.
         """
+        await authorize_namespace_deletions(
+            self.session,
+            namespaces,
+            self.context.current_user,
+        )
         results: list[DeploymentResult] = []
         for ns in namespaces:
             remaining_nodes = (

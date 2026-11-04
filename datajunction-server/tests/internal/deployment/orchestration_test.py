@@ -21,9 +21,19 @@ from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.partition import Partition
+from datajunction_server.database.rbac import Role, RoleAssignment, RoleScope
 from datajunction_server.database.tag import Tag
 from datajunction_server.database.user import OAuthProvider, User
-from datajunction_server.errors import DJError, DJInvalidDeploymentConfig, ErrorCode
+from datajunction_server.errors import (
+    DJAuthorizationException,
+    DJError,
+    DJInvalidDeploymentConfig,
+    ErrorCode,
+)
+from datajunction_server.internal.access.authorization import (
+    AuthContext,
+    RBACAuthorizationService,
+)
 from datajunction_server.internal.deployment.fingerprints import (
     SemanticFingerprintGraph,
 )
@@ -65,6 +75,7 @@ from datajunction_server.models.deployment import (
     TagSpec,
     TransformSpec,
 )
+from datajunction_server.models.access import ResourceAction, ResourceType
 from datajunction_server.models.dimensionlink import JoinLinkInput
 from datajunction_server.models.history import ActivityType
 from datajunction_server.models.node import MetricUnit, NodeStatus
@@ -72,6 +83,7 @@ from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.partition import Granularity
 from datajunction_server.models.semantic_fingerprint import SemanticFingerprint
 from datajunction_server.sql.parsing.types import StringType
+from tests.authz import VALIDATOR_AUTH_SERVICE
 
 
 @pytest.fixture
@@ -1053,6 +1065,128 @@ class TestOrchestrationFlow:
             # Should raise DJInvalidDeploymentConfig
             with pytest.raises(DJInvalidDeploymentConfig):
                 await orchestrator.execute()
+
+
+def _prune_session(mocker, *governed_namespaces, extra_results=()):
+    session = mocker.MagicMock()
+    session.get_bind.return_value.dialect.name = "sqlite"
+    results = []
+    for namespaces in governed_namespaces:
+        result = mocker.MagicMock()
+        result.scalars.return_value.all.return_value = namespaces
+        results.append(result)
+    results.extend(extra_results)
+    session.execute = AsyncMock(side_effect=results)
+    return session
+
+
+def _prune_orchestrator(mocker, session, namespace, actions, *, governed):
+    scopes = [
+        RoleScope(
+            action=action, scope_type=ResourceType.NAMESPACE, scope_value=namespace
+        )
+        for action in actions
+    ]
+    auth_context = AuthContext(
+        user_id=1,
+        username="deploy-user",
+        oauth_provider="basic",
+        role_assignments=[RoleAssignment(role=Role(scopes=scopes))],
+        governed_boundaries=(namespace,) if governed else (),
+    )
+    mocker.patch.object(
+        AuthContext,
+        "from_user",
+        new=AsyncMock(return_value=auth_context),
+    )
+    mocker.patch(VALIDATOR_AUTH_SERVICE, lambda: RBACAuthorizationService())
+    return DeploymentOrchestrator(
+        deployment_spec=DeploymentSpec(namespace=namespace),
+        deployment_id="prune-test",
+        session=session,
+        context=SimpleNamespace(current_user=Mock(spec=User)),
+    )
+
+
+class TestDeploymentNamespacePruningAuthorization:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("governed", "manage", "allowed"),
+        [(True, False, False), (True, True, True), (False, False, True)],
+    )
+    async def test_plan_authorization_for_pruned_namespace(
+        self,
+        mocker,
+        governed,
+        manage,
+        allowed,
+    ):
+        namespace = "team.metrics"
+        count_result = mocker.MagicMock()
+        count_result.scalar.return_value = 0
+        boundaries = [namespace] if governed else []
+        session = _prune_session(
+            mocker,
+            boundaries,
+            boundaries,
+            extra_results=[count_result],
+        )
+        session.delete = AsyncMock()
+        session.flush = AsyncMock()
+        orchestrator = _prune_orchestrator(
+            mocker,
+            session,
+            namespace,
+            [ResourceAction.DELETE, ResourceAction.MANAGE]
+            if manage
+            else [ResourceAction.DELETE],
+            governed=governed,
+        )
+        namespace_row = NodeNamespace(
+            namespace=namespace, is_governed_boundary=governed
+        )
+        mocker.patch(
+            "datajunction_server.internal.deployment.orchestrator.get_node_namespace",
+            new_callable=AsyncMock,
+            return_value=namespace_row,
+        )
+        plan = SimpleNamespace(
+            to_deploy=[], to_delete=[], to_delete_namespaces=[namespace]
+        )
+
+        if allowed:
+            await orchestrator._authorize_deployment_plan(plan)
+            results = await orchestrator._delete_namespaces([namespace])
+            assert results[0].status == DeploymentResult.Status.SUCCESS
+            session.delete.assert_awaited_once_with(namespace_row)
+        else:
+            with pytest.raises(DJAuthorizationException):
+                await orchestrator._authorize_deployment_plan(plan)
+
+    @pytest.mark.asyncio
+    async def test_namespace_delete_rechecks_current_boundary_before_removal(
+        self,
+        mocker,
+    ):
+        namespace = "team.metrics"
+        session = _prune_session(mocker, [], [namespace])
+        orchestrator = _prune_orchestrator(
+            mocker,
+            session,
+            namespace,
+            [ResourceAction.DELETE],
+            governed=False,
+        )
+        plan = SimpleNamespace(
+            to_deploy=[], to_delete=[], to_delete_namespaces=[namespace]
+        )
+        await orchestrator._authorize_deployment_plan(plan)
+
+        with pytest.raises(DJAuthorizationException):
+            await orchestrator._delete_namespaces([namespace])
+
+        assert session.execute.await_count == 2
+        session.delete.assert_not_called()
 
 
 class TestColumnChanged:
