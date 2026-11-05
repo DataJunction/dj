@@ -12,6 +12,16 @@ from datajunction_server.errors import (
     DJQueryServiceClientException,
 )
 from datajunction_server.query_clients.base import BaseQueryServiceClient
+from datajunction_server.query_clients.catalog import (
+    catalog_from_engine_uri,
+    replace_catalog_alias,
+)
+from datajunction_server.models.dialect import Dialect
+from datajunction_server.models.query import (
+    ColumnMetadata,
+    QueryCreate,
+    QueryWithResults,
+)
 from datajunction_server.sql.parsing.types import ColumnType
 
 if TYPE_CHECKING:
@@ -95,9 +105,51 @@ class SnowflakeClient(BaseQueryServiceClient):
                 private_key_bytes = f.read()
             self.connection_params["private_key"] = private_key_bytes
 
-    def _get_connection(self):
+    def _get_connection(self, database: str | None = None):
         """Get a Snowflake connection."""
-        return snowflake.connector.connect(**self.connection_params)
+        params = {**self.connection_params}
+        if database:
+            params["database"] = database
+        return snowflake.connector.connect(**params)
+
+    async def submit_query(
+        self,
+        query_create: QueryCreate,
+        request_headers: dict[str, str] | None = None,
+    ) -> QueryWithResults:
+        """Execute SQL with the configured Snowflake connection."""
+
+        def _fetch() -> tuple[list[ColumnMetadata], list[tuple[Any, ...]], str]:
+            database = catalog_from_engine_uri(
+                query_create.engine_uri,
+                Dialect.SNOWFLAKE,
+            ) or self.connection_params.get("database", query_create.catalog_name)
+            sql = replace_catalog_alias(
+                query_create.submitted_query,
+                query_create.catalog_name,
+                database,
+                Dialect.SNOWFLAKE,
+            )
+            conn = self._get_connection(database=database)
+            try:
+                with conn.cursor() as cursor:
+                    cursor.execute(sql)
+                    columns = [
+                        ColumnMetadata(name=col.name, type=str(col.type_code))
+                        for col in cursor.description or []
+                    ]
+                    return columns, [tuple(row) for row in cursor.fetchall()], sql
+            finally:
+                conn.close()
+
+        try:
+            columns, rows, executed_sql = await asyncio.to_thread(_fetch)
+        except Exception as exc:
+            _logger.exception("Snowflake query failed")
+            raise DJQueryServiceClientException(
+                message="Snowflake query failed.",
+            ) from exc
+        return self._finished_query(query_create, columns, rows, executed_sql)
 
     def _get_database_from_engine(self, engine, fallback_catalog: str) -> str:
         """
@@ -110,40 +162,10 @@ class SnowflakeClient(BaseQueryServiceClient):
         Returns:
             The actual Snowflake database name to use
         """
-        if not engine or not engine.uri:
-            # No engine provided, use the configured default database
-            return self.connection_params.get("database", fallback_catalog)
-
-        try:
-            # Parse the engine URI to extract database name
-            # Snowflake URIs typically look like: snowflake://user:pass@account/database?warehouse=wh
-            from urllib.parse import urlparse
-
-            parsed = urlparse(engine.uri)
-
-            if parsed.path and len(parsed.path) > 1:  # path starts with '/'
-                database_name = parsed.path.lstrip("/")
-                # Handle case where path might have additional segments
-                database_name = database_name.split("/")[0]
-                if database_name:
-                    return database_name
-
-            # If we can't parse the database from URI, check query parameters
-            if parsed.query:
-                from urllib.parse import parse_qs
-
-                query_params = parse_qs(parsed.query)
-                if query_params.get("database"):
-                    return query_params["database"][0]
-
-        except Exception as e:  # pragma: no cover
-            _logger.warning(
-                f"Failed to parse database from engine URI {engine.uri}: {e}. "
-                f"Using fallback: {fallback_catalog}",
-            )
-
-        # Fall back to the configured database or catalog name
-        return self.connection_params.get("database", fallback_catalog)
+        return catalog_from_engine_uri(
+            engine.uri if engine else None,
+            Dialect.SNOWFLAKE,
+        ) or self.connection_params.get("database", fallback_catalog)
 
     async def get_columns_for_table(
         self,

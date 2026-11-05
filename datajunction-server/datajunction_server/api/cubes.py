@@ -486,6 +486,7 @@ async def get_cube_dimension_values(
         engine_version=catalog.engines[0].version,
         submitted_query=translated_sql.sql,
         async_=async_,
+        engine_uri=catalog.engines[0].uri,
     )
     result = await query_service_client.submit_query(
         query_create,

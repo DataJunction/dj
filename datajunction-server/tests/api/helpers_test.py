@@ -3,6 +3,7 @@ Tests for API helpers.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
+import json
 
 import pytest
 from sqlalchemy import select
@@ -31,6 +32,79 @@ from datajunction_server.internal import sql
 from datajunction_server.internal.nodes import propagate_valid_status
 from datajunction_server.models.node import NodeStatus
 from datajunction_server.sql.parsing.types import IntegerType
+from datajunction_server.models.query import ColumnMetadata, QueryCreate
+from datajunction_server.query_clients.base import BaseQueryServiceClient
+from datajunction_server.typing import QueryState
+
+
+@pytest.mark.asyncio
+async def test_query_event_stream_does_not_poll_finished_query():
+    """Direct clients return the final result in the submit response."""
+    query = BaseQueryServiceClient._finished_query(
+        QueryCreate(
+            catalog_name="warehouse",
+            engine_name="bigquery",
+            engine_version="1",
+            submitted_query="SELECT 42",
+        ),
+        [],
+        [(42,)],
+    )
+    columns = [ColumnMetadata(name="answer", type="integer")]
+    client = MagicMock(get_query=AsyncMock())
+    request = MagicMock(is_disconnected=AsyncMock(return_value=False))
+
+    events = [
+        event
+        async for event in helpers.query_event_stream(
+            query,
+            None,
+            client,
+            columns,
+            request,
+        )
+    ]
+
+    assert len(events) == 1
+    assert json.loads(json.loads(events[0]["data"]))["state"] == QueryState.FINISHED
+    assert query.results.root[0].columns == columns
+    client.get_query.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_query_event_stream_polls_running_query():
+    """Asynchronous query clients still deliver a separate final event."""
+    query = BaseQueryServiceClient._finished_query(
+        QueryCreate(
+            catalog_name="warehouse",
+            engine_name="trino",
+            engine_version="1",
+            submitted_query="SELECT 42",
+        ),
+        [],
+        [(42,)],
+    )
+    initial = query.model_copy(deep=True)
+    initial.state = QueryState.RUNNING
+    initial.results.root = []
+    columns = [ColumnMetadata(name="answer", type="integer")]
+    client = MagicMock(get_query=AsyncMock(return_value=query))
+    request = MagicMock(is_disconnected=AsyncMock(return_value=False))
+
+    events = [
+        event
+        async for event in helpers.query_event_stream(
+            initial,
+            None,
+            client,
+            columns,
+            request,
+        )
+    ]
+
+    assert len(events) == 2
+    assert query.results.root[0].columns == columns
+    client.get_query.assert_awaited_once_with(query_id=query.id, request_headers=None)
 
 
 def test_dedupe_cube_elements_same_object():

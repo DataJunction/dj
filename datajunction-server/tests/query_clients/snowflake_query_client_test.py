@@ -1,8 +1,97 @@
 """Test SnowflakeClient."""
 
 from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
 
 import pytest
+
+from datajunction_server.models.query import QueryCreate
+from datajunction_server.errors import DJQueryServiceClientException
+from datajunction_server.typing import QueryState
+
+
+@pytest.mark.asyncio
+async def test_submit_query_returns_rows_and_closes_connection():
+    from datajunction_server.query_clients.snowflake import SnowflakeClient
+
+    with patch("datajunction_server.query_clients.snowflake.SNOWFLAKE_AVAILABLE", True):
+        client = SnowflakeClient(account="test", user="test")
+    cursor = MagicMock()
+    cursor.description = [SimpleNamespace(name="total", type_code="NUMBER")]
+    cursor.fetchall.return_value = [(42,)]
+    connection = MagicMock()
+    connection.cursor.return_value.__enter__.return_value = cursor
+    client._get_connection = MagicMock(return_value=connection)
+    query = QueryCreate(
+        catalog_name="warehouse",
+        engine_name="snowflake",
+        engine_version="1",
+        submitted_query="SELECT 42 AS total",
+    )
+
+    result = await client.submit_query(query)
+
+    assert result.state == QueryState.FINISHED
+    assert result.results.root[0].rows == [(42,)]
+    assert result.results.root[0].columns[0].name == "total"
+    cursor.execute.assert_called_once_with(query.submitted_query)
+    connection.close.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_submit_query_resolves_catalog_alias_from_engine_uri():
+    from datajunction_server.query_clients.snowflake import SnowflakeClient
+
+    with patch("datajunction_server.query_clients.snowflake.SNOWFLAKE_AVAILABLE", True):
+        client = SnowflakeClient(account="test", user="test", database="CONFIG_DB")
+    cursor = MagicMock()
+    cursor.description = []
+    cursor.fetchall.return_value = []
+    connection = MagicMock()
+    connection.cursor.return_value.__enter__.return_value = cursor
+    client._get_connection = MagicMock(return_value=connection)
+    query = QueryCreate(
+        catalog_name="warehouse",
+        engine_name="snowflake",
+        engine_version="1",
+        submitted_query=(
+            "WITH local AS (SELECT * FROM warehouse.sales.orders) "
+            "SELECT 'warehouse.sales.orders' AS label FROM local "
+            "JOIN other.sales.reference AS ref ON local.id = ref.id"
+        ),
+        engine_uri="snowflake://user:pass@account/REAL_DB",
+    )
+
+    result = await client.submit_query(query)
+
+    executed = cursor.execute.call_args.args[0]
+    assert "REAL_DB.sales.orders" in executed
+    assert "'warehouse.sales.orders'" in executed
+    assert "FROM local" in executed
+    assert "other.sales.reference" in executed
+    client._get_connection.assert_called_once_with(database="REAL_DB")
+    assert "engine_uri" not in query.model_dump()
+    assert result.submitted_query == query.submitted_query
+    assert result.executed_query == executed
+    assert result.results.root[0].sql == executed
+
+
+@pytest.mark.asyncio
+async def test_submit_query_hides_driver_error():
+    from datajunction_server.query_clients.snowflake import SnowflakeClient
+
+    with patch("datajunction_server.query_clients.snowflake.SNOWFLAKE_AVAILABLE", True):
+        client = SnowflakeClient(account="test", user="test")
+    client._get_connection = MagicMock(side_effect=RuntimeError("secret account"))
+    query = QueryCreate(
+        catalog_name="warehouse",
+        engine_name="snowflake",
+        engine_version="1",
+        submitted_query="SELECT 1",
+    )
+    with pytest.raises(DJQueryServiceClientException) as exc:
+        await client.submit_query(query)
+    assert "secret" not in str(exc.value)
 
 
 def test_snowflake_client_import_error():
@@ -18,6 +107,21 @@ def test_snowflake_client_import_error():
 
         assert "datajunction-server[snowflake]" in str(exc_info.value)
         assert "snowflake-connector-python" in str(exc_info.value)
+
+
+def test_connection_database_override_does_not_change_client_default():
+    from datajunction_server.query_clients.snowflake import SnowflakeClient
+
+    with patch("datajunction_server.query_clients.snowflake.SNOWFLAKE_AVAILABLE", True):
+        client = SnowflakeClient(account="test", user="test", database="DEFAULT_DB")
+    connect = MagicMock()
+    snowflake_module = SimpleNamespace(connector=SimpleNamespace(connect=connect))
+    target = "datajunction_server.query_clients.snowflake.snowflake"
+    with patch(target, snowflake_module):
+        client._get_connection(database="QUERY_DB")
+
+    assert connect.call_args.kwargs["database"] == "QUERY_DB"
+    assert client.connection_params["database"] == "DEFAULT_DB"
 
 
 def test_get_database_from_engine_empty_database():

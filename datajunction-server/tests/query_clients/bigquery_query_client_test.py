@@ -6,6 +6,86 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from datajunction_server.models.query import QueryCreate
+from datajunction_server.errors import DJQueryServiceClientException
+from datajunction_server.typing import QueryState
+
+
+@pytest.mark.asyncio
+async def test_submit_query_returns_rows():
+    client = _make_client()
+    result_rows = MagicMock()
+    result_rows.schema = [MagicMock(name="total", field_type="INTEGER")]
+    result_rows.schema[0].name = "total"
+    result_rows.__iter__.return_value = iter([(42,)])
+    backend = MagicMock()
+    backend.query.return_value.result.return_value = result_rows
+    client._get_client = MagicMock(return_value=backend)
+    query = QueryCreate(
+        catalog_name="warehouse",
+        engine_name="bigquery",
+        engine_version="1",
+        submitted_query="SELECT 42 AS total",
+    )
+
+    result = await client.submit_query(query)
+
+    assert result.state == QueryState.FINISHED
+    assert result.results.root[0].rows == [(42,)]
+    assert result.results.root[0].columns[0].name == "total"
+    backend.query.assert_called_once_with(query.submitted_query)
+    backend.close.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_submit_query_resolves_catalog_alias_from_engine_uri():
+    client = _make_client(project="configured-project")
+    result_rows = MagicMock()
+    result_rows.schema = []
+    result_rows.__iter__.return_value = iter([])
+    backend = MagicMock()
+    backend.query.return_value.result.return_value = result_rows
+    client._get_client = MagicMock(return_value=backend)
+    query = QueryCreate(
+        catalog_name="warehouse",
+        engine_name="bigquery",
+        engine_version="1",
+        submitted_query=(
+            "WITH local AS (SELECT * FROM warehouse.sales.orders) "
+            "SELECT 'warehouse.sales.orders' AS label FROM local "
+            "JOIN other.sales.reference AS ref ON local.id = ref.id"
+        ),
+        engine_uri="bigquery://real-project",
+    )
+
+    result = await client.submit_query(query)
+
+    executed = backend.query.call_args.args[0]
+    assert "real-project.sales.orders" in executed
+    assert "'warehouse.sales.orders'" in executed
+    assert "FROM local" in executed
+    assert "other.sales.reference" in executed
+    client._get_client.assert_called_once_with(project="real-project")
+    assert "engine_uri" not in query.model_dump()
+    assert result.submitted_query == query.submitted_query
+    assert result.executed_query == executed
+    assert result.results.root[0].sql == executed
+
+
+@pytest.mark.asyncio
+async def test_submit_query_hides_driver_error():
+    client = _make_client()
+    client._get_client = MagicMock(side_effect=RuntimeError("secret project"))
+    query = QueryCreate(
+        catalog_name="warehouse",
+        engine_name="bigquery",
+        engine_version="1",
+        submitted_query="SELECT 1",
+    )
+    with pytest.raises(DJQueryServiceClientException) as exc:
+        await client.submit_query(query)
+    assert "secret" not in str(exc.value)
+
 
 def test_bigquery_available_true_when_package_importable():
     """BIGQUERY_AVAILABLE is True when google-cloud-bigquery can be imported."""

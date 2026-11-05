@@ -534,9 +534,10 @@ def _(ctx: sbp.QueryContext):
     ctes = []
     if ctes_ctx := ctx.ctes():
         ctes = visit(ctes_ctx)
-    limit, organization = visit(ctx.queryOrganization())
+    limit, offset, organization = visit(ctx.queryOrganization())
     select = visit(ctx.queryTerm())
     select.limit = limit
+    select.offset = offset
     select.organization = organization
     return ast.Query(ctes=ctes, select=select)
 
@@ -549,7 +550,8 @@ def _(ctx: sbp.QueryOrganizationContext):
     limit = None
     if ctx.limit:
         limit = visit(ctx.limit)
-    return limit, org
+    offset = visit(ctx.offset) if ctx.offset else None
+    return limit, offset, org
 
 
 @visit.register
