@@ -254,16 +254,18 @@ async def lock_schema_scope(
     key: str,
     namespace: str | None,
     node_type: str | None,
+    shared: bool = False,
 ) -> None:
     """Hold off other writers of this (key, node type, scope) row until commit.
 
     The row is looked up and then inserted, so two writers that both miss it
     collide on `uq_custommetadataschema_key_scope`; the second one now waits and
-    finds the first's row.
+    finds the first's row. A dry run locks shared: it only waits for real writers.
     """
     await advisory_xact_lock(
         session,
         f"dj:schema:{key}|{node_type or ''}|{namespace or ''}",
+        shared=shared,
     )
 
 
@@ -278,6 +280,7 @@ async def upsert_schema_row(
     description: str | None,
     reserved: bool,
     current_user_id: int,
+    shared_lock: bool = False,
 ) -> CustomMetadataSchema:
     """Create, update, or revive the single row owning this scope.
 
@@ -289,7 +292,7 @@ async def upsert_schema_row(
     Does not commit -- the caller owns the transaction, which is what lets a
     dry-run deployment roll the registration back.
     """
-    await lock_schema_scope(session, key, namespace, node_type)
+    await lock_schema_scope(session, key, namespace, node_type, shared=shared_lock)
     row = (
         await session.execute(
             select(CustomMetadataSchema).where(
@@ -322,6 +325,7 @@ async def upsert_schema_specs(
     *,
     current_user_id: int,
     build_indexes: bool = True,
+    shared_lock: bool = False,
 ) -> None:
     """Reconcile schema rows to exactly *specs*.
 
@@ -355,7 +359,13 @@ async def upsert_schema_specs(
         key=lambda scope: (scope[0], scope[1] or "", scope[2]),
     )
     for lock_key, lock_node_type, lock_scope in scopes_to_lock:
-        await lock_schema_scope(session, lock_key, lock_scope, lock_node_type)
+        await lock_schema_scope(
+            session,
+            lock_key,
+            lock_scope,
+            lock_node_type,
+            shared=shared_lock,
+        )
 
     for spec in specs:
         check_json_schema(spec.key, spec.json_schema)
@@ -380,6 +390,7 @@ async def upsert_schema_specs(
             description=spec.description,
             reserved=False,
             current_user_id=current_user_id,
+            shared_lock=shared_lock,
         )
 
     scopes = {namespace} | {scope for _, _, scope in declared}

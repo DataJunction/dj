@@ -12,6 +12,7 @@ from typing import cast
 
 from sqlalchemy import func, or_, select
 from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer, joinedload, load_only, noload, selectinload
 from sqlalchemy.orm.attributes import flag_modified
@@ -601,7 +602,9 @@ class DeploymentOrchestrator:
 
         A deployment locks its namespace exclusively and its ancestors shared,
         root first, so ``team`` and ``team.sub`` queue but ``team.a`` and
-        ``team.b`` do not. The locks last until the commit or SAVEPOINT rollback.
+        ``team.b`` do not. A dry run locks its own namespace shared too, so it
+        waits for real deployments but not for other dry runs. The locks last
+        until the commit or SAVEPOINT rollback.
         """
         namespace = self.deployment_spec.namespace
         parts = namespace.split(SEPARATOR)
@@ -611,7 +614,11 @@ class DeploymentOrchestrator:
                 f"dj:deploy:{SEPARATOR.join(parts[:depth])}",
                 shared=True,
             )
-        await advisory_xact_lock(self.session, f"dj:deploy:{namespace}")
+        await advisory_xact_lock(
+            self.session,
+            f"dj:deploy:{namespace}",
+            shared=self.dry_run,
+        )
 
     async def _plan_and_execute(self) -> DeploymentExecuteResult:
         """Inner body of ``execute`` — runs inside the orchestrator's SAVEPOINT.
@@ -1115,6 +1122,7 @@ class DeploymentOrchestrator:
                 # Index DDL is the one part a rolled-back SAVEPOINT would do for
                 # nothing, and a dry run needs no index to report impact.
                 build_indexes=not self.dry_run,
+                shared_lock=self.dry_run,
             )
         logger.info(
             "Set up deployment resources: %d namespaces, %d tags, %d owners, %d catalogs, %d attributes",
@@ -1508,25 +1516,26 @@ class DeploymentOrchestrator:
             tag for spec in self.deployment_spec.nodes for tag in spec.tags
         }
         all_tag_names = deployment_tag_specs.keys() | used_tag_names
+        tag_options = [
+            load_only(
+                Tag.id,
+                Tag.name,
+                Tag.tag_type,
+                Tag.description,
+                Tag.display_name,
+                Tag.tag_metadata,
+                Tag.created_by_id,
+            ),
+            noload(Tag.created_by),
+            noload(Tag.nodes),
+        ]
         existing_tags = {
             tag.name: tag
             for tag in (
                 await Tag.find_tags(
                     self.session,
                     tag_names=list(all_tag_names),
-                    options=[
-                        load_only(
-                            Tag.id,
-                            Tag.name,
-                            Tag.tag_type,
-                            Tag.description,
-                            Tag.display_name,
-                            Tag.tag_metadata,
-                            Tag.created_by_id,
-                        ),
-                        noload(Tag.created_by),
-                        noload(Tag.nodes),
-                    ],
+                    options=tag_options,
                 )
                 if all_tag_names
                 else []
@@ -1579,6 +1588,7 @@ class DeploymentOrchestrator:
         # Upsert tags
         created: list[str] = []
         updated: list[str] = []
+        new_tags: dict[str, Tag] = {}
         for tag_name, tag_spec in deployment_tag_specs.items():
             if tag_name in existing_tags:
                 tag = existing_tags[tag_name]
@@ -1600,7 +1610,7 @@ class DeploymentOrchestrator:
                     tag_name,
                     tag_spec.tag_type,
                 )
-                tag = Tag(
+                new_tags[tag_name] = Tag(
                     name=tag_name,
                     tag_type=tag_spec.tag_type,
                     description=tag_spec.description,
@@ -1608,8 +1618,9 @@ class DeploymentOrchestrator:
                     tag_metadata=tag_spec.tag_metadata or {},
                     created_by_id=self.context.current_user.id,
                 )
-                self.session.add(tag)
-                created.append(tag_name)
+
+        created.extend(await self._insert_new_tags(new_tags, tag_options))
+        for tag_name, tag in new_tags.items():
             existing_tags[tag_name] = tag
 
         if created or updated:
@@ -1622,6 +1633,54 @@ class DeploymentOrchestrator:
             )
             await self.session.flush()  # Get IDs but don't commit
         return existing_tags
+
+    async def _insert_new_tags(
+        self,
+        new_tags: dict[str, Tag],
+        tag_options: list,
+    ) -> list[str]:
+        """Insert tags that do not exist yet and return the names this call created.
+
+        Tag names are global, and a tag is looked up before it is inserted, so two
+        deployments creating the same new tag collide on the unique name. On
+        Postgres the second insert is skipped and the first one's tag is used.
+        """
+        if not new_tags:
+            return []
+        if self.session.get_bind().dialect.name != "postgresql":
+            self.session.add_all(new_tags.values())
+            return list(new_tags)
+        rows = [
+            {
+                "name": tag.name,
+                "tag_type": tag.tag_type,
+                "description": tag.description,
+                "display_name": tag.display_name,
+                "tag_metadata": tag.tag_metadata,
+                "created_by_id": tag.created_by_id,
+            }
+            for tag in new_tags.values()
+        ]
+        inserted = (
+            (
+                await self.session.execute(
+                    pg_insert(Tag)
+                    .values(rows)
+                    .on_conflict_do_nothing(index_elements=[Tag.name])
+                    .returning(Tag.name),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        stored = await Tag.find_tags(
+            self.session,
+            tag_names=list(new_tags),
+            options=tag_options,
+        )
+        for tag in stored:
+            new_tags[tag.name] = tag
+        return list(inserted)
 
     async def _reconcile_claimed_tags(self) -> list[DeploymentResult]:
         """
@@ -2417,6 +2476,7 @@ class DeploymentOrchestrator:
                     await advisory_xact_lock(
                         self.session,
                         f"dj:autoreg:{source_name}",
+                        shared=self.dry_run,
                     )
 
                 existing_auto_sources = await Node.get_by_names(

@@ -8,12 +8,14 @@ import pytest
 from sqlalchemy import func, select, text
 
 from datajunction_server.database.custom_metadata_schema import CustomMetadataSchema
+from datajunction_server.database.tag import Tag
 from datajunction_server.internal.custom_metadata import upsert_schema_specs
 from datajunction_server.internal.deployment.orchestrator import DeploymentOrchestrator
 from datajunction_server.internal.deployment.utils import DeploymentContext
 from datajunction_server.models.deployment import (
     CustomMetadataSchemaSpec,
     DeploymentSpec,
+    TagSpec,
 )
 from tests.conftest import patch_session_contexts
 
@@ -22,11 +24,11 @@ SHARED_LOCK = "SELECT pg_advisory_xact_lock_shared(hashtext(:key))"
 EXCLUSIVE_LOCK = "SELECT pg_advisory_xact_lock(hashtext(:key))"
 
 
-def _orchestrator(session, current_user, namespace, dry_run=False):
+def _orchestrator(session, current_user, namespace, dry_run=False, tags=None):
     context = MagicMock(spec=DeploymentContext)
     context.current_user = current_user
     return DeploymentOrchestrator(
-        deployment_spec=DeploymentSpec(namespace=namespace, nodes=[]),
+        deployment_spec=DeploymentSpec(namespace=namespace, nodes=[], tags=tags or []),
         deployment_id=str(uuid.uuid4()),
         session=session,
         context=context,
@@ -186,6 +188,92 @@ async def test_sibling_deployments_do_not_wait(
                 timeout=30,
             )
         await holder.rollback()
+
+
+@pytest.mark.asyncio
+async def test_dry_runs_do_not_wait_for_each_other(
+    session,
+    session_factory,
+    current_user,
+):
+    """A dry run only needs the namespace lock shared, so previews run side by side."""
+    holder = await session_factory()
+    async with holder:
+        await holder.execute(text(SHARED_LOCK), {"key": "dj:deploy:team_a"})
+        with patch_session_contexts(session_factory):
+            await asyncio.wait_for(
+                _orchestrator(session, current_user, "team_a", dry_run=True).execute(),
+                timeout=30,
+            )
+        await holder.rollback()
+
+
+@pytest.mark.asyncio
+async def test_real_deployment_waits_for_a_dry_run(
+    session,
+    session_factory,
+    current_user,
+):
+    """A real deployment takes the namespace lock exclusively, so a dry run holds it off."""
+    holder = await session_factory()
+    async with holder:
+        await holder.execute(text(SHARED_LOCK), {"key": "dj:deploy:team_a"})
+
+        with patch_session_contexts(session_factory):
+            deployment = asyncio.create_task(
+                _orchestrator(session, current_user, "team_a").execute(),
+            )
+            await asyncio.sleep(1)
+            assert not deployment.done()
+
+            await holder.rollback()
+            await asyncio.wait_for(deployment, timeout=30)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_tag_creation_does_not_collide(
+    session,
+    session_factory,
+    current_user,
+):
+    """A deployment creating a tag another one just created skips it and moves on.
+
+    Without the conflict handling it inserts a second row for the name and fails on
+    the unique constraint once the first deployment commits.
+    """
+    other = await session_factory()
+    async with other:
+        other.add(
+            Tag(
+                name="shared_tag",
+                tag_type="general",
+                description="",
+                display_name="Shared tag",
+                tag_metadata={},
+                created_by_id=current_user.id,
+            ),
+        )
+        await other.flush()  # the other deployment's tag, still uncommitted
+
+        with patch_session_contexts(session_factory):
+            deployment = asyncio.create_task(
+                _orchestrator(
+                    session,
+                    current_user,
+                    "team_a",
+                    tags=[TagSpec(name="shared_tag", tag_type="general")],
+                ).execute(),
+            )
+            await asyncio.sleep(1)  # it waits on the unique index
+            assert not deployment.done()
+
+            await other.commit()
+            await asyncio.wait_for(deployment, timeout=30)
+
+    count = await session.scalar(
+        select(func.count()).select_from(Tag).where(Tag.name == "shared_tag"),
+    )
+    assert count == 1
 
 
 @pytest.mark.asyncio
