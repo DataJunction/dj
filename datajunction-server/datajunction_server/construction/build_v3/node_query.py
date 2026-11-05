@@ -26,7 +26,6 @@ from datajunction_server.construction.build_v3.builder import (
     substitute_query_params,
 )
 from datajunction_server.construction.build_v3.cte import (
-    _fk_key_column_names,
     collect_node_ctes,
 )
 from datajunction_server.construction.build_v3.dimensions import (
@@ -34,6 +33,7 @@ from datajunction_server.construction.build_v3.dimensions import (
     resolve_dimensions,
 )
 from datajunction_server.construction.build_v3.filters import (
+    normalize_filters,
     parse_and_resolve_filters,
 )
 from datajunction_server.construction.build_v3.loaders import (
@@ -258,7 +258,7 @@ async def build_node_sql_v3(
     semantic names that resolve to the correct output alias.
     """
     dim_list = list(dimensions or [])
-    filter_list = list(filters or [])
+    filter_list = normalize_filters(filters)
     orderby_list = list(orderby or [])
 
     # Lightweight node lookup so we can dispatch on node type before paying
@@ -569,7 +569,7 @@ def _build_with_dimensions(
     # Build the filter-column-alias map up front so ``PushdownFilters``
     # can resolve user filter refs to the right CTE columns.
     filter_column_aliases = (
-        build_filter_column_aliases(ctx, resolved_dims, starting) if filter_list else {}
+        build_filter_column_aliases(resolved_dims, starting) if filter_list else {}
     )
     # Joined-dimension attributes with no FK/key path must stay in the outer
     # WHERE rather than bind to a same-named raw FK column in an upstream CTE.
@@ -582,18 +582,24 @@ def _build_with_dimensions(
     # projections afterwards — the v3 metric path trims columns, but for
     # ``/sql/{node}`` we want each node's full projection in the CTE so the
     # user gets every column the node defines.
-    cte_pairs, _, _ = collect_node_ctes(
+    cte_pairs, _, consumed_by_node = collect_node_ctes(
         ctx,
         nodes_for_ctes,
         pushdown=PushdownFilters(
             filters=filter_list,
             column_aliases=filter_column_aliases,
             outer_only_refs=pushdown_outer_only_refs,
-            fk_collision_cols=_fk_key_column_names(starting),
+            parent_node_name=starting.name,
         )
         if filter_list
         else None,
     )
+
+    filter_list = [
+        filter_str
+        for filter_str in filter_list
+        if filter_str not in consumed_by_node.get(starting.name, set())
+    ]
 
     # Generate the alias for the starting (FROM) table — this is what
     # ``build_dimension_joins`` and ``build_dimension_col_expr`` use to qualify
@@ -659,7 +665,6 @@ def _build_with_dimensions(
             resolved_dims,
             main_alias,
             dim_aliases,
-            starting,
         )
         if filter_list
         else None

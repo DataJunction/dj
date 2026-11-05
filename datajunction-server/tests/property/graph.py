@@ -10,27 +10,11 @@ from httpx import AsyncClient
 from tests.conftest import transpile_to_duckdb
 from tests.property.comparison import PropertyMismatch, same_value
 from tests.property.scenario import (
-    DimensionColumn,
-    FilterSpec,
     Scenario,
     render_filter,
 )
 
 counter = itertools.count()
-
-
-def accepts_missing_dimension(conn, filters: tuple[FilterSpec, ...]) -> bool:
-    """Whether all filters accept a fact with no matching dimension row."""
-    if not filters:
-        return True
-
-    def missing_column(column: DimensionColumn) -> str:
-        return "CAST(NULL AS VARCHAR)" if column == "label" else "CAST(NULL AS INTEGER)"
-
-    where = " AND ".join(
-        f"({render_filter(filter_, missing_column)})" for filter_ in filters
-    )
-    return bool(conn.sql(f"SELECT COALESCE(({where}), FALSE)").fetchone()[0])
 
 
 def has_orphan_facts(scenario: Scenario) -> bool:

@@ -105,7 +105,6 @@ class TestMetricsSQLBasic:
               v3_product AS (
                 SELECT product_id, category, subcategory
                 FROM default.v3.products
-                WHERE category = 'Electronics' AND subcategory = 'Smartphones'
               ),
               order_details_0 AS (
                 SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
@@ -1849,7 +1848,6 @@ class TestMetricsSQLDerived:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
-                WHERE category = 'Electronics'
             ),
             order_details_0 AS (
                 SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
@@ -1909,7 +1907,6 @@ class TestMetricsSQLDerived:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
-                WHERE category = 'Electronics'
             ),
             v3_page_views_enriched AS (
                 SELECT view_id, product_id
@@ -2127,7 +2124,6 @@ class TestMetricsSQLDerived:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
-                WHERE category = 'Electronics'
             ),
             order_details_0 AS (
                 SELECT t1.status, t2.category, SUM(t1.line_total) line_total_sum_e1f61696
@@ -2783,7 +2779,6 @@ class TestFilterOnlyDimensionLoop:
                 category,
                 subcategory
               FROM default.v3.products
-              WHERE subcategory = 'tools' AND category = 'electronics'
             ),
             order_details_0 AS (
               SELECT
@@ -3813,7 +3808,6 @@ class TestNonDecomposableMetrics:
             SELECT  base_metrics.date_id_order AS date_id_order,
               SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)  AS trailing_7d_revenue
              FROM base_metrics
-             WHERE  base_metrics.date_id_order = 20240130 + 1
             """,
         )
 
@@ -4017,7 +4011,6 @@ SELECT  order_details_0.date_id_order AS date_id_order,
 SELECT  base_metrics.date_id_order AS date_id_order,
 	SUM(base_metrics.total_revenue) OVER ( ORDER BY base_metrics.date_id_order ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)  AS cumulative_revenue
  FROM base_metrics
- WHERE  base_metrics.date_id_order = 20240131
 """,
         )
 
@@ -5904,7 +5897,6 @@ class TestFilterOnlyDimensions:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
-                WHERE category = 'Electronics'
             ),
             order_details_0 AS (
                 SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
@@ -5982,7 +5974,6 @@ class TestFilterOnlyDimensions:
             WITH v3_date AS (
               SELECT date_id, week
               FROM default.v3.dates
-              WHERE week {week_predicate}
             ),
             v3_order_details AS (
               SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
@@ -6210,7 +6201,6 @@ class TestMultiHopIntermediateDimensionColumns:
                 location_id,
                 country
               FROM default.v3.locations
-              WHERE country = 'US'
             ),
             v3_order_details AS (
               SELECT
@@ -6484,7 +6474,6 @@ class TestFilterOnRoleDimension:
             v3_date AS (
                 SELECT date_id, year
                 FROM default.v3.dates
-                WHERE year >= 2024
             ),
             v3_order_details AS (
                 SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
@@ -6549,7 +6538,6 @@ class TestFilterOnRoleDimension:
             v3_date AS (
                 SELECT date_id, year
                 FROM default.v3.dates
-                WHERE year IN (2023, 2024)
             ),
             v3_order_details AS (
                 SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
@@ -6615,7 +6603,6 @@ class TestFilterOnRoleDimension:
             v3_date AS (
                 SELECT date_id, year
                 FROM default.v3.dates
-                WHERE year >= 2024
             ),
             v3_order_details AS (
                 SELECT o.order_date, oi.product_id, oi.quantity * oi.unit_price AS line_total
@@ -6669,7 +6656,6 @@ class TestFilterOnRoleDimension:
             v3_location AS (
                 SELECT location_id, country
                 FROM default.v3.locations
-                WHERE country = 'US'
             ),
             v3_order_details AS (
                 SELECT o.from_location_id, oi.quantity * oi.unit_price AS line_total
@@ -6846,7 +6832,6 @@ class TestFilterOnRoleDimension:
             v3_location AS (
                 SELECT location_id, country
                 FROM default.v3.locations
-                WHERE country = 'US'
             ),
             v3_order_details AS (
                 SELECT o.customer_id, oi.quantity * oi.unit_price AS line_total
@@ -7199,7 +7184,6 @@ class TestMetricsSQLEdgeCases:
             WITH v3_customer AS (
                 SELECT customer_id, email
                 FROM default.v3.customers
-                WHERE email LIKE '%@example.com'
             ),
             v3_order_details AS (
                 SELECT o.customer_id, oi.product_id,
@@ -7728,26 +7712,28 @@ class TestMetricOnDimensionNode:
         assert_sql_equal(
             sql,
             """
-            WITH
-            v3_product AS (
-              SELECT category, price
+            WITH v3_product AS (
+              SELECT
+                category,
+                price
               FROM default.v3.products
-              WHERE subcategory = 'phones'
-            ),
-            product_0 AS (
+              WHERE
+                subcategory = 'phones'
+            ), product_0 AS (
               SELECT
                 t1.category,
-                COUNT(t1.price) price_count_78363aa6,
-                SUM(t1.price) price_sum_78363aa6
-              FROM v3_product t1
-              GROUP BY t1.category
+                COUNT(t1.price) AS price_count_78363aa6,
+                SUM(t1.price) AS price_sum_78363aa6
+              FROM v3_product AS t1
+              GROUP BY
+                t1.category
             )
             SELECT
               product_0.category AS category,
-              SUM(product_0.price_sum_78363aa6)
-                / NULLIF(SUM(product_0.price_count_78363aa6), 0) AS avg_product_price
+              SUM(product_0.price_sum_78363aa6) / NULLIF(SUM(product_0.price_count_78363aa6), 0) AS avg_product_price
             FROM product_0
-            GROUP BY product_0.category
+            GROUP BY
+              product_0.category
             """,
         )
 

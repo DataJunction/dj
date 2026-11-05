@@ -162,7 +162,6 @@ async def test_measure_filter_is_still_pushed_when_another_role_is_joined(
         WITH v3_alloc_day AS (
           SELECT account_id, snapshot_date
           FROM default.v3.alloc_days
-          WHERE snapshot_date = 20261025
         ),
         v3_touch_events AS (
           SELECT account_id, event_date, amount

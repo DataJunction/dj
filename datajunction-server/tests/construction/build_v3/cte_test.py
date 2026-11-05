@@ -9,7 +9,6 @@ from datajunction_server.construction.build_v3.cte import (
     _build_cte_projection_map,
     _enclosing_selects,
     _inject_filter_into_where,
-    _populate_scope_column_aliases,
     _rewrite_filter_for_cte,
     detect_window_metrics_requiring_grain_groups,
     get_column_full_name,
@@ -440,23 +439,6 @@ def test_enclosing_selects_handles_detached_subqueries():
     assert _enclosing_selects(column, query.select) == [inner]
 
 
-def test_table_function_does_not_supply_dimension_bindings():
-    """A table function has no node links through which to push a dim filter."""
-    function = ast.FunctionTable(
-        ast.Name("UNNEST"),
-        args=[ast.Column(ast.Name("items"))],
-    )
-    scope = {"v3.date.date_id": ("fact", "order_date")}
-    _populate_scope_column_aliases(
-        function,
-        scope,
-        MagicMock(spec=BuildContext),
-        {},
-        {},
-    )
-    assert scope == {"v3.date.date_id": ("fact", "order_date")}
-
-
 class TestBuildCteProjectionMap:
     """Tests for _build_cte_projection_map — output-name → underlying ref."""
 
@@ -612,11 +594,7 @@ class TestRewriteFilterForCte:
         assert str(rewritten) == "state = 'AZ'"
 
     def test_does_not_corrupt_substring_collisions(self):
-        """A shorter dim_ref must not rewrite inside a longer similarly-prefixed
-        reference.  ``fact.orders.order_date`` is in scope; an unrelated
-        ``fact.orders.order_date_extended`` elsewhere in the filter must be
-        left untouched.
-        """
+        """A similarly named, unresolved reference prevents partial rewriting."""
         cte_query = parse(
             "SELECT o.placed_on AS order_date FROM src o",
         )
@@ -628,9 +606,7 @@ class TestRewriteFilterForCte:
             cte_output_cols={"order_date"},
             cte_query=cte_query,
         )
-        assert str(rewritten) == (
-            "fact.orders.order_date_extended > 0 OR o.placed_on < 1"
-        )
+        assert rewritten is None
 
 
 # ---------------------------------------------------------------------------

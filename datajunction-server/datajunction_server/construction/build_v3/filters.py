@@ -334,7 +334,7 @@ def combine_filters(filters: list[ast.Expression]) -> ast.Expression | None:
 
 def parse_and_resolve_filters(
     filter_strs: list[str],
-    column_aliases: dict[str, str],
+    column_aliases: Mapping[str, str | ast.Name],
     cte_alias: str | None = None,
     nodes: dict[str, Node] | None = None,
 ) -> ast.Expression | None:
@@ -435,6 +435,21 @@ def _conjuncts(expression: ast.Expression) -> list[ast.Expression]:
     if isinstance(expression, ast.BinaryOp) and expression.op in _CONJUNCTION_OPS:
         return _conjuncts(expression.left) + _conjuncts(expression.right)
     return [expression]
+
+
+def normalize_filters(filters: list[str] | None) -> list[str]:
+    """Treat top-level AND conditions like separate request filter entries.
+
+    OR and NOT expressions remain indivisible. Preserve the original spelling
+    of unsplit filters so consumption and temporal targeting use stable keys.
+    """
+    normalized = []
+    for filter_str in filters or []:
+        conjuncts = _conjuncts(parse_filter(filter_str))
+        normalized.extend(
+            [filter_str] if len(conjuncts) == 1 else [str(atom) for atom in conjuncts],
+        )
+    return normalized
 
 
 def dimension_ref_of_expression(expression: ast.Expression) -> str | None:
