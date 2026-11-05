@@ -313,6 +313,7 @@ def _local_reference_dimension_column(
     ctx: BuildContext,
     parent_node: Node,
     dim_ref: DimensionRef,
+    match_role: bool = False,
 ) -> str | None:
     """
     Return the parent column that supplies dim_ref via a column-level dimension
@@ -325,8 +326,6 @@ def _local_reference_dimension_column(
     the ctx id-to-name map, since the Column.dimension relationship doesn't reliably
     eager-load in this build.
     """
-    from datajunction_server.construction.build_v3.cte import strip_role_suffix
-
     if not parent_node.current or not parent_node.current.columns:  # pragma: no cover
         return None
     for col in parent_node.current.columns:
@@ -336,9 +335,14 @@ def _local_reference_dimension_column(
             continue
         # dimension_column may carry a "[role]" suffix; fall back to the column's
         # own name when unset.
-        target = strip_role_suffix(col.dimension_column or col.name)
-        if target == dim_ref.column_name:
-            return col.name
+        column_name, stored_role = split_dimension_ref(
+            col.dimension_column or col.name,
+        )
+        if column_name != dim_ref.column_name:
+            continue
+        if match_role and stored_role != dim_ref.role:
+            continue
+        return col.name
     return None
 
 
@@ -466,7 +470,37 @@ def resolve_dimensions(
                 join_path,
                 parent_node,
             )
-            if can_skip and local_col and hops_skipped == len(join_path.links):
+            ref_col = (
+                None
+                if dim_ref.role
+                else _local_reference_dimension_column(
+                    ctx,
+                    parent_node,
+                    dim_ref,
+                    match_role=True,
+                )
+            )
+            full_skip = hops_skipped == len(join_path.links)
+            if ref_col is not None:
+                # Reference (denormalized) dimension: the parent carries the
+                # attribute directly, so it wins over the dimension link.
+                # Keep the join path when the reference is also the join key.
+                resolved.append(
+                    ResolvedDimension(
+                        original_ref=dim,
+                        node_name=parent_node.name,
+                        column_name=ref_col,
+                        role=dim_ref.role,
+                        join_path=None,
+                        is_local=True,
+                        pre_skip_join_path=(
+                            join_path
+                            if can_skip and full_skip and local_col == ref_col
+                            else None
+                        ),
+                    ),
+                )
+            elif can_skip and local_col and full_skip:
                 # Full skip: column lives on the parent fact/transform.
                 # Filters referencing the dim resolve to the parent's local
                 # column.
