@@ -324,6 +324,20 @@ async def test_losing_tag_creator_still_applies_its_declared_settings(
 
 
 @pytest.mark.asyncio
+async def test_new_tags_are_plainly_added_off_postgres(current_user):
+    """Without Postgres's ON CONFLICT, new tags are just added to the session."""
+    session = MagicMock()
+    session.get_bind.return_value.dialect.name = "sqlite"
+    orchestrator = _orchestrator(session, current_user, "team_a")
+    tag = Tag(name="t", tag_type="general", description="", display_name="T")
+
+    created = await orchestrator._insert_new_tags({"t": tag}, tag_options=[])
+
+    assert created == ["t"]
+    session.add_all.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_schema_rows_are_written_in_lock_order(
     session,
     current_user,
