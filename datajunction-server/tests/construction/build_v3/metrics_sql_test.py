@@ -8276,10 +8276,6 @@ class TestReferenceDimensionResolution:
         )
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(
-        strict=True,
-        reason="a reference column loses to a dimension link",
-    )
     async def test_reference_dimension_preferred_over_dimension_link(
         self,
         client_with_build_v3,
@@ -8361,10 +8357,6 @@ class TestReferenceDimensionResolution:
         )
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(
-        strict=True,
-        reason="a reference column loses to a dimension link",
-    )
     async def test_reference_beats_join_key_column(
         self,
         client_with_build_v3,
