@@ -558,6 +558,7 @@ class DeploymentOrchestrator:
         result = DeploymentExecuteResult(results=[], downstream_impacts=[])
         try:
             async with self.session.begin_nested():
+                await self._lock_namespace()
                 result = await self._plan_and_execute()
                 if self.dry_run:  # pragma: no branch
                     raise _DryRunRollback()
@@ -593,6 +594,22 @@ class DeploymentOrchestrator:
             elapsed_ms / 1000,
         )
         return result
+
+    async def _lock_namespace(self) -> None:
+        """Queue deployments into one namespace behind each other.
+
+        Overlapping deployments plan against stale snapshots and collide on the
+        unique constraints for namespaces, nodes, node revisions and schemas, and
+        a dry run writes inside its SAVEPOINT too, so it takes part. The lock is
+        transaction-scoped: a wet run keeps it until the commit in ``execute``, a
+        dry run or a failure drops it with the SAVEPOINT rollback. It is the
+        first lock a deployment takes, so it cannot deadlock with the later
+        per-source and row locks.
+        """
+        await self.session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+            {"key": f"dj:deploy:{self.deployment_spec.namespace}"},
+        )
 
     async def _plan_and_execute(self) -> DeploymentExecuteResult:
         """Inner body of ``execute`` — runs inside the orchestrator's SAVEPOINT.

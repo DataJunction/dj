@@ -248,6 +248,24 @@ async def assert_not_reserved_globally(
         )
 
 
+async def lock_schema_scope(
+    session: AsyncSession,
+    key: str,
+    namespace: str | None,
+    node_type: str | None,
+) -> None:
+    """Hold off other writers of this (key, node type, scope) row until commit.
+
+    The row is looked up and then inserted, so two writers that both miss it
+    collide on `uq_custommetadataschema_key_scope`; the second one now waits and
+    finds the first's row.
+    """
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+        {"key": f"dj:schema:{key}|{node_type or ''}|{namespace or ''}"},
+    )
+
+
 async def upsert_schema_row(
     session: AsyncSession,
     *,
@@ -270,6 +288,7 @@ async def upsert_schema_row(
     Does not commit -- the caller owns the transaction, which is what lets a
     dry-run deployment roll the registration back.
     """
+    await lock_schema_scope(session, key, namespace, node_type)
     row = (
         await session.execute(
             select(CustomMetadataSchema).where(
@@ -321,6 +340,22 @@ async def upsert_schema_specs(
     the deployment rather than half-applying it. ``build_indexes=False`` skips
     index DDL for a dry run.
     """
+    # Take every schema lock up front in a fixed order, so two deployments that
+    # declare the same keys in different orders cannot wait on each other.
+    scopes_to_lock = sorted(
+        {
+            (
+                spec.key,
+                spec.node_type.value if spec.node_type is not None else None,
+                spec.namespace or namespace,
+            )
+            for spec in specs
+        },
+        key=lambda scope: (scope[0], scope[1] or "", scope[2]),
+    )
+    for lock_key, lock_node_type, lock_scope in scopes_to_lock:
+        await lock_schema_scope(session, lock_key, lock_scope, lock_node_type)
+
     for spec in specs:
         check_json_schema(spec.key, spec.json_schema)
         await assert_not_reserved_globally(

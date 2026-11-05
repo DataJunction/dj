@@ -1,0 +1,146 @@
+"""Overlapping deployments queue behind each other instead of colliding."""
+
+import asyncio
+import uuid
+from unittest.mock import MagicMock
+
+import pytest
+from sqlalchemy import func, select, text
+
+from datajunction_server.database.custom_metadata_schema import CustomMetadataSchema
+from datajunction_server.internal.custom_metadata import upsert_schema_specs
+from datajunction_server.internal.deployment.orchestrator import DeploymentOrchestrator
+from datajunction_server.internal.deployment.utils import DeploymentContext
+from datajunction_server.models.deployment import (
+    CustomMetadataSchemaSpec,
+    DeploymentSpec,
+)
+from tests.conftest import patch_session_contexts
+
+NAMESPACE_LOCK = "SELECT pg_try_advisory_xact_lock(hashtext(:key))"
+
+
+def _orchestrator(session, current_user, namespace, dry_run=False):
+    context = MagicMock(spec=DeploymentContext)
+    context.current_user = current_user
+    return DeploymentOrchestrator(
+        deployment_spec=DeploymentSpec(namespace=namespace, nodes=[]),
+        deployment_id=str(uuid.uuid4()),
+        session=session,
+        context=context,
+        dry_run=dry_run,
+    )
+
+
+@pytest.mark.asyncio
+async def test_concurrent_schema_writes_do_not_collide(
+    session,
+    session_factory,
+    current_user,
+):
+    """A second deployment declaring the same schema waits for the first.
+
+    Without the lock it misses the first's uncommitted row, inserts its own, and
+    fails on `uq_custommetadataschema_key_scope` once the first commits.
+    """
+    specs = [CustomMetadataSchemaSpec(key="grain", json_schema={"type": "string"})]
+    other = await session_factory()
+    async with other:
+        await upsert_schema_specs(
+            session,
+            namespace="team_a",
+            specs=specs,
+            current_user_id=current_user.id,
+        )
+        await session.flush()  # the first deployment's row, still uncommitted
+
+        async def second_deployment():
+            await upsert_schema_specs(
+                other,
+                namespace="team_a",
+                specs=specs,
+                current_user_id=current_user.id,
+            )
+            await other.commit()
+
+        task = asyncio.create_task(second_deployment())
+        await asyncio.sleep(1)  # let it reach the lock, or the unique index
+        assert not task.done()
+        await session.commit()
+        await asyncio.wait_for(task, timeout=30)
+
+    active = await session.scalar(
+        select(func.count())
+        .select_from(CustomMetadataSchema)
+        .where(
+            CustomMetadataSchema.key == "grain",
+            CustomMetadataSchema.deactivated_at.is_(None),
+        ),
+    )
+    assert active == 1
+
+
+@pytest.mark.asyncio
+async def test_deployments_to_one_namespace_run_one_at_a_time(
+    session,
+    session_factory,
+    current_user,
+):
+    """A deployment waits while another holds its namespace's lock."""
+    holder = await session_factory()
+    async with holder:
+        await holder.execute(text(NAMESPACE_LOCK), {"key": "dj:deploy:team_a"})
+
+        with patch_session_contexts(session_factory):
+            deployment = asyncio.create_task(
+                _orchestrator(session, current_user, "team_a").execute(),
+            )
+            await asyncio.sleep(1)
+            assert not deployment.done()
+
+            await holder.rollback()  # releases the lock
+            await asyncio.wait_for(deployment, timeout=30)
+
+
+@pytest.mark.asyncio
+async def test_deployments_to_other_namespaces_do_not_wait(
+    session,
+    session_factory,
+    current_user,
+):
+    """The lock is per namespace, so unrelated deployments are not slowed."""
+    holder = await session_factory()
+    async with holder:
+        await holder.execute(text(NAMESPACE_LOCK), {"key": "dj:deploy:team_a"})
+        with patch_session_contexts(session_factory):
+            await asyncio.wait_for(
+                _orchestrator(session, current_user, "team_b").execute(),
+                timeout=30,
+            )
+        await holder.rollback()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("dry_run", [False, True])
+async def test_deployment_releases_its_namespace_lock(
+    session,
+    session_factory,
+    current_user,
+    dry_run,
+):
+    """A dry run (SAVEPOINT rollback) and a wet run (commit) both free the lock."""
+    with patch_session_contexts(session_factory):
+        await _orchestrator(
+            session,
+            current_user,
+            "team_a",
+            dry_run=dry_run,
+        ).execute()
+
+    other = await session_factory()
+    async with other:
+        got_lock = await other.scalar(
+            text(NAMESPACE_LOCK),
+            {"key": "dj:deploy:team_a"},
+        )
+    assert got_lock is True
