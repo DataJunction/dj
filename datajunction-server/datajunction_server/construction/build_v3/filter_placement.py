@@ -17,6 +17,9 @@ from datajunction_server.construction.build_v3.filters import (
     parse_filter,
     resolve_filter_references,
 )
+from datajunction_server.construction.build_v3.materialization import (
+    should_use_materialized_table,
+)
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
     PushdownFilters,
@@ -242,6 +245,19 @@ def _role_bindings(node: Node) -> dict[str, str]:
     }
 
 
+def _projects_cast(select: ast.Select, column: str) -> bool:
+    """Whether the select exposes ``column`` as a CAST of something."""
+    for expr in select.projection:
+        inner = getattr(expr, "child", expr)
+        if not isinstance(inner, ast.Cast):
+            continue
+        alias = getattr(expr, "alias", None)
+        name = alias.name if alias else getattr(inner.expression, "name", None)
+        if getattr(name, "name", name) == column:
+            return True
+    return False
+
+
 def place_dimension_filters(
     ctx: BuildContext,
     queries: dict[str, ast.Query],
@@ -251,15 +267,16 @@ def place_dimension_filters(
 
     A joined dimension with its own link under a role (e.g. ``[measure]``)
     can bind a filter on that role to its own key column. This applies when
-    the fact has the same role link, the dimension is joined once, and no
-    other query reads it.
+    the dimension is joined once and no other query reads it. A dimension
+    read from a materialized table has its predicate recorded, for the join
+    to wrap the table with.
     """
     for name, joins in request.dimension_joins.items():
         node = ctx.nodes[name]
-        query = queries.get(name)
-        if joins != 1 or query is None or not node.current:
+        if joins != 1 or not node.current:
             continue
-        if any(
+        query = queries.get(name)
+        if query is not None and any(
             _definition(table, queries) is query
             for other in queries.values()
             for table in other.find_all(ast.Table)
@@ -267,10 +284,31 @@ def place_dimension_filters(
             continue
         bindings = _role_bindings(node)
         output_cols = {col.name for col in node.current.columns}
-        select = cast(ast.Select, query.select)
         for filter_str in request.filters:
             refs = set(extract_filter_dimension_refs([filter_str], include_bare=True))
             if not refs or not refs <= bindings.keys():
+                continue
+            if query is None:
+                if should_use_materialized_table(ctx, node):
+                    predicate = cast(
+                        ast.Expression,
+                        resolve_filter_references(
+                            parse_filter(filter_str),
+                            {ref: ast.Name(bindings[ref]) for ref in refs},
+                        ),
+                    )
+                    existing = request.materialized_predicates.get(name)
+                    request.materialized_predicates[name] = cast(
+                        ast.Expression,
+                        combine_filters(
+                            [existing, predicate]
+                            if existing is not None
+                            else [predicate],
+                        ),
+                    )
+                continue
+            select = cast(ast.Select, query.select)
+            if any(_projects_cast(select, bindings[ref]) for ref in refs):
                 continue
             rewritten = _rewrite_filter_for_cte(
                 filter_str,

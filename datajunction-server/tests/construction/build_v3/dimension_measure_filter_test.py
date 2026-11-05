@@ -108,7 +108,7 @@ async def build_shipments(client):
     )
 
 
-async def add_warehouse(client, with_location_link):
+async def add_warehouse(client, with_location_link, location_id="location_id"):
     await source(
         client,
         "src_warehouse",
@@ -118,7 +118,7 @@ async def add_warehouse(client, with_location_link):
     await dimension(
         client,
         "warehouse",
-        ["warehouse_id", "location_id", "tier"],
+        ["warehouse_id", location_id, "tier"],
         ["warehouse_id"],
     )
     await link(
@@ -323,6 +323,84 @@ async def test_three_hop_dimensions(client_with_build_v3, supplier_location_link
           SUM(shipments_0.amount_sum_HASH) AS shipment_amount
         FROM shipments_0
         GROUP BY shipments_0.name, shipments_0.status
+        """,
+        normalize_aliases=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_materialized_dimension_is_filtered(client_with_build_v3):
+    await build_shipments(client_with_build_v3)
+    await add_warehouse(client_with_build_v3, with_location_link=True)
+    resp = await client_with_build_v3.post(
+        "/data/v3.warehouse/availability/",
+        json={
+            "catalog": "analytics",
+            "schema_": "dim",
+            "table": "warehouse_dim",
+            "valid_through_ts": 9999999999,
+        },
+    )
+    assert resp.status_code == 200, resp.json()
+    assert_sql_equal(
+        await metric_sql(client_with_build_v3, ["v3.warehouse.tier"], [SHIPPING]),
+        """
+        WITH
+        v3_shipments AS (
+          SELECT warehouse_id, amount
+          FROM default.v3.shipments
+          WHERE shipping_location_id IN (1, 2)
+        ),
+        shipments_0 AS (
+          SELECT t2.tier, SUM(t1.amount) amount_sum_HASH
+          FROM v3_shipments t1
+          LEFT OUTER JOIN (
+            SELECT * FROM analytics.dim.warehouse_dim
+            WHERE location_id IN (1, 2)
+          ) t2 ON t1.warehouse_id = t2.warehouse_id
+          GROUP BY t2.tier
+        )
+        SELECT shipments_0.tier AS tier,
+          SUM(shipments_0.amount_sum_HASH) AS shipment_amount
+        FROM shipments_0
+        GROUP BY shipments_0.tier
+        """,
+        normalize_aliases=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_dimension_exposing_the_key_as_a_cast_is_not_filtered(
+    client_with_build_v3,
+):
+    await build_shipments(client_with_build_v3)
+    await add_warehouse(
+        client_with_build_v3,
+        with_location_link=True,
+        location_id="CAST(location_id AS BIGINT) AS location_id",
+    )
+    assert_sql_equal(
+        await metric_sql(client_with_build_v3, ["v3.warehouse.tier"], [SHIPPING]),
+        """
+        WITH
+        v3_shipments AS (
+          SELECT warehouse_id, amount
+          FROM default.v3.shipments
+          WHERE shipping_location_id IN (1, 2)
+        ),
+        v3_warehouse AS (
+          SELECT warehouse_id, tier FROM default.v3.warehouses
+        ),
+        shipments_0 AS (
+          SELECT t2.tier, SUM(t1.amount) amount_sum_HASH
+          FROM v3_shipments t1
+          LEFT OUTER JOIN v3_warehouse t2 ON t1.warehouse_id = t2.warehouse_id
+          GROUP BY t2.tier
+        )
+        SELECT shipments_0.tier AS tier,
+          SUM(shipments_0.amount_sum_HASH) AS shipment_amount
+        FROM shipments_0
+        GROUP BY shipments_0.tier
         """,
         normalize_aliases=True,
     )
