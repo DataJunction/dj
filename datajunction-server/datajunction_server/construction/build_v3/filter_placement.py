@@ -254,7 +254,6 @@ def place_dimension_filters(
     the fact has the same role link, the dimension is joined once, and no
     other query reads it.
     """
-    fact_refs = _role_bindings(ctx.nodes[request.parent_node_name]).keys()
     for name, joins in request.dimension_joins.items():
         node = ctx.nodes[name]
         query = queries.get(name)
@@ -271,7 +270,7 @@ def place_dimension_filters(
         select = cast(ast.Select, query.select)
         for filter_str in request.filters:
             refs = set(extract_filter_dimension_refs([filter_str], include_bare=True))
-            if not refs or not refs <= bindings.keys() & fact_refs:
+            if not refs or not refs <= bindings.keys():
                 continue
             rewritten = _rewrite_filter_for_cte(
                 filter_str,
