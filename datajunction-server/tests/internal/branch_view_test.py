@@ -55,6 +55,25 @@ async def make_branch(client: AsyncClient) -> None:
     assert response.status_code == 201
 
 
+async def add_cube(client: AsyncClient) -> None:
+    """
+    Adds a cube with two metrics, two dimensions and a filter to `foo.bar`.
+    """
+    response = await client.post(
+        "/nodes/cube/",
+        json={
+            "name": "foo.bar.repair_cube",
+            "display_name": "Repair cube",
+            "description": "Repairs by hard hat location",
+            "metrics": ["foo.bar.num_repair_orders", "foo.bar.avg_repair_price"],
+            "dimensions": ["foo.bar.hard_hat.state", "foo.bar.hard_hat.city"],
+            "filters": ["foo.bar.hard_hat.state IN ('AZ', 'CA')"],
+            "mode": "published",
+        },
+    )
+    assert response.status_code in (200, 201), response.json()
+
+
 async def load_node(session: AsyncSession, name: str) -> Node:
     """
     Loads a node with everything its outputs need.
@@ -83,11 +102,17 @@ def comparable(output: NodeOutput | NodeRevisionOutput) -> dict:
     """
     The fields a copy is expected to match.
     """
-    return {
+    fields = {
         key: value
         for key, value in output.model_dump(mode="json").items()
         if key not in FRESH
     }
+    fields["parents"] = sorted(fields["parents"], key=lambda parent: parent["name"])
+    fields["dimension_links"] = sorted(
+        fields["dimension_links"] or [],
+        key=lambda link: (link["dimension"]["name"], link["role"] or ""),
+    )
+    return fields
 
 
 @pytest.mark.asyncio
@@ -98,6 +123,7 @@ async def test_branch_view_matches_copy(
     """
     Every node in `foo.bar`, viewed as `foo.feature_x`, equals its real copy.
     """
+    await add_cube(client_with_namespaced_roads)
     await make_branch(client_with_namespaced_roads)
     names = (
         (
@@ -110,7 +136,7 @@ async def test_branch_view_matches_copy(
         .scalars()
         .all()
     )
-    assert names
+    assert "foo.bar.repair_cube" in names
     views = {}
     copies = {}
     for name in names:
@@ -190,26 +216,6 @@ async def test_branch_view_metric_fields(
         ],
     )
     assert metric.fixed_grain == ["foo.bar.hard_hat.state", "other.dim.col"]
-
-
-@pytest.mark.asyncio
-async def test_branch_view_cube_fields(
-    client_with_namespaced_roads: AsyncClient,
-    session: AsyncSession,
-):
-    """
-    Cube columns and filters follow the namespace, and the input is unchanged.
-    """
-    cube = await load_output(session, "foo.bar.num_repair_orders")
-    cube.type = NodeType.CUBE
-    cube.query = None
-    cube.cube_filters = ["foo.bar.hard_hat.state = 'CA'"]
-    cube.columns[0].name = "foo.bar.num_repair_orders"
-    view = branch_view(cube, "foo.bar", "foo.feature_x")
-    assert view.cube_filters == ["foo.feature_x.hard_hat.state = 'CA'"]
-    assert view.columns[0].name == "foo.feature_x.num_repair_orders"
-    assert cube.cube_filters == ["foo.bar.hard_hat.state = 'CA'"]
-    assert cube.columns[0].name == "foo.bar.num_repair_orders"
 
 
 @pytest.mark.asyncio
