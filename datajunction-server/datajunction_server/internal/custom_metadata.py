@@ -13,6 +13,7 @@ from datajunction_server.errors import (
     DJAlreadyExistsException,
     DJInvalidInputException,
 )
+from datajunction_server.internal.namespace_locks import advisory_xact_lock
 from datajunction_server.models.custom_metadata import (
     CustomMetadataFilter,
     CustomMetadataOp,
@@ -260,9 +261,9 @@ async def lock_schema_scope(
     collide on `uq_custommetadataschema_key_scope`; the second one now waits and
     finds the first's row.
     """
-    await session.execute(
-        text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
-        {"key": f"dj:schema:{key}|{node_type or ''}|{namespace or ''}"},
+    await advisory_xact_lock(
+        session,
+        f"dj:schema:{key}|{node_type or ''}|{namespace or ''}",
     )
 
 

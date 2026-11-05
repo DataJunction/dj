@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from collections.abc import Mapping, Sequence
 from typing import cast
 
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import func, or_, select
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer, joinedload, load_only, noload, selectinload
@@ -65,6 +65,7 @@ from datajunction_server.internal.checks.validator import (
     load_checks,
 )
 from datajunction_server.internal.custom_metadata import upsert_schema_specs
+from datajunction_server.internal.namespace_locks import advisory_xact_lock
 from datajunction_server.internal.deployment.checks import (
     DeclaredSchemas,
     build_bindings,
@@ -605,14 +606,12 @@ class DeploymentOrchestrator:
         namespace = self.deployment_spec.namespace
         parts = namespace.split(SEPARATOR)
         for depth in range(1, len(parts)):
-            await self.session.execute(
-                text("SELECT pg_advisory_xact_lock_shared(hashtext(:key))"),
-                {"key": f"dj:deploy:{SEPARATOR.join(parts[:depth])}"},
+            await advisory_xact_lock(
+                self.session,
+                f"dj:deploy:{SEPARATOR.join(parts[:depth])}",
+                shared=True,
             )
-        await self.session.execute(
-            text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
-            {"key": f"dj:deploy:{namespace}"},
-        )
+        await advisory_xact_lock(self.session, f"dj:deploy:{namespace}")
 
     async def _plan_and_execute(self) -> DeploymentExecuteResult:
         """Inner body of ``execute`` — runs inside the orchestrator's SAVEPOINT.
@@ -2415,9 +2414,9 @@ class DeploymentOrchestrator:
                 # transactions that reference overlapping sets of sources.
                 # Locks auto-release at COMMIT/ROLLBACK.
                 for source_name in sorted(auto_source_names):
-                    await self.session.execute(
-                        text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
-                        {"key": f"dj:autoreg:{source_name}"},
+                    await advisory_xact_lock(
+                        self.session,
+                        f"dj:autoreg:{source_name}",
                     )
 
                 existing_auto_sources = await Node.get_by_names(
