@@ -31,6 +31,7 @@ from datajunction_server.utils import (
     _create_configured_query_client,
     deep_merge,
     execute_with_retry,
+    get_connect_args,
     get_issue_url,
     get_legacy_query_service_client,
     get_query_service_client,
@@ -992,3 +993,49 @@ def test_deep_merge_replaces_a_value_of_another_shape() -> None:
         "a": 2,
         "c": [2, 3],
     }
+
+
+BASE_CONNECT_ARGS = {
+    "connect_timeout": 5,
+    "keepalives": 1,
+    "keepalives_idle": 30,
+    "keepalives_interval": 10,
+    "keepalives_count": 5,
+}
+
+
+def test_get_connect_args_postgres():
+    """
+    Postgres connections get a default application name per role.
+    """
+    config = DatabaseConfig(uri="postgresql+psycopg://dj:dj@host:5432/dj")
+    assert get_connect_args(config, "reader") == {
+        **BASE_CONNECT_ARGS,
+        "application_name": "datajunction-reader",
+    }
+    assert get_connect_args(config, "writer") == {
+        **BASE_CONNECT_ARGS,
+        "application_name": "datajunction-writer",
+    }
+
+
+def test_get_connect_args_override():
+    """
+    The configured application name replaces the default.
+    """
+    config = DatabaseConfig(
+        uri="postgresql+psycopg://dj:dj@host:5432/dj",
+        application_name="dj-api",
+    )
+    assert get_connect_args(config, "reader") == {
+        **BASE_CONNECT_ARGS,
+        "application_name": "dj-api-reader",
+    }
+
+
+def test_get_connect_args_not_postgres():
+    """
+    Other databases get no application name.
+    """
+    config = DatabaseConfig(uri="sqlite+aiosqlite:///dj.db")
+    assert get_connect_args(config, "writer") == BASE_CONNECT_ARGS

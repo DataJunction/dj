@@ -1,0 +1,48 @@
+namespace: yaml_behavior
+nodes:
+  - name: raw_orders
+    node_type: source
+    catalog: default
+    schema: yaml_behavior
+    table: raw_orders
+    columns:
+      - {name: id, type: int}
+      - {name: region_id, type: int}
+      - {name: amount, type: int}
+  - name: region_source
+    node_type: source
+    catalog: default
+    schema: yaml_behavior
+    table: regions
+    columns:
+      - {name: id, type: int}
+      - {name: label, type: string}
+  - name: regions
+    node_type: dimension
+    query: SELECT id, label FROM ${prefix}region_source
+    primary_key: [id]
+  - name: orders
+    node_type: transform
+    query: SELECT id, region_id, amount FROM ${prefix}raw_orders
+    dimension_links:
+      - type: join
+        dimension_node: ${prefix}regions
+        join_type: left
+        join_on: ${prefix}orders.region_id = ${prefix}regions.id
+  - name: revenue
+    node_type: metric
+    query: SELECT SUM(amount) FROM ${prefix}orders
+  - name: order_count
+    node_type: metric
+    query: SELECT COUNT(*) FROM ${prefix}orders
+  - name: revenue_cube
+    node_type: cube
+    metrics: ["${prefix}revenue"]
+    dimensions: ["${prefix}regions.label"]
+  - name: unrelated
+    node_type: source
+    catalog: default
+    schema: yaml_behavior
+    table: unrelated
+    columns:
+      - {name: id, type: int}

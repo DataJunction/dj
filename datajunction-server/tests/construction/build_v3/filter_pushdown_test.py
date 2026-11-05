@@ -55,16 +55,16 @@ class TestFilterPushdownToParentCTE:
         )
 
 
-class TestFilterPushdownToDimensionCTE:
-    """Filters on dimension columns push into the dimension node's CTE."""
+class TestDimensionFilterPlacement:
+    """Dimension predicates apply on their consuming aliases."""
 
     @pytest.mark.asyncio
-    async def test_product_filter_pushed_to_dimension_cte(
+    async def test_product_filter_stays_on_consuming_alias(
         self,
         client_with_build_v3,
     ):
         """
-        Filter on v3.product.category should push into the v3_product CTE.
+        Filter on v3.product.category stays on the consuming product alias.
         """
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
@@ -88,7 +88,6 @@ class TestFilterPushdownToDimensionCTE:
             v3_product AS (
               SELECT product_id, category
               FROM default.v3.products
-              WHERE category = 'Electronics'
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -109,7 +108,7 @@ class TestFilterPushdownMultiple:
         client_with_build_v3,
     ):
         """
-        Date filter → parent CTE (via FK), product filter → product dim CTE.
+        Date filter → parent CTE (via FK), product filter → product join alias.
         """
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
@@ -137,7 +136,6 @@ class TestFilterPushdownMultiple:
             v3_product AS (
               SELECT product_id, category
               FROM default.v3.products
-              WHERE category = 'Electronics'
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -402,11 +400,11 @@ class TestFilterPushdownOperators:
         )
 
     @pytest.mark.asyncio
-    async def test_not_in_list_filter_pushed_to_dim_cte(
+    async def test_not_in_list_filter_stays_on_consuming_alias(
         self,
         client_with_build_v3,
     ):
-        """NOT IN (...) on a dim column pushes into the dim CTE."""
+        """NOT IN (...) on a dimension column stays on the join alias."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -431,7 +429,6 @@ class TestFilterPushdownOperators:
             v3_product AS (
               SELECT product_id, category
               FROM default.v3.products
-              WHERE category NOT IN ('Electronics', 'Clothing')
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -443,11 +440,11 @@ class TestFilterPushdownOperators:
         )
 
     @pytest.mark.asyncio
-    async def test_is_null_filter_pushed_to_dim_cte(
+    async def test_is_null_filter_stays_on_consuming_alias(
         self,
         client_with_build_v3,
     ):
-        """IS NULL pushes into the dim CTE."""
+        """IS NULL stays on the join alias, preserving real matches."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -470,7 +467,6 @@ class TestFilterPushdownOperators:
             v3_product AS (
               SELECT product_id, category, subcategory
               FROM default.v3.products
-              WHERE subcategory IS NULL
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -482,11 +478,11 @@ class TestFilterPushdownOperators:
         )
 
     @pytest.mark.asyncio
-    async def test_is_not_null_filter_pushed_to_dim_cte(
+    async def test_is_not_null_filter_stays_on_consuming_alias(
         self,
         client_with_build_v3,
     ):
-        """IS NOT NULL pushes into the dim CTE."""
+        """IS NOT NULL stays on the join alias."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -509,7 +505,6 @@ class TestFilterPushdownOperators:
             v3_product AS (
               SELECT product_id, category, subcategory
               FROM default.v3.products
-              WHERE subcategory IS NOT NULL
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -561,11 +556,11 @@ class TestFilterPushdownOperators:
         )
 
     @pytest.mark.asyncio
-    async def test_like_filter_pushed_to_dim_cte(
+    async def test_like_filter_stays_on_consuming_alias(
         self,
         client_with_build_v3,
     ):
-        """LIKE pushes into the dim CTE."""
+        """LIKE stays on the consuming dimension alias."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -588,7 +583,6 @@ class TestFilterPushdownOperators:
             v3_product AS (
               SELECT product_id, category
               FROM default.v3.products
-              WHERE category LIKE 'Elect%'
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -600,11 +594,11 @@ class TestFilterPushdownOperators:
         )
 
     @pytest.mark.asyncio
-    async def test_not_equal_filter_pushed_to_dim_cte(
+    async def test_not_equal_filter_stays_on_consuming_alias(
         self,
         client_with_build_v3,
     ):
-        """<> pushes into the dim CTE."""
+        """<> stays on the consuming dimension alias."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -627,7 +621,6 @@ class TestFilterPushdownOperators:
             v3_product AS (
               SELECT product_id, category
               FROM default.v3.products
-              WHERE category <> 'Electronics'
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -639,7 +632,7 @@ class TestFilterPushdownOperators:
         )
 
     @pytest.mark.asyncio
-    async def test_not_wrapped_predicate_pushed_to_dim_cte(
+    async def test_not_wrapped_predicate_stays_on_consuming_alias(
         self,
         client_with_build_v3,
     ):
@@ -666,7 +659,6 @@ class TestFilterPushdownOperators:
             v3_product AS (
               SELECT product_id, category
               FROM default.v3.products
-              WHERE NOT (category = 'Electronics')
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -678,7 +670,7 @@ class TestFilterPushdownOperators:
         )
 
     @pytest.mark.asyncio
-    async def test_function_wrapped_filter_pushed_to_dim_cte(
+    async def test_function_wrapped_filter_stays_on_consuming_alias(
         self,
         client_with_build_v3,
     ):
@@ -705,7 +697,6 @@ class TestFilterPushdownOperators:
             v3_product AS (
               SELECT product_id, category
               FROM default.v3.products
-              WHERE LOWER(category) = 'electronics'
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
@@ -769,11 +760,11 @@ class TestFilterPushdownMultiHop:
     """Filter on a dim two hops from the parent (parent → customer → location)."""
 
     @pytest.mark.asyncio
-    async def test_filter_on_multi_hop_dim_pushes_into_terminal_dim_cte(
+    async def test_filter_on_multi_hop_dim_stays_on_terminal_alias(
         self,
         client_with_build_v3,
     ):
-        """A non-PK filter on a multi-hop dim pushes into that dim's CTE."""
+        """A non-PK filter on a multi-hop dimension stays on its join alias."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -796,7 +787,6 @@ class TestFilterPushdownMultiHop:
             v3_location AS (
               SELECT location_id, country
               FROM default.v3.locations
-              WHERE country = 'US'
             ),
             v3_order_details AS (
               SELECT o.customer_id,
@@ -916,7 +906,6 @@ class TestDimCteFilterOnNonFkColumn:
                 UNION ALL
                 SELECT 1, 'true'
               ) t
-              WHERE t.is_fraud_key IN (0)
             )
             SELECT t2.is_fraud,
                    SUM(t1.amount) amount_sum_HASH
@@ -1074,30 +1063,34 @@ class TestFilterPushdownCrossJoinAggregatesColumnAway:
         assert_sql_equal(
             get_first_grain_group(response.json())["sql"],
             """
-            WITH
-            v3_time_window_dim AS (
-              SELECT window_id, window_size
+            WITH v3_time_window_dim AS (
+              SELECT
+                window_id,
+                window_size
               FROM default.v3.time_window
-              WHERE window_id IN ('7day')
-            ),
-            v3_entity_window_config AS (
-              SELECT e.entity_id
+            ), v3_entity_window_config AS (
+              SELECT
+                e.entity_id
               FROM default.v3.entity_facts AS e
               CROSS JOIN (
-                SELECT window_id, window_size
+                SELECT
+                  window_id,
+                  window_size
                 FROM v3_time_window_dim
-                WHERE v3_time_window_dim.window_id IN ('7day')
               ) AS w
-              GROUP BY e.entity_id
-            ),
-            v3_entity_report AS (
-              SELECT c.entity_id
+              GROUP BY
+                e.entity_id
+            ), v3_entity_report AS (
+              SELECT
+                c.entity_id
               FROM v3_entity_window_config AS c
               CROSS JOIN v3_time_window_dim AS w
-              WHERE w.window_id IN ('7day')
+              WHERE
+                w.window_id IN ('7day')
             )
-            SELECT COUNT(t1.entity_id) entity_id_count_HASH
-            FROM v3_entity_report t1
+            SELECT
+              COUNT(t1.entity_id) AS entity_id_count_HASH
+            FROM v3_entity_report AS t1
             """,
             normalize_aliases=True,
         )
@@ -1207,29 +1200,28 @@ class TestFilterPushdownViaSourceFKLinkAtTopLevel:
             get_first_grain_group(response.json())["sql"],
             """
             WITH v3_event_summary AS (
-              SELECT a.account_id,
+              SELECT
+                a.account_id,
                 SUM(a.value) AS total
               FROM default.v3.snapped_events AS a
-              WHERE a.report_date = 20240101
-              GROUP BY a.account_id
+              WHERE
+                a.report_date = 20240101
+              GROUP BY
+                a.account_id
             )
-            SELECT SUM(t1.total) total_sum_HASH
-            FROM v3_event_summary t1
+            SELECT
+              SUM(t1.total) AS total_sum_HASH
+            FROM v3_event_summary AS t1
             """,
             normalize_aliases=True,
         )
 
 
 class TestFilterPushdownToMultipleSiblingTransforms:
-    """Regression: FK dimension filter must reach all sibling transforms that
-    read the same source, not just the first one found.
-
-    Both sibling transforms are upstream of the same metric so they land in
-    the same grain group — exactly mirroring the prod pattern where multiple
-    transforms read from the same snapshot source table."""
+    """Sibling scans in one grain group have ambiguous filter ownership."""
 
     @pytest.mark.asyncio
-    async def test_fk_filter_pushed_to_all_sibling_transforms(
+    async def test_ambiguous_sibling_transform_filter_is_rejected(
         self,
         client_with_build_v3,
     ):
@@ -1335,41 +1327,15 @@ class TestFilterPushdownToMultipleSiblingTransforms:
                 "filters": ["v3.snap_dim.dateint = 20240101"],
             },
         )
-        assert response.status_code == 200, response.json()
-        assert_sql_equal(
-            get_first_grain_group(response.json())["sql"],
-            """
-            WITH v3_child_a AS (
-              SELECT a.account_id, SUM(a.amount) AS total_a
-              FROM default.v3.multi_child_src AS a
-              WHERE a.snap_date = 20240101
-              GROUP BY a.account_id
-            ),
-            v3_child_b AS (
-              SELECT b.account_id, SUM(b.amount) AS total_b
-              FROM default.v3.multi_child_src AS b
-              WHERE b.snap_date = 20240101
-              GROUP BY b.account_id
-            ),
-            v3_combined AS (
-              SELECT a.total_a, b.total_b
-              FROM v3_child_a AS a
-              JOIN v3_child_b AS b ON a.account_id = b.account_id
-            )
-            SELECT SUM(t1.total_a + t1.total_b) total_a_total_b_sum_HASH
-            FROM v3_combined t1
-            """,
-            normalize_aliases=True,
-        )
+        assert response.status_code == 422, response.json()
+        assert "eligible relational owners" in response.json()["message"]
 
 
 class TestFilterPushedToAllMultipleDirectParentFKColumns:
-    """Multiple direct parents each link a different column to the same filter-only
-    dimension. The filter must be pushed to *all* of them, not just the first one
-    (which would be hash-order non-deterministic)."""
+    """Different parent keys linked to the same dimension need an explicit owner."""
 
     @pytest.mark.asyncio
-    async def test_filter_applied_to_all_fk_columns_across_direct_parents(
+    async def test_ambiguous_direct_parent_keys_are_rejected(
         self,
         client_with_build_v3,
     ):
@@ -1474,16 +1440,8 @@ class TestFilterPushedToAllMultipleDirectParentFKColumns:
                 "filters": ["v3.event_date.dateint = 20240101"],
             },
         )
-        assert response.status_code == 200, response.json()
-        sql = get_first_grain_group(response.json())["sql"]
-
-        # Both sources must be filtered — not just whichever hash-order surfaces first
-        assert "send_date = 20240101" in sql, (
-            "filter missing from src_events_a (send_date)"
-        )
-        assert "alloc_date = 20240101" in sql, (
-            "filter missing from src_events_b (alloc_date)"
-        )
+        assert response.status_code == 422, response.json()
+        assert "eligible relational owners" in response.json()["message"]
 
 
 class TestFilterNotPushedToTransitiveUpstreamByColumnNameCollision:
@@ -1648,24 +1606,34 @@ class TestFilterNotPushedToTransitiveUpstreamByColumnNameCollision:
             sql,
             """
             WITH v3_xform_alloc AS (
-              SELECT a.entity_id, a.snap_date
+              SELECT
+                a.entity_id,
+                a.snap_date
               FROM default.v3.snap_src AS a
-              WHERE a.snap_date = 20240101
-              GROUP BY a.entity_id, a.snap_date
-            ),
-            v3_xform_revenue AS (
-              SELECT r.entity_id, SUM(r.revenue) AS total_revenue, r.snap_date
+              WHERE
+                a.snap_date = 20240101
+              GROUP BY
+                a.entity_id,
+                a.snap_date
+            ), v3_xform_revenue AS (
+              SELECT
+                r.entity_id,
+                SUM(r.revenue) AS total_revenue,
+                r.snap_date
               FROM default.v3.revenue_src AS r
-              GROUP BY r.entity_id, r.snap_date
-            ),
-            v3_combined_fact AS (
-              SELECT r.total_revenue
+              GROUP BY
+                r.entity_id,
+                r.snap_date
+            ), v3_combined_fact AS (
+              SELECT
+                r.total_revenue
               FROM v3_xform_alloc AS a
-              JOIN v3_xform_revenue AS r ON a.entity_id = r.entity_id
-              AND a.snap_date = r.snap_date
+              JOIN v3_xform_revenue AS r
+                ON a.entity_id = r.entity_id AND a.snap_date = r.snap_date
             )
-            SELECT SUM(t1.total_revenue) total_revenue_sum_HASH
-            FROM v3_combined_fact t1
+            SELECT
+              SUM(t1.total_revenue) AS total_revenue_sum_HASH
+            FROM v3_combined_fact AS t1
             """,
             normalize_aliases=True,
         )
@@ -1765,9 +1733,8 @@ class TestDimLabelFilterNameCollision:
         )
         assert response.status_code == 200, response.json()
         sql = get_first_grain_group(response.json())["sql"]
-        # The label predicate is pushed into the dimension's own CTE
-        # (string = string, correct) and applied at the post-join outer
-        # WHERE, but NOT into the transform CTE (which exposes the int FK).
+        # The label predicate applies on the dimension join alias, never
+        # the transform CTE's same-named integer foreign key.
         assert_sql_equal(
             sql,
             """
@@ -1782,7 +1749,6 @@ class TestDimLabelFilterNameCollision:
                 UNION ALL
                 SELECT 1, 'true'
               ) t
-              WHERE t.is_bot = 'false'
             )
             SELECT t2.is_bot,
                    SUM(t1.amount) amount_sum_HASH
@@ -1806,8 +1772,8 @@ class TestDimLabelFilterNameCollision:
         transform that does not itself carry the dimension link, the filter can
         be pushed past the link into that ancestor's CTE — where a node-local
         FK-column guard is blind because the ancestor has no link.  The label
-        predicate must stay in the dimension's own CTE and the post-join outer
-        WHERE; no upstream CTE may receive ``is_bot = 'false'`` on the raw int
+        predicate must stay in the post-join outer WHERE; no upstream CTE
+        may receive ``is_bot = 'false'`` on the raw int
         column.  (The linked transform selects its FK column from an upstream
         transform that only projects the raw key and carries no link of its own.)
         """
@@ -1909,7 +1875,6 @@ class TestDimLabelFilterNameCollision:
                 UNION ALL
                 SELECT 1, 'true'
               ) t
-              WHERE t.is_bot = 'false'
             ),
             v3_ml_long AS (
               SELECT is_bot, amount
@@ -2115,7 +2080,6 @@ class TestFilterPushdownRoleQualifiedSharedDim:
             v3_show AS (
               SELECT show_id, show_title, planned_launch_date
               FROM default.v3.shows
-              WHERE planned_launch_date BETWEEN 20240101 AND 20240201
             ),
             v3_show_activity AS (
               SELECT show_id, view_secs

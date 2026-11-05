@@ -17,7 +17,6 @@ if TYPE_CHECKING:
 
 from datajunction_server.construction.build_v3.alias_registry import AliasRegistry
 from datajunction_server.construction.build_v3.cte import (
-    _fk_key_column_names,
     collect_node_ctes,
     extract_dimension_node,
     inject_filter_into_select,
@@ -67,6 +66,7 @@ from datajunction_server.construction.build_v3.types import (
 )
 from datajunction_server.construction.build_v3.utils import (
     column_table_name,
+    extract_filter_dimension_refs,
     get_column_type,
     get_cte_name,
     get_short_name,
@@ -277,114 +277,6 @@ def infer_component_type(
     return str(result_type)
 
 
-def _get_filter_column_name_for_dimension(
-    resolved_dim: ResolvedDimension,
-    parent_node: Node,
-) -> str | None:
-    """
-    Get the column name to use for a dimension in filters.
-
-    For local dimensions that reference other dimension nodes (e.g., v3.date.date_id
-    accessed via parent's order_date column), returns the parent's FK column name.
-    Otherwise returns None to indicate no rewriting needed.
-
-    Args:
-        resolved_dim: The resolved dimension
-        parent_node: The parent node to look up dimension links on
-
-    Returns:
-        The FK column name if this is a local dimension reference, None otherwise
-    """
-    # Only rewrite for local dimensions
-    if not resolved_dim.is_local:
-        return None
-
-    # Parse the original_ref to get the actual dimension node name
-    parsed_ref = parse_dimension_ref(resolved_dim.original_ref)
-    dim_node_name = parsed_ref.node_name
-
-    # Check if this is a dimension reference (not a local column on parent)
-    if not dim_node_name or dim_node_name == parent_node.name:
-        return None
-
-    # Look up the dimension link on the parent node to find the FK column
-    if not parent_node.current or not parent_node.current.dimension_links:
-        return None  # pragma: no cover
-
-    for link in parent_node.current.dimension_links:
-        if link.dimension.name == dim_node_name:
-            fk_columns = link.foreign_key_column_names
-            if fk_columns:  # pragma: no branch
-                return next(iter(fk_columns))
-
-    return None  # pragma: no cover
-
-
-def _add_table_prefixes_to_filter(
-    filter_ast: ast.Expression,
-    resolved_dimensions: list[ResolvedDimension],
-    main_alias: str,
-    dim_aliases: dict[tuple[str, str | None], str],
-    parent_node: Node,
-) -> None:
-    """
-    Add table prefixes to column references in a filter AST.
-
-    This mutates the filter_ast in place, adding the appropriate table alias
-    (main_alias or dim_alias) to each column reference based on which table
-    the column comes from.
-
-    Args:
-        filter_ast: The filter AST to mutate
-        resolved_dimensions: List of resolved dimensions with join info
-        main_alias: Alias for the main (fact) table
-        dim_aliases: Map from (dim_name, role) to table alias
-        parent_node: Parent node to look up dimension links
-    """
-    # Build a map from column alias to table alias
-    col_to_table: dict[str, str] = {}
-
-    for resolved_dim in resolved_dimensions:
-        # Get the column name to use (parent's FK for local dimension refs, else dimension's column)
-        col_alias = _get_filter_column_name_for_dimension(resolved_dim, parent_node)
-        if not col_alias:
-            col_alias = resolved_dim.column_name
-
-        # Use get_dimension_table_alias for correctness — it uses the final target node
-        # and full accumulated role. The old loop-with-break approach incorrectly used the
-        # first matching intermediate node for multi-hop join paths.
-        table_alias = get_dimension_table_alias(resolved_dim, main_alias, dim_aliases)
-        col_to_table[col_alias] = table_alias
-
-    def add_prefixes(node: ast.Expression) -> None:
-        """Recursively add table prefixes to columns."""
-        if isinstance(node, ast.Subscript):
-            # A Subscript that reaches here was not resolved by resolve_filter_references.
-            # The subscript index is a role marker (not a real column), so don't recurse
-            # into it — only process the base expression.
-            add_prefixes(node.expr)
-            return
-        if isinstance(node, ast.Column):
-            if node.name and not (node.name.namespace and node.name.namespace.name):
-                # Unqualified column - check if we know its table
-                col_name = node.name.name
-                if col_name in col_to_table:
-                    node.name = ast.Name(
-                        col_name,
-                        namespace=ast.Name(col_to_table[col_name]),
-                    )
-                else:
-                    # Default to main table for unknown columns (local fact columns)
-                    node.name = ast.Name(col_name, namespace=ast.Name(main_alias))
-
-        # Recursively process children
-        for child in node.children:
-            if child and isinstance(child, ast.Expression):
-                add_prefixes(child)
-
-    add_prefixes(filter_ast)
-
-
 def get_dimension_table_alias(
     resolved_dim: ResolvedDimension,
     main_alias: str,
@@ -494,7 +386,6 @@ def _build_temporal_pushdown(
 
 
 def build_filter_column_aliases(
-    ctx: BuildContext,
     resolved_dimensions: list[ResolvedDimension],
     parent_node: Node,
 ) -> dict[str, str]:
@@ -503,18 +394,11 @@ def build_filter_column_aliases(
     Handles three cases:
     - FK remapping: ``v3.date.date_id[order]`` → ``order_date``
     - Identity: ``v3.product.category`` → ``category``
-    - Skip-join override: ``dimensions.time.date.dateint`` → ``utc_date``
+    - Skip-join binding: ``dimensions.time.date.dateint`` → ``utc_date``
 
-    Also adds bare-key fallbacks (role suffix stripped) so filters resolve
-    even when the role is missing or mismatched.
+    Roles remain part of each binding's identity.
     """
-    aliases: dict[str, str] = {}
-
-    for resolved_dim in resolved_dimensions:
-        col_alias = _get_filter_column_name_for_dimension(resolved_dim, parent_node)
-        if not col_alias:
-            col_alias = resolved_dim.column_name
-        aliases[resolved_dim.original_ref] = col_alias
+    aliases = {dim.original_ref: dim.column_name for dim in resolved_dimensions}
 
     # Local columns from the parent node (for simple refs like "status")
     if parent_node.current and parent_node.current.columns:  # pragma: no branch
@@ -522,45 +406,16 @@ def build_filter_column_aliases(
             if col.name not in aliases:  # pragma: no branch
                 aliases[col.name] = col.name
 
-    # Skip-join overrides
-    for dim_ref, local_col in ctx.skip_join_column_mapping.items():
-        aliases[dim_ref] = local_col
-
-    # Bare-key fallbacks (strip role suffix)
-    for original_ref in list(aliases.keys()):
-        if "[" in original_ref:
-            base_ref = original_ref.split("[")[0]
-            if base_ref not in aliases:  # pragma: no branch
-                aliases[base_ref] = aliases[original_ref]
-
     return aliases
 
 
 def outer_only_filter_refs(
     resolved_dimensions: list[ResolvedDimension],
 ) -> set[str]:
-    """Dimension refs whose filter may only be applied *after* the join.
+    """Joined references belong to their consuming aliases, with roles intact.
 
-    A **joined** (non-local) dimension resolves, in
-    :func:`build_filter_column_aliases`, to the dimension's bare column name.
-    That bare name is correct for the outer WHERE — where it is qualified with
-    the dimension's own post-join table alias — but it must never be pushed
-    into an upstream transform/source CTE under that name: a same-named column
-    there is the raw foreign-key value, not the dimension's attribute, so the
-    predicate would silently bind to the wrong column (and, when the two have
-    different types, match nothing).
-
-    Every joined dimension ref is reported.  Pushdown refuses them for
-    non-dimension CTEs, but the genuinely safe paths still apply: a filter on
-    the dimension's *own* CTE resolves through the dimension columns in
-    ``_build_local_dim_aliases``, and a filter on the join key resolves to the
-    parent's FK column through ``foreign_keys_reversed`` — both override this
-    restriction where the ref maps to a real local column.
-
-    Refs are reported as requested, role included
-    (``v3.location.country[customer->home]``).  A role-less entry therefore
-    means the dimension was requested without a role, not that some role of it
-    was joined.
+    Only a resolved local binding can constrain the fact's body. Matching a
+    joined attribute's bare name to a fact column does not establish ownership.
     """
     return {
         resolved_dim.original_ref
@@ -575,7 +430,6 @@ def build_outer_where(
     resolved_dimensions: list[ResolvedDimension],
     main_alias: str,
     dim_aliases: dict[tuple[str, str | None], str],
-    parent_node: Node,
     nodes: dict[str, Node] | None = None,
 ) -> ast.Expression | None:
     """Parse user filters and resolve column references for the outer WHERE clause.
@@ -583,21 +437,33 @@ def build_outer_where(
     Returns the combined WHERE expression with table-qualified column names,
     or None if no filters parse successfully.
     """
-    where_clause = parse_and_resolve_filters(
+    # Keep each reference's owning alias while resolving it. Two roles can
+    # expose the same column name; qualifying after reducing both to that
+    # name would bind both predicates to whichever role was visited last.
+    qualified_aliases: dict[str, ast.Name] = {
+        ref: ast.Name(column, namespace=ast.Name(main_alias))
+        for ref, column in filter_column_aliases.items()
+    }
+    for resolved_dim in resolved_dimensions:
+        column_name = filter_column_aliases.get(
+            resolved_dim.original_ref,
+            resolved_dim.column_name,
+        )
+        table_alias = get_dimension_table_alias(
+            resolved_dim,
+            main_alias,
+            dim_aliases,
+        )
+        qualified_aliases[resolved_dim.original_ref] = ast.Name(
+            column_name,
+            namespace=ast.Name(table_alias),
+        )
+    return parse_and_resolve_filters(
         filters,
-        filter_column_aliases,
+        qualified_aliases,
         cte_alias=None,
         nodes=nodes,
     )
-    if where_clause:  # pragma: no branch
-        _add_table_prefixes_to_filter(
-            where_clause,
-            resolved_dimensions,
-            main_alias,
-            dim_aliases,
-            parent_node,
-        )
-    return where_clause
 
 
 def _apply_outer_where_atoms(
@@ -1315,10 +1181,8 @@ def build_select_ast(
         main_alias,
     )
 
-    # Merge in upstream-link filter pushdowns (registered when a filter-only
-    # dim is reachable only via an upstream's dim link). Multiple filters per
-    # target node are ANDed together; if temporal pushdown already targeted
-    # the same node, AND them together too.
+    # Merge explicitly targeted lookback predicates with temporal partition
+    # predicates. Ordinary user filters go through consumer placement below.
     for tgt_name, exprs in ctx.upstream_pushdown_filters.items():
         if not exprs:
             continue  # pragma: no cover
@@ -1327,10 +1191,7 @@ def build_select_ast(
             anded = ast.BinaryOp.And(combined, extra)
             assert anded is not None  # both args non-None
             combined = anded
-        # Temporal pushdown landing on the same node as an upstream-link
-        # pushdown is a rare overlap (typically temporal targets a
-        # date-spine source, while upstream-link pushdowns target a
-        # transform that references a different source).
+        # A temporal partition and a lookback may target the same node.
         if tgt_name in injected_cte_filters:  # pragma: no cover
             merged = ast.BinaryOp.And(
                 injected_cte_filters[tgt_name],
@@ -1360,40 +1221,40 @@ def build_select_ast(
 
     from_clause = ast.From(relations=[relation])
 
-    # Filters fully handled via upstream-link pushdown are excluded from
-    # outer WHERE / per-CTE pushdown — they're already injected into the
-    # appropriate upstream CTE.
+    # Lookback filters already delegated to their temporal source are handled.
     all_filters = [f for f in (filters or []) if f not in ctx.pushdown_consumed_filters]
+
+    hidden_refs = {
+        ref
+        for (owner, ref) in ctx.upstream_filter_bindings
+        if owner == parent_node.name
+    }
+    outer_filters = [
+        f
+        for f in all_filters
+        if not hidden_refs.intersection(extract_filter_dimension_refs([f]))
+    ]
 
     # Build outer WHERE clause from filters
     where_clause: ast.Expression | None = None
     filter_column_aliases: dict[str, str] = {}
     pushdown_outer_only_refs: set[str] = set()
-    pushdown_fk_collision_cols: set[str] = set()
     if all_filters:
         filter_column_aliases = build_filter_column_aliases(
-            ctx,
             resolved_dimensions,
             parent_node,
         )
         pushdown_outer_only_refs = outer_only_filter_refs(resolved_dimensions)
-        # FK columns on the linking (parent) node — used to refuse pushing a
-        # joined dim's same-named non-key attribute filter onto the raw FK
-        # column in any CTE, including upstream ancestors that lack the link.
-        pushdown_fk_collision_cols = _fk_key_column_names(parent_node)
         where_clause = build_outer_where(
-            all_filters,
+            outer_filters,
             filter_column_aliases,
             resolved_dimensions,
             main_alias,
             dim_aliases,
-            parent_node,
             nodes=ctx.nodes,
         )
 
-    # Build CTEs for all non-source nodes. Requested dimension filters and their
-    # resolution map are passed through so each CTE can independently decide
-    # whether to push a filter into its own WHERE clause.
+    # Collect build-local CTEs and place request filters for this fact consumer.
     ctes, scanned_sources, consumed_by_node = collect_node_ctes(
         ctx,
         nodes_for_ctes,
@@ -1402,16 +1263,11 @@ def build_select_ast(
             filters=all_filters,
             column_aliases=filter_column_aliases,
             outer_only_refs=pushdown_outer_only_refs,
-            fk_collision_cols=pushdown_fk_collision_cols,
+            parent_node_name=parent_node.name,
         )
         if all_filters
         else None,
     )
-    # Surface all CTE-consumed filters so the metrics layer's outer WHERE
-    # can skip re-applying them on top of the aggregation CTEs.
-    for _consumed_set in consumed_by_node.values():
-        ctx.cte_consumed_filters.update(_consumed_set)
-
     # Build SELECT.
     # For non-decomposable metrics, skip GROUP BY to pass through raw rows.
     effective_group_by = [] if skip_aggregation else (group_by if group_by else [])
@@ -1440,7 +1296,7 @@ def build_select_ast(
     # ``where_clause`` before applying the outer atoms — keeps unconsumed
     # atoms while dropping the redundant copies of consumed ones.
     if parent_consumed and parent_consumed != set(all_filters):
-        remaining = [f for f in all_filters if f not in parent_consumed]
+        remaining = [f for f in outer_filters if f not in parent_consumed]
         where_clause = (
             build_outer_where(
                 remaining,
@@ -1448,7 +1304,6 @@ def build_select_ast(
                 resolved_dimensions,
                 main_alias,
                 dim_aliases,
-                parent_node,
                 nodes=ctx.nodes,
             )
             if remaining

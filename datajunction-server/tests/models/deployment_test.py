@@ -2029,6 +2029,21 @@ def test_semantic_fingerprint_golden_digests(node_type):
     assert result.version == 1
 
 
+def test_semantic_fingerprint_changes_for_offset():
+    base = TransformSpec(
+        namespace="analytics",
+        name="paged_orders",
+        query="SELECT order_id FROM orders LIMIT 10",
+    )
+    paged = TransformSpec(
+        namespace="analytics",
+        name="paged_orders",
+        query="SELECT order_id FROM orders LIMIT 10 OFFSET 5",
+    )
+
+    assert fingerprint(base) != fingerprint(paged)
+
+
 def test_semantic_fingerprint_is_independent_of_python_hash_seed():
     script = """
 from datajunction_server.api.main import app

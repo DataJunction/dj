@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 from fastapi import Depends
 from rich.logging import RichHandler
 from sqlalchemy import AsyncAdaptedQueuePool, event
+from sqlalchemy.engine import make_url
 from sqlalchemy.exc import MissingGreenlet, OperationalError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -78,6 +79,22 @@ def get_settings() -> Settings:
     return Settings()
 
 
+def get_connect_args(database_config: DatabaseConfig, role: str) -> dict:
+    """
+    Build driver connect args for a database config
+    """
+    connect_args: dict = {
+        "connect_timeout": database_config.connect_timeout,
+        "keepalives": database_config.keepalives,
+        "keepalives_idle": database_config.keepalives_idle,
+        "keepalives_interval": database_config.keepalives_interval,
+        "keepalives_count": database_config.keepalives_count,
+    }
+    if make_url(database_config.uri).get_backend_name() == "postgresql":
+        connect_args["application_name"] = f"{database_config.application_name}-{role}"
+    return connect_args
+
+
 class DatabaseSessionManager:
     """
     DB session context manager
@@ -128,11 +145,13 @@ class DatabaseSessionManager:
         settings = get_settings()
         self._writer_engine, self._writer_sessionmaker = self.create_engine_and_session(
             settings.writer_db,
+            "writer",
         )
         if settings.reader_db:
             self._reader_engine, self._reader_sessionmaker = (
                 self.create_engine_and_session(
                     settings.reader_db,
+                    "reader",
                 )
             )
         else:
@@ -145,6 +164,7 @@ class DatabaseSessionManager:
     def create_engine_and_session(
         cls,
         database_config: DatabaseConfig,
+        role: str = "writer",
     ) -> tuple[AsyncEngine, async_sessionmaker[AsyncSession]]:
         engine = create_async_engine(
             database_config.uri,
@@ -156,13 +176,7 @@ class DatabaseSessionManager:
             pool_timeout=database_config.pool_timeout,
             pool_recycle=database_config.pool_recycle,
             poolclass=AsyncAdaptedQueuePool,
-            connect_args={
-                "connect_timeout": database_config.connect_timeout,
-                "keepalives": database_config.keepalives,
-                "keepalives_idle": database_config.keepalives_idle,
-                "keepalives_interval": database_config.keepalives_interval,
-                "keepalives_count": database_config.keepalives_count,
-            },
+            connect_args=get_connect_args(database_config, role),
         )
         async_session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
         return engine, async_session_factory

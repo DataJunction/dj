@@ -1,6 +1,12 @@
 """Distinct-value lookups ignore metric filter requirements."""
 
+from types import SimpleNamespace
+
 import pytest
+
+from datajunction_server.models.query import QueryWithResults
+from datajunction_server.typing import QueryState
+from datajunction_server.utils import get_query_service_client
 
 from . import assert_sql_equal
 
@@ -99,16 +105,43 @@ async def test_semantic_values_skip_requirements(
     requirement,
 ):
     await _setup(client_with_build_v3, cube_name, requirement)
-    response = await client_with_build_v3.post(
-        f"/semantic/views/{cube_name}/values",
-        json={"dimension": "v3.product.category"},
-    )
+    submitted = []
+
+    async def submit_query(query_create, request_headers=None):
+        submitted.append(query_create.submitted_query)
+        return QueryWithResults(
+            id="test-query-id",
+            submitted_query=query_create.submitted_query,
+            state=QueryState.FINISHED,
+            results=[
+                {
+                    "sql": query_create.submitted_query,
+                    "columns": [],
+                    "rows": [["Books"]],
+                },
+            ],
+        )
+
+    query_service = SimpleNamespace(submit_query=submit_query)
+    overrides = client_with_build_v3.app.dependency_overrides
+    overrides[get_query_service_client] = lambda: query_service
+    try:
+        response = await client_with_build_v3.post(
+            f"/semantic/views/{cube_name}/values",
+            json={"dimension": "v3.product.category"},
+        )
+    finally:
+        del overrides[get_query_service_client]
     assert response.status_code == 200, response.text
     body = response.json()
     metric = cube_name.split(".")[-1] + "_metric"
-    assert_sql_equal(body["sql"], VALUES_SQL.format(metric=metric) + "LIMIT 10000")
-    assert {key: value for key, value in body.items() if key != "sql"} == {
-        "dialect": "spark",
-        "columns": [{"name": "category", "type": "utf8"}],
-        "cube_name": None,
+    assert len(submitted) == 1
+    assert_sql_equal(
+        submitted[0],
+        VALUES_SQL.format(metric=metric) + "ORDER BY category ASC LIMIT 10001",
+    )
+    assert body["requests"] == [{"type": "sql", "definition": submitted[0]}]
+    assert body["results"] == {
+        "schema": [{"name": "category", "type": "utf8"}],
+        "rows": [{"category": "Books"}],
     }

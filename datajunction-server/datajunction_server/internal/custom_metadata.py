@@ -13,6 +13,7 @@ from datajunction_server.errors import (
     DJAlreadyExistsException,
     DJInvalidInputException,
 )
+from datajunction_server.internal.namespace_locks import advisory_xact_lock
 from datajunction_server.models.custom_metadata import (
     CustomMetadataFilter,
     CustomMetadataOp,
@@ -248,6 +249,26 @@ async def assert_not_reserved_globally(
         )
 
 
+async def lock_schema_scope(
+    session: AsyncSession,
+    key: str,
+    namespace: str | None,
+    node_type: str | None,
+    shared: bool = False,
+) -> None:
+    """Hold off other writers of this (key, node type, scope) row until commit.
+
+    The row is looked up and then inserted, so two writers that both miss it
+    collide on `uq_custommetadataschema_key_scope`; the second one now waits and
+    finds the first's row. A dry run locks shared: it only waits for real writers.
+    """
+    await advisory_xact_lock(
+        session,
+        f"dj:schema:{key}|{node_type or ''}|{namespace or ''}",
+        shared=shared,
+    )
+
+
 async def upsert_schema_row(
     session: AsyncSession,
     *,
@@ -259,6 +280,7 @@ async def upsert_schema_row(
     description: str | None,
     reserved: bool,
     current_user_id: int,
+    shared_lock: bool = False,
 ) -> CustomMetadataSchema:
     """Create, update, or revive the single row owning this scope.
 
@@ -270,6 +292,7 @@ async def upsert_schema_row(
     Does not commit -- the caller owns the transaction, which is what lets a
     dry-run deployment roll the registration back.
     """
+    await lock_schema_scope(session, key, namespace, node_type, shared=shared_lock)
     row = (
         await session.execute(
             select(CustomMetadataSchema).where(
@@ -302,6 +325,7 @@ async def upsert_schema_specs(
     *,
     current_user_id: int,
     build_indexes: bool = True,
+    shared_lock: bool = False,
 ) -> None:
     """Reconcile schema rows to exactly *specs*.
 
@@ -321,6 +345,28 @@ async def upsert_schema_specs(
     the deployment rather than half-applying it. ``build_indexes=False`` skips
     index DDL for a dry run.
     """
+    # Take every schema lock up front in a fixed order, so two deployments that
+    # declare the same keys in different orders cannot wait on each other.
+    scopes_to_lock = sorted(
+        {
+            (
+                spec.key,
+                spec.node_type.value if spec.node_type is not None else None,
+                spec.namespace or namespace,
+            )
+            for spec in specs
+        },
+        key=lambda scope: (scope[0], scope[1] or "", scope[2]),
+    )
+    for lock_key, lock_node_type, lock_scope in scopes_to_lock:
+        await lock_schema_scope(
+            session,
+            lock_key,
+            lock_scope,
+            lock_node_type,
+            shared=shared_lock,
+        )
+
     for spec in specs:
         check_json_schema(spec.key, spec.json_schema)
         await assert_not_reserved_globally(
@@ -330,7 +376,15 @@ async def upsert_schema_specs(
         )
 
     declared: set[tuple[str, str | None, str]] = set()
-    for spec in specs:
+    # Same order as the locks: dry runs share them, so row writes must not cross.
+    for spec in sorted(
+        specs,
+        key=lambda s: (
+            s.key,
+            s.node_type.value if s.node_type is not None else "",
+            s.namespace or namespace,
+        ),
+    ):
         node_type_val = spec.node_type.value if spec.node_type is not None else None
         scope = spec.namespace or namespace
         declared.add((spec.key, node_type_val, scope))
@@ -344,6 +398,7 @@ async def upsert_schema_specs(
             description=spec.description,
             reserved=False,
             current_user_id=current_user_id,
+            shared_lock=shared_lock,
         )
 
     scopes = {namespace} | {scope for _, _, scope in declared}
@@ -360,7 +415,7 @@ async def upsert_schema_specs(
         .all()
     )
     now = datetime.datetime.now(datetime.UTC)
-    for row in existing:
+    for row in sorted(existing, key=lambda r: r.id):
         if (row.key, row.node_type, row.namespace) not in declared:
             row.deactivated_at = now
 

@@ -134,7 +134,6 @@ async def test_anchor_filter_does_not_leak_onto_period_side(
           FROM default.public.dates a
           INNER JOIN default.public.dates b
             ON b.date_int BETWEEN a.first_date_of_month AND a.date_int
-          WHERE a.date_int IN (20180208, 20180210)
         ),
         default_orders_mtd AS (
           SELECT b.anchor_date, o.discount
@@ -278,7 +277,6 @@ async def test_two_table_bridge_is_unaffected(
           FROM default.public.dates a
           INNER JOIN default.public.dates_b b
             ON b.date_int BETWEEN a.first_date_of_month AND a.date_int
-          WHERE a.date_int IN (20180208, 20180210)
         ),
         default_orders_mtd_two_table AS (
           SELECT b.anchor_date, o.discount

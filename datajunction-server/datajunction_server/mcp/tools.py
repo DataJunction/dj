@@ -498,6 +498,7 @@ async def _execute_metrics_query(
         engine_version=execution_ctx.engine.version,
         submitted_query=generated_sql.sql,
         async_=False,
+        engine_uri=execution_ctx.engine.uri,
     )
     result = await query_service_client.submit_query(query_create)
     if result.results.root:

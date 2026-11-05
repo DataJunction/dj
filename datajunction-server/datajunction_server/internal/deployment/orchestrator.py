@@ -10,8 +10,9 @@ from datetime import UTC, datetime
 from collections.abc import Mapping, Sequence
 from typing import cast
 
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import func, or_, select
 from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer, joinedload, load_only, noload, selectinload
 from sqlalchemy.orm.attributes import flag_modified
@@ -65,6 +66,7 @@ from datajunction_server.internal.checks.validator import (
     load_checks,
 )
 from datajunction_server.internal.custom_metadata import upsert_schema_specs
+from datajunction_server.internal.namespace_locks import advisory_xact_lock
 from datajunction_server.internal.deployment.checks import (
     DeclaredSchemas,
     build_bindings,
@@ -496,6 +498,42 @@ class DeploymentOrchestrator:
                 )
 
     async def execute(self) -> DeploymentExecuteResult:
+        """Execute a deployment and record its outcome, including failed attempts."""
+        start = time.perf_counter()
+        status = "failed"
+        try:
+            result = await self._execute()
+            status = (
+                "failed"
+                if any(
+                    r.status == DeploymentResult.Status.FAILED for r in result.results
+                )
+                else "success"
+            )
+            return result
+        except asyncio.CancelledError:
+            status = "cancelled"
+            raise
+        finally:
+            try:
+                source = self.deployment_spec.source
+                tags = {
+                    "namespace": self.deployment_spec.namespace,
+                    "dry_run": str(self.dry_run),
+                    "source_type": source.type.value if source else "local",
+                    "status": status,
+                }
+                provider = get_metrics_provider()
+                provider.timer(
+                    "dj.deployments.execute_latency_ms",
+                    (time.perf_counter() - start) * 1000,
+                    tags,
+                )
+                provider.counter("dj.deployments.execute", tags=tags)
+            except Exception:
+                logger.exception("Failed to record deployment execution metrics")
+
+    async def _execute(self) -> DeploymentExecuteResult:
         """
         Validate and deploy all resources and nodes into the specified namespace.
 
@@ -525,6 +563,7 @@ class DeploymentOrchestrator:
         result = DeploymentExecuteResult(results=[], downstream_impacts=[])
         try:
             async with self.session.begin_nested():
+                await self._lock_namespace()
                 result = await self._plan_and_execute()
                 if self.dry_run:  # pragma: no branch
                     raise _DryRunRollback()
@@ -547,11 +586,6 @@ class DeploymentOrchestrator:
             "namespace": self.deployment_spec.namespace,
             "dry_run": str(self.dry_run),
         }
-        get_metrics_provider().timer(
-            "dj.deployments.execute_latency_ms",
-            elapsed_ms,
-            _metrics_tags,
-        )
         get_metrics_provider().gauge(
             "dj.deployments.node_count",
             len(self.deployed_results),
@@ -565,6 +599,29 @@ class DeploymentOrchestrator:
             elapsed_ms / 1000,
         )
         return result
+
+    async def _lock_namespace(self) -> None:
+        """Queue overlapping deployments, dry runs included, behind each other.
+
+        A deployment locks its namespace exclusively and its ancestors shared,
+        root first, so ``team`` and ``team.sub`` queue but ``team.a`` and
+        ``team.b`` do not. A dry run locks its own namespace shared too, so it
+        waits for real deployments but not for other dry runs. The locks last
+        until the commit or SAVEPOINT rollback.
+        """
+        namespace = self.deployment_spec.namespace
+        parts = namespace.split(SEPARATOR)
+        for depth in range(1, len(parts)):
+            await advisory_xact_lock(
+                self.session,
+                f"dj:deploy:{SEPARATOR.join(parts[:depth])}",
+                shared=True,
+            )
+        await advisory_xact_lock(
+            self.session,
+            f"dj:deploy:{namespace}",
+            shared=self.dry_run,
+        )
 
     async def _plan_and_execute(self) -> DeploymentExecuteResult:
         """Inner body of ``execute`` — runs inside the orchestrator's SAVEPOINT.
@@ -1075,6 +1132,7 @@ class DeploymentOrchestrator:
                 # Index DDL is the one part a rolled-back SAVEPOINT would do for
                 # nothing, and a dry run needs no index to report impact.
                 build_indexes=not self.dry_run,
+                shared_lock=self.dry_run,
             )
         logger.info(
             "Set up deployment resources: %d namespaces, %d tags, %d owners, %d catalogs, %d attributes",
@@ -1436,7 +1494,7 @@ class DeploymentOrchestrator:
         namespace_start = time.perf_counter()
         to_create = await self._find_namespaces_to_create()
         node_namespaces = []
-        for namespace in to_create:
+        for namespace in sorted(to_create):
             node_namespace = await get_node_namespace(  # pragma: no cover
                 session=self.session,
                 namespace=namespace,
@@ -1468,25 +1526,26 @@ class DeploymentOrchestrator:
             tag for spec in self.deployment_spec.nodes for tag in spec.tags
         }
         all_tag_names = deployment_tag_specs.keys() | used_tag_names
+        tag_options = [
+            load_only(
+                Tag.id,
+                Tag.name,
+                Tag.tag_type,
+                Tag.description,
+                Tag.display_name,
+                Tag.tag_metadata,
+                Tag.created_by_id,
+            ),
+            noload(Tag.created_by),
+            noload(Tag.nodes),
+        ]
         existing_tags = {
             tag.name: tag
             for tag in (
                 await Tag.find_tags(
                     self.session,
                     tag_names=list(all_tag_names),
-                    options=[
-                        load_only(
-                            Tag.id,
-                            Tag.name,
-                            Tag.tag_type,
-                            Tag.description,
-                            Tag.display_name,
-                            Tag.tag_metadata,
-                            Tag.created_by_id,
-                        ),
-                        noload(Tag.created_by),
-                        noload(Tag.nodes),
-                    ],
+                    options=tag_options,
                 )
                 if all_tag_names
                 else []
@@ -1539,20 +1598,11 @@ class DeploymentOrchestrator:
         # Upsert tags
         created: list[str] = []
         updated: list[str] = []
+        new_tags: dict[str, Tag] = {}
         for tag_name, tag_spec in deployment_tag_specs.items():
             if tag_name in existing_tags:
                 tag = existing_tags[tag_name]
-                if tag_needs_update(tag, tag_spec):
-                    logger.info(
-                        "Updating tag `%s` of type `%s`",
-                        tag_name,
-                        tag_spec.tag_type,
-                    )
-                    tag.tag_type = tag_spec.tag_type
-                    tag.description = tag_spec.description
-                    tag.display_name = tag_spec.display_name or labelize(tag_name)
-                    tag.tag_metadata = tag_spec.tag_metadata or {}
-                    self.session.add(tag)
+                if self._update_tag(tag, tag_spec):
                     updated.append(tag_name)
             else:
                 logger.info(
@@ -1560,7 +1610,7 @@ class DeploymentOrchestrator:
                     tag_name,
                     tag_spec.tag_type,
                 )
-                tag = Tag(
+                new_tags[tag_name] = Tag(
                     name=tag_name,
                     tag_type=tag_spec.tag_type,
                     description=tag_spec.description,
@@ -1568,9 +1618,17 @@ class DeploymentOrchestrator:
                     tag_metadata=tag_spec.tag_metadata or {},
                     created_by_id=self.context.current_user.id,
                 )
-                self.session.add(tag)
-                created.append(tag_name)
+
+        inserted = await self._insert_new_tags(new_tags, tag_options)
+        created.extend(inserted)
+        for tag_name, tag in new_tags.items():
             existing_tags[tag_name] = tag
+            # A concurrent deployment created it first; apply this manifest's values.
+            if tag_name not in inserted and self._update_tag(
+                tag,
+                deployment_tag_specs[tag_name],
+            ):
+                updated.append(tag_name)
 
         if created or updated:
             logger.info(
@@ -1582,6 +1640,66 @@ class DeploymentOrchestrator:
             )
             await self.session.flush()  # Get IDs but don't commit
         return existing_tags
+
+    def _update_tag(self, tag: Tag, tag_spec: TagSpec) -> bool:
+        """Make *tag* match *tag_spec*; return whether anything changed."""
+        if not tag_needs_update(tag, tag_spec):
+            return False
+        logger.info("Updating tag `%s` of type `%s`", tag.name, tag_spec.tag_type)
+        tag.tag_type = tag_spec.tag_type
+        tag.description = tag_spec.description
+        tag.display_name = tag_spec.display_name or labelize(tag.name)
+        tag.tag_metadata = tag_spec.tag_metadata or {}
+        self.session.add(tag)
+        return True
+
+    async def _insert_new_tags(
+        self,
+        new_tags: dict[str, Tag],
+        tag_options: list,
+    ) -> list[str]:
+        """Insert tags that do not exist yet and return the names this call created.
+
+        Tag names are global, and a tag is looked up before it is inserted, so two
+        deployments creating the same new tag collide on the unique name. On
+        Postgres the second insert is skipped and the first one's tag is used.
+        """
+        if not new_tags:
+            return []
+        if self.session.get_bind().dialect.name != "postgresql":
+            self.session.add_all(new_tags.values())
+            return list(new_tags)
+        rows = [
+            {
+                "name": tag.name,
+                "tag_type": tag.tag_type,
+                "description": tag.description,
+                "display_name": tag.display_name,
+                "tag_metadata": tag.tag_metadata,
+                "created_by_id": tag.created_by_id,
+            }
+            for tag in sorted(new_tags.values(), key=lambda t: t.name)
+        ]
+        inserted = (
+            (
+                await self.session.execute(
+                    pg_insert(Tag)
+                    .values(rows)
+                    .on_conflict_do_nothing(index_elements=[Tag.name])
+                    .returning(Tag.name),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        stored = await Tag.find_tags(
+            self.session,
+            tag_names=list(new_tags),
+            options=tag_options,
+        )
+        for tag in stored:
+            new_tags[tag.name] = tag
+        return list(inserted)
 
     async def _reconcile_claimed_tags(self) -> list[DeploymentResult]:
         """
@@ -2093,7 +2211,7 @@ class DeploymentOrchestrator:
         if missing_usernames:
             new_users = [
                 User(username=username, oauth_provider=OAuthProvider.BASIC)
-                for username in missing_usernames
+                for username in sorted(missing_usernames)
             ]
             self.session.add_all(new_users)
             self.warnings.append(
@@ -2374,9 +2492,10 @@ class DeploymentOrchestrator:
                 # transactions that reference overlapping sets of sources.
                 # Locks auto-release at COMMIT/ROLLBACK.
                 for source_name in sorted(auto_source_names):
-                    await self.session.execute(
-                        text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
-                        {"key": f"dj:autoreg:{source_name}"},
+                    await advisory_xact_lock(
+                        self.session,
+                        f"dj:autoreg:{source_name}",
+                        shared=self.dry_run,
                     )
 
                 existing_auto_sources = await Node.get_by_names(
@@ -3126,8 +3245,9 @@ class DeploymentOrchestrator:
             ) = await self._create_cubes_from_validation(validation_results)
 
         with timer.phase("    cubes: DB flush"):
-            self.session.add_all(nodes)
-            self.session.add_all(revisions)
+            # Name order, so overlapping dry runs, which share locks, insert alike.
+            self.session.add_all(sorted(nodes, key=lambda n: n.name))
+            self.session.add_all(sorted(revisions, key=lambda r: r.name))
             await self.session.flush()
 
         # Wire node.current directly — no refresh needed since nothing
@@ -5598,8 +5718,9 @@ class DeploymentOrchestrator:
             )
 
         with timer.phase("    nodes: DB flush") as p:
-            self.session.add_all(nodes)
-            self.session.add_all(revisions)
+            # Name order, so overlapping dry runs, which share locks, insert alike.
+            self.session.add_all(sorted(nodes, key=lambda n: n.name))
+            self.session.add_all(sorted(revisions, key=lambda r: r.name))
             await self.session.flush()
             p.append(f"{len(nodes)} nodes + {len(revisions)} revisions")
 

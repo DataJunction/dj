@@ -52,11 +52,6 @@ COUNT_COMPONENT_NAME_COLLISION = KnownIssue(
 EMPTY_PREAGG_COUNT_IS_NULL = KnownIssue(
     "a COUNT served from a pre-aggregation with no matching rows is NULL rather than 0",
 )
-FILTER_PUSHED_PAST_LEFT_JOIN = KnownIssue(
-    "a dimension filter is also applied inside the LEFT-joined dimension, so a "
-    "filter that accepts NULL (e.g. `label IS NULL`) matches facts whose "
-    "dimension row it filtered out",
-)
 PREAGG_INNER_JOIN_DROPS_ORPHANS = KnownIssue(
     "a pre-aggregation planned with an INNER-linked dimension drops facts with "
     "no matching dimension row, so requests that don't use that dimension get "
