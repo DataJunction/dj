@@ -7684,6 +7684,71 @@ class TestReferenceDimensionResolution:
         )
 
     @pytest.mark.asyncio
+    async def test_reference_beats_join_key_column(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        A reference column wins over a different column that is the join key
+        for the same dimension attribute.
+        """
+        resp = await client_with_build_v3.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.plan_src",
+                "description": "Plan catalog",
+                "columns": [
+                    {"name": "plan_key", "type": "int"},
+                    {"name": "plan_label", "type": "string"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "plans",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client_with_build_v3.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.plan_dim",
+                "description": "Plan dimension",
+                "query": "SELECT plan_key, plan_label FROM v3.plan_src",
+                "mode": "published",
+                "primary_key": ["plan_key"],
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client_with_build_v3.post(
+            "/nodes/v3.page_views_enriched/columns/view_id/link",
+            params={"dimension_node": "v3.plan_dim", "dimension_column": "plan_key"},
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client_with_build_v3.post(
+            "/nodes/v3.page_views_enriched/link",
+            json={
+                "dimension_node": "v3.plan_dim",
+                "join_type": "left",
+                "join_on": ("v3.page_views_enriched.product_id = v3.plan_dim.plan_key"),
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.page_view_count"],
+                "dimensions": ["v3.plan_dim.plan_key"],
+                "dialect": "trino",
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = response.json()["sql"]
+        assert "plan_dim" not in sql, sql
+        assert "view_id plan_key" in sql or "view_id AS plan_key" in sql, sql
+        assert "product_id" not in sql, sql
+
+    @pytest.mark.asyncio
     async def test_reference_with_other_role_does_not_override_dimension_link(
         self,
         client_with_build_v3,
