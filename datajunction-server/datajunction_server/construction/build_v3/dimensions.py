@@ -313,6 +313,7 @@ def _local_reference_dimension_column(
     ctx: BuildContext,
     parent_node: Node,
     dim_ref: DimensionRef,
+    match_role: bool = False,
 ) -> str | None:
     """
     Return the parent column that supplies dim_ref via a column-level dimension
@@ -336,9 +337,16 @@ def _local_reference_dimension_column(
             continue
         # dimension_column may carry a "[role]" suffix; fall back to the column's
         # own name when unset.
-        target = strip_role_suffix(col.dimension_column or col.name)
-        if target == dim_ref.column_name:
-            return col.name
+        stored = col.dimension_column or col.name
+        if strip_role_suffix(stored) != dim_ref.column_name:
+            continue
+        if match_role:
+            stored_role = (
+                stored[stored.index("[") + 1 :].rstrip("]") if "[" in stored else None
+            )
+            if stored_role != dim_ref.role:
+                continue
+        return col.name
     return None
 
 
@@ -385,26 +393,6 @@ def resolve_dimensions(
                     original_ref=dim,
                     node_name=dim_ref.node_name,
                     column_name=dim_ref.column_name,
-                    role=dim_ref.role,
-                    join_path=None,
-                    is_local=True,
-                ),
-            )
-        elif (
-            not dim_ref.role
-            and (
-                ref_col := _local_reference_dimension_column(ctx, parent_node, dim_ref)
-            )
-            is not None
-        ):
-            # Reference (denormalized) dimension: the parent carries the
-            # attribute on a column tagged with the dimension node, so it
-            # wins over a dimension link to the same node and needs no join.
-            resolved.append(
-                ResolvedDimension(
-                    original_ref=dim,
-                    node_name=parent_node.name,
-                    column_name=ref_col,
                     role=dim_ref.role,
                     join_path=None,
                     is_local=True,
@@ -499,6 +487,30 @@ def resolve_dimensions(
                         join_path=None,
                         is_local=True,
                         pre_skip_join_path=join_path,
+                    ),
+                )
+            elif (
+                not dim_ref.role
+                and (
+                    ref_col := _local_reference_dimension_column(
+                        ctx,
+                        parent_node,
+                        dim_ref,
+                        match_role=True,
+                    )
+                )
+                is not None
+            ):
+                # Reference (denormalized) dimension: the parent carries the
+                # attribute directly, so it wins over the dimension link.
+                resolved.append(
+                    ResolvedDimension(
+                        original_ref=dim,
+                        node_name=parent_node.name,
+                        column_name=ref_col,
+                        role=dim_ref.role,
+                        join_path=None,
+                        is_local=True,
                     ),
                 )
             elif can_skip and local_col and hops_skipped > 0:

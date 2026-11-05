@@ -7647,9 +7647,7 @@ class TestReferenceDimensionResolution:
             json={
                 "dimension_node": "v3.plan_dim",
                 "join_type": "left",
-                "join_on": (
-                    "v3.page_views_enriched.page_type = v3.plan_dim.plan_label"
-                ),
+                "join_on": ("v3.page_views_enriched.page_type = v3.plan_dim.plan_key"),
             },
         )
         assert resp.status_code in (200, 201), resp.json()
@@ -7684,6 +7682,74 @@ class TestReferenceDimensionResolution:
             GROUP BY page_views_enriched_0.plan_label
             """,
         )
+
+    @pytest.mark.asyncio
+    async def test_reference_with_other_role_does_not_override_dimension_link(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        A reference tagged with a role is not used for an unqualified request;
+        the dimension link join is kept.
+        """
+        resp = await client_with_build_v3.post(
+            "/nodes/source/",
+            json={
+                "name": "v3.plan_src",
+                "description": "Plan catalog",
+                "columns": [
+                    {"name": "plan_key", "type": "string"},
+                    {"name": "plan_label", "type": "string"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": "plans",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client_with_build_v3.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.plan_dim",
+                "description": "Plan dimension",
+                "query": "SELECT plan_key, plan_label FROM v3.plan_src",
+                "mode": "published",
+                "primary_key": ["plan_key"],
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client_with_build_v3.post(
+            "/nodes/v3.page_views_enriched/columns/page_type/link",
+            params={
+                "dimension_node": "v3.plan_dim",
+                "dimension_column": "plan_label",
+                "role": "alt",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        resp = await client_with_build_v3.post(
+            "/nodes/v3.page_views_enriched/link",
+            json={
+                "dimension_node": "v3.plan_dim",
+                "join_type": "left",
+                "join_on": ("v3.page_views_enriched.page_type = v3.plan_dim.plan_key"),
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.page_view_count"],
+                "dimensions": ["v3.plan_dim.plan_label"],
+                "dialect": "trino",
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sql = response.json()["sql"]
+        assert "JOIN" in sql and "plan_dim" in sql, sql
+        assert "page_type AS plan_label" not in sql, sql
 
     @pytest.mark.asyncio
     async def test_reference_dimension_used_only_as_filter(self, client_with_build_v3):
