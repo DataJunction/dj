@@ -390,6 +390,26 @@ def resolve_dimensions(
                     is_local=True,
                 ),
             )
+        elif (
+            not dim_ref.role
+            and (
+                ref_col := _local_reference_dimension_column(ctx, parent_node, dim_ref)
+            )
+            is not None
+        ):
+            # Reference (denormalized) dimension: the parent carries the
+            # attribute on a column tagged with the dimension node, so it
+            # wins over a dimension link to the same node and needs no join.
+            resolved.append(
+                ResolvedDimension(
+                    original_ref=dim,
+                    node_name=parent_node.name,
+                    column_name=ref_col,
+                    role=dim_ref.role,
+                    join_path=None,
+                    is_local=True,
+                ),
+            )
         else:
             # Need to find join path
             join_path = find_join_path(
