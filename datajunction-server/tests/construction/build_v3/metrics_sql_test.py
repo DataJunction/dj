@@ -1711,6 +1711,649 @@ class TestMetricsSQLDerived:
         ]
 
     @pytest.mark.asyncio
+    async def test_window_ctes_unique_across_roles_of_same_column(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        Windows ordered by different roles of the same column get distinct
+        CTE names; the first keeps the plain name.
+        """
+        for name, role in [
+            ("v3.review_order_lag", "order"),
+            ("v3.review_registration_lag", "customer->registration"),
+        ]:
+            response = await client_with_build_v3.post(
+                "/nodes/metric/",
+                json={
+                    "name": name,
+                    "query": (
+                        "SELECT LAG(v3.total_revenue, 1) OVER "
+                        f"(ORDER BY v3.date.month[{role}])"
+                    ),
+                    "mode": "published",
+                },
+            )
+            assert response.status_code in (200, 201), response.json()
+
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.review_order_lag", "v3.review_registration_lag"],
+                "dimensions": [
+                    "v3.date.month[order]",
+                    "v3.date.month[customer->registration]",
+                    "v3.date.date_id[order]",
+                ],
+                "use_materialized": "false",
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            v3_customer AS (
+              SELECT customer_id, registration_date
+              FROM default.v3.customers
+            ),
+            v3_date AS (
+              SELECT date_id, month
+              FROM default.v3.dates
+            ),
+            v3_order_details AS (
+              SELECT
+                o.customer_id,
+                o.order_date,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+              SELECT
+                t2.month month_order,
+                t4.month month_registration,
+                COALESCE(t1.order_date, t2.date_id) AS date_id_order,
+                SUM(t1.line_total) line_total_sum_e1f61696
+              FROM v3_order_details t1
+              LEFT OUTER JOIN v3_date t2 ON t1.order_date = t2.date_id
+              LEFT OUTER JOIN v3_customer t3 ON t1.customer_id = t3.customer_id
+              LEFT OUTER JOIN v3_date t4 ON t3.registration_date = t4.date_id
+              GROUP BY t2.month, t4.month, COALESCE(t1.order_date, t2.date_id)
+            ),
+            base_metrics AS (
+              SELECT
+                order_details_0.month_order AS month_order,
+                order_details_0.month_registration AS month_registration,
+                order_details_0.date_id_order AS date_id_order,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+              FROM order_details_0
+              GROUP BY order_details_0.month_order, order_details_0.month_registration, order_details_0.date_id_order
+            ),
+            order_details_month_agg AS (
+              SELECT
+                order_details_0.month_order AS month_order,
+                order_details_0.month_registration AS month_registration,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+              FROM order_details_0
+              GROUP BY order_details_0.month_order, order_details_0.month_registration
+            ),
+            order_details_month AS (
+              SELECT
+                order_details_month_agg.month_order AS month_order,
+                order_details_month_agg.month_registration AS month_registration,
+                LAG(order_details_month_agg.total_revenue, 1) OVER (ORDER BY order_details_month_agg.month_order) AS review_order_lag
+              FROM order_details_month_agg
+            ),
+            order_details_month_registration_agg AS (
+              SELECT
+                order_details_0.month_order AS month_order,
+                order_details_0.month_registration AS month_registration,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+              FROM order_details_0
+              GROUP BY order_details_0.month_order, order_details_0.month_registration
+            ),
+            order_details_month_registration AS (
+              SELECT
+                order_details_month_registration_agg.month_order AS month_order,
+                order_details_month_registration_agg.month_registration AS month_registration,
+                LAG(order_details_month_registration_agg.total_revenue, 1) OVER (ORDER BY order_details_month_registration_agg.month_registration) AS review_registration_lag
+              FROM order_details_month_registration_agg
+            )
+            SELECT
+              base_metrics.month_order AS month_order,
+              base_metrics.month_registration AS month_registration,
+              base_metrics.date_id_order AS date_id_order,
+              order_details_month.review_order_lag AS review_order_lag,
+              order_details_month_registration.review_registration_lag AS review_registration_lag
+            FROM base_metrics
+            LEFT OUTER JOIN order_details_month ON base_metrics.month_order = order_details_month.month_order AND base_metrics.month_registration = order_details_month.month_registration
+            LEFT OUTER JOIN order_details_month_registration ON base_metrics.month_order = order_details_month_registration.month_order AND base_metrics.month_registration = order_details_month_registration.month_registration
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_window_ctes_unique_for_role_free_group_after_named_role(
+        self,
+        client_with_build_v3,
+    ):
+        """
+        A window ordered by a role-free column gets its own CTE names even
+        when a windowed role of the same column comes first.
+        """
+        client = client_with_build_v3
+        await link_date_without_role(client)
+        for name, ref in [
+            ("v3.lag_by_order_month", "v3.date.month[order]"),
+            ("v3.lag_by_month", "v3.date.month"),
+        ]:
+            response = await client.post(
+                "/nodes/metric/",
+                json={
+                    "name": name,
+                    "query": f"SELECT LAG(v3.total_revenue, 1) OVER (ORDER BY {ref})",
+                    "mode": "published",
+                },
+            )
+            assert response.status_code in (200, 201), response.json()
+
+        response = await client.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.lag_by_order_month", "v3.lag_by_month"],
+                "dimensions": [
+                    "v3.date.month[order]",
+                    "v3.date.month",
+                    "v3.date.date_id[order]",
+                ],
+                "use_materialized": "false",
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            v3_date AS (
+              SELECT date_id, month
+              FROM default.v3.dates
+            ),
+            v3_order_details AS (
+              SELECT
+                o.order_date,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+              SELECT
+                t2.month month_order,
+                t3.month,
+                COALESCE(t1.order_date, t2.date_id) AS date_id_order,
+                SUM(t1.line_total) line_total_sum_e1f61696
+              FROM v3_order_details t1
+              LEFT OUTER JOIN v3_date t2 ON t1.order_date = t2.date_id
+              LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
+              GROUP BY t2.month, t3.month, COALESCE(t1.order_date, t2.date_id)
+            ),
+            base_metrics AS (
+              SELECT
+                order_details_0.month_order AS month_order,
+                order_details_0.month AS month,
+                order_details_0.date_id_order AS date_id_order,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+              FROM order_details_0
+              GROUP BY order_details_0.month_order, order_details_0.month, order_details_0.date_id_order
+            ),
+            order_details_month_agg AS (
+              SELECT
+                order_details_0.month_order AS month_order,
+                order_details_0.month AS month,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+              FROM order_details_0
+              GROUP BY order_details_0.month_order, order_details_0.month
+            ),
+            order_details_month AS (
+              SELECT
+                order_details_month_agg.month_order AS month_order,
+                order_details_month_agg.month AS month,
+                LAG(order_details_month_agg.total_revenue, 1) OVER (ORDER BY order_details_month_agg.month_order) AS lag_by_order_month
+              FROM order_details_month_agg
+            ),
+            order_details_month_no_role_agg AS (
+              SELECT
+                order_details_0.month_order AS month_order,
+                order_details_0.month AS month,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+              FROM order_details_0
+              GROUP BY order_details_0.month_order, order_details_0.month
+            ),
+            order_details_month_no_role AS (
+              SELECT
+                order_details_month_no_role_agg.month_order AS month_order,
+                order_details_month_no_role_agg.month AS month,
+                LAG(order_details_month_no_role_agg.total_revenue, 1) OVER (ORDER BY order_details_month_no_role_agg.month) AS lag_by_month
+              FROM order_details_month_no_role_agg
+            )
+            SELECT
+              base_metrics.month_order AS month_order,
+              base_metrics.month AS month,
+              base_metrics.date_id_order AS date_id_order,
+              order_details_month.lag_by_order_month AS lag_by_order_month,
+              order_details_month_no_role.lag_by_month AS lag_by_month
+            FROM base_metrics
+            LEFT OUTER JOIN order_details_month ON base_metrics.month_order = order_details_month.month_order AND base_metrics.month = order_details_month.month
+            LEFT OUTER JOIN order_details_month_no_role ON base_metrics.month_order = order_details_month_no_role.month_order AND base_metrics.month = order_details_month_no_role.month
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_trailing_window_ignores_filter_on_other_role(
+        self,
+        client_with_build_v3,
+    ):
+        """A filter on another role of the order column is a plain join
+        filter, not a window bound."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.trailing_7d_revenue"],
+                "dimensions": ["v3.date.date_id[order]"],
+                "filters": ["v3.date.date_id[customer->registration] = 20240131"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            v3_customer AS (
+              SELECT customer_id, registration_date
+              FROM default.v3.customers
+            ),
+            v3_order_details AS (
+              SELECT
+                o.customer_id,
+                o.order_date,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+              SELECT
+                t1.order_date date_id_order,
+                SUM(t1.line_total) line_total_sum_e1f61696
+              FROM v3_order_details t1
+              LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
+              WHERE t2.registration_date = 20240131
+              GROUP BY t1.order_date
+            ),
+            base_metrics AS (
+              SELECT
+                order_details_0.date_id_order AS date_id_order,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+              FROM order_details_0
+              GROUP BY order_details_0.date_id_order
+            )
+            SELECT
+              base_metrics.date_id_order AS date_id_order,
+              SUM(base_metrics.total_revenue) OVER (ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS trailing_7d_revenue
+            FROM base_metrics
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_trailing_window_strict_bound_keeps_exclusive_endpoint(
+        self,
+        client_with_build_v3,
+    ):
+        """``> 20240125`` starts the window at 20240126, not 20240125."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.trailing_7d_revenue"],
+                "dimensions": ["v3.date.date_id[order]"],
+                "filters": [
+                    "v3.date.date_id[order] > 20240125",
+                    "v3.date.date_id[order] <= 20240131",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            __wl_low_date_id AS (
+              SELECT (SELECT MIN(__o.date_id)
+               FROM (SELECT date_id
+               FROM default.v3.dates
+               WHERE date_id <= 20240126
+              ORDER BY date_id DESC
+              LIMIT 7) __o) AS low_val
+            ),
+            v3_order_details AS (
+              SELECT
+                o.order_date,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+              WHERE order_date BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131
+            ),
+            order_details_0 AS (
+              SELECT
+                t1.order_date date_id_order,
+                SUM(t1.line_total) line_total_sum_e1f61696
+              FROM v3_order_details t1
+              GROUP BY t1.order_date
+            ),
+            base_metrics AS (
+              SELECT
+                __spine.date_id AS date_id_order,
+                COALESCE(__agg.total_revenue, 0) AS total_revenue
+              FROM (SELECT DISTINCT date_id
+               FROM default.v3.dates
+               WHERE date_id BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131) AS __spine
+              LEFT JOIN (SELECT
+                order_details_0.date_id_order AS date_id_order,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+               FROM order_details_0
+               GROUP BY order_details_0.date_id_order) AS __agg ON __spine.date_id = __agg.date_id_order
+            ),
+            __windowed AS (
+              SELECT
+                base_metrics.date_id_order AS date_id_order,
+                SUM(base_metrics.total_revenue) OVER (ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS trailing_7d_revenue
+              FROM base_metrics
+            )
+            SELECT *
+            FROM __windowed
+            WHERE date_id_order BETWEEN 20240126 AND 20240131
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_trailing_window_strict_non_integer_bound_bails(
+        self,
+        client_with_build_v3,
+    ):
+        """A strict bound that is not an integer literal keeps the user's
+        filters as written and expands nothing."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.trailing_7d_revenue"],
+                "dimensions": ["v3.date.date_id[order]"],
+                "filters": [
+                    "v3.date.date_id[order] > 20240125 + 0",
+                    "v3.date.date_id[order] <= 20240131",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            v3_order_details AS (
+              SELECT
+                o.order_date,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+              WHERE o.order_date > 20240125 + 0 AND o.order_date <= 20240131
+            ),
+            order_details_0 AS (
+              SELECT
+                t1.order_date date_id_order,
+                SUM(t1.line_total) line_total_sum_e1f61696
+              FROM v3_order_details t1
+              GROUP BY t1.order_date
+            ),
+            base_metrics AS (
+              SELECT
+                order_details_0.date_id_order AS date_id_order,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+              FROM order_details_0
+              GROUP BY order_details_0.date_id_order
+            )
+            SELECT
+              base_metrics.date_id_order AS date_id_order,
+              SUM(base_metrics.total_revenue) OVER (ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS trailing_7d_revenue
+            FROM base_metrics
+            WHERE base_metrics.date_id_order > 20240125 + 0 AND base_metrics.date_id_order <= 20240131
+            """,
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "filters, where",
+        [
+            (
+                [
+                    "v3.date.date_id[order] >= 20240101",
+                    "v3.date.date_id[order] >= 'x'",
+                    "v3.date.date_id[order] <= 20240131",
+                ],
+                ">= 20240101 AND {c} >= 'x' AND {c} <= 20240131",
+            ),
+            (
+                [
+                    "v3.date.date_id[order] >= 20240101",
+                    "v3.date.date_id[order] <= 20240131",
+                    "v3.date.date_id[order] <= 'y'",
+                ],
+                ">= 20240101 AND {c} <= 20240131 AND {c} <= 'y'",
+            ),
+        ],
+    )
+    async def test_trailing_window_incomparable_bounds_bail(
+        self,
+        client_with_build_v3,
+        filters,
+        where,
+    ):
+        """Same-side bounds that cannot be compared keep every filter as
+        written and expand nothing."""
+        response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.trailing_7d_revenue"],
+                "dimensions": ["v3.date.date_id[order]"],
+                "filters": filters,
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["sql"],
+            f"""
+            WITH
+            v3_order_details AS (
+              SELECT
+                o.order_date,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+              WHERE o.order_date {where.format(c="o.order_date")}
+            ),
+            order_details_0 AS (
+              SELECT
+                t1.order_date date_id_order,
+                SUM(t1.line_total) line_total_sum_e1f61696
+              FROM v3_order_details t1
+              GROUP BY t1.order_date
+            ),
+            base_metrics AS (
+              SELECT
+                order_details_0.date_id_order AS date_id_order,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+              FROM order_details_0
+              GROUP BY order_details_0.date_id_order
+            )
+            SELECT
+              base_metrics.date_id_order AS date_id_order,
+              SUM(base_metrics.total_revenue) OVER (ORDER BY base_metrics.date_id_order ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS trailing_7d_revenue
+            FROM base_metrics
+            WHERE base_metrics.date_id_order {where.format(c="base_metrics.date_id_order")}
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_trailing_window_ordered_by_role_the_fact_lacks(
+        self,
+        client_with_build_v3,
+    ):
+        """A window ordered by a role the fact does not link directly gets no
+        scan expansion; the user's filter stays as written."""
+        client = client_with_build_v3
+        response = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.registration_trailing_7d",
+                "query": (
+                    "SELECT SUM(v3.total_revenue) OVER "
+                    "(ORDER BY v3.date.date_id[customer->registration] "
+                    "ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)"
+                ),
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+        response = await client.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.registration_trailing_7d"],
+                "dimensions": ["v3.date.date_id[customer->registration]"],
+                "filters": [
+                    "v3.date.date_id[customer->registration] BETWEEN 20240125 AND 20240131",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            v3_customer AS (
+              SELECT customer_id, registration_date
+              FROM default.v3.customers
+            ),
+            v3_order_details AS (
+              SELECT
+                o.customer_id,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            ),
+            order_details_0 AS (
+              SELECT
+                t2.registration_date date_id_registration,
+                SUM(t1.line_total) line_total_sum_e1f61696
+              FROM v3_order_details t1
+              LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
+              WHERE t2.registration_date BETWEEN 20240125 AND 20240131
+              GROUP BY t2.registration_date
+            ),
+            base_metrics AS (
+              SELECT
+                order_details_0.date_id_registration AS date_id_registration,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+              FROM order_details_0
+              GROUP BY order_details_0.date_id_registration
+            )
+            SELECT
+              base_metrics.date_id_registration AS date_id_registration,
+              SUM(base_metrics.total_revenue) OVER (ORDER BY base_metrics.date_id_registration ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS registration_trailing_7d
+            FROM base_metrics
+            WHERE base_metrics.date_id_registration BETWEEN 20240125 AND 20240131
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_trailing_window_strict_bound_without_role(
+        self,
+        client_with_build_v3,
+    ):
+        """Strict endpoints stay exclusive for a role-free order column too."""
+        client = client_with_build_v3
+        await link_date_without_role(client)
+        response = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.plain_trailing_7d",
+                "query": (
+                    "SELECT SUM(v3.total_revenue) OVER (ORDER BY v3.date.date_id "
+                    "ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)"
+                ),
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+        response = await client.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.plain_trailing_7d"],
+                "dimensions": ["v3.date.date_id"],
+                "filters": [
+                    "v3.date.date_id > 20240125",
+                    "v3.date.date_id <= 20240131",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            __wl_low_date_id AS (
+              SELECT (SELECT MIN(__o.date_id)
+               FROM (SELECT date_id
+               FROM default.v3.dates
+               WHERE date_id <= 20240126
+              ORDER BY date_id DESC
+              LIMIT 7) __o) AS low_val
+            ),
+            v3_order_details AS (
+              SELECT
+                o.order_date,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+              WHERE order_date BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131
+            ),
+            order_details_0 AS (
+              SELECT
+                t1.order_date date_id,
+                SUM(t1.line_total) line_total_sum_e1f61696
+              FROM v3_order_details t1
+              GROUP BY t1.order_date
+            ),
+            base_metrics AS (
+              SELECT
+                __spine.date_id AS date_id,
+                COALESCE(__agg.total_revenue, 0) AS total_revenue
+              FROM (SELECT DISTINCT date_id
+               FROM default.v3.dates
+               WHERE date_id BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131) AS __spine
+              LEFT JOIN (SELECT
+                order_details_0.date_id AS date_id,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+               FROM order_details_0
+               GROUP BY order_details_0.date_id) AS __agg ON __spine.date_id = __agg.date_id
+            ),
+            __windowed AS (
+              SELECT
+                base_metrics.date_id AS date_id,
+                SUM(base_metrics.total_revenue) OVER (ORDER BY base_metrics.date_id ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS plain_trailing_7d
+              FROM base_metrics
+            )
+            SELECT *
+            FROM __windowed
+            WHERE date_id BETWEEN 20240126 AND 20240131
+            """,
+        )
+
+    @pytest.mark.asyncio
     async def test_wow_and_mom_with_order_role(self, client_with_build_v3):
         """
         Test WoW and MoM metrics ordered by roled dimensions.
@@ -2935,8 +3578,8 @@ class TestNonDecomposableMetrics:
         [
             [],
             [
-                "v3.date.date_id >= 20240125",
-                "v3.date.date_id <= 20240131",
+                "v3.date.date_id[order] >= 20240125",
+                "v3.date.date_id[order] <= 20240131",
             ],
         ],
     )
@@ -2994,8 +3637,8 @@ class TestNonDecomposableMetrics:
             metrics=["v3.trailing_7d_revenue"],
             dimensions=["v3.date.date_id[order]", "v3.product.category"],
             filters=[
-                "v3.date.date_id >= 20240125",
-                "v3.date.date_id <= 20240131",
+                "v3.date.date_id[order] >= 20240125",
+                "v3.date.date_id[order] <= 20240131",
             ],
             dialect=Dialect.TRINO,
             use_materialized=False,
@@ -3385,7 +4028,7 @@ class TestNonDecomposableMetrics:
             params={
                 "metrics": ["v3.trailing_7d_revenue"],
                 "dimensions": ["v3.date.date_id[order]"],
-                "filters": ["v3.date.date_id = 20240131"],
+                "filters": ["v3.date.date_id[order] = 20240131"],
             },
         )
         assert response.status_code == 200, response.json()
@@ -3448,8 +4091,8 @@ class TestNonDecomposableMetrics:
                 "metrics": ["v3.trailing_7d_revenue"],
                 "dimensions": ["v3.date.date_id[order]"],
                 "filters": [
-                    "v3.date.date_id >= 20240125",
-                    "v3.date.date_id <= 20240131",
+                    "v3.date.date_id[order] >= 20240125",
+                    "v3.date.date_id[order] <= 20240131",
                 ],
                 "limit": "3",
                 "orderby": ["v3.date.date_id[order]"],
@@ -3515,8 +4158,8 @@ class TestNonDecomposableMetrics:
                 "metrics": ["v3.trailing_7d_revenue"],
                 "dimensions": ["v3.date.date_id[order]"],
                 "filters": [
-                    "v3.date.date_id >= 20240125",
-                    "v3.date.date_id <= 20240131",
+                    "v3.date.date_id[order] >= 20240125",
+                    "v3.date.date_id[order] <= 20240131",
                 ],
             },
         )
@@ -3581,8 +4224,8 @@ class TestNonDecomposableMetrics:
                 "metrics": ["v3.trailing_7d_revenue"],
                 "dimensions": ["v3.date.date_id[order]"],
                 "filters": [
-                    "v3.date.date_id >= 20240125",
-                    "v3.date.date_id <= 20240131",
+                    "v3.date.date_id[order] >= 20240125",
+                    "v3.date.date_id[order] <= 20240131",
                 ],
             },
         )
@@ -3644,8 +4287,8 @@ class TestNonDecomposableMetrics:
                 "metrics": ["v3.trailing_7d_revenue"],
                 "dimensions": ["v3.date.date_id[order]", "v3.product.category"],
                 "filters": [
-                    "v3.date.date_id >= 20240125",
-                    "v3.date.date_id <= 20240131",
+                    "v3.date.date_id[order] >= 20240125",
+                    "v3.date.date_id[order] <= 20240131",
                 ],
             },
         )
@@ -3732,9 +4375,9 @@ class TestNonDecomposableMetrics:
                 "metrics": ["v3.trailing_7d_revenue"],
                 "dimensions": ["v3.date.date_id[order]"],
                 "filters": [
-                    "v3.date.date_id >= 20240101",
-                    "v3.date.date_id >= 20240125",
-                    "v3.date.date_id <= 20240131",
+                    "v3.date.date_id[order] >= 20240101",
+                    "v3.date.date_id[order] >= 20240125",
+                    "v3.date.date_id[order] <= 20240131",
                 ],
             },
         )
@@ -3800,7 +4443,7 @@ class TestNonDecomposableMetrics:
             params={
                 "metrics": ["v3.trailing_7d_revenue"],
                 "dimensions": ["v3.date.date_id[order]"],
-                "filters": ["v3.date.date_id = 20240130 + 1"],
+                "filters": ["v3.date.date_id[order] = 20240130 + 1"],
             },
         )
         assert response.status_code == 200, response.json()
@@ -3861,7 +4504,7 @@ class TestNonDecomposableMetrics:
             params={
                 "metrics": ["v3.avg_revenue_trailing_7d"],
                 "dimensions": ["v3.date.date_id[order]"],
-                "filters": ["v3.date.date_id = 20240131"],
+                "filters": ["v3.date.date_id[order] = 20240131"],
             },
         )
         assert response.status_code == 200, response.json()
@@ -4003,7 +4646,7 @@ SELECT  base_metrics.date_id_order AS date_id_order,
             params={
                 "metrics": ["v3.cumulative_revenue"],
                 "dimensions": ["v3.date.date_id[order]"],
-                "filters": ["v3.date.date_id = 20240131"],
+                "filters": ["v3.date.date_id[order] = 20240131"],
             },
         )
         assert response.status_code == 200, response.json()
@@ -5369,7 +6012,7 @@ class TestMetricsSQLCrossFactWindow:
             params={
                 "metrics": ["v3.weekly_active_rate"],
                 "dimensions": ["v3.date.date_id[order]"],
-                "filters": ["v3.date.date_id = 20240107"],
+                "filters": ["v3.date.date_id[order] = 20240107"],
             },
         )
         assert response.status_code == 200, response.json()
@@ -8006,3 +8649,16 @@ class TestBareRequiredDimension:
             },
         )
         assert response.status_code == 200, response.json()
+
+
+async def link_date_without_role(client):
+    """Link v3.order_details to v3.date again, this time without a role."""
+    response = await client.post(
+        "/nodes/v3.order_details/link",
+        json={
+            "dimension_node": "v3.date",
+            "join_type": "left",
+            "join_on": "v3.order_details.order_date = v3.date.date_id",
+        },
+    )
+    assert response.status_code in (200, 201), response.json()

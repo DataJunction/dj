@@ -13,6 +13,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, cast
 
+from datajunction_server.construction.build_v3.alias_registry import AliasRegistry
 from datajunction_server.construction.build_v3.cte import (
     build_alias_to_dimension_node,
     extract_dim_info_from_grain_groups,
@@ -1960,6 +1961,8 @@ def generate_metrics_sql(
         # Window grain groups define the coarser grain for LAG/LEAD metrics (e.g., weekly for WoW)
         # We REAGGREGATE from the base grain group CTE, not from source tables
         # This is more efficient and enables pre-agg matching at the base grain
+        window_cte_names = AliasRegistry()
+        window_cte_owners: dict[str, str] = {}
         for idx, wgg in enumerate(window_grain_groups):
             # Get the ORDER BY dimension for naming (e.g., "week" from "v3.date.week")
             order_by_dim = wgg.window_order_by_dim or ""
@@ -1995,7 +1998,17 @@ def generate_metrics_sql(
                     is_cross_fact = True  # Treat as cross-fact for building
 
             # Step 1: Build aggregation CTE that reaggregates to the coarser window grain
-            agg_cte_alias = f"{parent_short_name}_{order_by_col}_agg"
+            # The first group on a column keeps the plain name; any other
+            # group (another role, or none) gets its own.
+            window_cte_key = f"{parent_short_name}_{order_by_col}"
+            if (
+                window_cte_owners.setdefault(window_cte_key, order_by_dim)
+                != order_by_dim
+            ):
+                order_by_role = order_by_dim.partition("[")[2].rstrip("]")
+                window_cte_key += f"[{order_by_role or 'no_role'}]"
+            window_cte_alias = window_cte_names.register(window_cte_key)
+            agg_cte_alias = window_cte_names.register(f"{window_cte_alias}_agg")
             # source_cte_alias is guaranteed to be set by the branches above
             assert source_cte_alias is not None
             if is_cross_fact:
@@ -2023,7 +2036,6 @@ def generate_metrics_sql(
 
             # Step 2: Build window CTE that applies LAG/LEAD functions
             # This reads from the agg CTE (which has aggregated metrics at coarser grain)
-            window_cte_alias = f"{parent_short_name}_{order_by_col}"
             window_cte = build_window_cte_from_grain_group(
                 wgg,
                 agg_cte_alias,  # Source is the agg CTE
