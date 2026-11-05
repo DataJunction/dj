@@ -42,6 +42,7 @@ from datajunction_server.construction.build_v3.loaders import (
     load_post_preload_chain,
     preload_join_paths,
 )
+from datajunction_server.construction.utils import missing_to_parent
 from datajunction_server.construction.build_v3.prepare import prepare_metrics_query
 from datajunction_server.construction.build_v3.measures import (
     build_dimension_col_expr,
@@ -263,19 +264,25 @@ async def build_node_sql_v3(
 
     # Lightweight node lookup so we can dispatch on node type before paying
     # for the full upstream-chain trace below.
-    starting_lookup = (
-        await session.execute(
-            select(Node)
-            .where(Node.name == node_name)
-            .where(Node.deactivated_at.is_(None))
-            .options(
-                load_only(Node.name, Node.type, Node.current_version),
-                noload(Node.created_by),
-                noload(Node.tags),
-                noload(Node.current),
-            ),
-        )
-    ).scalar_one_or_none()
+    async def lookup(name: str) -> Node | None:
+        return (
+            await session.execute(
+                select(Node)
+                .where(Node.name == name)
+                .where(Node.deactivated_at.is_(None))
+                .options(
+                    load_only(Node.name, Node.type, Node.current_version),
+                    noload(Node.created_by),
+                    noload(Node.tags),
+                    noload(Node.current),
+                ),
+            )
+        ).scalar_one_or_none()
+
+    starting_lookup = await lookup(node_name)
+    if starting_lookup is None:
+        parent = (await missing_to_parent(session, [node_name], [])).get(node_name)
+        starting_lookup = await lookup(parent) if parent else None
     if starting_lookup is None:  # pragma: no cover
         raise DJNodeNotFound(
             message=f"A node with name `{node_name}` does not exist.",
@@ -292,7 +299,7 @@ async def build_node_sql_v3(
         await access_checker.check(on_denied=AccessDenialMode.RAISE)
         return await build_metrics_sql(
             session=session,
-            metrics=[node_name],
+            metrics=[starting_lookup.name],
             dimensions=dim_list,
             filters=filter_list,
             orderby=orderby_list or None,
@@ -300,10 +307,11 @@ async def build_node_sql_v3(
             dialect=dialect,
             use_materialized=use_materialized,
             query_parameters=query_parameters,
+            inherit=True,
         )
 
     if starting_type == NodeType.CUBE:
-        cube = await Node.get_cube_by_name(session, node_name)
+        cube = await Node.get_cube_by_name(session, node_name, inherit=True)
         cube_revision = cube.current  # type: ignore[union-attr]
         access_checker.add_node(cube_revision, access.ResourceAction.READ)
         await access_checker.check(on_denied=AccessDenialMode.RAISE)
@@ -324,6 +332,7 @@ async def build_node_sql_v3(
             matched_cube=cube_revision,
             use_materialized=use_materialized,
             dialect=dialect,
+            inherit=True,
         )
         return await build_metrics_sql(
             session=session,
@@ -336,6 +345,7 @@ async def build_node_sql_v3(
             use_materialized=use_materialized,
             matched_cube=cube_revision,
             query_parameters=query_parameters,
+            inherit=True,
         )
 
     # Source / dimension / transform — the single-node path.
@@ -353,14 +363,18 @@ async def build_node_sql_v3(
     upstream_names, parent_map = await find_upstream_node_names(
         session,
         list(starting_set),
+        inherit=True,
     )
     upstream_names |= starting_set
-    nodes = await batch_load_nodes_with_dependencies(session, upstream_names)
-    nodes_dict = {node.name: node for node in nodes}
+    nodes_dict = await batch_load_nodes_with_dependencies(
+        session,
+        upstream_names,
+        inherit=True,
+    )
 
     # Single bulk access check on every node we'll touch
     access_checker.add_nodes(
-        [n.current for n in nodes if n.current],  # type: ignore[arg-type]
+        [n.current for n in nodes_dict.values() if n.current],  # type: ignore[arg-type]
         access.ResourceAction.READ,
     )
     await access_checker.check(on_denied=AccessDenialMode.RAISE)
@@ -384,6 +398,7 @@ async def build_node_sql_v3(
         use_materialized=use_materialized,
         nodes=nodes_dict,
         parent_map=parent_map,
+        inherit=True,
     )
 
     # ``add_dimensions_from_filters`` parses ``ctx.filters`` for dim refs

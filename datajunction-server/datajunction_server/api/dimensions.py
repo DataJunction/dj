@@ -12,6 +12,7 @@ from sqlalchemy.orm import load_only
 from datajunction_server.api.nodes import list_nodes
 from datajunction_server.database.node import Node
 from datajunction_server.errors import DJNodeNotFound
+from datajunction_server.api.helpers import nodes_by_asked_name
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
     AccessChecker,
@@ -85,6 +86,7 @@ async def find_nodes_with_dimension(
             name,
             options=[load_only(Node.id, Node.name)],
             raise_if_not_exists=True,
+            inherit=True,
         ),
     )
     access_checker.add_node(dimension_node, access.ResourceAction.READ)
@@ -114,9 +116,10 @@ async def find_nodes_with_common_dimensions(
         session,
         dimension,
         options=[load_only(Node.id, Node.name)],
+        inherit=True,
     )
-    found_names = {node.name for node in dimension_nodes}
-    missing = [dim for dim in dimension if dim not in found_names]
+    found = await nodes_by_asked_name(session, dimension, dimension_nodes)
+    missing = [dim for dim in dimension if dim not in found]
     if missing:
         raise DJNodeNotFound(
             message=f"A node with name `{missing[0]}` does not exist.",
