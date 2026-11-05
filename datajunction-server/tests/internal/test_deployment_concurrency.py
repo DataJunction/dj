@@ -18,6 +18,8 @@ from datajunction_server.models.deployment import (
 from tests.conftest import patch_session_contexts
 
 NAMESPACE_LOCK = "SELECT pg_try_advisory_xact_lock(hashtext(:key))"
+SHARED_LOCK = "SELECT pg_advisory_xact_lock_shared(hashtext(:key))"
+EXCLUSIVE_LOCK = "SELECT pg_advisory_xact_lock(hashtext(:key))"
 
 
 def _orchestrator(session, current_user, namespace, dry_run=False):
@@ -115,6 +117,72 @@ async def test_deployments_to_other_namespaces_do_not_wait(
         with patch_session_contexts(session_factory):
             await asyncio.wait_for(
                 _orchestrator(session, current_user, "team_b").execute(),
+                timeout=30,
+            )
+        await holder.rollback()
+
+
+@pytest.mark.asyncio
+async def test_child_deployment_waits_for_a_parent_deployment(
+    session,
+    session_factory,
+    current_user,
+):
+    """A deployment into team.sub waits while one into team is running."""
+    holder = await session_factory()
+    async with holder:
+        await holder.execute(text(EXCLUSIVE_LOCK), {"key": "dj:deploy:team"})
+
+        with patch_session_contexts(session_factory):
+            deployment = asyncio.create_task(
+                _orchestrator(session, current_user, "team.sub").execute(),
+            )
+            await asyncio.sleep(1)
+            assert not deployment.done()
+
+            await holder.rollback()
+            await asyncio.wait_for(deployment, timeout=30)
+
+
+@pytest.mark.asyncio
+async def test_parent_deployment_waits_for_a_child_deployment(
+    session,
+    session_factory,
+    current_user,
+):
+    """A deployment into team waits while one into team.sub is running."""
+    holder = await session_factory()
+    async with holder:
+        # What a deployment into team.sub holds: team shared, team.sub exclusive.
+        await holder.execute(text(SHARED_LOCK), {"key": "dj:deploy:team"})
+        await holder.execute(text(EXCLUSIVE_LOCK), {"key": "dj:deploy:team.sub"})
+
+        with patch_session_contexts(session_factory):
+            deployment = asyncio.create_task(
+                _orchestrator(session, current_user, "team").execute(),
+            )
+            await asyncio.sleep(1)
+            assert not deployment.done()
+
+            await holder.rollback()
+            await asyncio.wait_for(deployment, timeout=30)
+
+
+@pytest.mark.asyncio
+async def test_sibling_deployments_do_not_wait(
+    session,
+    session_factory,
+    current_user,
+):
+    """Deployments into team.a and team.b share team but not each other's lock."""
+    holder = await session_factory()
+    async with holder:
+        await holder.execute(text(SHARED_LOCK), {"key": "dj:deploy:team"})
+        await holder.execute(text(EXCLUSIVE_LOCK), {"key": "dj:deploy:team.a"})
+
+        with patch_session_contexts(session_factory):
+            await asyncio.wait_for(
+                _orchestrator(session, current_user, "team.b").execute(),
                 timeout=30,
             )
         await holder.rollback()

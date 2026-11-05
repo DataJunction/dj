@@ -596,19 +596,29 @@ class DeploymentOrchestrator:
         return result
 
     async def _lock_namespace(self) -> None:
-        """Queue deployments into one namespace behind each other.
+        """Queue overlapping deployments behind each other.
 
         Overlapping deployments plan against stale snapshots and collide on the
         unique constraints for namespaces, nodes, node revisions and schemas, and
-        a dry run writes inside its SAVEPOINT too, so it takes part. The lock is
-        transaction-scoped: a wet run keeps it until the commit in ``execute``, a
-        dry run or a failure drops it with the SAVEPOINT rollback. It is the
-        first lock a deployment takes, so it cannot deadlock with the later
-        per-source and row locks.
+        a dry run writes inside its SAVEPOINT too, so it takes part. A deployment
+        takes its own namespace exclusively and every ancestor namespace shared,
+        root first: one into ``team`` waits for one into ``team.sub`` (both can
+        create ``team.sub.orders``), while ``team.a`` and ``team.b`` still run
+        side by side. The locks are transaction-scoped: a wet run keeps them until
+        the commit in ``execute``, a dry run or a failure drops them with the
+        SAVEPOINT rollback. They come first, so they cannot deadlock with the
+        later per-source and row locks.
         """
+        namespace = self.deployment_spec.namespace
+        parts = namespace.split(".")
+        for depth in range(1, len(parts)):
+            await self.session.execute(
+                text("SELECT pg_advisory_xact_lock_shared(hashtext(:key))"),
+                {"key": f"dj:deploy:{'.'.join(parts[:depth])}"},
+            )
         await self.session.execute(
             text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
-            {"key": f"dj:deploy:{self.deployment_spec.namespace}"},
+            {"key": f"dj:deploy:{namespace}"},
         )
 
     async def _plan_and_execute(self) -> DeploymentExecuteResult:
