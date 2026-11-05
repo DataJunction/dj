@@ -45,6 +45,7 @@ class DatabaseConfig(BaseModel):
     keepalives_idle: int = 30
     keepalives_interval: int = 10
     keepalives_count: int = 5
+    application_name: str = "datajunction"
 
 
 class QueryClientConfig(BaseModel):
