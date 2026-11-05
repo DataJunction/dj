@@ -17,9 +17,6 @@ from datajunction_server.construction.build_v3.filters import (
     parse_filter,
     resolve_filter_references,
 )
-from datajunction_server.construction.build_v3.materialization import (
-    should_use_materialized_table,
-)
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
     PushdownFilters,
@@ -247,15 +244,16 @@ def _role_bindings(node: Node) -> dict[str, str]:
 
 def _projects_cast(select: ast.Select, column: str) -> bool:
     """Whether the select exposes ``column`` as a CAST of something."""
-    for expr in select.projection:
-        inner = getattr(expr, "child", expr)
-        if not isinstance(inner, ast.Cast):
-            continue
-        alias = getattr(expr, "alias", None)
-        name = alias.name if alias else getattr(inner.expression, "name", None)
-        if getattr(name, "name", name) == column:
-            return True
-    return False
+    return any(
+        isinstance(getattr(expr, "child", expr), ast.Cast)
+        and getattr(getattr(expr, "alias", None), "name", None) == column
+        for expr in select.projection
+    )
+
+
+def _redefines_rows(query: ast.Query) -> bool:
+    """Whether filtering inside would change which rows or values it defines."""
+    return query.select.limit is not None or any(query.find_all(ast.Over))
 
 
 def place_dimension_filters(
@@ -289,26 +287,25 @@ def place_dimension_filters(
             if not refs or not refs <= bindings.keys():
                 continue
             if query is None:
-                if should_use_materialized_table(ctx, node):
-                    predicate = cast(
-                        ast.Expression,
-                        resolve_filter_references(
-                            parse_filter(filter_str),
-                            {ref: ast.Name(bindings[ref]) for ref in refs},
-                        ),
-                    )
-                    existing = request.materialized_predicates.get(name)
-                    request.materialized_predicates[name] = cast(
-                        ast.Expression,
-                        combine_filters(
-                            [existing, predicate]
-                            if existing is not None
-                            else [predicate],
-                        ),
-                    )
+                predicate = cast(
+                    ast.Expression,
+                    resolve_filter_references(
+                        parse_filter(filter_str),
+                        {ref: ast.Name(bindings[ref]) for ref in refs},
+                    ),
+                )
+                existing = request.materialized_predicates.get(name)
+                request.materialized_predicates[name] = cast(
+                    ast.Expression,
+                    combine_filters(
+                        [existing, predicate] if existing is not None else [predicate],
+                    ),
+                )
                 continue
             select = cast(ast.Select, query.select)
-            if any(_projects_cast(select, bindings[ref]) for ref in refs):
+            if _redefines_rows(query) or any(
+                _projects_cast(select, bindings[ref]) for ref in refs
+            ):
                 continue
             rewritten = _rewrite_filter_for_cte(
                 filter_str,
