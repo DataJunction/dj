@@ -23,7 +23,9 @@ from datajunction_server.construction.build_v3.types import (
 )
 from datajunction_server.construction.build_v3.utils import (
     extract_filter_dimension_refs,
+    get_short_name,
 )
+from datajunction_server.database.node import Node
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.sql.parsing import ast
 
@@ -225,3 +227,61 @@ def place_filters(
             [select.where, *predicates] if select.where is not None else predicates,
         )
     return consumed
+
+
+def _role_bindings(node: Node) -> dict[str, str]:
+    """Role-qualified dimension ref -> this node's own key column."""
+    if not node.current:  # pragma: no cover
+        return {}
+    return {
+        f"{dim_col}[{link.role}]": get_short_name(fk)
+        for link in node.current.dimension_links
+        if link.role
+        for dim_col, fk in (link.foreign_keys_reversed or {}).items()
+        if fk
+    }
+
+
+def place_dimension_filters(
+    ctx: BuildContext,
+    queries: dict[str, ast.Query],
+    request: PushdownFilters,
+) -> None:
+    """Apply a filter on a roled attribute to the dimension that owns the role.
+
+    A joined dimension with its own link under a role (e.g. ``[measure]``)
+    can bind a filter on that role to its own key column. This applies when
+    the fact has the same role link, the dimension is joined once, and no
+    other query reads it.
+    """
+    fact_refs = _role_bindings(ctx.nodes[request.parent_node_name]).keys()
+    for name, joins in request.dimension_joins.items():
+        node = ctx.nodes[name]
+        query = queries.get(name)
+        if joins != 1 or query is None or not node.current:
+            continue
+        if any(
+            _definition(table, queries) is query
+            for other in queries.values()
+            for table in other.find_all(ast.Table)
+        ):
+            continue
+        bindings = _role_bindings(node)
+        output_cols = {col.name for col in node.current.columns}
+        select = cast(ast.Select, query.select)
+        for filter_str in request.filters:
+            refs = set(extract_filter_dimension_refs([filter_str], include_bare=True))
+            if not refs or not refs <= bindings.keys() & fact_refs:
+                continue
+            rewritten = _rewrite_filter_for_cte(
+                filter_str,
+                bindings,
+                output_cols,
+                query,
+            )
+            if rewritten is not None:
+                select.where = combine_filters(
+                    [select.where, rewritten]
+                    if select.where is not None
+                    else [rewritten],
+                )

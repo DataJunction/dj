@@ -221,6 +221,8 @@ class PushdownFilters:
     column_aliases: dict[str, str]
     parent_node_name: str
     outer_only_refs: set[str] = field(default_factory=set)
+    # Joined dimension node -> number of joins to it in the request.
+    dimension_joins: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass

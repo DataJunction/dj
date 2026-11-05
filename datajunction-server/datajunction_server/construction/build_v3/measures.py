@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections import Counter
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any, cast
 
@@ -1264,6 +1265,7 @@ def build_select_ast(
             column_aliases=filter_column_aliases,
             outer_only_refs=pushdown_outer_only_refs,
             parent_node_name=parent_node.name,
+            dimension_joins=dict(Counter(name for name, _ in dim_aliases)),
         )
         if all_filters
         else None,
