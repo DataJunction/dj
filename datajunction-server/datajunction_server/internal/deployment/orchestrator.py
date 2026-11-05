@@ -1484,7 +1484,7 @@ class DeploymentOrchestrator:
         namespace_start = time.perf_counter()
         to_create = await self._find_namespaces_to_create()
         node_namespaces = []
-        for namespace in to_create:
+        for namespace in sorted(to_create):
             node_namespace = await get_node_namespace(  # pragma: no cover
                 session=self.session,
                 namespace=namespace,
@@ -1668,7 +1668,7 @@ class DeploymentOrchestrator:
                 "tag_metadata": tag.tag_metadata,
                 "created_by_id": tag.created_by_id,
             }
-            for tag in new_tags.values()
+            for tag in sorted(new_tags.values(), key=lambda t: t.name)
         ]
         inserted = (
             (
@@ -2201,7 +2201,7 @@ class DeploymentOrchestrator:
         if missing_usernames:
             new_users = [
                 User(username=username, oauth_provider=OAuthProvider.BASIC)
-                for username in missing_usernames
+                for username in sorted(missing_usernames)
             ]
             self.session.add_all(new_users)
             self.warnings.append(
@@ -3235,8 +3235,9 @@ class DeploymentOrchestrator:
             ) = await self._create_cubes_from_validation(validation_results)
 
         with timer.phase("    cubes: DB flush"):
-            self.session.add_all(nodes)
-            self.session.add_all(revisions)
+            # Name order, so overlapping dry runs, which share locks, insert alike.
+            self.session.add_all(sorted(nodes, key=lambda n: n.name))
+            self.session.add_all(sorted(revisions, key=lambda r: r.name))
             await self.session.flush()
 
         # Wire node.current directly — no refresh needed since nothing
@@ -5702,8 +5703,9 @@ class DeploymentOrchestrator:
             )
 
         with timer.phase("    nodes: DB flush") as p:
-            self.session.add_all(nodes)
-            self.session.add_all(revisions)
+            # Name order, so overlapping dry runs, which share locks, insert alike.
+            self.session.add_all(sorted(nodes, key=lambda n: n.name))
+            self.session.add_all(sorted(revisions, key=lambda r: r.name))
             await self.session.flush()
             p.append(f"{len(nodes)} nodes + {len(revisions)} revisions")
 

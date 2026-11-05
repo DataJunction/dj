@@ -415,7 +415,7 @@ async def upsert_schema_specs(
         .all()
     )
     now = datetime.datetime.now(datetime.UTC)
-    for row in existing:
+    for row in sorted(existing, key=lambda r: r.id):
         if (row.key, row.node_type, row.namespace) not in declared:
             row.deactivated_at = now
 
