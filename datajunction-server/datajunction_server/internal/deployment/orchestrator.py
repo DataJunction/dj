@@ -596,18 +596,11 @@ class DeploymentOrchestrator:
         return result
 
     async def _lock_namespace(self) -> None:
-        """Queue overlapping deployments behind each other.
+        """Queue overlapping deployments, dry runs included, behind each other.
 
-        Overlapping deployments plan against stale snapshots and collide on the
-        unique constraints for namespaces, nodes, node revisions and schemas, and
-        a dry run writes inside its SAVEPOINT too, so it takes part. A deployment
-        takes its own namespace exclusively and every ancestor namespace shared,
-        root first: one into ``team`` waits for one into ``team.sub`` (both can
-        create ``team.sub.orders``), while ``team.a`` and ``team.b`` still run
-        side by side. The locks are transaction-scoped: a wet run keeps them until
-        the commit in ``execute``, a dry run or a failure drops them with the
-        SAVEPOINT rollback. They come first, so they cannot deadlock with the
-        later per-source and row locks.
+        A deployment locks its namespace exclusively and its ancestors shared,
+        root first, so ``team`` and ``team.sub`` queue but ``team.a`` and
+        ``team.b`` do not. The locks last until the commit or SAVEPOINT rollback.
         """
         namespace = self.deployment_spec.namespace
         parts = namespace.split(".")
