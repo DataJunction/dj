@@ -52,10 +52,7 @@ from datajunction_server.internal.access.authorization import (
     AccessDenialMode,
 )
 from datajunction_server.internal.access.authorization.context import AuthContext
-from datajunction_server.internal.branch_scope import (
-    drop_placeholders,
-    leave_placeholders,
-)
+from datajunction_server.internal.branch_scope import names_in_default
 from datajunction_server.internal.checks.engine import CheckResult
 from datajunction_server.internal.checks.engine import evaluate as evaluate_checks
 from datajunction_server.internal.checks.context import OwnerKinds, TagTypes
@@ -2305,6 +2302,7 @@ class DeploymentOrchestrator:
                 self.deployment_spec.namespace,
                 options=Node.cube_load_options(),
             )
+            all_nodes += await self._reactivate_nodes(all_nodes)
             p.append(f"{len(all_nodes)} nodes")
         self.registry.add_nodes({node.name: node for node in all_nodes})
 
@@ -2527,15 +2525,6 @@ class DeploymentOrchestrator:
         downstream: list = []
         timer = self._timer
         if plan.to_deploy:
-            # A re-added node replaces its placeholder row.
-            await drop_placeholders(
-                self.session,
-                [
-                    spec.rendered_name
-                    for spec in plan.to_deploy
-                    if spec.rendered_name not in plan.existing_specs
-                ],
-            )
             with timer.phase("deploy nodes") as p:
                 deployed_results, deployed_nodes = await self._deploy_nodes(plan)
                 p.append(f"{len(deployed_nodes)} nodes")
@@ -4938,6 +4927,30 @@ class DeploymentOrchestrator:
 
         return references
 
+    async def _reactivate_nodes(self, active: list[Node]) -> list[Node]:
+        """
+        Reactivates deactivated nodes the spec declares again.
+        """
+        active_names = {node.name for node in active}
+        declared = [
+            spec.rendered_name
+            for spec in self.deployment_spec.nodes
+            if spec.rendered_name not in active_names
+        ]
+        nodes = [
+            node
+            for node in await Node.get_by_names(
+                self.session,
+                declared,
+                options=Node.cube_load_options(),
+                include_inactive=True,
+            )
+            if node.deactivated_at is not None
+        ]
+        for node in nodes:
+            node.deactivated_at = None  # type: ignore
+        return nodes
+
     async def _delete_nodes(
         self,
         to_delete: list[NodeSpec],
@@ -4971,9 +4984,7 @@ class DeploymentOrchestrator:
 
             id_rows = (
                 await self.session.execute(
-                    select(Node.id, Node.name, Node.type).where(
-                        Node.name.in_(deletable_names),
-                    ),
+                    select(Node.id, Node.name).where(Node.name.in_(deletable_names)),
                 )
             ).all()
             deleted_names = {row.name for row in id_rows}
@@ -4988,18 +4999,16 @@ class DeploymentOrchestrator:
                         sorted(deleted_names),
                     ),
                 )
+                # A branch keeps its deleted nodes the default branch holds.
+                in_default = await names_in_default(self.session, sorted(deleted_names))
                 await hard_delete_nodes(
                     self.session,
                     node_ids,
                     self.context.current_user,
+                    deactivate_ids=frozenset(
+                        row.id for row in id_rows if row.name in in_default
+                    ),
                 )
-                if not self.dry_run:
-                    # Keep branch deletions from falling back to default.
-                    await leave_placeholders(
-                        self.session,
-                        {row.name: row.type for row in id_rows},
-                        self.context.current_user.id,
-                    )
 
         results = []
         for node_spec in to_delete:

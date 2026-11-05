@@ -1080,9 +1080,6 @@ class Node(Base):
         )
         result = await session.execute(statement)
         node = result.unique().scalar_one_or_none()
-        if node and node.deactivated_at and not node.current:
-            # A placeholder row is not a cube.
-            return None
         if not node and inherit:
             inherited = await cls._inherited_nodes(
                 session,

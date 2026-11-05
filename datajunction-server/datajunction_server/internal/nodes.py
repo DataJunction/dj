@@ -65,7 +65,6 @@ from datajunction_server.internal.access.authorization import (
     AccessDenialMode,
 )
 from datajunction_server.internal.access.authorization.context import AuthContext
-from datajunction_server.internal.branch_scope import drop_placeholders
 from datajunction_server.internal.caching.interface import Cache
 from datajunction_server.internal.custom_metadata import validate_custom_metadata
 from datajunction_server.internal.history import ActivityType, EntityType
@@ -1457,11 +1456,6 @@ async def update_any_node(
         raise_if_not_exists=True,
     )
     node = cast(Node, node)
-    if not node.current:
-        raise DJNodeNotFound(
-            message=f"A node with name `{name}` does not exist.",
-            http_status_code=404,
-        )
 
     if data.owners and data.owners != [owner.username for owner in node.owners]:
         await update_owners(session, node, data.owners, current_user, save_history)
@@ -2711,10 +2705,6 @@ async def create_node_from_inactive(
         raise_if_not_exists=False,
         include_inactive=True,
     )
-    if previous_inactive_node and not previous_inactive_node.current:
-        # A placeholder row is replaced, not restored.
-        await drop_placeholders(session, [data.name])
-        previous_inactive_node = None
     if previous_inactive_node and previous_inactive_node.deactivated_at:
         if previous_inactive_node.type != new_node_type:
             raise DJInvalidInputException(  # pragma: no cover
@@ -4212,11 +4202,6 @@ async def activate_node(
             http_status_code=HTTPStatus.BAD_REQUEST,
             message=f"Cannot restore `{name}`, node already active.",
         )
-    if not node.current:
-        # Removing a placeholder lets the default branch's node show again.
-        await drop_placeholders(session, [name])
-        await session.commit()
-        return
     node.deactivated_at = None  # type: ignore
 
     # `missingparent.name` is non-unique, so duplicates can exist; clean

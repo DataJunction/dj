@@ -33,7 +33,6 @@ from datajunction_server.errors import (
     DJDoesNotExistException,
     DJInvalidInputException,
 )
-from datajunction_server.internal.branch_scope import placeholder_clause
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.materializations import (
     collect_materialization_teardowns,
@@ -869,6 +868,7 @@ async def hard_delete_nodes(
     session: AsyncSession,
     node_ids: list[int],
     current_user: User,
+    deactivate_ids: frozenset[int] = frozenset(),
 ) -> ImpactedNodes:
     """
     Bulk hard-delete a set of nodes by id, attributing downstream + dimension-link
@@ -879,6 +879,9 @@ async def hard_delete_nodes(
     long as every cascade-target FK is indexed (see ``add_missing_fk_indexes``).
     Instead of an O(N) per-node downstream BFS, impact is computed with two bulk
     recursive CTEs.
+
+    Nodes in ``deactivate_ids`` are deactivated instead of removed, so their
+    rows stay behind.
 
     Does NOT commit — the caller owns the transaction (the namespace hard-delete
     endpoint, or a deployment SAVEPOINT). Shared by ``hard_delete_namespace`` and
@@ -1005,7 +1008,28 @@ async def hard_delete_nodes(
             ),
         )
 
-    await session.execute(delete(Node).where(Node.id.in_(node_ids)))
+    await session.execute(
+        delete(Node).where(
+            Node.id.in_(node_ids),
+            Node.id.not_in(deactivate_ids),
+        ),
+    )
+    if deactivate_ids:
+        await session.execute(
+            update(Node)
+            .where(Node.id.in_(deactivate_ids))
+            .values(deactivated_at=datetime.now(UTC)),
+        )
+        for node_id in sorted(deactivate_ids):
+            session.add(
+                History(
+                    entity_type=EntityType.NODE,
+                    entity_name=node_id_to_name[node_id],
+                    node=node_id_to_name[node_id],
+                    activity_type=ActivityType.DELETE,
+                    user=current_user.username,
+                ),
+            )
 
     return ImpactedNodes(
         downstreams=[
@@ -1038,7 +1062,7 @@ async def hard_delete_namespace(
     """
     node_rows = (
         await session.execute(
-            select(Node.id, Node.name, placeholder_clause().label("is_placeholder"))
+            select(Node.id, Node.name, Node.type)
             .where(
                 or_(
                     Node.namespace.like(f"{namespace}.%"),
@@ -1048,7 +1072,7 @@ async def hard_delete_namespace(
             .order_by(Node.name),
         )
     ).all()
-    node_names = [row.name for row in node_rows if not row.is_placeholder]
+    node_names = [row.name for row in node_rows]
     node_ids = [row.id for row in node_rows]
 
     if not cascade and node_names:

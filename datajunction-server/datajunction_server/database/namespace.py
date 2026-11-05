@@ -240,7 +240,6 @@ class NodeNamespace(Base):
                 ),
             )
             for row in result.unique().scalars().all()
-            if row.current
         ]
 
     @classmethod
