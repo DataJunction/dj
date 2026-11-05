@@ -603,11 +603,11 @@ class DeploymentOrchestrator:
         ``team.b`` do not. The locks last until the commit or SAVEPOINT rollback.
         """
         namespace = self.deployment_spec.namespace
-        parts = namespace.split(".")
+        parts = namespace.split(SEPARATOR)
         for depth in range(1, len(parts)):
             await self.session.execute(
                 text("SELECT pg_advisory_xact_lock_shared(hashtext(:key))"),
-                {"key": f"dj:deploy:{'.'.join(parts[:depth])}"},
+                {"key": f"dj:deploy:{SEPARATOR.join(parts[:depth])}"},
             )
         await self.session.execute(
             text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
