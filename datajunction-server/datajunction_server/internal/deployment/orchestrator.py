@@ -493,6 +493,42 @@ class DeploymentOrchestrator:
                 )
 
     async def execute(self) -> DeploymentExecuteResult:
+        """Execute a deployment and record its outcome, including failed attempts."""
+        start = time.perf_counter()
+        status = "failed"
+        try:
+            result = await self._execute()
+            status = (
+                "failed"
+                if any(
+                    r.status == DeploymentResult.Status.FAILED for r in result.results
+                )
+                else "success"
+            )
+            return result
+        except asyncio.CancelledError:
+            status = "cancelled"
+            raise
+        finally:
+            try:
+                source = self.deployment_spec.source
+                tags = {
+                    "namespace": self.deployment_spec.namespace,
+                    "dry_run": str(self.dry_run),
+                    "source_type": source.type.value if source else "local",
+                    "status": status,
+                }
+                provider = get_metrics_provider()
+                provider.timer(
+                    "dj.deployments.execute_latency_ms",
+                    (time.perf_counter() - start) * 1000,
+                    tags,
+                )
+                provider.counter("dj.deployments.execute", tags=tags)
+            except Exception:
+                logger.exception("Failed to record deployment execution metrics")
+
+    async def _execute(self) -> DeploymentExecuteResult:
         """
         Validate and deploy all resources and nodes into the specified namespace.
 
@@ -544,11 +580,6 @@ class DeploymentOrchestrator:
             "namespace": self.deployment_spec.namespace,
             "dry_run": str(self.dry_run),
         }
-        get_metrics_provider().timer(
-            "dj.deployments.execute_latency_ms",
-            elapsed_ms,
-            _metrics_tags,
-        )
         get_metrics_provider().gauge(
             "dj.deployments.node_count",
             len(self.deployed_results),
