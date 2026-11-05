@@ -52,6 +52,10 @@ from datajunction_server.internal.access.authorization import (
     AccessDenialMode,
 )
 from datajunction_server.internal.access.authorization.context import AuthContext
+from datajunction_server.internal.branch_scope import (
+    drop_placeholders,
+    leave_placeholders,
+)
 from datajunction_server.internal.checks.engine import CheckResult
 from datajunction_server.internal.checks.engine import evaluate as evaluate_checks
 from datajunction_server.internal.checks.context import OwnerKinds, TagTypes
@@ -2523,6 +2527,15 @@ class DeploymentOrchestrator:
         downstream: list = []
         timer = self._timer
         if plan.to_deploy:
+            # A re-added node replaces its placeholder row.
+            await drop_placeholders(
+                self.session,
+                [
+                    spec.rendered_name
+                    for spec in plan.to_deploy
+                    if spec.rendered_name not in plan.existing_specs
+                ],
+            )
             with timer.phase("deploy nodes") as p:
                 deployed_results, deployed_nodes = await self._deploy_nodes(plan)
                 p.append(f"{len(deployed_nodes)} nodes")
@@ -4958,7 +4971,9 @@ class DeploymentOrchestrator:
 
             id_rows = (
                 await self.session.execute(
-                    select(Node.id, Node.name).where(Node.name.in_(deletable_names)),
+                    select(Node.id, Node.name, Node.type).where(
+                        Node.name.in_(deletable_names),
+                    ),
                 )
             ).all()
             deleted_names = {row.name for row in id_rows}
@@ -4978,6 +4993,13 @@ class DeploymentOrchestrator:
                     node_ids,
                     self.context.current_user,
                 )
+                if not self.dry_run:
+                    # Keep branch deletions from falling back to default.
+                    await leave_placeholders(
+                        self.session,
+                        {row.name: row.type for row in id_rows},
+                        self.context.current_user.id,
+                    )
 
         results = []
         for node_spec in to_delete:

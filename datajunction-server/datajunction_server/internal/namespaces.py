@@ -33,6 +33,7 @@ from datajunction_server.errors import (
     DJDoesNotExistException,
     DJInvalidInputException,
 )
+from datajunction_server.internal.branch_scope import placeholder_clause
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.materializations import (
     collect_materialization_teardowns,
@@ -1037,7 +1038,7 @@ async def hard_delete_namespace(
     """
     node_rows = (
         await session.execute(
-            select(Node.id, Node.name, Node.type)
+            select(Node.id, Node.name, placeholder_clause().label("is_placeholder"))
             .where(
                 or_(
                     Node.namespace.like(f"{namespace}.%"),
@@ -1047,7 +1048,7 @@ async def hard_delete_namespace(
             .order_by(Node.name),
         )
     ).all()
-    node_names = [row.name for row in node_rows]
+    node_names = [row.name for row in node_rows if not row.is_placeholder]
     node_ids = [row.id for row in node_rows]
 
     if not cascade and node_names:

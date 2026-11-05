@@ -131,6 +131,8 @@ async def get_dj_node(
             .unique()
             .scalar_one()
         )
+        if not match.current:
+            raise NoResultFound  # placeholder row
     except NoResultFound as no_result_exc:
         kind_msg = " or ".join(str(k) for k in kinds) if kinds else ""
         raise DJErrorException(

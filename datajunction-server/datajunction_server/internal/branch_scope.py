@@ -4,12 +4,14 @@ Names a branch inherits from its parent.
 
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import TypeVar
 
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, delete, exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from datajunction_server.database.node import Node, _name_in
+from datajunction_server.database.node import Node, NodeRevision, _name_in
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import SEPARATOR
 
 T = TypeVar("T")
@@ -95,3 +97,70 @@ async def fetch_with_inherited(
         if parent in parent_results:
             results[name] = parent_results[parent]
     return results
+
+
+def placeholder_clause() -> ColumnElement[bool]:
+    """
+    Matches placeholder rows: deactivated nodes that have no revisions.
+    """
+    return Node.deactivated_at.is_not(None) & ~exists().where(
+        NodeRevision.node_id == Node.id,
+    )
+
+
+async def leave_placeholders(
+    session: AsyncSession,
+    deleted: dict[str, NodeType],
+    created_by_id: int,
+) -> list[str]:
+    """
+    Adds a placeholder row for each deleted branch node the default branch holds.
+
+    Returns the names that got a placeholder.
+    """
+    parents = await parent_node_names(session, list(deleted))
+    if not parents:
+        return []
+    held = set(
+        (
+            await session.execute(
+                select(Node.name).where(
+                    _name_in(list(parents.values())),
+                    Node.deactivated_at.is_(None),
+                ),
+            )
+        )
+        .scalars()
+        .all(),
+    )
+    names = sorted(name for name, parent in parents.items() if parent in held)
+    deactivated_at = datetime.now(UTC)
+    session.add_all(
+        Node(
+            name=name,
+            type=deleted[name],
+            namespace=name.rpartition(SEPARATOR)[0],
+            created_by_id=created_by_id,
+            deactivated_at=deactivated_at,
+        )
+        for name in names
+    )
+    await session.flush()
+    return names
+
+
+async def drop_placeholders(session: AsyncSession, names: list[str]) -> list[str]:
+    """
+    Removes the placeholder rows among ``names``.
+
+    Returns the names that were removed.
+    """
+    if not names:
+        return []
+    result = await session.execute(
+        delete(Node)
+        .where(_name_in(names), placeholder_clause())
+        .returning(Node.name)
+        .execution_options(synchronize_session="fetch"),
+    )
+    return sorted(result.scalars().all())
