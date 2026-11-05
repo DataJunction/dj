@@ -277,6 +277,83 @@ async def test_concurrent_tag_creation_does_not_collide(
 
 
 @pytest.mark.asyncio
+async def test_losing_tag_creator_still_applies_its_declared_settings(
+    session,
+    session_factory,
+    current_user,
+):
+    """The deployment that loses the tag-creation race updates it to its manifest."""
+    other = await session_factory()
+    async with other:
+        other.add(
+            Tag(
+                name="raced_tag",
+                tag_type="general",
+                description="winner",
+                display_name="Raced tag",
+                tag_metadata={},
+                created_by_id=current_user.id,
+            ),
+        )
+        await other.flush()
+
+        with patch_session_contexts(session_factory):
+            deployment = asyncio.create_task(
+                _orchestrator(
+                    session,
+                    current_user,
+                    "team_a",
+                    tags=[
+                        TagSpec(
+                            name="raced_tag",
+                            tag_type="general",
+                            description="loser",
+                        ),
+                    ],
+                ).execute(),
+            )
+            await asyncio.sleep(1)
+            await other.commit()
+            await asyncio.wait_for(deployment, timeout=30)
+
+    session.expire_all()
+    description = await session.scalar(
+        select(Tag.description).where(Tag.name == "raced_tag"),
+    )
+    assert description == "loser"
+
+
+@pytest.mark.asyncio
+async def test_schema_rows_are_written_in_lock_order(
+    session,
+    current_user,
+    monkeypatch,
+):
+    """Specs listed as [b, a] still write a before b, so shared holders cannot cross."""
+    from datajunction_server.internal import custom_metadata
+
+    written = []
+    real = custom_metadata.upsert_schema_row
+
+    async def spy(session, *, key, **kwargs):
+        written.append(key)
+        return await real(session, key=key, **kwargs)
+
+    monkeypatch.setattr(custom_metadata, "upsert_schema_row", spy)
+    await upsert_schema_specs(
+        session,
+        namespace="team_a",
+        specs=[
+            CustomMetadataSchemaSpec(key="b", json_schema={"type": "string"}),
+            CustomMetadataSchemaSpec(key="a", json_schema={"type": "string"}),
+        ],
+        current_user_id=current_user.id,
+        shared_lock=True,
+    )
+    assert written == ["a", "b"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("dry_run", [False, True])
 async def test_deployment_releases_its_namespace_lock(
     session,

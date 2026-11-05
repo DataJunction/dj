@@ -376,7 +376,15 @@ async def upsert_schema_specs(
         )
 
     declared: set[tuple[str, str | None, str]] = set()
-    for spec in specs:
+    # Same order as the locks: dry runs share them, so row writes must not cross.
+    for spec in sorted(
+        specs,
+        key=lambda s: (
+            s.key,
+            s.node_type.value if s.node_type is not None else "",
+            s.namespace or namespace,
+        ),
+    ):
         node_type_val = spec.node_type.value if spec.node_type is not None else None
         scope = spec.namespace or namespace
         declared.add((spec.key, node_type_val, scope))

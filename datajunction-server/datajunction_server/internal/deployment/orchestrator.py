@@ -1592,17 +1592,7 @@ class DeploymentOrchestrator:
         for tag_name, tag_spec in deployment_tag_specs.items():
             if tag_name in existing_tags:
                 tag = existing_tags[tag_name]
-                if tag_needs_update(tag, tag_spec):
-                    logger.info(
-                        "Updating tag `%s` of type `%s`",
-                        tag_name,
-                        tag_spec.tag_type,
-                    )
-                    tag.tag_type = tag_spec.tag_type
-                    tag.description = tag_spec.description
-                    tag.display_name = tag_spec.display_name or labelize(tag_name)
-                    tag.tag_metadata = tag_spec.tag_metadata or {}
-                    self.session.add(tag)
+                if self._update_tag(tag, tag_spec):
                     updated.append(tag_name)
             else:
                 logger.info(
@@ -1619,9 +1609,16 @@ class DeploymentOrchestrator:
                     created_by_id=self.context.current_user.id,
                 )
 
-        created.extend(await self._insert_new_tags(new_tags, tag_options))
+        inserted = await self._insert_new_tags(new_tags, tag_options)
+        created.extend(inserted)
         for tag_name, tag in new_tags.items():
             existing_tags[tag_name] = tag
+            # A concurrent deployment created it first; apply this manifest's values.
+            if tag_name not in inserted and self._update_tag(
+                tag,
+                deployment_tag_specs[tag_name],
+            ):
+                updated.append(tag_name)
 
         if created or updated:
             logger.info(
@@ -1633,6 +1630,18 @@ class DeploymentOrchestrator:
             )
             await self.session.flush()  # Get IDs but don't commit
         return existing_tags
+
+    def _update_tag(self, tag: Tag, tag_spec: TagSpec) -> bool:
+        """Make *tag* match *tag_spec*; return whether anything changed."""
+        if not tag_needs_update(tag, tag_spec):
+            return False
+        logger.info("Updating tag `%s` of type `%s`", tag.name, tag_spec.tag_type)
+        tag.tag_type = tag_spec.tag_type
+        tag.description = tag_spec.description
+        tag.display_name = tag_spec.display_name or labelize(tag.name)
+        tag.tag_metadata = tag_spec.tag_metadata or {}
+        self.session.add(tag)
+        return True
 
     async def _insert_new_tags(
         self,
