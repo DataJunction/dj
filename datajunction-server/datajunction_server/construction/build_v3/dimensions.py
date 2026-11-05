@@ -326,8 +326,6 @@ def _local_reference_dimension_column(
     the ctx id-to-name map, since the Column.dimension relationship doesn't reliably
     eager-load in this build.
     """
-    from datajunction_server.construction.build_v3.cte import strip_role_suffix
-
     if not parent_node.current or not parent_node.current.columns:  # pragma: no cover
         return None
     for col in parent_node.current.columns:
@@ -337,15 +335,13 @@ def _local_reference_dimension_column(
             continue
         # dimension_column may carry a "[role]" suffix; fall back to the column's
         # own name when unset.
-        stored = col.dimension_column or col.name
-        if strip_role_suffix(stored) != dim_ref.column_name:
+        column_name, stored_role = split_dimension_ref(
+            col.dimension_column or col.name,
+        )
+        if column_name != dim_ref.column_name:
             continue
-        if match_role:
-            stored_role = (
-                stored[stored.index("[") + 1 :].rstrip("]") if "[" in stored else None
-            )
-            if stored_role != dim_ref.role:
-                continue
+        if match_role and stored_role != dim_ref.role:
+            continue
         return col.name
     return None
 

@@ -7662,7 +7662,6 @@ class TestReferenceDimensionResolution:
         )
         assert response.status_code == 200, response.json()
         sql = response.json()["sql"]
-        assert "plan_dim" not in sql, sql
         assert_sql_equal(
             sql,
             """
@@ -7744,9 +7743,25 @@ class TestReferenceDimensionResolution:
         )
         assert response.status_code == 200, response.json()
         sql = response.json()["sql"]
-        assert "plan_dim" not in sql, sql
-        assert "view_id plan_key" in sql or "view_id AS plan_key" in sql, sql
-        assert "product_id" not in sql, sql
+        assert_sql_equal(
+            sql,
+            """
+            WITH
+            v3_page_views_enriched AS (
+              SELECT view_id FROM default.v3.page_views
+            ),
+            page_views_enriched_0 AS (
+              SELECT t1.view_id plan_key, COUNT(t1.view_id) view_id_count_f41e2db4
+              FROM v3_page_views_enriched t1
+              GROUP BY t1.view_id
+            )
+            SELECT
+              page_views_enriched_0.plan_key AS plan_key,
+              SUM(page_views_enriched_0.view_id_count_f41e2db4) AS page_view_count
+            FROM page_views_enriched_0
+            GROUP BY page_views_enriched_0.plan_key
+            """,
+        )
 
     @pytest.mark.asyncio
     async def test_reference_with_other_role_does_not_override_dimension_link(
@@ -7813,8 +7828,29 @@ class TestReferenceDimensionResolution:
         )
         assert response.status_code == 200, response.json()
         sql = response.json()["sql"]
-        assert "JOIN" in sql and "plan_dim" in sql, sql
-        assert "page_type AS plan_label" not in sql, sql
+        assert_sql_equal(
+            sql,
+            """
+            WITH
+            v3_page_views_enriched AS (
+              SELECT view_id, page_type FROM default.v3.page_views
+            ),
+            v3_plan_dim AS (
+              SELECT plan_key, plan_label FROM default.v3.plans
+            ),
+            page_views_enriched_0 AS (
+              SELECT t2.plan_label, COUNT(t1.view_id) view_id_count_f41e2db4
+              FROM v3_page_views_enriched t1
+              LEFT OUTER JOIN v3_plan_dim t2 ON t1.page_type = t2.plan_key
+              GROUP BY t2.plan_label
+            )
+            SELECT
+              page_views_enriched_0.plan_label AS plan_label,
+              SUM(page_views_enriched_0.view_id_count_f41e2db4) AS page_view_count
+            FROM page_views_enriched_0
+            GROUP BY page_views_enriched_0.plan_label
+            """,
+        )
 
     @pytest.mark.asyncio
     async def test_reference_dimension_used_only_as_filter(self, client_with_build_v3):
