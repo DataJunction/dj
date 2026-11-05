@@ -288,10 +288,21 @@ def _order_filter_bounds(
     as two separate filter strings (``col >= A`` and ``col <= B``) into a single
     ``[A, B]`` extent. The caller is responsible for combining them.
     """
+    # Columns inside a role subscript belong to the roled reference.
+    subscripts = list(filter_ast.find_all(ast.Subscript))
+    inside_subscript = {id(n.expr) for n in subscripts} | {
+        id(n.index) for n in subscripts
+    }
     mentions = (
         _column_ref(node) == order_ref
-        for node_type in (ast.Subscript, ast.Column)
-        for node in filter_ast.find_all(node_type)
+        for node in [
+            *subscripts,
+            *(
+                c
+                for c in filter_ast.find_all(ast.Column)
+                if id(c) not in inside_subscript
+            ),
+        ]
     )
     if not any(mentions):
         return None

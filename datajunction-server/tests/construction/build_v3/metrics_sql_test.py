@@ -2354,6 +2354,92 @@ class TestMetricsSQLDerived:
         )
 
     @pytest.mark.asyncio
+    async def test_role_free_window_expands_despite_roled_filter(
+        self,
+        client_with_build_v3,
+    ):
+        """A filter on the roled column does not stop the lookback
+        expansion of a window ordered by the role-free column."""
+        client = client_with_build_v3
+        await link_date_without_role(client)
+        response = await client.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.plain_trailing_7d",
+                "query": (
+                    "SELECT SUM(v3.total_revenue) OVER (ORDER BY v3.date.date_id "
+                    "ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)"
+                ),
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.json()
+        response = await client.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.plain_trailing_7d"],
+                "dimensions": ["v3.date.date_id"],
+                "filters": [
+                    "v3.date.date_id >= 20240125",
+                    "v3.date.date_id <= 20240131",
+                    "v3.date.date_id[order] <= 20240131",
+                ],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["sql"],
+            """
+            WITH
+            __wl_low_date_id AS (
+              SELECT (SELECT MIN(__o.date_id)
+               FROM (SELECT date_id
+               FROM default.v3.dates
+               WHERE date_id <= 20240125
+              ORDER BY date_id DESC
+              LIMIT 7) __o) AS low_val
+            ),
+            v3_order_details AS (
+              SELECT
+                o.order_date,
+                oi.quantity * oi.unit_price AS line_total
+              FROM default.v3.orders o
+              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+              WHERE o.order_date <= 20240131 AND order_date BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131
+            ),
+            order_details_0 AS (
+              SELECT
+                t1.order_date date_id,
+                SUM(t1.line_total) line_total_sum_e1f61696
+              FROM v3_order_details t1
+              GROUP BY t1.order_date
+            ),
+            base_metrics AS (
+              SELECT
+                __spine.date_id AS date_id,
+                COALESCE(__agg.total_revenue, 0) AS total_revenue
+              FROM (SELECT DISTINCT date_id
+               FROM default.v3.dates
+               WHERE date_id BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131) AS __spine
+              LEFT JOIN (SELECT
+                order_details_0.date_id AS date_id,
+                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
+               FROM order_details_0
+               GROUP BY order_details_0.date_id) AS __agg ON __spine.date_id = __agg.date_id
+            ),
+            __windowed AS (
+              SELECT
+                base_metrics.date_id AS date_id,
+                SUM(base_metrics.total_revenue) OVER (ORDER BY base_metrics.date_id ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS plain_trailing_7d
+              FROM base_metrics
+            )
+            SELECT *
+            FROM __windowed
+            WHERE date_id BETWEEN 20240125 AND 20240131
+            """,
+        )
+
+    @pytest.mark.asyncio
     async def test_wow_and_mom_with_order_role(self, client_with_build_v3):
         """
         Test WoW and MoM metrics ordered by roled dimensions.
