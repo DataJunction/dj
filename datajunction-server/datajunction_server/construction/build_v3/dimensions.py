@@ -484,7 +484,7 @@ def resolve_dimensions(
                     match_role=True,
                 )
             )
-            full_skip = can_skip and local_col and hops_skipped == len(join_path.links)
+            full_skip = hops_skipped == len(join_path.links)
             if ref_col is not None:
                 # Reference (denormalized) dimension: the parent carries the
                 # attribute directly, so it wins over the dimension link.
@@ -498,11 +498,13 @@ def resolve_dimensions(
                         join_path=None,
                         is_local=True,
                         pre_skip_join_path=(
-                            join_path if full_skip and local_col == ref_col else None
+                            join_path
+                            if can_skip and full_skip and local_col == ref_col
+                            else None
                         ),
                     ),
                 )
-            elif full_skip:
+            elif can_skip and local_col and full_skip:
                 # Full skip: column lives on the parent fact/transform.
                 # Filters referencing the dim resolve to the parent's local
                 # column.
