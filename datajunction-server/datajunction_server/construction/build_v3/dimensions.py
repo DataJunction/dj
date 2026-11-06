@@ -453,23 +453,26 @@ def _register_pushdown_into_upstream(
         return result
 
     any_consumed = False
+    resolved_targets = [
+        _resolve_pushdown_targets(ctx, linked_node, fk_col, children_of)
+        for linked_node, fk_col in candidates
+    ]
+    # A filter is dropped from the outer query only if every target under
+    # this fact can receive it.
+    if any(t[0] in unbuilt for targets in resolved_targets for t in targets):
+        return False
+
+    any_consumed = False
     for filter_str in matching:
         consumed = False
-        for linked_node, fk_col in candidates:  # pragma: no branch
-            targets = _resolve_pushdown_targets(
-                ctx,
-                linked_node,
-                fk_col,
-                children_of,
-            )
+        for (linked_node, fk_col), targets in zip(candidates, resolved_targets):
             targets = [
                 t
                 for t in targets
-                if t[0] not in unbuilt
-                and not should_use_materialized_table(ctx, ctx.nodes[t[0]])
+                if not should_use_materialized_table(ctx, ctx.nodes[t[0]])
             ]
             if not targets:
-                continue
+                continue  # pragma: no cover
             for target_name, qualifier, arm_select in targets:
                 rewritten = _rewrite_filter_col_refs(
                     filter_str,
@@ -493,7 +496,7 @@ def _register_pushdown_into_upstream(
                     if all(str(rewritten) != str(e) for e in registered):
                         registered.append(rewritten)
             consumed = True
-        if consumed:
+        if consumed:  # pragma: no branch
             consumed_here.add(filter_str)
             any_consumed = True
     return any_consumed

@@ -187,3 +187,148 @@ class TestPushdownTargetNotBuilt:
             """,
             normalize_aliases=True,
         )
+
+
+async def _build_union_graph(client):
+    """
+    Two linked transforms feed a UNION ALL fact that does not project
+    ``audit_date``, so the date filter must reach both branches.
+    """
+    await _post(
+        client,
+        "/nodes/source/",
+        {
+            "name": "v3.src_audit_dates",
+            "columns": [{"name": "dateint", "type": "int"}],
+            "mode": "published",
+            "catalog": "default",
+            "schema_": "v3",
+            "table": "audit_dates",
+        },
+    )
+    await _post(
+        client,
+        "/nodes/dimension/",
+        {
+            "name": "v3.audit_date_dim",
+            "query": "SELECT dateint FROM v3.src_audit_dates",
+            "mode": "published",
+            "primary_key": ["dateint"],
+        },
+    )
+    for branch in ("a", "b"):
+        await _post(
+            client,
+            "/nodes/source/",
+            {
+                "name": f"v3.src_audit_log_{branch}",
+                "columns": [
+                    {"name": "audit_date", "type": "int"},
+                    {"name": "account_id", "type": "int"},
+                    {"name": "event_type", "type": "string"},
+                ],
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": f"audit_log_{branch}",
+            },
+        )
+        await _post(
+            client,
+            "/nodes/transform/",
+            {
+                "name": f"v3.audit_clean_{branch}",
+                "query": (
+                    "SELECT audit_date, account_id, event_type "
+                    f"FROM v3.src_audit_log_{branch}"
+                ),
+                "mode": "published",
+            },
+        )
+        await _post(
+            client,
+            f"/nodes/v3.audit_clean_{branch}/link",
+            {
+                "dimension_node": "v3.audit_date_dim",
+                "join_type": "inner",
+                "join_on": (
+                    f"v3.audit_clean_{branch}.audit_date = v3.audit_date_dim.dateint"
+                ),
+            },
+        )
+    await _post(
+        client,
+        "/nodes/transform/",
+        {
+            "name": "v3.account_events",
+            "query": (
+                "SELECT account_id, event_type, 1 AS event_count "
+                "FROM v3.audit_clean_a "
+                "UNION ALL "
+                "SELECT account_id, event_type, 1 AS event_count "
+                "FROM v3.audit_clean_b"
+            ),
+            "mode": "published",
+            "primary_key": ["account_id", "event_type"],
+        },
+    )
+    await _post(
+        client,
+        "/nodes/metric/",
+        {
+            "name": "v3.total_event_count",
+            "query": "SELECT SUM(event_count) FROM v3.account_events",
+            "mode": "published",
+        },
+    )
+
+
+class TestPushdownUnionBranches:
+    @pytest.mark.asyncio
+    async def test_rejected_when_one_union_branch_materialized(
+        self,
+        client_with_build_v3,
+    ):
+        """One UNION ALL branch cannot receive the filter, so the filter
+        must not be dropped from the outer query."""
+        await _build_union_graph(client_with_build_v3)
+        await _materialize(client_with_build_v3, "v3.audit_clean_a", "clean_a_mat")
+        response = await _request_filtered(client_with_build_v3)
+        assert response.status_code == 422, response.json()
+        assert response.json()["message"] == UNREACHABLE
+
+    @pytest.mark.asyncio
+    async def test_filter_pushed_into_both_union_branches(
+        self,
+        client_with_build_v3,
+    ):
+        """Control: nothing materialized, both branches get the filter."""
+        await _build_union_graph(client_with_build_v3)
+        response = await _request_filtered(client_with_build_v3)
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            get_first_grain_group(response.json())["sql"],
+            """
+            WITH v3_audit_clean_a AS (
+                SELECT event_type
+                FROM default.v3.audit_log_a
+                WHERE audit_date >= 20260101
+            ),
+            v3_audit_clean_b AS (
+                SELECT event_type
+                FROM default.v3.audit_log_b
+                WHERE audit_date >= 20260101
+            ),
+            v3_account_events AS (
+                SELECT event_type, 1 AS event_count
+                FROM v3_audit_clean_a
+                UNION ALL
+                SELECT event_type, 1 AS event_count
+                FROM v3_audit_clean_b
+            )
+            SELECT t1.event_type, SUM(t1.event_count) event_count_sum_HASH
+            FROM v3_account_events t1
+            GROUP BY t1.event_type
+            """,
+            normalize_aliases=True,
+        )
