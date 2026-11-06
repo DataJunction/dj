@@ -334,7 +334,7 @@ def combine_filters(filters: list[ast.Expression]) -> ast.Expression | None:
 
 def parse_and_resolve_filters(
     filter_strs: list[str],
-    column_aliases: dict[str, str],
+    column_aliases: Mapping[str, str | ast.Name],
     cte_alias: str | None = None,
     nodes: dict[str, Node] | None = None,
 ) -> ast.Expression | None:

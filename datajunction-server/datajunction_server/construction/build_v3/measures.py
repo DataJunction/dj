@@ -569,6 +569,43 @@ def outer_only_filter_refs(
     }
 
 
+def _nodes_joined_more_than_once(
+    dim_aliases: dict[tuple[str, str | None], str],
+) -> set[str]:
+    """Names of nodes joined under more than one alias."""
+    aliases_by_node: dict[str, set[str]] = {}
+    for (node_name, _role), alias in dim_aliases.items():
+        aliases_by_node.setdefault(node_name, set()).add(alias)
+    return {name for name, aliases in aliases_by_node.items() if len(aliases) > 1}
+
+
+def _aliases_for_shared_columns(
+    resolved_dimensions: list[ResolvedDimension],
+    main_alias: str,
+    dim_aliases: dict[tuple[str, str | None], str],
+    parent_node: Node,
+) -> dict[str, ast.Name]:
+    """Table-qualified names for refs whose column name is read from several tables."""
+    refs: dict[str, tuple[str, str]] = {}
+    for resolved_dim in resolved_dimensions:
+        column = _get_filter_column_name_for_dimension(
+            resolved_dim,
+            parent_node,
+        ) or str(resolved_dim.column_name)
+        refs[resolved_dim.original_ref] = (
+            column,
+            get_dimension_table_alias(resolved_dim, main_alias, dim_aliases),
+        )
+    tables_by_column: dict[str, set[str]] = {}
+    for column, table in refs.values():
+        tables_by_column.setdefault(column, set()).add(table)
+    return {
+        ref: ast.Name(column, namespace=ast.Name(table))
+        for ref, (column, table) in refs.items()
+        if len(tables_by_column[column]) > 1
+    }
+
+
 def build_outer_where(
     filters: list[str],
     filter_column_aliases: dict[str, str],
@@ -583,9 +620,18 @@ def build_outer_where(
     Returns the combined WHERE expression with table-qualified column names,
     or None if no filters parse successfully.
     """
+    column_aliases: dict[str, str | ast.Name] = {
+        **filter_column_aliases,
+        **_aliases_for_shared_columns(
+            resolved_dimensions,
+            main_alias,
+            dim_aliases,
+            parent_node,
+        ),
+    }
     where_clause = parse_and_resolve_filters(
         filters,
-        filter_column_aliases,
+        column_aliases,
         cte_alias=None,
         nodes=nodes,
     )
@@ -1403,6 +1449,7 @@ def build_select_ast(
             column_aliases=filter_column_aliases,
             outer_only_refs=pushdown_outer_only_refs,
             fk_collision_cols=pushdown_fk_collision_cols,
+            shared_read_nodes=_nodes_joined_more_than_once(dim_aliases),
         )
         if all_filters
         else None,

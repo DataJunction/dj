@@ -2598,7 +2598,7 @@ def collect_node_ctes(
         if injected_filters and node.name in injected_filters:
             _inject_filter_into_where(query_ast, injected_filters[node.name])
 
-        if pushdown:
+        if pushdown and node.name not in pushdown.shared_read_nodes:
             injections, consumed = _resolve_pushdown_filters_for_cte(
                 node,
                 query_ast,
