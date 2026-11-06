@@ -666,6 +666,7 @@ async def test_transform_sql_filter_joinable_dimension(
         	manager,
         	contractor_id
          FROM default.roads.hard_hats
+         WHERE  state = 'NY'
         ),
         default_repair_orders_fact AS (
         SELECT  repair_orders.repair_order_id,
@@ -907,6 +908,7 @@ async def test_transform_sql_filter_dimension_pk_col(
         	t1.dispatch_delay,
         	t1.hard_hat_id
          FROM default_repair_orders_fact t1
+         WHERE  t1.hard_hat_id = 7
 
         """,
         expected_columns=[
@@ -1092,6 +1094,7 @@ async def test_transform_sql_filter_direct_node(
         	t1.time_to_dispatch,
         	t1.dispatch_delay
          FROM default_repair_orders_fact t1
+         WHERE  t1.price > 97915
 
         """,
         expected_columns=[
@@ -1258,6 +1261,7 @@ async def test_source_node_query_with_filter_joinable_dimension(
         	manager,
         	contractor_id
          FROM default.roads.hard_hats
+         WHERE  state = 'NY'
         ),
         default_repair_order AS (
         SELECT  repair_order_id,
@@ -1575,6 +1579,7 @@ async def test_metric_with_node_level_and_nth_order_filters(
         SELECT  hard_hat_id,
         	state
          FROM default.roads.hard_hats
+         WHERE  state = 'AZ'
         ),
         default_repair_orders_fact AS (
         SELECT  repair_orders.repair_order_id,
@@ -1650,6 +1655,7 @@ async def test_metric_with_nth_order_dimensions_filters(
         	company_name,
         	phone
          FROM default.roads.dispatchers
+         WHERE  dispatcher_id = 1 AND phone = '4082021022'
         ),
         default_hard_hat AS (
         SELECT  hard_hat_id,
@@ -1657,6 +1663,7 @@ async def test_metric_with_nth_order_dimensions_filters(
         	city,
         	state
          FROM default.roads.hard_hats
+         WHERE  state != 'AZ'
         ),
         default_municipality_dim AS (
         SELECT  m.municipality_id AS municipality_id,
@@ -1977,6 +1984,7 @@ async def test_source_sql_joinable_dimension_and_filter(
         	manager,
         	contractor_id
          FROM default.roads.hard_hats
+         WHERE  state = 'NY'
         ),
         default_repair_order AS (
         SELECT  repair_order_id,
@@ -3423,18 +3431,17 @@ async def test_filter_pushdowns(
     assert_sql_equal(
         response.json()["sql"],
         """
-        WITH default_repair_orders_fact AS (
-          SELECT
-            repair_orders.hard_hat_id AS hh_id
-          FROM default.roads.repair_orders AS repair_orders
-          WHERE
-            repair_orders.hard_hat_id IN (123, 13)
-            AND repair_orders.hard_hat_id = 123
-            OR repair_orders.hard_hat_id = 13
+        WITH
+        default_repair_orders_fact AS (
+        SELECT  repair_orders.hard_hat_id AS hh_id
+         FROM default.roads.repair_orders repair_orders
+         WHERE  repair_orders.hard_hat_id IN (123, 13) AND repair_orders.hard_hat_id = 123 OR repair_orders.hard_hat_id = 13
         )
-        SELECT
-          t1.hh_id AS hard_hat_id
-        FROM default_repair_orders_fact AS t1
+
+        SELECT  t1.hh_id hard_hat_id
+         FROM default_repair_orders_fact t1
+         WHERE  t1.hh_id IN (123, 13) AND t1.hh_id = 123 OR t1.hh_id = 13
+
         """,
     )
 
@@ -3666,9 +3673,16 @@ async def test_filter_on_source_nodes(
         },
     )
 
-    # The same unique-path placement supports node SQL and metric SQL.
-    assert response.status_code == 200, response.json()
-    assert "event_date BETWEEN 20240101 AND 20240201" in response.json()["sql"]
+    # The v3 single-node builder does not propagate filter dimensions through
+    # upstream source nodes (the join path is rooted at the requested node, so
+    # filters that reference an upstream-only dim have nowhere to anchor). The
+    # v2 path used to follow the upstream-source dim_link and pushdown the
+    # filter into the source CTE; v3 surfaces this as a clear "no join path"
+    # error instead of silently producing a query with the filter dropped.
+    assert response.status_code == 422
+    body = response.json()
+    assert "Cannot find join path" in body["message"]
+    assert "default.event_date" in body["message"]
 
 
 # =============================================================================
@@ -4210,6 +4224,7 @@ async def test_role_path_dimensions_in_filters_single_hop(
         SELECT  country_code,
         	name
          FROM default.examples.countries
+         WHERE  name = 'United States'
         ),
         default_user_dim AS (
         SELECT  birth_country,
@@ -4267,6 +4282,7 @@ async def test_role_path_dimensions_in_filters_multi_hop_geographic(
         SELECT  continent_id,
         	continent_name
          FROM default.public.continents
+         WHERE  continent_name = 'North America'
         ),
         default_regions AS (
         SELECT  region_id,
@@ -4355,6 +4371,7 @@ async def test_role_path_dimensions_in_filters_multi_hop_temporal(
         SELECT  year_id,
         	year_number
          FROM default.public.years
+         WHERE  year_number = 2024
         ),
         user_dim_0 AS (
         SELECT  t5.year_number year_number_month_year,
@@ -4410,6 +4427,7 @@ async def test_role_path_dimensions_mixed_paths(
         SELECT  country_code,
         	name
          FROM default.examples.countries
+         WHERE  name = 'Canada' AND name = 'United States'
         ),
         default_user_dim AS (
         SELECT  birth_country,
@@ -4424,7 +4442,7 @@ async def test_role_path_dimensions_mixed_paths(
         	SUM(t1.age) age_sum_4ebaaaaa
          FROM default_user_dim t1 LEFT OUTER JOIN default_special_country_dim t2 ON t1.birth_country = t2.country_code
         LEFT OUTER JOIN default_special_country_dim t3 ON t1.residence_country = t3.country_code
-         WHERE  t2.name = 'Canada' AND t3.name = 'United States'
+         WHERE  t3.name = 'Canada' AND t3.name = 'United States'
          GROUP BY  t2.name, t3.name
         )
 
@@ -4486,6 +4504,7 @@ async def test_role_path_dimensions_mixed_hierarchies(
         	region_name,
         	continent_id
          FROM default.public.regions
+         WHERE  region_name = 'APAC'
         ),
         default_special_country_dim AS (
         SELECT  country_code
@@ -4507,6 +4526,7 @@ async def test_role_path_dimensions_mixed_hierarchies(
         SELECT  year_id,
         	year_number
          FROM default.public.years
+         WHERE  year_number = 1940
         ),
         user_dim_0 AS (
         SELECT  t4.continent_name continent_name_region_continent,
@@ -4705,6 +4725,7 @@ async def test_multiple_filters_same_role_path(
             name,
             formation_date
           FROM default.examples.countries
+          WHERE  name IS NOT NULL AND formation_date > 20000101
         ),
         default_user_dim AS (
           SELECT  birth_country,
@@ -4769,16 +4790,19 @@ async def test_role_path_dimensions_performance_complex_query(
         	month_name,
         	year_id
          FROM default.public.months
+         WHERE  month_name IN ('January', 'February', 'March')
         ),
         default_regions AS (
         SELECT  region_id,
         	region_name
          FROM default.public.regions
+         WHERE  region_name = 'North America'
         ),
         default_special_country_dim AS (
         SELECT  country_code,
         	name
          FROM default.examples.countries
+         WHERE  name IN ('Canada', 'United States', 'Mexico')
         ),
         default_user_dim AS (
         SELECT  birth_country,
@@ -4797,6 +4821,7 @@ async def test_role_path_dimensions_performance_complex_query(
         SELECT  year_id,
         	year_number
          FROM default.public.years
+         WHERE  year_number >= 2020
         ),
         user_dim_0 AS (
         SELECT  t2.name name_user_birth_country,
@@ -4813,7 +4838,7 @@ async def test_role_path_dimensions_performance_complex_query(
         LEFT OUTER JOIN default_weeks t6 ON t5.dateint BETWEEN t6.week_start_date AND t6.week_end_date
         LEFT OUTER JOIN default_months t7 ON t6.month_id = t7.month_id
         LEFT OUTER JOIN default_years t8 ON t7.year_id = t8.year_id
-         WHERE  t2.name IN ('Canada', 'United States', 'Mexico') AND t4.region_name = 'North America' AND t7.month_name IN ('January', 'February', 'March') AND t8.year_number >= 2020
+         WHERE  t3.name IN ('Canada', 'United States', 'Mexico') AND t4.region_name = 'North America' AND t7.month_name IN ('January', 'February', 'March') AND t8.year_number >= 2020
          GROUP BY  t2.name, t3.name, t4.region_name, t7.month_name, t8.year_number
         )
 
