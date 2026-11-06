@@ -90,6 +90,15 @@ def test_local_filter_constrains_outer_join_output(join, owner, predicate, expec
             "SELECT a.amount FROM orders a JOIN orders b ON a.date_id = b.date_id",
             [(10,)],
         ),
+        (
+            "SELECT amount FROM orders UNION ALL SELECT amount FROM orders",
+            [(10,), (10,)],
+        ),
+        (
+            "SELECT u.amount FROM orders a CROSS JOIN orders b CROSS JOIN "
+            "(SELECT amount FROM orders UNION ALL SELECT amount FROM orders) u",
+            [(10,), (10,)],
+        ),
     ],
 )
 def test_every_relational_scan_of_the_linked_table_is_filtered(body, expected):
@@ -102,7 +111,6 @@ def test_every_relational_scan_of_the_linked_table_is_filtered(body, expected):
 @pytest.mark.parametrize(
     "body",
     [
-        "SELECT amount FROM orders UNION ALL SELECT amount FROM orders",
         "SELECT amount FROM RANGE(2) AS t(amount)",
         "SELECT 1",
     ],
@@ -121,6 +129,80 @@ def test_hidden_key_filters_only_the_row_source_not_its_scalar_reader():
     ctx = context({("fact", "date.date_id"): [("orders", "date_id")]})
     place_filters(ctx, {"fact": query}, request())
     assert rows(query) == [(15,)]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "SELECT amount FROM orders UNION ALL SELECT amount FROM other",
+        "SELECT o.amount FROM orders o CROSS JOIN "
+        "(SELECT amount FROM orders UNION ALL SELECT amount FROM other) u",
+    ],
+)
+def test_set_operation_with_an_unlinked_arm_is_rejected(body):
+    query = parse(body)
+    before = str(query)
+    ctx = context({("fact", "date.date_id"): [("orders", "date_id")]})
+    with pytest.raises(DJInvalidInputException, match="eligible relational owners"):
+        place_filters(ctx, {"fact": query}, request())
+    assert str(query) == before
+
+
+def test_compound_filter_binds_each_key_in_one_scope():
+    query = parse(
+        "SELECT o.amount FROM orders o JOIN products p ON o.amount = p.amount",
+    )
+    ctx = context(
+        {
+            ("fact", "date.date_id"): [("orders", "date_id")],
+            ("fact", "product.category"): [("products", "category")],
+        },
+    )
+    place_filters(
+        ctx,
+        {"fact": query},
+        request(["date.date_id = 20240101 OR product.category = 'B'"]),
+    )
+    assert str(query.select.where) == "o.date_id = 20240101 OR p.category = 'B'"
+
+
+def test_compound_filter_with_a_repeated_hidden_key_is_rejected():
+    query = parse(
+        "SELECT a.amount FROM orders a JOIN orders b ON a.amount = b.amount "
+        "JOIN products p ON a.amount = p.amount",
+    )
+    before = str(query)
+    ctx = context(
+        {
+            ("fact", "date.date_id"): [("orders", "date_id")],
+            ("fact", "product.category"): [("products", "category")],
+        },
+    )
+    with pytest.raises(DJInvalidInputException, match="date.date_id has 2"):
+        place_filters(
+            ctx,
+            {"fact": query},
+            request(["date.date_id = 20240101 OR product.category = 'B'"]),
+        )
+    assert str(query) == before
+
+
+def test_compound_filter_with_an_unowned_hidden_key_is_rejected():
+    query = parse("SELECT amount FROM orders")
+    before = str(query)
+    ctx = context(
+        {
+            ("fact", "date.date_id"): [("orders", "date_id")],
+            ("fact", "product.category"): [("products", "category")],
+        },
+    )
+    with pytest.raises(DJInvalidInputException, match="product.category has 0"):
+        place_filters(
+            ctx,
+            {"fact": query},
+            request(["date.date_id = 20240101 OR product.category = 'B'"]),
+        )
+    assert str(query) == before
 
 
 def test_compound_filter_requires_every_reference_to_bind():
