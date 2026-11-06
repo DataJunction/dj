@@ -9,7 +9,6 @@ from typing import cast
 from datajunction_server.construction.build_v3.cte import (
     _filter_bindings_for_select,
     _get_relation_side_id,
-    _non_preserved_sides,
     _rewrite_filter_for_cte,
 )
 from datajunction_server.construction.build_v3.filters import (
@@ -41,17 +40,11 @@ def _definition(table: ast.Table, queries: dict[str, ast.Query]) -> ast.Query | 
     return queries.get(name)
 
 
-class _PartialSetOperation(Exception):
-    """A set operation where only some arms read a linked node."""
-
-
 @dataclass
 class _Binding:
     table: ast.Table
     column: str
-    path: tuple[ast.Query, ...]
     scope: ast.Select
-    crosses_nullable_boundary: bool
 
 
 def _find_bindings(
@@ -59,30 +52,21 @@ def _find_bindings(
     candidates: list[tuple[str, str]],
     queries: dict[str, ast.Query],
     path: tuple[ast.Query, ...] = (),
-    crosses_nullable_boundary: bool = False,
 ) -> list[_Binding]:
-    """Find explicit links through FROM/JOIN edges, never expression subqueries.
+    """Find every scan of a linked node through FROM/JOIN edges, in any arm of a
+    set operation and in any nested query, but never in an expression subquery.
 
     Stop at the nearest linked node: its output is the semantic boundary, even
-    if one of its inputs also declares the same link. Repeated occurrences stay
-    distinct so callers can reject an ambiguous owner rather than filter both.
+    if one of its inputs also declares the same link.
     """
     if any(query is scope for scope in path):
         return []
     path = (*path, query)
     result: list[_Binding] = []
 
-    def visit(relation: ast.Expression, nullable: bool, scope: ast.Select) -> None:
+    def visit(relation: ast.Expression, scope: ast.Select) -> None:
         if isinstance(relation, ast.Query):
-            result.extend(
-                _find_bindings(
-                    relation,
-                    candidates,
-                    queries,
-                    path,
-                    crosses_nullable_boundary or nullable,
-                ),
-            )
+            result.extend(_find_bindings(relation, candidates, queries, path))
         elif isinstance(relation, ast.Table):
             name = relation.name.identifier(quotes=False)
             definition = _definition(relation, queries)
@@ -92,37 +76,18 @@ def _find_bindings(
                 if owner == name and definition is queries.get(name)
             ]
             if columns:
-                result.extend(
-                    _Binding(relation, column, path, scope, crosses_nullable_boundary)
-                    for column in columns
-                )
+                result.extend(_Binding(relation, column, scope) for column in columns)
             elif definition is not None:
-                result.extend(
-                    _find_bindings(
-                        definition,
-                        candidates,
-                        queries,
-                        path,
-                        crosses_nullable_boundary or nullable,
-                    ),
-                )
+                result.extend(_find_bindings(definition, candidates, queries, path))
 
-    # Every arm of a UNION/INTERSECT/EXCEPT is its own SELECT scope.
     arm: ast.SelectExpression | None = query.select
-    arm_owner_counts: list[int] = []
     while isinstance(arm, ast.Select):
-        found_before = len(result)
         if arm.from_ is not None:
             for relation in arm.from_.relations:
-                nullable = _non_preserved_sides(relation)
-                visit(relation.primary, relation.primary in nullable, arm)
+                visit(relation.primary, arm)
                 for join in relation.extensions:
-                    visit(join.right, join.right in nullable, arm)
-        arm_owner_counts.append(len(result) - found_before)
+                    visit(join.right, arm)
         arm = arm.set_op.right if arm.set_op else None
-    # A filter on the output can't be met by filtering only some of the arms.
-    if 0 < sum(count > 0 for count in arm_owner_counts) < len(arm_owner_counts):
-        raise _PartialSetOperation
     return result
 
 
@@ -135,8 +100,7 @@ def place_filters(
 
     Local predicates can constrain the fact definition only when it has no
     other readers. Hidden-key predicates constrain the SELECT that reads their
-    explicit link. Shared definitions and nullable boundaries hiding the key
-    cannot enforce the predicate for this consumer and are refused.
+    explicit link, on every scan of a linked node.
     """
     hidden = {
         ref: candidates
@@ -205,14 +169,11 @@ def place_filters(
         if local_bindings is None:
             invalid("local references cannot bind to the fact output")
         assert local_bindings is not None
-        try:
-            owners = {
-                ref: _find_bindings(root, hidden[ref], queries)
-                for ref in refs
-                if ref in hidden
-            }
-        except _PartialSetOperation:
-            invalid("a UNION arm has 0 eligible relational owners")
+        owners = {
+            ref: _find_bindings(root, hidden[ref], queries)
+            for ref in refs
+            if ref in hidden
+        }
         for ref, found in owners.items():
             if not found:
                 invalid(f"{ref} has 0 eligible relational owners")
@@ -229,15 +190,7 @@ def place_filters(
             bindings = dict(local_bindings)
             target = root_select if local_refs else None
             for ref, binding in unit.items():
-                table, column, path = binding.table, binding.column, binding.path
-                if readers[id(root)] or any(
-                    readers[id(scope)] > 1 for scope in path[1:]
-                ):
-                    invalid(f"{ref} requires narrowing a shared query definition")
-                if binding.crosses_nullable_boundary:
-                    invalid(
-                        f"{ref} crosses a nullable query boundary that hides the key",
-                    )
+                table, column = binding.table, binding.column
                 scope = binding.scope
                 if target is not None and scope is not target:
                     invalid("the complete predicate does not bind to one SELECT scope")

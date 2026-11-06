@@ -225,10 +225,7 @@ async def test_filter_only_source_link_preserves_authored_subquery(
             "filters": ["v3.date.date_id = 20240101"],
         },
     )
-    if subquery == "shared_cte":
-        # A definition read twice cannot take the filter for one reader only.
-        assert response.status_code == 422, response.json()
-        return
+    assert response.status_code == 200, response.json()
     assert execute(
         response_sql(response, endpoint),
         """
@@ -443,11 +440,12 @@ async def test_hidden_filter_constrains_authored_outer_join(
 
 
 @pytest.mark.parametrize("endpoint", ["node", "measures", "metrics"])
-async def test_hidden_filter_rejects_nullable_query_boundary(
+async def test_hidden_filter_applies_inside_nullable_query_boundary(
     customer_date_link,
     endpoint,
 ):
-    response = await filtered_node_response(
+    """The filter narrows the nullable input, so unmatched orders stay."""
+    sql = await filtered_node_sql(
         customer_date_link,
         endpoint,
         "SELECT o.order_id FROM v3.src_orders o LEFT JOIN "
@@ -456,8 +454,9 @@ async def test_hidden_filter_rejects_nullable_query_boundary(
         ["v3.date.date_id = 20240101"],
         "COUNT(order_id)",
     )
-    assert response.status_code == 422, response.json()
-    assert "nullable query boundary" in str(response.json())
+    assert execute(sql, CUSTOMER_ORDERS) == (
+        [(1,), (2,), (3,), (4,)] if endpoint == "node" else [(4,)]
+    )
 
 
 @pytest.mark.parametrize("endpoint", ["node", "measures", "metrics"])

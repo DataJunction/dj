@@ -7324,11 +7324,11 @@ class TestFilterPushdownScope:
         assert "eligible relational owners" in response.json()["message"]
 
     @pytest.mark.asyncio
-    async def test_hidden_key_in_union_arm_is_rejected(
+    async def test_hidden_key_in_union_arm_filters_only_that_arm(
         self,
         client_with_build_v3,
     ):
-        """A hidden key in one UNION arm cannot constrain the complete output."""
+        """Only the UNION arm that reads the linked source gets the filter."""
         client = client_with_build_v3
         await _setup_audit_dim(client)
         # The leading arm reads from an *unrelated* source (no dim link).
@@ -7384,8 +7384,26 @@ class TestFilterPushdownScope:
                 "filters": ["v3.audit_date_dim.dateint >= 20260101"],
             },
         )
-        assert response.status_code == 422, response.json()
-        assert "eligible relational owners" in response.json()["message"]
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["grain_groups"][0]["sql"],
+            """
+            WITH
+            v3_events_union_nested AS (
+              SELECT account_id, event_type FROM default.v3.other_events
+              UNION ALL
+              SELECT account_id, event_type
+              FROM (
+                SELECT account_id, event_type
+                FROM default.v3.audit_log_setopn AS deep
+                WHERE deep.audit_date >= 20260101
+              ) AS wrap
+            )
+            SELECT t1.event_type, t1.account_id
+            FROM v3_events_union_nested t1
+            GROUP BY t1.event_type, t1.account_id
+            """,
+        )
 
     @pytest.mark.asyncio
     async def test_multiple_filters_same_source_different_scopes(

@@ -155,11 +155,11 @@ class TestSetOperationTransforms:
         )
 
     @pytest.mark.asyncio
-    async def test_hidden_key_filter_on_one_arm_is_rejected(
+    async def test_hidden_key_filter_applies_to_the_linked_arm_only(
         self,
         client_with_build_v3,
     ):
-        """Filtering one UNION arm cannot implement a predicate on the whole result."""
+        """Only the linked UNION arm is filtered; the other arm is left as is."""
         client = client_with_build_v3
 
         resp = await client.post(
@@ -256,5 +256,20 @@ class TestSetOperationTransforms:
                 "filters": ["v3.audit_date_dim.dateint >= 20260101"],
             },
         )
-        assert response.status_code == 422, response.json()
-        assert "eligible relational owners" in response.json()["message"]
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["grain_groups"][0]["sql"],
+            """
+            WITH
+            v3_orders_global AS (
+              SELECT order_id, status FROM default.v3.orders_eu
+              UNION ALL
+              SELECT order_id, status
+              FROM default.v3.orders_us src_orders_us
+              WHERE src_orders_us.order_date >= 20260101
+            )
+            SELECT t1.status, t1.order_id
+            FROM v3_orders_global t1
+            GROUP BY t1.status, t1.order_id
+            """,
+        )

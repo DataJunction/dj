@@ -45,6 +45,10 @@ def request(filters=None):
     )
 
 
+def flat(query):
+    return " ".join(str(query).split())
+
+
 def rows(query):
     with sqlite3.connect(":memory:") as db:
         db.executescript(
@@ -132,20 +136,27 @@ def test_hidden_key_filters_only_the_row_source_not_its_scalar_reader():
 
 
 @pytest.mark.parametrize(
-    "body",
+    "body, expected",
     [
-        "SELECT amount FROM orders UNION ALL SELECT amount FROM other",
-        "SELECT o.amount FROM orders o CROSS JOIN "
-        "(SELECT amount FROM orders UNION ALL SELECT amount FROM other) u",
+        (
+            "SELECT amount FROM orders UNION ALL SELECT amount FROM other",
+            "SELECT amount FROM orders orders WHERE orders.date_id = 20240101 "
+            "UNION ALL SELECT amount FROM other",
+        ),
+        (
+            "SELECT o.amount FROM orders o CROSS JOIN "
+            "(SELECT amount FROM orders UNION ALL SELECT amount FROM other) u",
+            "SELECT o.amount FROM orders o CROSS JOIN "
+            "(SELECT amount FROM orders orders WHERE orders.date_id = 20240101 "
+            "UNION ALL SELECT amount FROM other) u WHERE o.date_id = 20240101",
+        ),
     ],
 )
-def test_set_operation_with_an_unlinked_arm_is_rejected(body):
+def test_set_operation_filters_only_the_arms_that_link_the_dimension(body, expected):
     query = parse(body)
-    before = str(query)
     ctx = context({("fact", "date.date_id"): [("orders", "date_id")]})
-    with pytest.raises(DJInvalidInputException, match="eligible relational owners"):
-        place_filters(ctx, {"fact": query}, request())
-    assert str(query) == before
+    place_filters(ctx, {"fact": query}, request())
+    assert flat(query) == expected
 
 
 def test_compound_filter_binds_each_key_in_one_scope():
@@ -237,18 +248,19 @@ def test_shared_linked_transform_is_filtered_at_its_fact_occurrence():
     ]
 
 
-def test_shared_hidden_key_definition_is_rejected():
-    stage = parse("SELECT amount FROM orders")
+def test_shared_hidden_key_definition_is_filtered_for_every_reader():
     queries = {
         "fact": parse("SELECT amount FROM stage"),
-        "stage": stage,
+        "stage": parse("SELECT amount FROM orders"),
         "dimension": parse("SELECT amount FROM stage"),
     }
-    before = {name: str(query) for name, query in queries.items()}
     ctx = context({("fact", "date.date_id"): [("orders", "date_id")]})
-    with pytest.raises(DJInvalidInputException, match="shared query definition"):
-        place_filters(ctx, queries, request())
-    assert {name: str(query) for name, query in queries.items()} == before
+    place_filters(ctx, queries, request())
+    assert {name: flat(query) for name, query in queries.items()} == {
+        "fact": "SELECT amount FROM stage",
+        "stage": "SELECT amount FROM orders orders WHERE orders.date_id = 20240101",
+        "dimension": "SELECT amount FROM stage",
+    }
 
 
 def test_unique_hidden_key_path_survives_aggregation_and_repeated_builds():
@@ -285,20 +297,45 @@ def test_placement_state_does_not_leak_between_fact_groups():
     "body",
     [
         "WITH unused AS (SELECT date_id FROM orders) SELECT 1",
-        "WITH history AS (SELECT amount FROM orders) "
-        "SELECT amount, (SELECT SUM(amount) FROM history) AS total FROM history",
-        "WITH history AS (SELECT amount FROM orders UNION ALL SELECT amount FROM history) "
-        "SELECT amount FROM history",
         "WITH history AS (SELECT amount FROM history) SELECT amount FROM history",
     ],
 )
-def test_hidden_keys_in_unused_shared_or_recursive_definitions_are_rejected(body):
+def test_hidden_keys_in_unused_or_recursive_definitions_are_rejected(body):
     query = parse(body)
     before = str(query)
     ctx = context({("fact", "date.date_id"): [("orders", "date_id")]})
     with pytest.raises(DJInvalidInputException):
         place_filters(ctx, {"fact": query}, request())
     assert str(query) == before
+
+
+@pytest.mark.parametrize(
+    "body, expected",
+    [
+        (
+            "WITH history AS (SELECT amount FROM orders) "
+            "SELECT amount, (SELECT SUM(amount) FROM history) AS total FROM history",
+            "WITH history AS ( SELECT amount FROM orders orders "
+            "WHERE orders.date_id = 20240101 ) "
+            "SELECT amount, (SELECT SUM(amount) FROM history) AS total FROM history",
+        ),
+        (
+            "WITH history AS (SELECT amount FROM orders UNION ALL "
+            "SELECT amount FROM history) SELECT amount FROM history",
+            "WITH history AS ( SELECT amount FROM orders orders "
+            "WHERE orders.date_id = 20240101 UNION ALL "
+            "SELECT amount FROM history ) SELECT amount FROM history",
+        ),
+    ],
+)
+def test_shared_or_recursive_definition_is_filtered_where_it_scans_the_link(
+    body,
+    expected,
+):
+    query = parse(body)
+    ctx = context({("fact", "date.date_id"): [("orders", "date_id")]})
+    place_filters(ctx, {"fact": query}, request())
+    assert flat(query) == expected
 
 
 @pytest.mark.parametrize("hidden", [False, True])
@@ -412,20 +449,44 @@ def test_hidden_filter_constrains_nullable_input_at_its_owning_select(
 
 
 @pytest.mark.parametrize(
-    "body",
+    "body, expected",
     [
-        "SELECT a.id FROM (SELECT 1 AS id) a LEFT JOIN (SELECT amount FROM orders) h ON a.id = h.amount",
-        "WITH history AS (SELECT amount FROM orders) SELECT a.id FROM (SELECT 1 AS id) a LEFT JOIN history h ON a.id = h.amount",
-        "SELECT a.id FROM (SELECT 1 AS id) a LEFT JOIN history h ON a.id = h.amount",
+        (
+            "SELECT a.id FROM (SELECT 1 AS id) a "
+            "LEFT JOIN (SELECT amount FROM orders) h ON a.id = h.amount",
+            {
+                "fact": "SELECT a.id FROM (SELECT 1 AS id) a LEFT JOIN "
+                "(SELECT amount FROM orders orders WHERE orders.date_id = 20240101) h "
+                "ON a.id = h.amount",
+                "history": "SELECT amount FROM orders",
+            },
+        ),
+        (
+            "WITH history AS (SELECT amount FROM orders) SELECT a.id "
+            "FROM (SELECT 1 AS id) a LEFT JOIN history h ON a.id = h.amount",
+            {
+                "fact": "WITH history AS ( SELECT amount FROM orders orders "
+                "WHERE orders.date_id = 20240101 ) SELECT a.id "
+                "FROM (SELECT 1 AS id) a LEFT JOIN history h ON a.id = h.amount",
+                "history": "SELECT amount FROM orders",
+            },
+        ),
+        (
+            "SELECT a.id FROM (SELECT 1 AS id) a LEFT JOIN history h ON a.id = h.amount",
+            {
+                "fact": "SELECT a.id FROM (SELECT 1 AS id) a "
+                "LEFT JOIN history h ON a.id = h.amount",
+                "history": "SELECT amount FROM orders orders "
+                "WHERE orders.date_id = 20240101",
+            },
+        ),
     ],
 )
-def test_hidden_key_behind_nullable_query_boundary_is_rejected_atomically(body):
+def test_hidden_key_behind_a_nullable_join_side_is_still_filtered(body, expected):
     queries = {"fact": parse(body), "history": parse("SELECT amount FROM orders")}
-    before = {name: str(query) for name, query in queries.items()}
     ctx = context({("fact", "date.date_id"): [("orders", "date_id")]})
-    with pytest.raises(DJInvalidInputException, match="nullable query boundary"):
-        place_filters(ctx, queries, request())
-    assert {name: str(query) for name, query in queries.items()} == before
+    place_filters(ctx, queries, request())
+    assert {name: flat(query) for name, query in queries.items()} == expected
 
 
 @pytest.mark.parametrize("combined", [False, True])
