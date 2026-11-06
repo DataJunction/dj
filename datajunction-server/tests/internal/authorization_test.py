@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.config import Settings
 from datajunction_server.database.group_member import GroupMember
+from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.rbac import Role, RoleAssignment, RoleScope
 from datajunction_server.database.user import PrincipalKind, User
 from datajunction_server.errors import DJAuthorizationException
@@ -23,6 +24,9 @@ from datajunction_server.internal.access.authorization import (
     PassthroughAuthorizationService,
     RBACAuthorizationService,
     get_authorization_service,
+)
+from datajunction_server.internal.access.authorization.service import (
+    governed_boundary_rules,
 )
 from datajunction_server.internal.access.group_membership import (
     GroupMembershipService,
@@ -1457,6 +1461,289 @@ class TestRestrictiveScopes:
         ]
 
 
+class TestGovernedBoundaryScopes:
+    """Tests for restrictive mutation policy derived from namespace rows."""
+
+    SERVICE_SETTINGS = (
+        "datajunction_server.internal.access.authorization.service.settings"
+    )
+    BOUNDARY = "team.metrics"
+
+    @staticmethod
+    def request(
+        action: ResourceAction,
+        resource_type: ResourceType,
+        name: str,
+    ) -> ResourceRequest:
+        return ResourceRequest(
+            verb=action,
+            access_object=Resource(name=name, resource_type=resource_type),
+        )
+
+    @classmethod
+    def context(
+        cls,
+        *,
+        boundaries: tuple[str, ...] | None = None,
+        explicit_scopes=None,
+        default_scopes=None,
+        is_admin: bool = False,
+    ) -> AuthContext:
+        assignments = [_assignment(explicit_scopes)] if explicit_scopes else []
+        return AuthContext(
+            user_id=1,
+            username="boundary-user",
+            oauth_provider="basic",
+            role_assignments=assignments,
+            is_admin=is_admin,
+            default_scopes=default_scopes or [],
+            governed_boundaries=boundaries
+            if boundaries is not None
+            else (cls.BOUNDARY,),
+        )
+
+    def configure(self, mocker, rules=()):
+        service_settings = mocker.patch(self.SERVICE_SETTINGS)
+        service_settings.restrictive_scopes = rules
+        service_settings.default_access_policy = "permissive"
+
+    def test_rules_match_boundary_scope_contract(self):
+        assert {str(rule) for rule in governed_boundary_rules([self.BOUNDARY])} == {
+            "write:namespace:team.metrics",
+            "write:namespace:team.metrics.*",
+            "write:node:team.metrics.*",
+            "delete:namespace:team.metrics",
+            "delete:namespace:team.metrics.*",
+            "delete:node:team.metrics.*",
+            "manage:namespace:team.metrics",
+            "manage:namespace:team.metrics.*",
+            "manage:node:team.metrics.*",
+        }
+
+    @pytest.mark.parametrize(
+        "action",
+        [ResourceAction.WRITE, ResourceAction.DELETE, ResourceAction.MANAGE],
+    )
+    @pytest.mark.parametrize(
+        "resource_type,name",
+        [
+            (ResourceType.NAMESPACE, "team.metrics"),
+            (ResourceType.NAMESPACE, "team.metrics.daily"),
+            (ResourceType.NODE, "team.metrics.daily_revenue"),
+        ],
+    )
+    def test_mutations_require_explicit_grants(
+        self,
+        mocker,
+        action,
+        resource_type,
+        name,
+    ):
+        self.configure(mocker)
+
+        decision = RBACAuthorizationService().authorize(
+            self.context(),
+            [self.request(action, resource_type, name)],
+        )[0]
+
+        assert decision.approved is False
+        assert decision.reason and decision.reason.startswith("restrictive_scope:")
+
+    @pytest.mark.parametrize("action", [ResourceAction.READ, ResourceAction.EXECUTE])
+    def test_read_and_execute_keep_permissive_policy(self, mocker, action):
+        self.configure(mocker)
+
+        decision = RBACAuthorizationService().authorize(
+            self.context(),
+            [self.request(action, ResourceType.NODE, "team.metrics.revenue")],
+        )[0]
+
+        assert decision.approved is True
+        assert decision.reason == "default_access_policy_permissive"
+
+    @pytest.mark.parametrize(
+        "action",
+        [ResourceAction.WRITE, ResourceAction.DELETE, ResourceAction.MANAGE],
+    )
+    def test_ungoverned_sibling_keeps_permissive_policy(self, mocker, action):
+        self.configure(mocker)
+
+        decision = RBACAuthorizationService().authorize(
+            self.context(),
+            [self.request(action, ResourceType.NODE, "team.other.revenue")],
+        )[0]
+
+        assert decision.approved is True
+        assert decision.reason == "default_access_policy_permissive"
+
+    def test_direct_grant_allows_governed_mutation(self, mocker):
+        self.configure(mocker)
+        explicit_scope = _scope(
+            ResourceAction.WRITE,
+            ResourceType.NODE,
+            "team.metrics.*",
+        )
+
+        decision = RBACAuthorizationService().authorize(
+            self.context(explicit_scopes=[explicit_scope]),
+            [
+                self.request(
+                    ResourceAction.WRITE,
+                    ResourceType.NODE,
+                    "team.metrics.revenue",
+                ),
+            ],
+        )[0]
+
+        assert decision.approved is True
+        assert decision.reason == "explicit_grant"
+
+    def test_default_role_cannot_bypass_governed_boundary(self, mocker):
+        self.configure(mocker)
+        default_scope = _scope(ResourceAction.WRITE, ResourceType.NODE, "*")
+
+        decision = RBACAuthorizationService().authorize(
+            self.context(default_scopes=[default_scope]),
+            [
+                self.request(
+                    ResourceAction.WRITE,
+                    ResourceType.NODE,
+                    "team.metrics.revenue",
+                ),
+            ],
+        )[0]
+
+        assert decision.approved is False
+        assert decision.reason and decision.reason.startswith("restrictive_scope:")
+
+    def test_admin_keeps_audited_boundary_bypass(self, mocker, caplog):
+        self.configure(mocker)
+
+        with caplog.at_level(logging.WARNING, logger="datajunction.audit.rbac"):
+            decision = RBACAuthorizationService().authorize(
+                self.context(is_admin=True),
+                [
+                    self.request(
+                        ResourceAction.MANAGE,
+                        ResourceType.NAMESPACE,
+                        self.BOUNDARY,
+                    ),
+                ],
+            )[0]
+
+        assert decision.approved is True
+        assert decision.reason == "admin_bypass"
+        assert "event=rbac_admin_bypass" in caplog.messages[0]
+
+    def test_configured_and_governed_rules_combine(self, mocker):
+        self.configure(mocker, rules=["delete:node:legacy.secure.*"])
+        requests = [
+            self.request(
+                ResourceAction.WRITE,
+                ResourceType.NODE,
+                "team.metrics.revenue",
+            ),
+            self.request(
+                ResourceAction.DELETE,
+                ResourceType.NODE,
+                "legacy.secure.revenue",
+            ),
+            self.request(ResourceAction.WRITE, ResourceType.NODE, "open.revenue"),
+        ]
+
+        decisions = RBACAuthorizationService().authorize(self.context(), requests)
+
+        assert [decision.approved for decision in decisions] == [False, False, True]
+        assert decisions[1].reason == "restrictive_scope:delete:node:legacy.secure.*"
+
+    def test_multiple_boundaries_are_independent(self, mocker):
+        self.configure(mocker)
+        context = self.context(boundaries=("finance.cubes", "team.metrics"))
+        requests = [
+            self.request(
+                ResourceAction.WRITE,
+                ResourceType.NODE,
+                "team.metrics.revenue",
+            ),
+            self.request(
+                ResourceAction.WRITE,
+                ResourceType.NODE,
+                "finance.cubes.revenue",
+            ),
+            self.request(
+                ResourceAction.WRITE,
+                ResourceType.NODE,
+                "finance.other.revenue",
+            ),
+        ]
+
+        decisions = RBACAuthorizationService().authorize(context, requests)
+
+        assert [decision.approved for decision in decisions] == [False, False, True]
+
+
+@pytest.mark.asyncio
+async def test_governed_boundary_allows_group_grant(
+    session: AsyncSession,
+    default_user: User,
+    mocker,
+):
+    boundary = NodeNamespace(
+        namespace="group_governed",
+        is_governed_boundary=True,
+    )
+    group = User(
+        username="governed-writers",
+        kind=PrincipalKind.GROUP,
+        oauth_provider="basic",
+    )
+    role = Role(name="governed-group-role", created_by_id=default_user.id)
+    session.add_all([boundary, group, role])
+    await session.flush()
+    session.add_all(
+        [
+            GroupMember(group_id=group.id, member_id=default_user.id),
+            RoleScope(
+                role_id=role.id,
+                action=ResourceAction.WRITE,
+                scope_type=ResourceType.NODE,
+                scope_value="group_governed.*",
+            ),
+            RoleAssignment(
+                principal_id=group.id,
+                role_id=role.id,
+                granted_by_id=default_user.id,
+            ),
+        ],
+    )
+    await session.commit()
+
+    context_settings = mocker.patch(
+        "datajunction_server.internal.access.authorization.context.settings",
+    )
+    context_settings.default_access_role = None
+    service_settings = mocker.patch(
+        "datajunction_server.internal.access.authorization.service.settings",
+    )
+    service_settings.restrictive_scopes = []
+    service_settings.default_access_policy = "permissive"
+
+    user = await get_user(username=default_user.username, session=session)
+    context = await AuthContext.from_user(session, user)
+    request = ResourceRequest(
+        verb=ResourceAction.WRITE,
+        access_object=Resource(
+            name="group_governed.revenue",
+            resource_type=ResourceType.NODE,
+        ),
+    )
+
+    decision = RBACAuthorizationService().authorize(context, [request])[0]
+
+    assert decision.approved is True
+    assert decision.reason == "explicit_grant"
+
+
 @pytest.mark.asyncio
 class TestGroupBasedPermissions:
     """Tests for group-based role assignments."""
@@ -2140,6 +2427,40 @@ class TestPermissionHierarchy:
 @pytest.mark.asyncio
 class TestAuthContext:
     """Tests for AuthContext and effective assignments."""
+
+    async def test_from_user_loads_only_retained_governed_boundaries(
+        self,
+        default_user: User,
+        session: AsyncSession,
+    ):
+        session.add_all(
+            [
+                NodeNamespace(
+                    namespace="context_governed",
+                    is_governed_boundary=True,
+                ),
+                NodeNamespace(namespace="context_governed.child"),
+                NodeNamespace(
+                    namespace="context_missing.parent.boundary",
+                    is_governed_boundary=True,
+                ),
+                NodeNamespace(
+                    namespace="context_deactivated",
+                    is_governed_boundary=True,
+                    deactivated_at=datetime.now(UTC),
+                ),
+                NodeNamespace(namespace="context_ungoverned"),
+            ],
+        )
+        await session.commit()
+
+        context = await AuthContext.from_user(session, default_user)
+
+        assert context.governed_boundaries == (
+            "context_deactivated",
+            "context_governed",
+            "context_missing.parent.boundary",
+        )
 
     async def test_auth_context_from_user_direct_assignments_only(
         self,
