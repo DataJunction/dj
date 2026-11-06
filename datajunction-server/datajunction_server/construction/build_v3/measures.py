@@ -1363,7 +1363,11 @@ def build_select_ast(
     # Filters fully handled via upstream-link pushdown are excluded from
     # outer WHERE / per-CTE pushdown — they're already injected into the
     # appropriate upstream CTE.
-    all_filters = [f for f in (filters or []) if f not in ctx.pushdown_consumed_filters]
+    consumed_here = ctx.pushdown_consumed_filters | ctx.pushdown_consumed_by_fact.get(
+        parent_node.name,
+        set(),
+    )
+    all_filters = [f for f in (filters or []) if f not in consumed_here]
 
     # Build outer WHERE clause from filters
     where_clause: ast.Expression | None = None

@@ -138,6 +138,10 @@ class BuildContext:
     # re-apply them (the dim ref is unreachable from the fact).
     pushdown_consumed_filters: set[str] = field(default_factory=set)
 
+    # Per-fact version of the above, keyed by parent node name: filters
+    # pushed upstream of that fact only. Other facts still apply them.
+    pushdown_consumed_by_fact: dict[str, set[str]] = field(default_factory=dict)
+
     # Filter strings that were successfully injected into a measures-layer
     # CTE's WHERE clause.  The metrics-layer outer WHERE checks this set
     # and skips re-applying these predicates on top of the aggregation

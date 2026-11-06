@@ -293,7 +293,7 @@ def _resolve_filter_only_dim(
       also *registers* a pushdown filter into the deepest reachable CTE
       (the linked transform, or the immediate transform child of a linked
       source) and marks the originating filter string consumed in
-      ``ctx.pushdown_consumed_filters``. Caller emits no
+      ``ctx.pushdown_consumed_by_fact``. Caller emits no
       ``ResolvedDimension`` for the dim and skips the unreachable-dim
       error.
 
@@ -348,6 +348,7 @@ def _resolve_filter_only_dim(
     if len(passthrough_cols) > 1:
         if _register_pushdown_into_upstream(  # pragma: no branch
             ctx,
+            parent_node,
             original_ref,
             passthrough,
         ):
@@ -356,6 +357,7 @@ def _resolve_filter_only_dim(
 
     if pushdown_candidates and _register_pushdown_into_upstream(
         ctx,
+        parent_node,
         original_ref,
         pushdown_candidates,
     ):
@@ -365,13 +367,15 @@ def _resolve_filter_only_dim(
 
 def _register_pushdown_into_upstream(
     ctx: BuildContext,
+    parent_node: Node,
     original_ref: str,
     candidates: list[tuple[Node, str]],
 ) -> bool:
     """
     Push each user filter referencing ``original_ref`` into the deepest
     reachable CTE for every (linked_node, fk_col) candidate. Consumed
-    filter strings are recorded in ``ctx.pushdown_consumed_filters``.
+    filter strings are recorded in ``ctx.pushdown_consumed_by_fact`` under
+    ``parent_node``.
 
     For a linked SOURCE (no CTE of its own), the target CTE is the
     immediate child transform that selects from it; the FK column is
@@ -385,11 +389,13 @@ def _register_pushdown_into_upstream(
     )
     from datajunction_server.construction.build_v3.filters import parse_filter
 
+    consumed_here = ctx.pushdown_consumed_by_fact.setdefault(parent_node.name, set())
+
     # Find filter strings that reference this dim ref. Parse each once.
     base_ref = original_ref.split("[")[0]
     matching: list[str] = []
     for filter_str in ctx.dimension_filters:
-        if filter_str in ctx.pushdown_consumed_filters:  # pragma: no cover
+        if filter_str in consumed_here:  # pragma: no cover
             continue
         try:
             f_ast = parse_filter(filter_str)
@@ -449,8 +455,8 @@ def _register_pushdown_into_upstream(
                     ).append(rewritten)
             consumed = True
         if consumed:  # pragma: no branch
-            ctx.pushdown_consumed_filters.add(filter_str)
-    return bool(ctx.pushdown_consumed_filters)
+            consumed_here.add(filter_str)
+    return bool(consumed_here)
 
 
 def _resolve_pushdown_targets(
