@@ -2728,6 +2728,48 @@ class TestGetEffectiveAssignments:
         role_names = {a.role.name for a in assignments}
         assert "mock-role" in role_names
 
+    async def test_groups_are_fetched_before_any_query(
+        self,
+        default_user: User,
+        session: AsyncSession,
+        mocker,
+    ):
+        """The group lookup runs before the first query opens a transaction."""
+        order: list[str] = []
+
+        class RecordingGroupService(GroupMembershipService):
+            name = "recording"
+
+            async def is_user_in_group(self, session, username, group_name):
+                return False
+
+            async def get_user_groups(self, session, username):
+                order.append("groups")
+                return []
+
+            async def add_user_to_group(self, session, username, group_name):
+                pass
+
+            async def remove_user_from_group(self, session, username, group_name):
+                pass
+
+        user = await get_user(username=default_user.username, session=session)
+        mocker.patch(
+            "datajunction_server.internal.access.authorization.context.get_group_membership_service",
+            lambda: RecordingGroupService(),
+        )
+        real_execute = session.execute
+
+        async def recording_execute(*args, **kwargs):
+            order.append("query")
+            return await real_execute(*args, **kwargs)
+
+        mocker.patch.object(session, "execute", recording_execute)
+
+        await AuthContext.get_effective_assignments(session, user)
+
+        assert order == ["groups", "query"]
+
 
 @pytest.mark.asyncio
 class TestCheckAccessIntegration:

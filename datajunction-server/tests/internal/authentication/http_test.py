@@ -90,6 +90,22 @@ def test_dj_http_bearer_w_cookie(
     }
 
 
+def test_dj_http_bearer_ends_its_transaction(
+    jwt_token: str,
+    session: AsyncSession,
+    current_user: User,
+):
+    """
+    Test the DJHTTPBearer middleware leaves no transaction open on the session
+    """
+    bearer = DJHTTPBearer()
+    request = MagicMock()
+    request.cookies.get.return_value = jwt_token
+
+    asyncio.run(bearer(request, session))
+    assert session.in_transaction() is False
+
+
 def test_dj_http_bearer_w_auth_headers(
     jwt_token: str,
     session: AsyncSession,
