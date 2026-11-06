@@ -171,6 +171,10 @@ async def build_linked_stages(client):
 
 
 @pytest.mark.asyncio
+@pytest.mark.xfail(
+    strict=True,
+    reason="the old pushdown filters a column the outer stage does not expose",
+)
 async def test_filter_reaches_a_linked_node_under_another_linked_node(
     client_with_build_v3,
 ):
@@ -209,25 +213,22 @@ async def test_filter_reaches_a_linked_node_under_another_linked_node(
         """
         WITH
         v3_inner_stage AS (
-          SELECT amount
-          FROM default.v3.source_inner
-          WHERE inner_date = 20261104
+          SELECT inner_date, amount FROM default.v3.source_inner
         ),
         v3_outer_stage AS (
-          SELECT amount
-          FROM v3_inner_stage
-          WHERE outer_date = 20261104
+          SELECT inner_date AS outer_date, amount
+          FROM v3_inner_stage inner_stage
+          WHERE inner_stage.inner_date = 20261104
         ),
         v3_nested_fact AS (
           SELECT amount
-          FROM v3_outer_stage
+          FROM v3_outer_stage outer_stage
+          WHERE outer_stage.outer_date = 20261104
         ),
         nested_fact_0 AS (
-          SELECT SUM(t1.amount) amount_sum_HASH
-          FROM v3_nested_fact t1
+          SELECT SUM(t1.amount) amount_sum_HASH FROM v3_nested_fact t1
         )
-        SELECT SUM(nested_fact_0.amount_sum_HASH) nested_amount
-        FROM nested_fact_0
+        SELECT SUM(nested_fact_0.amount_sum_HASH) AS nested_amount FROM nested_fact_0
         """,
         normalize_aliases=True,
     )
