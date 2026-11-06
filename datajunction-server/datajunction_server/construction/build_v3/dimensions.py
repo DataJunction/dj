@@ -449,10 +449,12 @@ def _register_pushdown_into_upstream(
                     # directly into that Select.
                     inject_filter_into_select(arm_select, rewritten)
                 else:
-                    ctx.upstream_pushdown_filters.setdefault(
+                    registered = ctx.upstream_pushdown_filters.setdefault(
                         target_name,
                         [],
-                    ).append(rewritten)
+                    )
+                    if all(str(rewritten) != str(e) for e in registered):
+                        registered.append(rewritten)
             consumed = True
         if consumed:  # pragma: no branch
             consumed_here.add(filter_str)
