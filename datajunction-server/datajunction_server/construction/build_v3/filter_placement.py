@@ -180,40 +180,54 @@ def place_filters(
             )
 
         local_refs = [ref for ref in refs if ref not in hidden]
-        bindings = _filter_bindings_for_select(
+        local_bindings = _filter_bindings_for_select(
             local_refs,
             request.column_aliases,
             output_cols,
             root_select,
             request.outer_only_refs,
         )
-        if bindings is None:
+        if local_bindings is None:
             invalid("local references cannot bind to the fact output")
-        assert bindings is not None
-        target = root_select if local_refs else None
-        for ref in refs:
-            if ref not in hidden:
-                continue
-            matches = _find_bindings(root, hidden[ref], queries)
-            if len(matches) != 1:
-                invalid(f"{ref} has {len(matches)} eligible relational owners")
-            binding = matches[0]
-            table, column, path = binding.table, binding.column, binding.path
-            if readers[id(root)] or any(readers[id(scope)] > 1 for scope in path[1:]):
-                invalid(f"{ref} requires narrowing a shared query definition")
-            if binding.crosses_nullable_boundary:
-                invalid(f"{ref} crosses a nullable query boundary that hides the key")
-            scope = cast(ast.Select, path[-1].select)
-            if target is not None and scope is not target:
-                invalid("the complete predicate does not bind to one SELECT scope")
-            target = scope
-            qualifier = _get_relation_side_id(cast(ast.Expression, table))
-            assert qualifier is not None
-            bindings[ref] = ast.Name(column, namespace=ast.Name(qualifier))
-            aliases[id(table)] = table
-        assert target is not None
-        rewritten = resolve_filter_references(parse_filter(filter_str), bindings)
-        placements.setdefault(id(target), (target, []))[1].append(rewritten)
+        assert local_bindings is not None
+        owners = {
+            ref: _find_bindings(root, hidden[ref], queries)
+            for ref in refs
+            if ref in hidden
+        }
+        # A lone hidden key goes on every owner; several keys need one each.
+        if len(owners) == 1 and not local_refs:
+            [(ref, found)] = owners.items()
+            units = [{ref: binding} for binding in found]
+        else:
+            units = [{ref: found[0] for ref, found in owners.items()}]
+        for ref, found in owners.items():
+            if not found or (len(found) > 1 and len(units) == 1):
+                invalid(f"{ref} has {len(found)} eligible relational owners")
+        for unit in units:
+            bindings = dict(local_bindings)
+            target = root_select if local_refs else None
+            for ref, binding in unit.items():
+                table, column, path = binding.table, binding.column, binding.path
+                if readers[id(root)] or any(
+                    readers[id(scope)] > 1 for scope in path[1:]
+                ):
+                    invalid(f"{ref} requires narrowing a shared query definition")
+                if binding.crosses_nullable_boundary:
+                    invalid(
+                        f"{ref} crosses a nullable query boundary that hides the key",
+                    )
+                scope = cast(ast.Select, path[-1].select)
+                if target is not None and scope is not target:
+                    invalid("the complete predicate does not bind to one SELECT scope")
+                target = scope
+                qualifier = _get_relation_side_id(cast(ast.Expression, table))
+                assert qualifier is not None
+                bindings[ref] = ast.Name(column, namespace=ast.Name(qualifier))
+                aliases[id(table)] = table
+            assert target is not None
+            rewritten = resolve_filter_references(parse_filter(filter_str), bindings)
+            placements.setdefault(id(target), (target, []))[1].append(rewritten)
         consumed.add(filter_str)
 
     # Apply only after every predicate has a complete, enforceable placement.

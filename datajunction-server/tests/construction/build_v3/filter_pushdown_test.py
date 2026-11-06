@@ -1218,10 +1218,10 @@ class TestFilterPushdownViaSourceFKLinkAtTopLevel:
 
 
 class TestFilterPushdownToMultipleSiblingTransforms:
-    """Sibling scans in one grain group have ambiguous filter ownership."""
+    """A filter lands on every sibling scan that links the dimension."""
 
     @pytest.mark.asyncio
-    async def test_ambiguous_sibling_transform_filter_is_rejected(
+    async def test_filter_is_applied_to_every_sibling_transform(
         self,
         client_with_build_v3,
     ):
@@ -1327,15 +1327,40 @@ class TestFilterPushdownToMultipleSiblingTransforms:
                 "filters": ["v3.snap_dim.dateint = 20240101"],
             },
         )
-        assert response.status_code == 422, response.json()
-        assert "eligible relational owners" in response.json()["message"]
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            get_first_grain_group(response.json())["sql"],
+            """
+            WITH
+            v3_child_a AS (
+              SELECT a.account_id, SUM(a.amount) AS total_a
+              FROM default.v3.multi_child_src AS a
+              WHERE a.snap_date = 20240101
+              GROUP BY a.account_id
+            ),
+            v3_child_b AS (
+              SELECT b.account_id, SUM(b.amount) AS total_b
+              FROM default.v3.multi_child_src AS b
+              WHERE b.snap_date = 20240101
+              GROUP BY b.account_id
+            ),
+            v3_combined AS (
+              SELECT a.total_a, b.total_b
+              FROM v3_child_a AS a
+              JOIN v3_child_b AS b ON a.account_id = b.account_id
+            )
+            SELECT SUM(t1.total_a + t1.total_b) total_a_total_b_sum_HASH
+            FROM v3_combined t1
+            """,
+            normalize_aliases=True,
+        )
 
 
 class TestFilterPushedToAllMultipleDirectParentFKColumns:
-    """Different parent keys linked to the same dimension need an explicit owner."""
+    """Each parent key linked to the dimension takes the filter."""
 
     @pytest.mark.asyncio
-    async def test_ambiguous_direct_parent_keys_are_rejected(
+    async def test_filter_is_applied_to_each_direct_parent_key(
         self,
         client_with_build_v3,
     ):
@@ -1440,8 +1465,22 @@ class TestFilterPushedToAllMultipleDirectParentFKColumns:
                 "filters": ["v3.event_date.dateint = 20240101"],
             },
         )
-        assert response.status_code == 422, response.json()
-        assert "eligible relational owners" in response.json()["message"]
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            get_first_grain_group(response.json())["sql"],
+            """
+            WITH
+            v3_combined_events AS (
+              SELECT a.value_a, b.value_b
+              FROM default.v3.events_a AS a
+              JOIN default.v3.events_b AS b ON a.account_id = b.account_id
+              WHERE a.send_date = 20240101 AND b.alloc_date = 20240101
+            )
+            SELECT SUM(t1.value_a + t1.value_b) value_a_value_b_sum_HASH
+            FROM v3_combined_events t1
+            """,
+            normalize_aliases=True,
+        )
 
 
 class TestFilterNotPushedToTransitiveUpstreamByColumnNameCollision:

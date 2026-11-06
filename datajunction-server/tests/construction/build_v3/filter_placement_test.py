@@ -79,11 +79,29 @@ def test_local_filter_constrains_outer_join_output(join, owner, predicate, expec
 
 
 @pytest.mark.parametrize(
+    "body, expected",
+    [
+        (
+            "SELECT o.amount + s.total FROM orders o CROSS JOIN "
+            "(SELECT SUM(amount) AS total FROM orders) s",
+            [(20,)],
+        ),
+        (
+            "SELECT a.amount FROM orders a JOIN orders b ON a.date_id = b.date_id",
+            [(10,)],
+        ),
+    ],
+)
+def test_every_relational_scan_of_the_linked_table_is_filtered(body, expected):
+    query = parse(body)
+    ctx = context({("fact", "date.date_id"): [("orders", "date_id")]})
+    place_filters(ctx, {"fact": query}, request())
+    assert rows(query) == expected
+
+
+@pytest.mark.parametrize(
     "body",
     [
-        "SELECT o.amount + s.total FROM orders o CROSS JOIN "
-        "(SELECT SUM(amount) AS total FROM orders) s",
-        "SELECT a.amount FROM orders a JOIN orders b ON a.date_id = b.date_id",
         "SELECT amount FROM orders UNION ALL SELECT amount FROM orders",
         "SELECT amount FROM RANGE(2) AS t(amount)",
         "SELECT 1",

@@ -225,9 +225,8 @@ async def test_filter_only_source_link_preserves_authored_subquery(
             "filters": ["v3.date.date_id = 20240101"],
         },
     )
-    if subquery in ("shared_cte", "relational_total", "grouped_total"):
-        # A shared definition or a second relational reader cannot establish
-        # one owner for this hidden key.
+    if subquery == "shared_cte":
+        # A definition read twice cannot take the filter for one reader only.
         assert response.status_code == 422, response.json()
         return
     assert execute(
@@ -236,7 +235,7 @@ async def test_filter_only_source_link_preserves_authored_subquery(
         CREATE TABLE order_history_src (customer_id INTEGER, report_date INTEGER);
         INSERT INTO order_history_src VALUES (1, 20240101), (1, 20230101);
         """,
-    ) == [(1 if subquery == "exists" else 2,)]
+    ) == [(2 if subquery in ("scalar", "linked_transform") else 1,)]
 
 
 def test_multi_hop_role_still_pushes_into_owning_fact_scope():

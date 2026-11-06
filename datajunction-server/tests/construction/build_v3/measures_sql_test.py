@@ -7128,8 +7128,11 @@ class TestFilterPushdownScope:
         )
 
     @pytest.mark.asyncio
-    async def test_ambiguous_self_join_filter_is_rejected(self, client_with_build_v3):
-        """A source link cannot choose between two relational instances of that source."""
+    async def test_filter_is_applied_to_every_self_join_instance(
+        self,
+        client_with_build_v3,
+    ):
+        """Both relational instances of a linked source take the filter."""
         client = client_with_build_v3
         await _setup_audit_dim(client)
         src = await _setup_audit_log_source(client, "selfjoin", "audit_log_selfjoin")
@@ -7164,8 +7167,22 @@ class TestFilterPushdownScope:
                 "filters": ["v3.audit_date_dim.dateint >= 20260101"],
             },
         )
-        assert response.status_code == 422, response.json()
-        assert "eligible relational owners" in response.json()["message"]
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["grain_groups"][0]["sql"],
+            """
+            WITH
+            v3_events_self_join AS (
+              SELECT a1.account_id, a1.event_type
+              FROM default.v3.audit_log_selfjoin AS a1
+              JOIN default.v3.audit_log_selfjoin AS a2 ON a1.account_id = a2.account_id
+              WHERE a1.audit_date >= 20260101 AND a2.audit_date >= 20260101
+            )
+            SELECT t1.event_type, t1.account_id
+            FROM v3_events_self_join t1
+            GROUP BY t1.event_type, t1.account_id
+            """,
+        )
 
     @pytest.mark.asyncio
     async def test_source_inside_inner_with_cte(
@@ -7775,8 +7792,8 @@ class TestFilterPushdownScope:
         assert response.status_code in (200, 422), response.json()
 
     @pytest.mark.asyncio
-    async def test_ambiguous_upstream_links_are_rejected(self, client_with_build_v3):
-        """Two upstream links cannot implicitly share one filter."""
+    async def test_filter_is_applied_to_every_upstream_link(self, client_with_build_v3):
+        """Each upstream that links the dimension takes the filter."""
         client = client_with_build_v3
         await _setup_audit_dim(client)
         a = await _setup_audit_log_source(client, "twoupa", "audit_log_twoup_a")
@@ -7814,8 +7831,22 @@ class TestFilterPushdownScope:
                 "filters": ["v3.audit_date_dim.dateint >= 20260101"],
             },
         )
-        assert response.status_code == 422, response.json()
-        assert "eligible relational owners" in response.json()["message"]
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            response.json()["grain_groups"][0]["sql"],
+            """
+            WITH
+            v3_events_two_upstreams AS (
+              SELECT x.account_id, x.event_type
+              FROM default.v3.audit_log_twoup_a AS x
+              JOIN default.v3.audit_log_twoup_b AS y ON x.account_id = y.account_id
+              WHERE x.audit_date >= 20260101 AND y.audit_date >= 20260101
+            )
+            SELECT t1.event_type, t1.account_id
+            FROM v3_events_two_upstreams t1
+            GROUP BY t1.event_type, t1.account_id
+            """,
+        )
 
     @pytest.mark.asyncio
     async def test_transform_link_target(self, client_with_build_v3):
