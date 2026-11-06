@@ -261,13 +261,14 @@ def place_dimension_filters(
     queries: dict[str, ast.Query],
     request: PushdownFilters,
 ) -> None:
-    """Apply a filter on a roled attribute to the dimension that owns the role.
+    """Take each joined dimension and add a WHERE clause when it can bind the
+    request's filter to its own link key.
 
-    A joined dimension with its own link under a role (e.g. ``[measure]``)
-    can bind a filter on that role to its own key column. This applies when
-    the dimension is joined once and no other query reads it. A dimension
-    read from a materialized table has its predicate recorded, for the join
-    to wrap the table with.
+    A dimension with its own link under a role (e.g. ``[measure]``) binds a
+    filter on that role to its own key column. It is skipped when it is joined
+    more than once or read by another query. A dimension read from a
+    materialized table has its predicate recorded, for the join to wrap the
+    table with.
     """
     for name, joins in request.dimension_joins.items():
         node = ctx.nodes[name]
