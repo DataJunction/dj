@@ -686,22 +686,24 @@ def _view_payload(cube: NodeRevision) -> "ViewDetail":
     )
 
 
+def _column_json(column: "MetricInfo | DimensionInfo") -> JSONObject:
+    """Keep nullable column fields while omitting empty optional metadata."""
+    payload = column.model_dump(mode="json")
+    if column.metadata is None:
+        payload.pop("metadata", None)
+    else:
+        payload["metadata"] = column.metadata.model_dump(
+            mode="json",
+            exclude_none=True,
+        )
+    return cast(JSONObject, payload)
+
+
 def _view_detail_json(view: "ViewDetail") -> JSONObject:
-    """Omit empty metadata while retaining nullable fields in the view contract."""
+    """Serialize view details with the same column shape as compatibility lists."""
     payload = view.model_dump(mode="json")
-    columns: list[MetricInfo | DimensionInfo] = [
-        *view.metrics,
-        *view.dimensions,
-    ]
-    serialized_columns = payload["metrics"] + payload["dimensions"]
-    for serialized, column in zip(serialized_columns, columns, strict=True):
-        if column.metadata is None:
-            serialized.pop("metadata", None)
-        else:
-            serialized["metadata"] = column.metadata.model_dump(
-                mode="json",
-                exclude_none=True,
-            )
+    payload["metrics"] = [_column_json(column) for column in view.metrics]
+    payload["dimensions"] = [_column_json(column) for column in view.dimensions]
     return cast(JSONObject, payload)
 
 
@@ -2306,7 +2308,7 @@ async def _compatible_elements(
     session: AsyncSession,
     *,
     metrics: bool,
-) -> list[MetricInfo] | list[DimensionInfo] | JSONResponse:
+) -> JSONResponse:
     """DJ considers all elements on a cube mutually compatible."""
     try:
         cube_node = await Node.get_cube_by_name(
@@ -2336,7 +2338,8 @@ async def _compatible_elements(
                 else SemanticErrorCode.UNKNOWN_DIMENSION
             ),
         )
-    return _metrics_payload(cube_rev) if metrics else _dimensions_payload(cube_rev)
+    columns = _metrics_payload(cube_rev) if metrics else _dimensions_payload(cube_rev)
+    return JSONResponse(content=[_column_json(column) for column in columns])
 
 
 @router.post("/views/{view_name}/compatible-metrics", response_model=list[MetricInfo])
@@ -2346,7 +2349,7 @@ async def compatible_metrics(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> list[MetricInfo] | JSONResponse:
+) -> JSONResponse:
     """Return every metric exposed by this cube."""
     if not await _can_read_view(view_name, access_checker):
         return _view_not_found(view_name)
@@ -2363,7 +2366,7 @@ async def compatible_dimensions(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> list[DimensionInfo] | JSONResponse:
+) -> JSONResponse:
     """Return every dimension exposed by this cube."""
     if not await _can_read_view(view_name, access_checker):
         return _view_not_found(view_name)

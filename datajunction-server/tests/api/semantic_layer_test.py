@@ -171,6 +171,76 @@ class TestQuoteValue:
 
 
 class TestSemanticViewPayloadTypes:
+    @pytest.mark.asyncio
+    async def test_compatible_elements_omit_empty_metadata_fields(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        metric = semantic_layer_api.MetricInfo(
+            id="sem.amount",
+            name="amount",
+            type="floating",
+            definition="sem.amount",
+            description=None,
+            aggregation="OTHER",
+            metadata=semantic_layer_api.ColumnMetadata(
+                display_name="Amount",
+                format=semantic_layer_api.FormatMetadata(preset="currency"),
+            ),
+        )
+        dimension = semantic_layer_api.DimensionInfo(
+            id="sem.region",
+            name="region",
+            type="utf8",
+            definition="sem.region",
+            description=None,
+            grain=None,
+        )
+        cube_revision = SimpleNamespace(
+            cube_node_metrics=[metric.id],
+            cube_node_dimensions=[dimension.id],
+        )
+        monkeypatch.setattr(
+            semantic_layer_api.Node,
+            "get_cube_by_name",
+            AsyncMock(return_value=SimpleNamespace(current=cube_revision)),
+        )
+        monkeypatch.setattr(
+            semantic_layer_api,
+            "_metrics_payload",
+            lambda cube: [metric],
+        )
+        monkeypatch.setattr(
+            semantic_layer_api,
+            "_dimensions_payload",
+            lambda cube: [dimension],
+        )
+
+        body = semantic_layer_api.CompatibilityRequest()
+        metric_response = await semantic_layer_api._compatible_elements(
+            "sem.view",
+            body,
+            None,  # type: ignore[arg-type]
+            metrics=True,
+        )
+        dimension_response = await semantic_layer_api._compatible_elements(
+            "sem.view",
+            body,
+            None,  # type: ignore[arg-type]
+            metrics=False,
+        )
+
+        metric_json = json.loads(metric_response.body)[0]
+        assert metric_json["metadata"] == {
+            "display_name": "Amount",
+            "format": {"preset": "currency"},
+        }
+        assert metric_json["description"] is None
+
+        dimension_json = json.loads(dimension_response.body)[0]
+        assert "metadata" not in dimension_json
+        assert dimension_json["grain"] is None
+
     def test_arrow_type_name_uses_standard_name_only(self):
         assert _arrow_type_name("bigint") == "int"
         assert _arrow_type_name("double") == "floating"
