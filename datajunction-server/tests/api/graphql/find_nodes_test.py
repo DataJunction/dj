@@ -315,6 +315,20 @@ async def test_find_by_fragment(
     # Should find nodes with "Repair" in name or display name
     assert len(nodes) > 0
 
+    # Name matching ignores case. The namespace prefix is not part of any
+    # display name, so this can only match on the node name.
+    query = """
+    {
+        findNodes(fragment: "DEFAULT.REPAIR_ORDERS") {
+            name
+        }
+    }
+    """
+    response = await client_with_roads.post("/graphql", json={"query": query})
+    assert response.status_code == 200
+    names = {node["name"] for node in response.json()["data"]["findNodes"]}
+    assert "default.repair_orders" in names
+
 
 @pytest.mark.asyncio
 async def test_find_by_names(
