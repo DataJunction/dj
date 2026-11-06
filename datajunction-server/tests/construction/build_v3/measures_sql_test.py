@@ -370,6 +370,7 @@ class TestDimensionJoins:
             v3_customer AS (
                 SELECT customer_id, name
                 FROM default.v3.customers
+                WHERE name = 'Abcd'
             ),
             v3_order_details AS (
                 SELECT o.customer_id, oi.quantity, oi.quantity * oi.unit_price AS line_total
@@ -1057,6 +1058,7 @@ class TestMeasuresSQLRoles:
             v3_location AS (
                 SELECT location_id, country
                 FROM default.v3.locations
+                WHERE country = 'US'
             ),
             v3_order_details AS (
                 SELECT o.customer_id, oi.quantity * oi.unit_price AS line_total
@@ -2727,6 +2729,7 @@ class TestMeasuresSQLFilters:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
+                WHERE category = 'Electronics'
             )
             SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
@@ -2766,6 +2769,7 @@ class TestMeasuresSQLFilters:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
+                WHERE category = 'Electronics'
             )
             SELECT t1.status, t2.category, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
@@ -2796,6 +2800,7 @@ class TestMeasuresSQLFilters:
             v3_date AS (
                 SELECT date_id, year
                 FROM default.v3.dates
+                WHERE year >= 2024
             ),
             v3_order_details AS (
                 SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
@@ -3159,22 +3164,15 @@ class TestTemporalFilters:
             result.grain_groups[0].sql,
             """
             WITH v3_order_details AS (
-              SELECT
-                o.order_date,
-                oi.quantity * oi.unit_price AS line_total
-              FROM default.v3.orders AS o
-              JOIN default.v3.order_items AS oi
-                ON o.order_id = oi.order_id
-              WHERE
-                o.order_date > 20200101
-                AND order_date = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
+                SELECT o.order_date, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+                WHERE order_date = CAST(DATE_FORMAT(CAST(DJ_LOGICAL_TIMESTAMP() AS TIMESTAMP), 'yyyyMMdd') AS INT)
+                  AND o.order_date > 20200101
             )
-            SELECT
-              t1.order_date AS date_id,
-              SUM(t1.line_total) AS line_total_sum_e1f61696
-            FROM v3_order_details AS t1
-            GROUP BY
-              t1.order_date
+            SELECT t1.order_date date_id, SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            GROUP BY t1.order_date
             """,
         )
 
@@ -4651,6 +4649,7 @@ class TestFilterOnlyDimensions:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
+                WHERE category = 'Electronics'
             )
             SELECT t1.status, SUM(t1.line_total) line_total_sum_e1f61696
             FROM v3_order_details t1
@@ -6232,12 +6231,16 @@ class TestOuterJoinFilterSafety:
         assert response.status_code in (200, 201), response.text
 
     @pytest.mark.asyncio
-    async def test_local_filter_on_non_preserved_side_constrains_parent_output(
+    async def test_local_filter_on_non_preserved_side_wraps_inside_parent_cte(
         self,
         client_with_build_v3,
         setup_right_outer_join_parent,
     ):
-        """The requested status must hold on the fact output, including after NULL-fill."""
+        """A filter on ``status`` (a column from the non-preserved ``o`` side)
+        must be applied INSIDE the orders subquery — before the RIGHT OUTER
+        JOIN — not in the CTE body's WHERE.  Verifies the inner-side wrapping
+        path inside ``_inject_filter_into_where``.
+        """
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -6255,9 +6258,8 @@ class TestOuterJoinFilterSafety:
                 SELECT
                     d.date_id,
                     o.order_id
-                FROM default.v3.orders o
+                FROM (SELECT * FROM default.v3.orders o WHERE o.status = 'completed') o
                 RIGHT OUTER JOIN default.v3.dates d ON o.order_date = d.date_id
-                WHERE o.status = 'completed'
             )
             SELECT
                 t1.date_id,
@@ -6319,7 +6321,10 @@ class TestUpstreamFilterOnlyPushdown:
         self,
         module__client_with_build_v3,
     ):
-        """An upstream link binds at its wrapper consumer without narrowing the shared producer."""
+        """v3.order_details has a link to v3.product on product_id. A wrapper
+        transform that selects FROM v3.order_details has no links of its own.
+        Filtering on v3.product.product_id should resolve to the wrapper's
+        product_id column via upstream link traversal."""
         client = module__client_with_build_v3
 
         await client.post(
@@ -6365,29 +6370,29 @@ class TestUpstreamFilterOnlyPushdown:
         assert_sql_equal(
             data["sql"],
             """
-            WITH v3_order_details AS (
-              SELECT
-                o.order_id,
-                oi.product_id,
-                oi.quantity,
-                oi.unit_price
-              FROM default.v3.orders AS o
-              JOIN default.v3.order_items AS oi
-                ON o.order_id = oi.order_id
-            ), v3_order_details_wrapper_filter_only AS (
-              SELECT
-                order_id,
-                quantity * unit_price AS line_total
-              FROM v3_order_details AS order_details
-              WHERE
-                order_details.product_id = 7
+            WITH
+            v3_order_details AS (
+                SELECT
+                    o.order_id,
+                    oi.product_id,
+                    oi.quantity,
+                    oi.unit_price
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+                WHERE oi.product_id = 7
+            ),
+            v3_order_details_wrapper_filter_only AS (
+                SELECT
+                    order_id,
+                    quantity * unit_price AS line_total
+                FROM v3_order_details
+                WHERE product_id = 7
             )
             SELECT
-              t1.order_id,
-              SUM(t1.line_total) AS line_total_sum_HASH
-            FROM v3_order_details_wrapper_filter_only AS t1
-            GROUP BY
-              t1.order_id
+                t1.order_id,
+                SUM(t1.line_total) line_total_sum_HASH
+            FROM v3_order_details_wrapper_filter_only t1
+            GROUP BY t1.order_id
             """,
             normalize_aliases=True,
         )
@@ -6397,7 +6402,12 @@ class TestUpstreamFilterOnlyPushdown:
         self,
         module__client_with_build_v3,
     ):
-        """A hidden source key filters its unique relation before the consuming aggregation."""
+        """A filter-only dim whose FK column lives on an upstream SOURCE
+        and is NOT projected up to the parent transform must be pushed
+        into the child transform's CTE, qualified by the source's alias.
+        Exercises ``_resolve_pushdown_target`` for the SOURCE branch and
+        ``_rewrite_filter_col_refs`` with a qualifier.
+        """
         client = module__client_with_build_v3
 
         await client.post(
@@ -6496,23 +6506,22 @@ class TestUpstreamFilterOnlyPushdown:
             sql,
             """
             WITH v3_account_events AS (
-              SELECT
-                account_id,
-                event_type,
-                COUNT(*) AS event_count
-              FROM default.v3.audit_log AS a
-              WHERE
-                a.audit_date >= 20260101 AND a.audit_date <= 20260131 AND event_type = 'login'
-              GROUP BY
-                account_id,
-                event_type
+                SELECT
+                    account_id,
+                    event_type,
+                    COUNT(*) AS event_count
+                FROM default.v3.audit_log a
+                WHERE
+                    a.audit_date >= 20260101
+                    AND a.audit_date <= 20260131
+                    AND event_type = 'login'
+                GROUP BY account_id, event_type
             )
             SELECT
-              t1.event_type,
-              SUM(t1.event_count) AS event_count_sum_HASH
-            FROM v3_account_events AS t1
-            GROUP BY
-              t1.event_type
+                t1.event_type,
+                SUM(t1.event_count) event_count_sum_HASH
+            FROM v3_account_events t1
+            GROUP BY t1.event_type
             """,
             normalize_aliases=True,
         )
@@ -6634,7 +6643,12 @@ class TestUpstreamFilterOnlyPushdown:
         self,
         module__client_with_build_v3,
     ):
-        """A linked transform is filtered at its relation occurrence, retaining its authored definition."""
+        """A filter-only dim whose link lives on a TRANSFORM upstream (not
+        a SOURCE) and whose FK column is NOT projected onto the parent
+        gets pushed into the linked transform's own CTE — unaliased,
+        because we know the FK column name on that CTE directly.
+        Exercises ``_resolve_pushdown_target``'s TRANSFORM branch.
+        """
         client = module__client_with_build_v3
 
         await client.post(
@@ -6743,30 +6757,26 @@ class TestUpstreamFilterOnlyPushdown:
             sql,
             """
             WITH v3_session_durations AS (
-              SELECT
-                session_id,
-                event_date,
-                SUM(duration_sec) AS total_duration
-              FROM default.v3.session_events
-              GROUP BY
-                session_id,
-                event_date
-            ), v3_session_totals AS (
-              SELECT
-                session_id,
-                SUM(total_duration) AS lifetime_duration
-              FROM v3_session_durations AS session_durations
-              WHERE
-                session_durations.event_date = 20260101
-              GROUP BY
-                session_id
+                SELECT
+                    session_id,
+                    event_date,
+                    SUM(duration_sec) AS total_duration
+                FROM default.v3.session_events
+                WHERE event_date = 20260101
+                GROUP BY session_id, event_date
+            ),
+            v3_session_totals AS (
+                SELECT
+                    session_id,
+                    SUM(total_duration) AS lifetime_duration
+                FROM v3_session_durations
+                GROUP BY session_id
             )
             SELECT
-              t1.session_id,
-              SUM(t1.lifetime_duration) AS lifetime_duration_sum_HASH
-            FROM v3_session_totals AS t1
-            GROUP BY
-              t1.session_id
+                t1.session_id,
+                SUM(t1.lifetime_duration) lifetime_duration_sum_HASH
+            FROM v3_session_totals t1
+            GROUP BY t1.session_id
             """,
             normalize_aliases=True,
         )
@@ -6887,39 +6897,38 @@ class TestUpstreamFilterOnlyPushdown:
         assert_sql_equal(
             sql,
             """
-            WITH v3_allocation_absorb AS (
-              SELECT
-                customer_id,
-                campaign,
-                allocated_date
-              FROM default.v3.allocations_absorb
-            ), v3_order_details AS (
-              SELECT
-                o.customer_id,
-                o.order_date,
-                oi.product_id,
-                oi.quantity,
-                oi.unit_price
-              FROM default.v3.orders AS o
-              JOIN default.v3.order_items AS oi
-                ON o.order_id = oi.order_id
-            ), v3_order_details_absorb_wrapper AS (
-              SELECT
-                customer_id,
-                order_date,
-                quantity * unit_price AS line_total
-              FROM v3_order_details AS order_details
-              WHERE
-                order_details.product_id = 7
+            WITH
+            v3_allocation_absorb AS (
+                SELECT customer_id, campaign, allocated_date
+                FROM default.v3.allocations_absorb
+            ),
+            v3_order_details AS (
+                SELECT
+                    o.customer_id,
+                    o.order_date,
+                    oi.product_id,
+                    oi.quantity,
+                    oi.unit_price
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+                WHERE oi.product_id = 7
+            ),
+            v3_order_details_absorb_wrapper AS (
+                SELECT
+                    customer_id,
+                    order_date,
+                    quantity * unit_price AS line_total
+                FROM v3_order_details
+                WHERE product_id = 7
             )
             SELECT
-              t2.campaign,
-              SUM(t1.line_total) AS line_total_sum_HASH
-            FROM v3_order_details_absorb_wrapper AS t1
-            RIGHT OUTER JOIN v3_allocation_absorb AS t2
-              ON t1.customer_id = t2.customer_id AND t1.order_date = t2.allocated_date
-            GROUP BY
-              t2.campaign
+                t2.campaign,
+                SUM(t1.line_total) line_total_sum_HASH
+            FROM v3_order_details_absorb_wrapper t1
+            RIGHT OUTER JOIN v3_allocation_absorb t2
+                ON t1.customer_id = t2.customer_id
+                AND t1.order_date = t2.allocated_date
+            GROUP BY t2.campaign
             """,
             normalize_aliases=True,
         )
@@ -7102,34 +7111,26 @@ class TestFilterPushdownScope:
             sql,
             """
             WITH v3_events_nested AS (
-              SELECT
-                account_id,
-                event_type
+              SELECT account_id, event_type
               FROM (
-                SELECT
-                  account_id,
-                  event_type
+                SELECT account_id, event_type
                 FROM default.v3.audit_log_nested AS inner_src
-                WHERE
-                  inner_src.audit_date >= 20260101
+                WHERE inner_src.audit_date >= 20260101
               ) AS wrap
-              GROUP BY
-                account_id,
-                event_type
+              GROUP BY account_id, event_type
             )
-            SELECT
-              t1.event_type,
-              t1.account_id
-            FROM v3_events_nested AS t1
-            GROUP BY
-              t1.event_type,
-              t1.account_id
+            SELECT t1.event_type, t1.account_id
+            FROM v3_events_nested t1
+            GROUP BY t1.event_type, t1.account_id
             """,
         )
 
     @pytest.mark.asyncio
-    async def test_ambiguous_self_join_filter_is_rejected(self, client_with_build_v3):
-        """A source link cannot choose between two relational instances of that source."""
+    async def test_self_join_filters_both_aliases(self, client_with_build_v3):
+        """Same source aliased twice in a single FROM.  The dim filter
+        logically applies to both instances — v3 injects one filter per
+        Table match, each qualified with that instance's alias.
+        """
         client = client_with_build_v3
         await _setup_audit_dim(client)
         src = await _setup_audit_log_source(client, "selfjoin", "audit_log_selfjoin")
@@ -7164,8 +7165,24 @@ class TestFilterPushdownScope:
                 "filters": ["v3.audit_date_dim.dateint >= 20260101"],
             },
         )
-        assert response.status_code == 422, response.json()
-        assert "eligible relational owners" in response.json()["message"]
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_events_self_join AS (
+              SELECT a1.account_id, a1.event_type
+              FROM default.v3.audit_log_selfjoin AS a1
+              JOIN default.v3.audit_log_selfjoin AS a2
+                ON a1.account_id = a2.account_id
+              WHERE a1.audit_date >= 20260101
+                AND a2.audit_date >= 20260101
+            )
+            SELECT t1.event_type, t1.account_id
+            FROM v3_events_self_join t1
+            GROUP BY t1.event_type, t1.account_id
+            """,
+        )
 
     @pytest.mark.asyncio
     async def test_source_inside_inner_with_cte(
@@ -7220,34 +7237,31 @@ class TestFilterPushdownScope:
             sql,
             """
             WITH v3_events_with_cte__inner_cte AS (
-              SELECT
-                account_id,
-                event_type
+              SELECT account_id, event_type
               FROM default.v3.audit_log_withcte AS src
-              WHERE
-                src.audit_date >= 20260101
-            ), v3_events_with_cte AS (
-              SELECT
-                account_id,
-                event_type
-              FROM v3_events_with_cte__inner_cte AS inner_cte
+              WHERE src.audit_date >= 20260101
+            ),
+            v3_events_with_cte AS (
+              SELECT account_id, event_type
+              FROM v3_events_with_cte__inner_cte inner_cte
             )
-            SELECT
-              t1.event_type,
-              t1.account_id
-            FROM v3_events_with_cte AS t1
-            GROUP BY
-              t1.event_type,
-              t1.account_id
+            SELECT t1.event_type, t1.account_id
+            FROM v3_events_with_cte t1
+            GROUP BY t1.event_type, t1.account_id
             """,
         )
 
     @pytest.mark.asyncio
-    async def test_rejects_filter_on_source_only_in_where_exists(
+    async def test_source_inside_where_exists_subquery(
         self,
         client_with_build_v3,
     ):
-        """A source used only in an expression cannot own a request filter."""
+        """Source referenced *only* inside a ``WHERE EXISTS`` correlated
+        subquery.  The filter lands in the EXISTS subquery's WHERE —
+        narrowing the semi-join.  Semantically that means "only outer
+        rows for which a matching inner row also satisfies the dim
+        filter", which is the natural reading of the user's intent.
+        """
         client = client_with_build_v3
         await _setup_audit_dim(client)
         src = await _setup_audit_log_source(client, "exists", "audit_log_exists")
@@ -7303,15 +7317,37 @@ class TestFilterPushdownScope:
                 "filters": ["v3.audit_date_dim.dateint >= 20260101"],
             },
         )
-        assert response.status_code == 422, response.json()
-        assert "eligible relational owners" in response.json()["message"]
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_events_exists AS (
+              SELECT acc.account_id, acc.event_type
+              FROM default.v3.accounts_exists AS acc
+              WHERE EXISTS (
+                SELECT 1
+                FROM default.v3.audit_log_exists AS log
+                WHERE log.account_id = acc.account_id
+                  AND log.audit_date >= 20260101
+              )
+            )
+            SELECT t1.event_type, t1.account_id
+            FROM v3_events_exists t1
+            GROUP BY t1.event_type, t1.account_id
+            """,
+        )
 
     @pytest.mark.asyncio
-    async def test_hidden_key_in_union_arm_is_rejected(
+    async def test_set_op_with_nested_subquery_in_non_leading_arm(
         self,
         client_with_build_v3,
     ):
-        """A hidden key in one UNION arm cannot constrain the complete output."""
+        """A UNION-ALL transform whose *non-leading* arm wraps the linked
+        source in a nested subquery.  Both fixes have to compose: the
+        set-op fix routes us to the right arm, the nested-subquery fix
+        routes us further down to the inner SELECT inside that arm.
+        """
         client = client_with_build_v3
         await _setup_audit_dim(client)
         # The leading arm reads from an *unrelated* source (no dim link).
@@ -7367,8 +7403,27 @@ class TestFilterPushdownScope:
                 "filters": ["v3.audit_date_dim.dateint >= 20260101"],
             },
         )
-        assert response.status_code == 422, response.json()
-        assert "eligible relational owners" in response.json()["message"]
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_events_union_nested AS (
+              SELECT account_id, event_type
+              FROM default.v3.other_events
+              UNION ALL
+              SELECT account_id, event_type
+              FROM (
+                SELECT account_id, event_type
+                FROM default.v3.audit_log_setopn AS deep
+                WHERE deep.audit_date >= 20260101
+              ) AS wrap
+            )
+            SELECT t1.event_type, t1.account_id
+            FROM v3_events_union_nested t1
+            GROUP BY t1.event_type, t1.account_id
+            """,
+        )
 
     @pytest.mark.asyncio
     async def test_multiple_filters_same_source_different_scopes(
@@ -7424,33 +7479,25 @@ class TestFilterPushdownScope:
             sql,
             """
             WITH v3_events_two_filters AS (
-              SELECT
-                account_id,
-                event_type
+              SELECT account_id, event_type
               FROM (
-                SELECT
-                  account_id,
-                  event_type
+                SELECT account_id, event_type
                 FROM default.v3.audit_log_twoflt AS inner_src
-                WHERE
-                  inner_src.audit_date >= 20260101 AND inner_src.audit_date <= 20260131
+                WHERE inner_src.audit_date >= 20260101
+                  AND inner_src.audit_date <= 20260131
               ) AS wrap
             )
-            SELECT
-              t1.event_type,
-              t1.account_id
-            FROM v3_events_two_filters AS t1
-            GROUP BY
-              t1.event_type,
-              t1.account_id
+            SELECT t1.event_type, t1.account_id
+            FROM v3_events_two_filters t1
+            GROUP BY t1.event_type, t1.account_id
             """,
         )
 
     @pytest.mark.asyncio
     async def test_source_in_from_and_in_where_exists(self, client_with_build_v3):
         """Source referenced in both a top-level FROM and an EXISTS
-        subquery in the same transform. Only the outer row source owns the
-        request filter; the authored EXISTS predicate must stay unchanged.
+        subquery in the same transform.  Multi-match must filter both
+        aliases — one in the outer WHERE, one in the EXISTS WHERE.
         """
         client = client_with_build_v3
         await _setup_audit_dim(client)
@@ -7495,27 +7542,19 @@ class TestFilterPushdownScope:
             sql,
             """
             WITH v3_events_from_exists AS (
-              SELECT
-                a.account_id,
-                a.event_type
+              SELECT a.account_id, a.event_type
               FROM default.v3.audit_log_fe AS a
-              WHERE
-                EXISTS(
-                  SELECT
-                    1
-                  FROM default.v3.audit_log_fe AS b
-                  WHERE
-                    b.account_id = a.account_id
-                )
-                AND a.audit_date >= 20260101
+              WHERE EXISTS (
+                SELECT 1
+                FROM default.v3.audit_log_fe AS b
+                WHERE b.account_id = a.account_id
+                  AND b.audit_date >= 20260101
+              )
+              AND a.audit_date >= 20260101
             )
-            SELECT
-              t1.event_type,
-              t1.account_id
-            FROM v3_events_from_exists AS t1
-            GROUP BY
-              t1.event_type,
-              t1.account_id
+            SELECT t1.event_type, t1.account_id
+            FROM v3_events_from_exists t1
+            GROUP BY t1.event_type, t1.account_id
             """,
         )
 
@@ -7561,29 +7600,21 @@ class TestFilterPushdownScope:
             sql,
             """
             WITH v3_events_no_alias AS (
-              SELECT
-                account_id,
-                event_type
-              FROM default.v3.audit_log_noalias AS src_audit_log_noalias
-              WHERE
-                src_audit_log_noalias.audit_date >= 20260101
+              SELECT account_id, event_type
+              FROM default.v3.audit_log_noalias
+              WHERE src_audit_log_noalias.audit_date >= 20260101
             )
-            SELECT
-              t1.event_type,
-              t1.account_id
-            FROM v3_events_no_alias AS t1
-            GROUP BY
-              t1.event_type,
-              t1.account_id
+            SELECT t1.event_type, t1.account_id
+            FROM v3_events_no_alias t1
+            GROUP BY t1.event_type, t1.account_id
             """,
         )
 
     @pytest.mark.asyncio
-    async def test_rejects_filter_on_source_only_in_having_subquery(
-        self,
-        client_with_build_v3,
-    ):
-        """A source used only in an expression cannot own a request filter."""
+    async def test_source_in_having_subquery(self, client_with_build_v3):
+        """Source referenced inside a HAVING-clause scalar subquery.
+        The filter lands in that subquery's WHERE.
+        """
         client = client_with_build_v3
         await _setup_audit_dim(client)
         src = await _setup_audit_log_source(client, "having", "audit_log_having")
@@ -7636,15 +7667,36 @@ class TestFilterPushdownScope:
                 "filters": ["v3.audit_date_dim.dateint >= 20260101"],
             },
         )
-        assert response.status_code == 422, response.json()
-        assert "eligible relational owners" in response.json()["message"]
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_events_having AS (
+              SELECT acc.account_id, acc.event_type
+              FROM default.v3.acct_having AS acc
+              GROUP BY acc.account_id, acc.event_type
+              HAVING COUNT(acc.audit_id) > (
+                SELECT COUNT(*)
+                FROM default.v3.audit_log_having AS log
+                WHERE log.audit_date >= 20260101
+              )
+            )
+            SELECT t1.event_type, t1.account_id
+            FROM v3_events_having t1
+            GROUP BY t1.event_type, t1.account_id
+            """,
+        )
 
     @pytest.mark.asyncio
-    async def test_rejects_filter_on_source_only_in_scalar_subquery(
+    async def test_source_in_select_list_scalar_subquery(
         self,
         client_with_build_v3,
     ):
-        """A source used only in an expression cannot own a request filter."""
+        """Source inside a SELECT-list scalar subquery.  The filter
+        narrows the scalar — that's the natural reading (constrain the
+        underlying rows the scalar computes over).
+        """
         client = client_with_build_v3
         await _setup_audit_dim(client)
         src = await _setup_audit_log_source(client, "scalar", "audit_log_scalar")
@@ -7694,8 +7746,22 @@ class TestFilterPushdownScope:
                 "filters": ["v3.audit_date_dim.dateint >= 20260101"],
             },
         )
-        assert response.status_code == 422, response.json()
-        assert "eligible relational owners" in response.json()["message"]
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_events_scalar AS (
+              SELECT acc.account_id, acc.event_type,
+                (SELECT MAX(log.audit_id) FROM default.v3.audit_log_scalar AS log
+                 WHERE log.audit_date >= 20260101) AS max_id
+              FROM default.v3.acct_scalar AS acc
+            )
+            SELECT t1.event_type, t1.account_id
+            FROM v3_events_scalar t1
+            GROUP BY t1.event_type, t1.account_id
+            """,
+        )
 
     @pytest.mark.asyncio
     async def test_chained_dim_link_intermediate_dim(self, client_with_build_v3):
@@ -7775,8 +7841,13 @@ class TestFilterPushdownScope:
         assert response.status_code in (200, 422), response.json()
 
     @pytest.mark.asyncio
-    async def test_ambiguous_upstream_links_are_rejected(self, client_with_build_v3):
-        """Two upstream links cannot implicitly share one filter."""
+    async def test_two_upstreams_linked_to_same_dim(self, client_with_build_v3):
+        """Two distinct sources, each independently linked to the same
+        dim.  A transform scans both.  The BFS finds two candidates; the
+        filter is rewritten + injected for each.  The redundant double
+        application is harmless (predicates AND together) but it shows
+        the lack of de-duplication across candidates.
+        """
         client = client_with_build_v3
         await _setup_audit_dim(client)
         a = await _setup_audit_log_source(client, "twoupa", "audit_log_twoup_a")
@@ -7814,8 +7885,24 @@ class TestFilterPushdownScope:
                 "filters": ["v3.audit_date_dim.dateint >= 20260101"],
             },
         )
-        assert response.status_code == 422, response.json()
-        assert "eligible relational owners" in response.json()["message"]
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_events_two_upstreams AS (
+              SELECT x.account_id, x.event_type
+              FROM default.v3.audit_log_twoup_a AS x
+              JOIN default.v3.audit_log_twoup_b AS y
+                ON x.account_id = y.account_id
+              WHERE x.audit_date >= 20260101
+                AND y.audit_date >= 20260101
+            )
+            SELECT t1.event_type, t1.account_id
+            FROM v3_events_two_upstreams t1
+            GROUP BY t1.event_type, t1.account_id
+            """,
+        )
 
     @pytest.mark.asyncio
     async def test_transform_link_target(self, client_with_build_v3):
@@ -7908,26 +7995,17 @@ class TestFilterPushdownScope:
             sql,
             """
             WITH v3_events_with_date AS (
-              SELECT
-                account_id,
-                event_type,
-                audit_date
+              SELECT account_id, event_type
               FROM default.v3.audit_log_txlink_unlinked AS s
-            ), v3_events_wrapping AS (
-              SELECT
-                account_id,
-                event_type
-              FROM v3_events_with_date AS events_with_date
-              WHERE
-                events_with_date.audit_date >= 20260101
+              WHERE audit_date >= 20260101
+            ),
+            v3_events_wrapping AS (
+              SELECT account_id, event_type
+              FROM v3_events_with_date
             )
-            SELECT
-              t1.event_type,
-              t1.account_id
-            FROM v3_events_wrapping AS t1
-            GROUP BY
-              t1.event_type,
-              t1.account_id
+            SELECT t1.event_type, t1.account_id
+            FROM v3_events_wrapping t1
+            GROUP BY t1.event_type, t1.account_id
             """,
         )
 
@@ -8016,26 +8094,17 @@ class TestFilterPushdownScope:
             sql,
             """
             WITH v3_events_double_link AS (
-              SELECT
-                account_id,
-                event_type,
-                audit_date
+              SELECT account_id, event_type
               FROM default.v3.audit_log_txlinkdouble AS s
-            ), v3_events_double_link_wrap AS (
-              SELECT
-                account_id,
-                event_type
-              FROM v3_events_double_link AS events_double_link
-              WHERE
-                events_double_link.audit_date >= 20260101
+              WHERE audit_date >= 20260101
+                AND s.audit_date >= 20260101
+            ),
+            v3_events_double_link_wrap AS (
+              SELECT account_id, event_type FROM v3_events_double_link
             )
-            SELECT
-              t1.event_type,
-              t1.account_id
-            FROM v3_events_double_link_wrap AS t1
-            GROUP BY
-              t1.event_type,
-              t1.account_id
+            SELECT t1.event_type, t1.account_id
+            FROM v3_events_double_link_wrap t1
+            GROUP BY t1.event_type, t1.account_id
             """,
         )
 
@@ -8193,9 +8262,10 @@ class TestWrapperCTEAbsorption:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
+                WHERE category = 'Electronics'
             ),
             v3_order_details_filtered AS (
-                SELECT t1.*, t2.category
+                SELECT *, t2.category
                 FROM v3_order_details t1
                 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
                 WHERE t2.category = 'Electronics'
@@ -8309,6 +8379,7 @@ class TestWrapperCTEAbsorption:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
+                WHERE category = 'Electronics'
             )
             SELECT t2.category, SUM(t1.line_total) line_total_sum_HASH
             FROM v3_order_details t1
@@ -8684,9 +8755,10 @@ class TestWrapperCTEAbsorption:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
+                WHERE category = 'Electronics'
             ),
             v3_order_details_filtered AS (
-                SELECT t1.*, t2.category
+                SELECT *, t2.category
                 FROM v3_order_details t1
                 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
                 WHERE t2.category = 'Electronics'
@@ -9191,27 +9263,19 @@ class TestParentCteFilterLanding:
         assert_sql_equal(
             sql,
             """
-            WITH v3_events_union AS (
-              SELECT
-                event_date,
-                value,
-                'a' AS branch
-              FROM default.v3.events_setop
-              UNION ALL
-              SELECT
-                event_date,
-                value,
-                'b' AS branch
-              FROM default.v3.events_setop
+            WITH
+            v3_events_union AS (
+                SELECT value, 'a' AS branch
+                FROM default.v3.events_setop
+                WHERE event_date >= 20260101
+                UNION ALL
+                SELECT value, 'b' AS branch
+                FROM default.v3.events_setop
             )
-            SELECT
-              t1.branch,
-              SUM(t1.value) AS value_sum_HASH
-            FROM v3_events_union AS t1
-            WHERE
-              t1.event_date >= 20260101 AND t1.branch = 'a'
-            GROUP BY
-              t1.branch
+            SELECT t1.branch, SUM(t1.value) value_sum_HASH
+            FROM v3_events_union t1
+            WHERE t1.branch = 'a'
+            GROUP BY t1.branch
             """,
             normalize_aliases=True,
         )
@@ -9325,6 +9389,7 @@ class TestParentCteFilterLanding:
             v3_right_spine_dim AS (
               SELECT spine_id, account_id
               FROM default.v3.right_spine
+              WHERE account_id IN (1, 2, 3)
             )
             SELECT t2.spine_id, SUM(t1.value) value_sum_HASH
             FROM (SELECT *
@@ -9338,11 +9403,22 @@ class TestParentCteFilterLanding:
         )
 
     @pytest.mark.asyncio
-    async def test_filter_on_left_joined_side_constrains_parent_output(
+    async def test_filter_on_left_joined_side_inside_source_body_skips_pushdown(
         self,
         client_with_build_v3,
     ):
-        """A filter on an exposed side key must hold after the authored LEFT JOIN."""
+        """Regression for the XP-style LEFT JOIN bug.
+
+        A transform's source body LEFT-joins a side fact to a primary.
+        A filter on a column from the side fact (the null-producing side
+        of the LEFT JOIN inside the source) must NOT be pushed into the
+        CTE's WHERE — that would NULL-reject primary rows whose side
+        fact has no match and silently turn the LEFT JOIN into an INNER.
+
+        With the null-producing-side check in ``_resolve_pushdown_form``,
+        DJ declines the pushdown for such columns and the filter falls
+        through to the outer scope where it's safe.
+        """
         client = client_with_build_v3
 
         # Side fact — the null-producing side under the LEFT JOIN inside
@@ -9450,16 +9526,25 @@ class TestParentCteFilterLanding:
         assert response.status_code == 200, response.json()
         sql = get_first_grain_group(response.json())["sql"]
 
-        # This key is exposed by the fact, so the request constrains its
-        # output rather than changing the authored join's input rows.
+        # DJ wraps the LEFT-joined inner side (``side_measurements``)
+        # with an inline subquery that pre-applies the filter, then the
+        # outer LEFT JOIN preserves primary rows that have no matching
+        # filtered side row.  The filter does NOT sit at the CTE's
+        # top-level WHERE (which would defeat the LEFT JOIN by
+        # NULL-rejecting unmatched primary rows).  This is the
+        # ``_try_push_filter_into_outer_join_side`` safety mechanism
+        # in action — see ``cte.py:1021``.
         assert_sql_equal(
             sql,
             """
             WITH v3_events_with_side AS (
               SELECT e.account_id
               FROM default.v3.events_left_join_primary AS e
-              LEFT JOIN default.v3.side_measurements AS s ON e.account_id = s.account_id
-              WHERE s.measure_date = 20260101
+              LEFT JOIN (
+                SELECT *
+                FROM default.v3.side_measurements AS s
+                WHERE s.measure_date = 20260101
+              ) s ON e.account_id = s.account_id
             )
             SELECT t1.account_id, COUNT(*) count_HASH
             FROM v3_events_with_side t1
@@ -9469,13 +9554,23 @@ class TestParentCteFilterLanding:
         )
 
     @pytest.mark.asyncio
-    async def test_fact_filter_does_not_narrow_nested_source_reuse(
+    async def test_filter_pushes_into_nested_subquery_self_reference(
         self,
         client_with_build_v3,
     ):
-        """A fact filter belongs to the outer scan even when a nested join reads the same
-        source. The nested scan keeps its authored signup predicate, preserving the rows
-        used to compute its result."""
+        """Transform body references the same source table twice: once
+        at the top-level FROM (alias ``a``) and once inside a nested
+        subquery on the LEFT-joined side (alias ``a2``).  A filter on
+        a column owned by that source must land at BOTH references —
+        not just the top-level one — so Spark partition pruning fires
+        at both scans (and the inner subquery doesn't full-scan).
+
+        Mirrors the XP-style transform pattern where an inner subquery
+        joins ``allocation_core_d a2`` for account-FK lookup.  The
+        direct dim-link pushdown path used to inject only at the
+        top-level alias; the inner ``a2`` reference would scan
+        unfiltered.  This test pins down the v2-parity fix.
+        """
         client = client_with_build_v3
 
         # Source: a fact-shaped table with a partition-eligible date column.
@@ -9568,7 +9663,7 @@ class TestParentCteFilterLanding:
                 FROM default.v3.subs_lifecycle AS rev
                 JOIN default.v3.events_nested_self_ref AS a2
                   ON a2.account_id = rev.account_id
-                WHERE rev.signup_ts_ms > 0
+                WHERE rev.signup_ts_ms > 0 AND a2.event_date = 20260101
               ) AS s ON a.account_id = s.account_id
               WHERE a.event_date = 20260101
             )
@@ -9580,13 +9675,26 @@ class TestParentCteFilterLanding:
         )
 
     @pytest.mark.asyncio
-    async def test_dimension_link_filter_stays_on_its_consuming_alias(
+    async def test_filter_pushes_into_dim_cte_via_local_link(
         self,
         client_with_build_v3,
     ):
-        """A fact and a joined dimension can link the same date through differently named
-        columns. Filter the fact through its own key and the dimension through its
-        consuming alias, keeping the dimension CTE reusable."""
+        """Each CTE consults its OWN dim links for pushdown, not just the
+        parent's.
+
+        When a fact and a separately-linked dim each map the same dim ref
+        to differently-named local columns, the parent-derived alias map
+        only knows the fact's column.  The dim CTE has its own column
+        for the same dim, but pushdown used to miss it.  This test pins
+        the per-CTE alias resolution that consults each node's own
+        ``dimension_links``.
+
+        Shape: a single dim node ``v3.shared_date_dim`` is linked by
+        both a fact (``column_a → shared_date_dim.dateint``) and a
+        separate dim transform (``column_b → shared_date_dim.dateint``).
+        A filter on ``shared_date_dim.dateint`` must land in both CTEs,
+        using each one's own local column name.
+        """
         client = client_with_build_v3
 
         # The shared dim node.
@@ -9744,6 +9852,7 @@ class TestParentCteFilterLanding:
             WITH v3_dim_transform_dual AS (
               SELECT account_id, column_b
               FROM default.v3.dim_dual
+              WHERE column_b = 20260101
             ),
             v3_fact_transform_dual AS (
               SELECT account_id, value
@@ -9879,11 +9988,25 @@ class TestParentCteFilterLanding:
         )
 
     @pytest.mark.asyncio
-    async def test_filter_uses_projected_key_from_owning_scope(
+    async def test_filter_disambiguates_joined_tables_via_dim_link(
         self,
         client_with_build_v3,
     ):
-        """A hidden allocation key follows its explicit source link without constraining a same-named sibling column."""
+        """When an inner subquery's FROM has two Tables exposing the
+        same bare column, the filter must route to the Table whose
+        ``dimension_link`` references the filter's dim — not a
+        first-write-wins arbitrary pick.
+
+        Regression from a real Netflix XP query: an inner subquery
+        had ``subscription_lifecycle_cohort_d rev JOIN
+        allocation_core_d a2 ON ...`` where BOTH tables expose
+        ``snapshot_utc_date``.  The filter
+        ``allocation_snapshot_date.dateint = X`` is supposed to
+        constrain allocation_core_d (a2) since that's the linked
+        table; first-write-wins picked ``rev`` instead, sending
+        the predicate to the wrong table and changing result
+        semantics.  This test pins the dim-link-aware routing.
+        """
         client = client_with_build_v3
 
         # Allocation source — linked to the alloc-date dim.
@@ -10013,7 +10136,7 @@ class TestParentCteFilterLanding:
         # processed first in the inner subquery's FROM and would
         # otherwise win first-write-wins.
         assert "a.snapshot_utc_date = 20260520" in sql, (
-            f"Filter not bound to the projected allocation key:\n{sql}"
+            f"Filter not routed to allocation table via dim link:\n{sql}"
         )
         assert "sib.snapshot_utc_date = 20260520" not in sql, (
             f"Filter mis-routed to sibling table that has no dim link:\n{sql}"
@@ -10452,6 +10575,7 @@ class TestParentCteFilterLanding:
             WITH v3_alias_collide_label_dim AS (
               SELECT window_label
               FROM default.v3.alias_collide_labels
+              WHERE window_label = 'demo'
             ),
             v3_alias_collide_xform AS (
               SELECT a.account_id
@@ -10459,6 +10583,7 @@ class TestParentCteFilterLanding:
                 SELECT a.account_id, a.event_date, a.value, w.window_label
                 FROM default.v3.events_alias_collide AS a
                 CROSS JOIN v3_alias_collide_label_dim AS w
+                WHERE w.window_label = 'demo'
               ) AS a
               WHERE a.window_label = 'demo'
             )

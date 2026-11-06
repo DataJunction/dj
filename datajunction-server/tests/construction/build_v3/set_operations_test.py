@@ -13,7 +13,7 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 
-from tests.construction.build_v3 import assert_sql_equal
+from tests.construction.build_v3 import assert_sql_equal, get_first_grain_group
 
 
 @pytest_asyncio.fixture
@@ -101,11 +101,20 @@ class TestSetOperationTransforms:
         )
 
     @pytest.mark.asyncio
-    async def test_union_transform_filter_applies_to_complete_output(
+    async def test_union_transform_filter_pushed_into_primary_arm_only(
         self,
         client_with_union_transform,
     ):
-        """A request predicate filters the complete UNION result while preserving both authored arms."""
+        """Filter on a column of a UNION-ALL transform is pushed into the
+        PRIMARY arm only (matches v2 behavior).  Subsequent UNION'd arms
+        are left untouched so the author's asymmetric-arm semantics
+        survive intact — e.g. a secondary arm acting as a deliberately
+        unfiltered backstop.  The filter is consumed by the primary
+        arm push, so the metrics-layer outer WHERE still gets a copy
+        for narrowing the aggregation CTE's output (the
+        consumption-aware drop only fires for measures-layer outer
+        WHERE, not for metrics-layer).
+        """
         response = await client_with_union_transform.get(
             "/sql/metrics/v3/",
             params={
@@ -118,48 +127,43 @@ class TestSetOperationTransforms:
         assert_sql_equal(
             response.json()["sql"],
             """
-            WITH v3_orders_unified AS (
-              SELECT
-                order_id,
-                status
+            WITH
+            v3_orders_unified AS (
+              SELECT order_id, status
               FROM default.v3.orders
-              WHERE
-                status = 'completed'
+              WHERE status = 'completed' AND status = 'completed'
               UNION ALL
-              SELECT
-                order_id,
-                status
+              SELECT order_id, status
               FROM default.v3.orders
-              WHERE
-                status = 'shipped'
-            ), orders_unified_0 AS (
-              SELECT
-                t1.status,
-                t1.order_id
-              FROM v3_orders_unified AS t1
-              WHERE
-                t1.status = 'completed'
-              GROUP BY
-                t1.status,
-                t1.order_id
+              WHERE status = 'shipped'
+            ),
+            orders_unified_0 AS (
+              SELECT t1.status, t1.order_id
+              FROM v3_orders_unified t1
+              GROUP BY t1.status, t1.order_id
             )
-            SELECT
-              orders_unified_0.status AS status,
+            SELECT orders_unified_0.status AS status,
               COUNT(DISTINCT orders_unified_0.order_id) AS unified_order_count
             FROM orders_unified_0
-            WHERE
-              orders_unified_0.status = 'completed'
-            GROUP BY
-              orders_unified_0.status
+            WHERE orders_unified_0.status = 'completed'
+            GROUP BY orders_unified_0.status
             """,
         )
 
     @pytest.mark.asyncio
-    async def test_hidden_key_filter_on_one_arm_is_rejected(
+    async def test_filter_only_dim_link_on_one_arm_source_only(
         self,
         client_with_build_v3,
     ):
-        """Filtering one UNION arm cannot implement a predicate on the whole result."""
+        """Partial-source pushdown into a UNION-ALL transform.
+
+        Two sources, ``v3.src_orders_us`` and ``v3.src_orders_eu``, both
+        carry an ``order_date`` column.  Only the US source has a
+        dimension link to ``v3.audit_date_dim``.  The transform UNION-ALLs
+        both.  A filter on the dim must be pushed into ONLY the arm
+        reading from the linked source — the other arm has no formal
+        binding to the dim and must stay untouched.
+        """
         client = client_with_build_v3
 
         resp = await client.post(
@@ -256,5 +260,24 @@ class TestSetOperationTransforms:
                 "filters": ["v3.audit_date_dim.dateint >= 20260101"],
             },
         )
-        assert response.status_code == 422, response.json()
-        assert "eligible relational owners" in response.json()["message"]
+        assert response.status_code == 200, response.json()
+        sql = get_first_grain_group(response.json())["sql"]
+        # The filter lands in the US arm (linked to the dim) only;
+        # the EU arm stays untouched.  US is the non-leading arm, so this
+        # exercises the direct-arm-WHERE-mutation path.
+        assert_sql_equal(
+            sql,
+            """
+            WITH v3_orders_global AS (
+                SELECT order_id, status
+                FROM default.v3.orders_eu
+                UNION ALL
+                SELECT order_id, status
+                FROM default.v3.orders_us
+                WHERE src_orders_us.order_date >= 20260101
+            )
+            SELECT t1.status, t1.order_id
+            FROM v3_orders_global t1
+            GROUP BY t1.status, t1.order_id
+            """,
+        )

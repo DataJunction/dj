@@ -395,14 +395,30 @@ def add_dimensions_from_filters(ctx: BuildContext) -> None:
         if full_name in ctx.metrics:
             continue
 
-        # Every spelling is resolved explicitly. An output dimension with a
-        # role cannot supply the binding of a role-less filter by implication.
-        # Parsing also enforces the fully-qualified node.column contract.
-        parse_dimension_ref(full_name)
-        logger.info("[BuildV3] Auto-adding filter-only dimension %s", full_name)
-        ctx.dimensions.append(full_name)
-        ctx.filter_dimensions.add(full_name)
-        existing_dims.add(full_name)
+        # Check if any existing dimension already covers this (node, column[, role]).
+        # Role-qualified refs match role-sensitively; role-less refs ignore role.
+        # parse_dimension_ref raises DJInvalidInputException for a bare (unqualified)
+        # ref, enforcing the node.column contract.
+        dim_ref = parse_dimension_ref(full_name)
+        is_covered = False
+        for existing_dim in ctx.dimensions:
+            existing_ref = parse_dimension_ref(existing_dim)
+            if (
+                existing_ref.node_name == dim_ref.node_name
+                and existing_ref.column_name == dim_ref.column_name
+                and (dim_ref.role is None or existing_ref.role == dim_ref.role)
+            ):
+                is_covered = True  # pragma: no cover
+                break  # pragma: no cover
+
+        if not is_covered:  # pragma: no branch
+            logger.info(
+                "[BuildV3] Auto-adding filter-only dimension %s",
+                full_name,
+            )
+            ctx.dimensions.append(full_name)
+            ctx.filter_dimensions.add(full_name)
+            existing_dims.add(full_name)
 
 
 def build_join_from_clause(

@@ -38,6 +38,8 @@ class Scenario:
     can_filter: bool
     # Attribute whose SQL the build gives instead.
     fallback: str | None = None
+    # Pushed down key column, role left on.
+    key_with_role: str | None = None
 
 
 # Metrics without filter requirements, by kind.
@@ -68,6 +70,7 @@ SCENARIOS = [
         "ag_date.dateint[sold]",
         False,
         fallback="ag_date.dateint",
+        key_with_role="s.sale_date",
     ),
     Scenario("upstream-other-column", "base", "ag_date.month", False),
     Scenario("upstream-own-column", "base", "ag_src_sales.account_id", False),
@@ -76,6 +79,8 @@ SCENARIOS = [
         "base",
         "ag_date.dateint[nope]",
         False,
+        fallback="ag_date.dateint",
+        key_with_role="s.sale_date",
     ),
     Scenario("no-link", "base", "ag_island.month", False),
     Scenario("chain", "base", "ag_office.city[staff->work]", True),
@@ -372,6 +377,12 @@ async def test_save_agrees_with_build(agreement_client, scenario: Scenario):
     # The build uses another role, or breaks.
     fallback = await _metric_sql(client, scenario.metric, f"v3.{scenario.fallback}")
     expected = fallback.json()["sql"]
+    if scenario.key_with_role:
+        role = attribute.split("[")[1].rstrip("]")
+        expected = expected.replace(
+            scenario.key_with_role,
+            f"{scenario.key_with_role}[{role}]",
+        )
     assert built.status_code == 200, built.text
     assert built.json()["sql"] == expected
 

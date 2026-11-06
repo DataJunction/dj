@@ -363,6 +363,7 @@ class TestHavingClauseMixedFilters:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
+                WHERE category = 'Electronics'
             ),
             order_details_0 AS (
                 SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
@@ -428,6 +429,7 @@ class TestHavingClauseMixedFilters:
                 product_id,
                 category
               FROM default.v3.products
+              WHERE category IN ('Electronics', 'Clothing')
             ),
             order_details_0 AS (
               SELECT
@@ -592,6 +594,7 @@ class TestHavingClauseEdgeCases:
             v3_product AS (
                 SELECT product_id, category
                 FROM default.v3.products
+                WHERE category = 'Electronics'
             ),
             order_details_0 AS (
                 SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
@@ -648,6 +651,7 @@ class TestHavingClauseEdgeCases:
             v3_product AS (
                 SELECT product_id, category, subcategory
                 FROM default.v3.products
+                WHERE subcategory = 'Smartphones'
             ),
             order_details_0 AS (
                 SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
