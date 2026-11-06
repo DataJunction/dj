@@ -9,7 +9,10 @@ from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 if TYPE_CHECKING:
-    from datajunction_server.construction.build_v3.types import BuildContext
+    from datajunction_server.construction.build_v3.types import (
+        BuildContext,
+        DimensionRef,
+    )
 
 
 @dataclass
@@ -250,7 +253,17 @@ def _order_filter_bounds(
     Partial bounds (one side ``None``) let the caller stitch a range expressed
     as two separate filter strings (``col >= A`` and ``col <= B``) into a single
     ``[A, B]`` extent. The caller is responsible for combining them.
+
+    This helper matches only the column name. The caller must first verify
+    that the filter targets the window's dimension node and resolved join path.
     """
+    from datajunction_server.construction.build_v3.dimension_refs import (
+        split_dimension_ref,
+    )
+    from datajunction_server.construction.build_v3.filters import (
+        dimension_ref_of_expression,
+    )
+
     cols = [c for c in filter_ast.find_all(ast.Column) if c.name.name == order_col_name]
     if not cols:
         return None
@@ -259,9 +272,10 @@ def _order_filter_bounds(
         return filter_ast.low, filter_ast.high
 
     if isinstance(filter_ast, ast.BinaryOp):
+        left_ref = dimension_ref_of_expression(filter_ast.left)
         left_is_col = (
-            isinstance(filter_ast.left, ast.Column)
-            and filter_ast.left.name.name == order_col_name
+            left_ref is not None
+            and split_dimension_ref(left_ref)[0].rsplit(".", 1)[-1] == order_col_name
         )
         # The value sits on whichever side is not the order column.
         value = filter_ast.right if left_is_col else filter_ast.left
@@ -360,6 +374,41 @@ def _dimension_physical_table(
     return None  # pragma: no cover
 
 
+def _same_order_sequence(
+    ctx: BuildContext,
+    order: DimensionRef,
+    candidate: DimensionRef,
+) -> bool:
+    """Match an implicit role only when it resolves to the same sequence."""
+    from datajunction_server.construction.build_v3.dimensions import find_join_path
+
+    if (order.node_name, order.column_name) != (
+        candidate.node_name,
+        candidate.column_name,
+    ):
+        return False
+    if order.role == candidate.role:
+        return True
+    if order.role and candidate.role:
+        return False
+    # An omitted role follows the default join path. Use the same resolver as
+    # dimension planning, in either direction, rather than treating it as a
+    # wildcard that might consume a different date role's filter.
+    if not ctx.metric_groups:
+        return False
+    for group in ctx.metric_groups:
+        order_path = find_join_path(ctx, group.parent_node, order.node_name, order.role)
+        filter_path = find_join_path(
+            ctx,
+            group.parent_node,
+            candidate.node_name,
+            candidate.role,
+        )
+        if not order_path or not filter_path or order_path.links != filter_path.links:
+            return False
+    return True
+
+
 def apply_live_window_lookback(ctx: BuildContext) -> WindowLookbackPlan | None:
     """
     Live frame-aware lookback adapter (mirror of the cube-side
@@ -407,9 +456,16 @@ def apply_live_window_lookback(ctx: BuildContext) -> WindowLookbackPlan | None:
     constrains the frame's order column.
     """
     from datajunction_server.construction.build_v3.cte import has_window_function
-    from datajunction_server.construction.build_v3.dimensions import parse_dimension_ref
+    from datajunction_server.construction.build_v3.dimensions import (
+        can_skip_join_for_dimension,
+        find_join_path,
+        parse_dimension_ref,
+    )
     from datajunction_server.construction.build_v3.filters import parse_filter
-    from datajunction_server.construction.build_v3.utils import make_column_ref
+    from datajunction_server.construction.build_v3.utils import (
+        extract_filter_dimension_refs,
+        make_column_ref,
+    )
 
     # Collect window-frame lookbacks across all decomposed metrics, keyed by the
     # order dimension ref. Multiple frames on the same order column collapse to
@@ -473,9 +529,8 @@ def apply_live_window_lookback(ctx: BuildContext) -> WindowLookbackPlan | None:
         )
         validate_window_lookback(wl, order_is_sequence_dim)
 
-        # Find the dimension filter(s) constraining the order column. We match
-        # on the *column* name since the user expresses the filter on the
-        # dimension ref (e.g. "v3.date.date_id = 20240131"). A range may be
+        # Find filters on this sequence, resolving omitted roles through the
+        # default join path. Explicitly different roles stay separate. A range may be
         # expressed as TWO separate filter strings (``col >= A`` and
         # ``col <= B``); we collect partial bounds across all matching filters
         # and stitch them into a single ``[low, high]`` extent.
@@ -492,6 +547,14 @@ def apply_live_window_lookback(ctx: BuildContext) -> WindowLookbackPlan | None:
         high_expr: ast.Expression | None = None
         bail = False
         for idx, filter_str in enumerate(ctx.dimension_filters):
+            # The same date column can be reached through several roles. Only
+            # consume bounds on the sequence this window actually orders by.
+            filter_refs = extract_filter_dimension_refs([filter_str])
+            if not any(
+                _same_order_sequence(ctx, parsed_order, parse_dimension_ref(ref))
+                for ref in filter_refs
+            ):
+                continue
             filter_ast = parse_filter(filter_str)
             found = _order_filter_bounds(filter_ast, order_col_name)
             if found is None:
@@ -557,26 +620,34 @@ def apply_live_window_lookback(ctx: BuildContext) -> WindowLookbackPlan | None:
         injected_any = False
         for metric_group in ctx.metric_groups:
             fact_node = metric_group.parent_node
-            if not fact_node.current or not fact_node.current.dimension_links:
-                continue  # pragma: no cover
-            for link in fact_node.current.dimension_links:
-                if link.dimension.name != order_node_name:
-                    continue
-                fk_columns = link.foreign_key_column_names
-                if not fk_columns:
-                    continue  # pragma: no cover
-                fk_col_name = next(iter(fk_columns))
-
-                scan_filter = build_scan_bounds(
-                    make_column_ref(fk_col_name),
-                    high_expr,
-                    offset_low,
-                )
-                ctx.upstream_pushdown_filters.setdefault(
-                    fact_node.name,
-                    [],
-                ).append(scan_filter)
-                injected_any = True
+            order_path = find_join_path(
+                ctx,
+                fact_node,
+                order_node_name,
+                parsed_order.role,
+            )
+            if order_path is None:
+                continue
+            # Resolve the sequence column along the selected path, just as
+            # dimension planning does. A different date role must never add a
+            # second scan predicate; non-key columns cannot filter the fact.
+            _, fk_col_name, skipped = can_skip_join_for_dimension(
+                parsed_order,
+                order_path,
+                fact_node,
+            )
+            if fk_col_name is None or skipped != len(order_path.links):
+                continue
+            scan_filter = build_scan_bounds(
+                make_column_ref(fk_col_name),
+                high_expr,
+                offset_low,
+            )
+            ctx.upstream_pushdown_filters.setdefault(
+                fact_node.name,
+                [],
+            ).append(scan_filter)
+            injected_any = True
 
         if not injected_any:
             # Could not reach the order dimension from any fact -> leave the

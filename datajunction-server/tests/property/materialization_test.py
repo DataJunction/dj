@@ -6,8 +6,7 @@ Each example plans a pre-aggregation at a grain covering the request's
 dimensions and filters, materializes DJ's planned SQL on DuckDB, reports it
 available, then asks for SQL with and without `use_materialized`.
 
-Both answers come from DJ, so a bug that affects both paths the same way is
-invisible here; `random_graph_test` compares against a reference query instead.
+Both answers also have to agree with an independently written raw-table query.
 """
 
 import duckdb
@@ -18,6 +17,7 @@ from hypothesis import assume, event, given, settings
 from tests.conftest import transpile_to_duckdb
 from tests.property.budget import examples
 from tests.property.graph import (
+    accepts_missing_dimension,
     assert_same_results,
     build_graph,
     create_metric,
@@ -25,13 +25,16 @@ from tests.property.graph import (
     has_orphan_facts,
     metrics_sql,
     post,
+    reference,
 )
 from tests.property.known_issues import (
     EMPTY_PREAGG_COUNT_IS_NULL,
+    FILTER_PUSHED_PAST_LEFT_JOIN,
     PREAGG_INNER_JOIN_DROPS_ORPHANS,
 )
 from tests.property.scenario import (
     METRIC_BY_DEFINITION,
+    FilterAtom,
     Scenario,
     materialization_scenarios,
 )
@@ -125,6 +128,18 @@ async def check_preaggregated(
             f"SQL from raw tables:\n{raw_sql}",
         ),
     )
+    reference_sql, expected = reference(
+        conn,
+        graph,
+        scenario,
+        ", ".join(metric.reference for metric in scenario.metrics),
+    )
+    assert_same_results(raw, expected, describe(scenario, reference_sql, raw_sql))
+    assert_same_results(
+        preaggregated,
+        expected,
+        describe(scenario, reference_sql, preagg_sql),
+    )
 
 
 @pytest.mark.asyncio
@@ -135,6 +150,15 @@ async def test_preaggregated_matches_raw(
     duckdb_conn: duckdb.DuckDBPyConnection,
     scenario: Scenario,
 ):
+    # known_issues.FILTER_PUSHED_PAST_LEFT_JOIN also affects the live query
+    # used by this oracle. The strict repro below exercises this path too.
+    assume(
+        not (
+            scenario.join_type == "left"
+            and scenario.filters
+            and accepts_missing_dimension(duckdb_conn, scenario.filters)
+        ),
+    )
     assume(
         not (
             scenario.join_type == "inner"
@@ -150,6 +174,29 @@ async def test_preaggregated_matches_raw(
         scenario,
         skip_known=True,
         discard_if_not_served=True,
+    )
+
+
+@pytest.mark.asyncio
+@FILTER_PUSHED_PAST_LEFT_JOIN.xfail()
+async def test_known_issue_null_accepting_filter_with_preaggregation(
+    module__client_with_roads: AsyncClient,
+    duckdb_conn: duckdb.DuckDBPyConnection,
+):
+    await check_preaggregated(
+        module__client_with_roads,
+        duckdb_conn,
+        Scenario(
+            dimension_rows=((0, "b", None), (1, None, None)),
+            fact_rows=((0, 3, None), (1, 5, None)),
+            metrics=(METRIC_BY_DEFINITION["SUM(x)"],) * 2,
+            op="+",
+            join_type="left",
+            dimensions=("label",),
+            filters=(FilterAtom("label", "IS NULL"),),
+            preagg_grain=("label",),
+        ),
+        skip_known=False,
     )
 
 

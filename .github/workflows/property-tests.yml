@@ -1,0 +1,102 @@
+name: Randomized SQL properties
+
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: property-tests-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: false
+
+jobs:
+  property-tests:
+    if: github.repository == 'DataJunction/dj'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: dj
+          POSTGRES_PASSWORD: dj
+          POSTGRES_DB: dj
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dj"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    defaults:
+      run:
+        working-directory: datajunction-server
+    env:
+      DJ_TEST_POSTGRES_URL: postgresql+psycopg://dj:dj@localhost:5432/dj
+      DJ_PBT_PROFILE: nightly
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+      - run: uv python install 3.11
+      - run: uv sync --locked --group test --python 3.11
+      - uses: actions/cache/restore@v4
+        id: hypothesis-cache
+        with:
+          path: datajunction-server/.hypothesis
+          key: hypothesis-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: hypothesis-${{ runner.os }}-
+      - name: Populate test templates
+        run: |
+          PG="postgresql://dj:dj@localhost:5432"
+          PGX="postgresql+psycopg://dj:dj@localhost:5432"
+          psql "$PG/dj" -c "CREATE ROLE readonly_user WITH LOGIN PASSWORD 'readonly'"
+          psql "$PG/dj" -c "CREATE DATABASE template_all_examples"
+          uv run python tests/helpers/populate_template.py "$PGX/template_all_examples"
+          psql "$PG/dj" -c "CREATE DATABASE template_preaggs TEMPLATE template_all_examples"
+          uv run python tests/helpers/populate_preaggs_template.py "$PGX/template_preaggs"
+          psql "$PG/dj" -c "CREATE DATABASE template_dimension_links"
+          uv run python tests/helpers/populate_template.py "$PGX/template_dimension_links" COMPLEX_DIMENSION_LINK
+      - name: Search and shrink
+        id: search
+        run: uv run python -m pytest tests/property -n 4 --dist=loadscope --no-cov --junitxml=property-results.xml
+      - uses: actions/cache/save@v4
+        if: ${{ always() && steps.search.outcome != 'skipped' && steps.search.outcome != '' }}
+        with:
+          path: datajunction-server/.hypothesis
+          key: ${{ steps.hypothesis-cache.outputs.cache-primary-key }}
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: hypothesis-failures
+          include-hidden-files: true
+          path: |
+            datajunction-server/.hypothesis
+            datajunction-server/property-results.xml
+
+  report-failure:
+    needs: property-tests
+    if: ${{ always() && github.repository == 'DataJunction/dj' && needs.property-tests.result == 'failure' }}
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const title = 'Randomized SQL property tests are failing';
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = `The randomized SQL property tests failed.\n\n[Workflow run and failure artifacts](${run})\n\nReproduce with \`DJ_PBT_PROFILE=nightly\` and the saved Hypothesis examples.`;
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              ...context.repo, state: 'open', creator: 'github-actions[bot]',
+            });
+            const existing = issues.find(issue => !issue.pull_request && issue.title === title);
+            if (existing) {
+              await github.rest.issues.update({ ...context.repo, issue_number: existing.number, body });
+            } else {
+              await github.rest.issues.create({ ...context.repo, title, body });
+            }

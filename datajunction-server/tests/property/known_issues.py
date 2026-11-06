@@ -41,6 +41,10 @@ PRINTER_DROPS_PARENTHESES = KnownIssue(
     "its nesting needs: sample variance/stddev/correlation combiners and "
     "`-(-x)` as `--x`",
 )
+PRINTER_NUMERIC_UNARY_INSTABILITY = KnownIssue(
+    "reparsing a printed numeric unary operation folds it into a Number, "
+    "losing parentheses or negative zero and changing subsequent SQL output",
+)
 COVARIANCE_COUNTS_HALF_NULL_ROWS = KnownIssue(
     "COVAR_POP/COVAR_SAMP/CORR decompositions count rows where only one of the "
     "two arguments is NULL",
@@ -56,4 +60,8 @@ PREAGG_INNER_JOIN_DROPS_ORPHANS = KnownIssue(
     "a pre-aggregation planned with an INNER-linked dimension drops facts with "
     "no matching dimension row, so requests that don't use that dimension get "
     "a different answer when served from it",
+)
+SELF_JOIN_ROLE_FALLBACK = KnownIssue(
+    "a role on a self-linked dimension falls back to the direct unroled join, "
+    "returning the child's attributes instead of its parent's",
 )
