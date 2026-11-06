@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections import Counter
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any, cast
 
@@ -1255,19 +1256,38 @@ def build_select_ast(
         )
 
     # Collect build-local CTEs and place request filters for this fact consumer.
-    ctes, scanned_sources, consumed_by_node = collect_node_ctes(
-        ctx,
-        nodes_for_ctes,
-        injected_filters=injected_cte_filters or None,
-        pushdown=PushdownFilters(
+    pushdown_request = (
+        PushdownFilters(
             filters=all_filters,
             column_aliases=filter_column_aliases,
             outer_only_refs=pushdown_outer_only_refs,
             parent_node_name=parent_node.name,
+            dimension_joins=dict(Counter(name for name, _ in dim_aliases)),
         )
         if all_filters
-        else None,
+        else None
     )
+    ctes, scanned_sources, consumed_by_node = collect_node_ctes(
+        ctx,
+        nodes_for_ctes,
+        injected_filters=injected_cte_filters or None,
+        pushdown=pushdown_request,
+    )
+    if pushdown_request and pushdown_request.materialized_predicates:
+        alias_nodes = {alias: name for (name, _), alias in dim_aliases.items()}
+        for join in joins:
+            right = cast(ast.Alias, join.right)
+            predicate = pushdown_request.materialized_predicates.get(
+                alias_nodes.get(right.alias_or_name.name, ""),
+            )
+            if predicate is not None:
+                subquery = ast.Select(
+                    projection=[ast.Wildcard()],
+                    from_=ast.From(relations=[ast.Relation(primary=right.child)]),
+                    where=predicate,
+                )
+                subquery.parenthesized = True
+                right.child = subquery
     # Build SELECT.
     # For non-decomposable metrics, skip GROUP BY to pass through raw rows.
     effective_group_by = [] if skip_aggregation else (group_by if group_by else [])

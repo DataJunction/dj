@@ -2119,6 +2119,7 @@ class TestFilterPushdownRoleQualifiedSharedDim:
             v3_show AS (
               SELECT show_id, show_title, planned_launch_date
               FROM default.v3.shows
+              WHERE planned_launch_date BETWEEN 20240101 AND 20240201
             ),
             v3_show_activity AS (
               SELECT show_id, view_secs

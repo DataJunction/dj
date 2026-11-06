@@ -251,6 +251,8 @@ async def get_context(
     override = request.app.dependency_overrides.get(get_session)
     if override is not None:
         request.state.test_session = override()
+        # Open the connection now, so concurrent resolvers don't each try to.
+        await request.state.test_session.connection()
 
     return {
         "node_loader": create_node_by_name_loader(request),

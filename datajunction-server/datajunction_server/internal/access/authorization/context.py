@@ -117,6 +117,13 @@ class AuthContext:
         """
         group_membership_service = get_group_membership_service()
 
+        # Get groups from service (could be LDAP, local DB, etc.). This can be a
+        # network call, so it runs before the first query opens a transaction.
+        group_usernames = await group_membership_service.get_user_groups(
+            session,
+            user.username,
+        )
+
         # Load user's direct role assignments fresh in the current session.
         # We cannot rely on user.role_assignments here because the User object
         # may have been loaded in a different session (e.g. DJHTTPBearer uses its
@@ -128,12 +135,6 @@ class AuthContext:
         )
         direct_result = await session.execute(direct_stmt)
         assignments = list(direct_result.scalars().all())
-
-        # Get groups from service (could be LDAP, local DB, etc.)
-        group_usernames = await group_membership_service.get_user_groups(
-            session,
-            user.username,
-        )
 
         if not group_usernames:
             return assignments  # No groups
