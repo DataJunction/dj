@@ -232,7 +232,7 @@ async def test_filter_only_source_link_preserves_authored_subquery(
         CREATE TABLE order_history_src (customer_id INTEGER, report_date INTEGER);
         INSERT INTO order_history_src VALUES (1, 20240101), (1, 20230101);
         """,
-    ) == [(2 if subquery in ("scalar", "linked_transform") else 1,)]
+    ) == [(2 if subquery == "scalar" else 1,)]
 
 
 def test_multi_hop_role_still_pushes_into_owning_fact_scope():

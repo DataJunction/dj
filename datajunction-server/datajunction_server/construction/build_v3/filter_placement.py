@@ -56,8 +56,8 @@ def _find_bindings(
     """Find every scan of a linked node through FROM/JOIN edges, in any arm of a
     set operation and in any nested query, but never in an expression subquery.
 
-    Stop at the nearest linked node: its output is the semantic boundary, even
-    if one of its inputs also declares the same link.
+    A linked node's own inputs are searched too, so a deeper node that also
+    links the dimension gets the filter on its own scan.
     """
     if any(query is scope for scope in path):
         return []
@@ -77,7 +77,8 @@ def _find_bindings(
             ]
             if columns:
                 result.extend(_Binding(relation, column, scope) for column in columns)
-            elif definition is not None:
+            # A linked node can read nodes that link the dimension too.
+            if definition is not None:
                 result.extend(_find_bindings(definition, candidates, queries, path))
 
     arm: ast.SelectExpression | None = query.select

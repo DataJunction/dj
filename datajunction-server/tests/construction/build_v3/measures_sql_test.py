@@ -7986,14 +7986,10 @@ class TestFilterPushdownScope:
         client_with_build_v3,
     ):
         """Both the transform AND the underlying source have a dim link
-        to the same dim.  BFS finds both candidates; each one
-        independently rewrites and injects the filter.  The two
-        predicates end up in the same CTE's WHERE — one qualified on the
-        transform's projected column (``audit_date``), one on the
-        source's alias (``s.audit_date``).  Predicates AND together so
-        the result is correct, but the duplicate is redundant and a
-        plausible future improvement is to dedupe redundant candidates
-        along a single upstream path.
+        to the same dim.  Each link gets the filter on its own scan: one
+        on the source's alias (``s.audit_date``), one where the wrapper
+        reads the transform (``audit_date``).  The two are redundant but
+        both are correct, and the source scan stays filtered.
         """
         client = client_with_build_v3
         await _setup_audit_dim(client)
@@ -8059,8 +8055,8 @@ class TestFilterPushdownScope:
         )
         assert response.status_code == 200, response.json()
         sql = get_first_grain_group(response.json())["sql"]
-        # Both predicates land in the inner CTE's WHERE — one from the
-        # transform-link path, one from the source-link path.
+        # One predicate lands on the source scan (source link) and one where
+        # the wrapper reads the transform (transform link).
         assert_sql_equal(
             sql,
             """
@@ -8070,6 +8066,8 @@ class TestFilterPushdownScope:
                 event_type,
                 audit_date
               FROM default.v3.audit_log_txlinkdouble AS s
+              WHERE
+                s.audit_date >= 20260101
             ), v3_events_double_link_wrap AS (
               SELECT
                 account_id,
