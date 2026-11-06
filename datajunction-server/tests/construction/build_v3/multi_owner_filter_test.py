@@ -115,12 +115,8 @@ async def test_filter_applies_to_every_upstream_node_linking_the_dimension(
     )
 
 
-@pytest.mark.asyncio
-async def test_filter_reaches_a_linked_node_under_another_linked_node(
-    client_with_build_v3,
-):
-    """`outer_stage` and the `inner_stage` it reads both link `v3.date`."""
-    client = client_with_build_v3
+async def build_linked_stages(client):
+    """`outer_stage` reads `inner_stage`, and both link `v3.date`."""
     await post(
         client,
         "/nodes/source/",
@@ -168,6 +164,14 @@ async def test_filter_reaches_a_linked_node_under_another_linked_node(
                 "join_on": f"v3.{node}.{column} = v3.date.date_id",
             },
         )
+
+
+@pytest.mark.asyncio
+async def test_filter_reaches_a_linked_node_under_another_linked_node(
+    client_with_build_v3,
+):
+    client = client_with_build_v3
+    await build_linked_stages(client)
     await post(
         client,
         "/nodes/transform/",
@@ -217,6 +221,204 @@ async def test_filter_reaches_a_linked_node_under_another_linked_node(
           SELECT SUM(t1.amount) amount_sum_HASH FROM v3_nested_fact t1
         )
         SELECT SUM(nested_fact_0.amount_sum_HASH) AS nested_amount FROM nested_fact_0
+        """,
+        normalize_aliases=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_filter_reaches_a_linked_node_read_by_a_linking_fact(
+    client_with_build_v3,
+):
+    """The fact links the dimension itself and reads a node that links it too."""
+    client = client_with_build_v3
+    await build_linked_stages(client)
+    await post(
+        client,
+        "/nodes/metric/",
+        {
+            "name": "v3.outer_amount",
+            "query": "SELECT SUM(amount) FROM v3.outer_stage",
+            "mode": "published",
+        },
+    )
+    response = await client.get(
+        "/sql/metrics/v3/",
+        params={
+            "metrics": ["v3.outer_amount"],
+            "filters": ["v3.date.date_id = 20261104"],
+            "dialect": "trino",
+        },
+    )
+    assert response.status_code == 200, response.json()
+    assert_sql_equal(
+        response.json()["sql"],
+        """
+        WITH
+        v3_inner_stage AS (
+          SELECT inner_date, amount FROM default.v3.source_inner
+        ),
+        v3_outer_stage AS (
+          SELECT amount
+          FROM v3_inner_stage inner_stage
+          WHERE inner_date = 20261104 AND inner_stage.inner_date = 20261104
+        ),
+        outer_stage_0 AS (
+          SELECT SUM(t1.amount) amount_sum_HASH FROM v3_outer_stage t1
+        )
+        SELECT SUM(outer_stage_0.amount_sum_HASH) AS outer_amount FROM outer_stage_0
+        """,
+        normalize_aliases=True,
+    )
+
+
+async def build_nested_fact(client):
+    await build_linked_stages(client)
+    await post(
+        client,
+        "/nodes/transform/",
+        {
+            "name": "v3.nested_fact",
+            "query": "SELECT account_id, amount FROM v3.outer_stage",
+            "mode": "published",
+            "primary_key": ["account_id"],
+        },
+    )
+    await post(
+        client,
+        "/nodes/metric/",
+        {
+            "name": "v3.nested_amount",
+            "query": "SELECT SUM(amount) FROM v3.nested_fact",
+            "mode": "published",
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_compound_filter_uses_the_nearest_linked_node(client_with_build_v3):
+    client = client_with_build_v3
+    await build_nested_fact(client)
+    response = await client.get(
+        "/sql/metrics/v3/",
+        params={
+            "metrics": ["v3.nested_amount"],
+            "filters": ["v3.date.date_id = 20261104 OR v3.nested_fact.amount > 5"],
+            "dialect": "trino",
+        },
+    )
+    assert response.status_code == 200, response.json()
+    assert_sql_equal(
+        response.json()["sql"],
+        """
+        WITH
+        v3_inner_stage AS (
+          SELECT inner_date, amount FROM default.v3.source_inner
+        ),
+        v3_outer_stage AS (
+          SELECT inner_date AS outer_date, amount FROM v3_inner_stage
+        ),
+        v3_nested_fact AS (
+          SELECT amount
+          FROM v3_outer_stage outer_stage
+          WHERE outer_stage.outer_date = 20261104 OR amount > 5
+        ),
+        nested_fact_0 AS (
+          SELECT SUM(t1.amount) amount_sum_HASH FROM v3_nested_fact t1
+        )
+        SELECT SUM(nested_fact_0.amount_sum_HASH) AS nested_amount FROM nested_fact_0
+        """,
+        normalize_aliases=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_shared_definition_is_filtered_once(client_with_build_v3):
+    """`double_stage` reads `inner_stage` twice, and `inner_stage` reads a
+    linked source: that source scan gets one predicate, not two."""
+    client = client_with_build_v3
+    await build_linked_stages(client)
+    await post(
+        client,
+        "/nodes/v3.src_inner/link/",
+        {
+            "dimension_node": "v3.date",
+            "join_type": "left",
+            "join_on": "v3.src_inner.inner_date = v3.date.date_id",
+        },
+    )
+    await post(
+        client,
+        "/nodes/transform/",
+        {
+            "name": "v3.double_stage",
+            "query": "SELECT a.account_id, a.inner_date AS double_date, a.amount "
+            "FROM v3.inner_stage a JOIN v3.inner_stage b ON a.account_id = b.account_id",
+            "mode": "published",
+            "primary_key": ["account_id"],
+        },
+    )
+    await post(
+        client,
+        "/nodes/v3.double_stage/link/",
+        {
+            "dimension_node": "v3.date",
+            "join_type": "left",
+            "join_on": "v3.double_stage.double_date = v3.date.date_id",
+        },
+    )
+    await post(
+        client,
+        "/nodes/transform/",
+        {
+            "name": "v3.double_fact",
+            "query": "SELECT account_id, amount FROM v3.double_stage",
+            "mode": "published",
+            "primary_key": ["account_id"],
+        },
+    )
+    await post(
+        client,
+        "/nodes/metric/",
+        {
+            "name": "v3.double_amount",
+            "query": "SELECT SUM(amount) FROM v3.double_fact",
+            "mode": "published",
+        },
+    )
+    response = await client.get(
+        "/sql/metrics/v3/",
+        params={
+            "metrics": ["v3.double_amount"],
+            "filters": ["v3.date.date_id = 20261104"],
+            "dialect": "trino",
+        },
+    )
+    assert response.status_code == 200, response.json()
+    assert_sql_equal(
+        response.json()["sql"],
+        """
+        WITH
+        v3_inner_stage AS (
+          SELECT account_id, inner_date, amount
+          FROM default.v3.source_inner src_inner
+          WHERE src_inner.inner_date = 20261104
+        ),
+        v3_double_stage AS (
+          SELECT a.inner_date AS double_date, a.amount
+          FROM v3_inner_stage a
+          JOIN v3_inner_stage b ON a.account_id = b.account_id
+          WHERE a.inner_date = 20261104 AND b.inner_date = 20261104
+        ),
+        v3_double_fact AS (
+          SELECT amount
+          FROM v3_double_stage double_stage
+          WHERE double_stage.double_date = 20261104
+        ),
+        double_fact_0 AS (
+          SELECT SUM(t1.amount) amount_sum_HASH FROM v3_double_fact t1
+        )
+        SELECT SUM(double_fact_0.amount_sum_HASH) AS double_amount FROM double_fact_0
         """,
         normalize_aliases=True,
     )

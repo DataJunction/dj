@@ -45,28 +45,33 @@ class _Binding:
     table: ast.Table
     column: str
     scope: ast.Select
+    # Found below another linked node, not directly from the fact.
+    nested: bool = False
 
 
 def _find_bindings(
     query: ast.Query,
     candidates: list[tuple[str, str]],
     queries: dict[str, ast.Query],
-    path: tuple[ast.Query, ...] = (),
+    nested: bool = False,
+    visited: set[int] | None = None,
 ) -> list[_Binding]:
     """Find every scan of a linked node through FROM/JOIN edges, in any arm of a
     set operation and in any nested query, but never in an expression subquery.
 
     A linked node's own inputs are searched too, so a deeper node that also
-    links the dimension gets the filter on its own scan.
+    links the dimension gets the filter on its own scan. Each definition is
+    searched once, however many readers it has; each reader still gets its own
+    binding.
     """
-    if any(query is scope for scope in path):
-        return []
-    path = (*path, query)
+    visited = set() if visited is None else visited
     result: list[_Binding] = []
 
     def visit(relation: ast.Expression, scope: ast.Select) -> None:
         if isinstance(relation, ast.Query):
-            result.extend(_find_bindings(relation, candidates, queries, path))
+            result.extend(
+                _find_bindings(relation, candidates, queries, nested, visited),
+            )
         elif isinstance(relation, ast.Table):
             name = relation.name.identifier(quotes=False)
             definition = _definition(relation, queries)
@@ -76,10 +81,21 @@ def _find_bindings(
                 if owner == name and definition is queries.get(name)
             ]
             if columns:
-                result.extend(_Binding(relation, column, scope) for column in columns)
+                result.extend(
+                    _Binding(relation, column, scope, nested) for column in columns
+                )
             # A linked node can read nodes that link the dimension too.
-            if definition is not None:
-                result.extend(_find_bindings(definition, candidates, queries, path))
+            if definition is not None and id(definition) not in visited:
+                visited.add(id(definition))
+                result.extend(
+                    _find_bindings(
+                        definition,
+                        candidates,
+                        queries,
+                        nested or bool(columns),
+                        visited,
+                    ),
+                )
 
     arm: ast.SelectExpression | None = query.select
     while isinstance(arm, ast.Select):
@@ -183,10 +199,15 @@ def place_filters(
             [(ref, found)] = owners.items()
             units = [{ref: binding} for binding in found]
         else:
-            for ref, found in owners.items():
+            # A compound predicate needs one placement per key: the nearest.
+            nearest = {
+                ref: [binding for binding in found if not binding.nested]
+                for ref, found in owners.items()
+            }
+            for ref, found in nearest.items():
                 if len(found) > 1:
                     invalid(f"{ref} has {len(found)} eligible relational owners")
-            units = [{ref: found[0] for ref, found in owners.items()}]
+            units = [{ref: found[0] for ref, found in nearest.items()}]
         for unit in units:
             bindings = dict(local_bindings)
             target = root_select if local_refs else None
@@ -214,3 +235,63 @@ def place_filters(
             [select.where, *predicates] if select.where is not None else predicates,
         )
     return consumed
+
+
+def _conjuncts(expr: ast.Expression) -> list[str]:
+    """The AND-ed terms of an expression, as SQL text."""
+    if isinstance(expr, ast.BinaryOp) and expr.op == ast.BinaryOpKind.And:
+        return _conjuncts(expr.left) + _conjuncts(expr.right)
+    return [str(expr)]
+
+
+def place_upstream_link_filters(
+    ctx: BuildContext,
+    queries: dict[str, ast.Query],
+    request: PushdownFilters,
+) -> None:
+    """Also filter nodes upstream of the fact that link the same dimension.
+
+    A fact that links the dimension itself gets the filter on its own column.
+    A node it reads that links the dimension too gets the filter where the
+    fact reads it, so that node's scan is narrowed as well.
+    """
+    from datajunction_server.construction.build_v3.dimensions import (
+        parse_dimension_ref,
+        upstream_link_candidates,
+    )
+
+    root = queries.get(request.parent_node_name)
+    if root is None:
+        return
+    hidden = {
+        ref
+        for (owner, ref) in ctx.upstream_filter_bindings
+        if owner == request.parent_node_name
+    }
+    for filter_str in request.filters:
+        refs = extract_filter_dimension_refs([filter_str], include_bare=True)
+        if len(refs) != 1 or refs[0] in hidden:
+            continue
+        candidates = upstream_link_candidates(
+            ctx,
+            request.parent_node_name,
+            parse_dimension_ref(refs[0]),
+        )
+        for binding in _find_bindings(root, candidates, queries):
+            qualifier = _get_relation_side_id(cast(ast.Expression, binding.table))
+            assert qualifier is not None
+            if binding.table.alias is None:
+                binding.table.alias = ast.Name(binding.table.name.name)
+            predicate = resolve_filter_references(
+                parse_filter(filter_str),
+                {refs[0]: ast.Name(binding.column, namespace=ast.Name(qualifier))},
+            )
+            if binding.scope.where is not None and str(predicate) in _conjuncts(
+                binding.scope.where,
+            ):
+                continue
+            binding.scope.where = combine_filters(
+                [binding.scope.where, predicate]
+                if binding.scope.where is not None
+                else [predicate],
+            )

@@ -1771,9 +1771,11 @@ def collect_node_ctes(
     if pushdown:
         from datajunction_server.construction.build_v3.filter_placement import (
             place_filters,
+            place_upstream_link_filters,
         )
 
         consumed = place_filters(ctx, queries, pushdown)
+        place_upstream_link_filters(ctx, queries, pushdown)
         if consumed:
             consumed_by_node[pushdown.parent_node_name] = consumed
 

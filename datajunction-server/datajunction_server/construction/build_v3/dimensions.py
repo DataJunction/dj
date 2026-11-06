@@ -271,21 +271,16 @@ def _format_column_validation_error(
     )
 
 
-def _resolve_filter_only_dim(
+def upstream_link_candidates(
     ctx: BuildContext,
-    parent_node: Node,
+    parent_node_name: str,
     dim_ref: DimensionRef,
-    original_ref: str,
-) -> bool:
-    """Discover explicit upstream bindings without modifying authored queries.
-
-    Placement later checks the consumer path and resolves the whole predicate.
-    Multiple bindings are retained so ambiguity is reported rather than guessed.
-    """
+) -> list[tuple[str, str]]:
+    """Every node upstream of the parent that links dim_ref, with its key column."""
     target = f"{dim_ref.node_name}{SEPARATOR}{dim_ref.column_name}"
     candidates: set[tuple[str, str]] = set()
-    visited = {parent_node.name}
-    pending = list(ctx.parent_map.get(parent_node.name, []))
+    visited = {parent_node_name}
+    pending = list(ctx.parent_map.get(parent_node_name, []))
     while pending:
         name = pending.pop()
         if name in visited:
@@ -302,10 +297,23 @@ def _resolve_filter_only_dim(
                 if column:
                     candidates.add((name, get_short_name(column)))
         pending.extend(ctx.parent_map.get(name, []))
+    return sorted(candidates)
+
+
+def _resolve_filter_only_dim(
+    ctx: BuildContext,
+    parent_node: Node,
+    dim_ref: DimensionRef,
+    original_ref: str,
+) -> bool:
+    """Discover explicit upstream bindings without modifying authored queries.
+
+    Placement later checks the consumer path and resolves the whole predicate.
+    Multiple bindings are retained so ambiguity is reported rather than guessed.
+    """
+    candidates = upstream_link_candidates(ctx, parent_node.name, dim_ref)
     if candidates:
-        ctx.upstream_filter_bindings[parent_node.name, original_ref] = sorted(
-            candidates,
-        )
+        ctx.upstream_filter_bindings[parent_node.name, original_ref] = candidates
     return bool(candidates)
 
 
