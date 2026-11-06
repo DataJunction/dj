@@ -62,11 +62,11 @@ export const initializeMockDJClient = () => {
         .mockResolvedValue({ status: 200, json: { columns: [] } }),
       listTags: vi.fn().mockReturnValue([]),
       metric: vi.fn().mockReturnValue(mocks.mockMetricNode),
-      nodesWithType: vi
+      searchNodes: vi
         .fn()
-        .mockReturnValueOnce(['a'])
-        .mockReturnValueOnce(['b'])
-        .mockReturnValueOnce(['default.repair_orders']),
+        .mockResolvedValue([
+          { name: 'default.repair_orders', displayName: 'Repair Orders' },
+        ]),
       listMetricMetadata: vi.fn().mockReturnValue({
         directions: ['higher_is_better', 'lower_is_better', 'neutral'],
         units: [
@@ -309,7 +309,9 @@ describe('AddEditNodePage', () => {
       // For derived metrics, the upstream node select should show the placeholder
       // (indicating no upstream node is selected - derived metrics have metric parents)
       expect(
-        screen.getByText('Select Upstream Node (optional for derived metrics)'),
+        screen.getByText(
+          'Type to search upstream nodes (optional for derived metrics)',
+        ),
       ).toBeInTheDocument();
     });
   });

@@ -75,7 +75,8 @@ export default function NodeColumnTab({ node, djClient, readOnly = false }) {
       const controller = new AbortController();
       dimensionSearchAbort.current = controller;
       try {
-        const matches = await djClient.searchDimensions(query, {
+        const matches = await djClient.searchNodes(query, {
+          nodeTypes: ['DIMENSION'],
           signal: controller.signal,
           limit: DIMENSION_OPTIONS_LIMIT,
         });

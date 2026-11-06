@@ -1248,7 +1248,7 @@ class Node(Base):
         if fragment:
             statement = statement.where(
                 or_(
-                    Node.name.like(f"%{fragment}%"),
+                    Node.name.ilike(f"%{fragment}%"),
                     NodeRevisionAlias.display_name.ilike(f"%{fragment}%"),
                 ),
             )

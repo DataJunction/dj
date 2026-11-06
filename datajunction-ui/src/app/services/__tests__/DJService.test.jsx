@@ -132,18 +132,6 @@ describe('DataJunctionAPI', () => {
     });
   });
 
-  it('calls nodesWithType correctly', async () => {
-    const nodeType = 'transform';
-    fetch.mockResponseOnce(JSON.stringify({}));
-    await DataJunctionAPI.nodesWithType(nodeType);
-    expect(fetch).toHaveBeenCalledWith(
-      `${DJ_URL}/nodes/?node_type=${nodeType}`,
-      {
-        credentials: 'include',
-      },
-    );
-  });
-
   it('calls createNode correctly', async () => {
     const sampleArgs = [
       'type',
@@ -1073,7 +1061,7 @@ describe('DataJunctionAPI', () => {
     });
   });
 
-  it('calls searchDimensions correctly', async () => {
+  it('calls searchNodes correctly', async () => {
     fetch.mockResponseOnce(
       JSON.stringify({
         data: {
@@ -1084,13 +1072,31 @@ describe('DataJunctionAPI', () => {
         },
       }),
     );
-    const results = await DataJunctionAPI.searchDimensions('hard', {
+    const results = await DataJunctionAPI.searchNodes('hard', {
+      nodeTypes: ['DIMENSION'],
+      limit: 10,
+    });
+    const { query, variables } = JSON.parse(fetch.mock.calls[0][1].body);
+    expect(query).toContain('findNodes(search: $q');
+    expect(variables).toEqual({
+      q: 'hard',
+      nodeTypes: ['DIMENSION'],
       limit: 10,
     });
     expect(results).toEqual([
       { name: 'default.hard_hat', displayName: 'Hard Hat' },
       { name: 'default.us_state', displayName: 'default.us_state' },
     ]);
+  });
+
+  it('calls searchNodes with nameOnly as a name fragment match', async () => {
+    fetch.mockResponseOnce(JSON.stringify({ data: { findNodes: [] } }));
+    await DataJunctionAPI.searchNodes('repair', {
+      nodeTypes: ['SOURCE', 'TRANSFORM'],
+      nameOnly: true,
+    });
+    const { query } = JSON.parse(fetch.mock.calls[0][1].body);
+    expect(query).toContain('findNodes(fragment: $q');
   });
 
   it('calls setAttributes correctly', async () => {

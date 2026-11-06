@@ -90,11 +90,6 @@ describe('AddEditNodePage submission succeeded', () => {
       json: { message: 'Success' },
     });
 
-    mockDjClient.DataJunctionAPI.nodesWithType
-      .mockReturnValueOnce(['default.test1'])
-      .mockReturnValueOnce(['default.test2'])
-      .mockReturnValueOnce([]);
-
     mockDjClient.DataJunctionAPI.listTags.mockReturnValue([
       { name: 'purpose', display_name: 'Purpose' },
       { name: 'intent', display_name: 'Intent' },
@@ -117,8 +112,15 @@ describe('AddEditNodePage submission succeeded', () => {
       'Some Test Metric',
     );
     const selectUpstream = screen.getByTestId('select-upstream-node');
-    fireEvent.keyDown(selectUpstream.firstChild, { key: 'ArrowDown' });
-    fireEvent.click(screen.getByText('default.repair_orders'));
+    await userEvent.type(selectUpstream.querySelector('input'), 'repair');
+    fireEvent.click(await screen.findByText('default.repair_orders'));
+    expect(mockDjClient.DataJunctionAPI.searchNodes).toHaveBeenLastCalledWith(
+      'repair',
+      expect.objectContaining({
+        nodeTypes: ['SOURCE', 'TRANSFORM', 'DIMENSION'],
+        nameOnly: true,
+      }),
+    );
 
     await userEvent.type(
       screen.getByLabelText('Aggregate Expression *'),
@@ -194,8 +196,8 @@ describe('AddEditNodePage submission succeeded', () => {
       'Some Test Metric',
     );
     const selectUpstream = screen.getByTestId('select-upstream-node');
-    fireEvent.keyDown(selectUpstream.firstChild, { key: 'ArrowDown' });
-    fireEvent.click(screen.getByText('default.repair_orders'));
+    await userEvent.type(selectUpstream.querySelector('input'), 'repair');
+    fireEvent.click(await screen.findByText('default.repair_orders'));
 
     await waitFor(() => {
       expect(mockDjClient.DataJunctionAPI.node).toHaveBeenCalledWith(
