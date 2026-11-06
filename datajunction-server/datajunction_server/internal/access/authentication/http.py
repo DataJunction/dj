@@ -21,6 +21,16 @@ from datajunction_server.internal.access.authentication.tokens import decode_tok
 from datajunction_server.utils import get_session, get_settings
 
 
+async def _load_user(request: Request, username: str, session: AsyncSession) -> None:
+    """
+    Set the request's user, then end the transaction that loading it opened.
+    """
+    request.state.user = await get_user(username=username, session=session)
+    # The request's session stays open, so without this the connection stays
+    # checked out until the endpoint finishes.
+    await session.commit()
+
+
 class DJHTTPBearer(HTTPBearer):
     """
     A custom HTTPBearer that accepts a cookie or bearer token
@@ -46,10 +56,7 @@ class DJHTTPBearer(HTTPBearer):
                         ),
                     ],
                 ) from exc
-            request.state.user = await get_user(
-                username=jwt_data["username"],
-                session=session,
-            )
+            await _load_user(request, jwt_data["username"], session)
             return
 
         authorization: str = request.headers.get("Authorization")
@@ -79,10 +86,7 @@ class DJHTTPBearer(HTTPBearer):
                 )
             return  # pragma: no cover
         jwt_data = decode_token(credentials)
-        request.state.user = await get_user(
-            username=jwt_data["username"],
-            session=session,
-        )
+        await _load_user(request, jwt_data["username"], session)
         return
 
 
