@@ -5,33 +5,51 @@
  * For derived metrics: Leave empty and reference other metrics directly in the expression.
  */
 import { ErrorMessage } from 'formik';
-import { useContext, useEffect, useState } from 'react';
+import { useCallback, useContext, useRef } from 'react';
 import DJClientContext from '../../providers/djclient';
 import { FormikSelect } from './FormikSelect';
 
+// Large instances have tens of thousands of candidate nodes, so nothing is
+// loaded up front; typing searches node names server-side. Name-only matching
+// mirrors the old client-side filter, and ranked search across all three types
+// is too slow on large instances to run per keystroke.
+const UPSTREAM_NODE_TYPES = ['SOURCE', 'TRANSFORM', 'DIMENSION'];
+const UPSTREAM_OPTIONS_LIMIT = 100;
+
 export const UpstreamNodeField = ({ defaultValue }) => {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
+  const searchAbort = useRef(null);
 
-  // All available nodes (sources, transforms, dimensions)
-  const [availableNodes, setAvailableNodes] = useState([]);
-
-  useEffect(() => {
-    async function fetchData() {
-      const sources = await djClient.nodesWithType('source');
-      const transforms = await djClient.nodesWithType('transform');
-      const dimensions = await djClient.nodesWithType('dimension');
-      const nodes = sources.concat(transforms).concat(dimensions);
-      setAvailableNodes(
-        nodes.map(node => {
-          return {
-            value: node,
-            label: node,
-          };
-        }),
-      );
-    }
-    fetchData();
-  }, [djClient]);
+  // react-select calls this on every keystroke; the previous request is
+  // abandoned so out-of-order responses can't overwrite newer ones.
+  const loadUpstreamOptions = useCallback(
+    async inputValue => {
+      const query = (inputValue || '').trim();
+      if (!query) {
+        return [];
+      }
+      if (searchAbort.current) {
+        searchAbort.current.abort();
+      }
+      const controller = new AbortController();
+      searchAbort.current = controller;
+      try {
+        const matches = await djClient.searchNodes(query, {
+          nodeTypes: UPSTREAM_NODE_TYPES,
+          nameOnly: true,
+          signal: controller.signal,
+          limit: UPSTREAM_OPTIONS_LIMIT,
+        });
+        return matches.map(node => ({ value: node.name, label: node.name }));
+      } catch (error) {
+        if (error.name !== 'AbortError') {
+          console.error(error);
+        }
+        return [];
+      }
+    },
+    [djClient],
+  );
 
   return (
     <div className="NodeCreationInput">
@@ -49,9 +67,13 @@ export const UpstreamNodeField = ({ defaultValue }) => {
         <FormikSelect
           className=""
           defaultValue={defaultValue}
-          selectOptions={availableNodes}
+          selectOptions={[]}
+          loadOptions={loadUpstreamOptions}
           formikFieldName="upstream_node"
-          placeholder="Select Upstream Node (optional for derived metrics)"
+          placeholder="Type to search upstream nodes (optional for derived metrics)"
+          noOptionsMessage={({ inputValue }) =>
+            inputValue ? 'No matching nodes' : 'Type to search'
+          }
           isMulti={false}
           isClearable={true}
         />

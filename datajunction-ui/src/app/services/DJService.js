@@ -704,14 +704,6 @@ export const DataJunctionAPI = {
     ).json();
   },
 
-  nodesWithType: async function (nodeType) {
-    return await (
-      await fetch(`${DJ_URL}/nodes/?node_type=${nodeType}`, {
-        credentials: 'include',
-      })
-    ).json();
-  },
-
   nodeDetails: async () => {
     return await (
       await fetch(`${DJ_URL}/nodes/details/`, {
@@ -1800,7 +1792,7 @@ export const DataJunctionAPI = {
     return { status: response.status, json: await response.json() };
   },
   // The full list runs to tens of thousands of entries on a large instance, so
-  // callers that render it should ask for a limit and use `searchDimensions`
+  // callers that render it should ask for a limit and use `searchNodes`
   // for anything past the cut-off.
   dimensions: async function (limit = null) {
     const query = limit ? `?limit=${limit}` : '';
@@ -1811,10 +1803,19 @@ export const DataJunctionAPI = {
     ).json();
   },
 
-  searchDimensions: async function (query, { signal, limit = 100 } = {}) {
+  // Server-side node search, for typeahead pickers over node lists too large
+  // to load up front. `nodeTypes` uses GraphQL enum names, e.g. ['DIMENSION'].
+  // By default results are ranked across name, display name and description;
+  // `nameOnly` does an unranked substring match on the node name instead,
+  // which stays fast when searching several node types at once.
+  searchNodes: async function (
+    query,
+    { nodeTypes, nameOnly = false, signal, limit = 100 } = {},
+  ) {
+    const matchArg = nameOnly ? 'fragment' : 'search';
     const gqlQuery = `
-      query SearchDimensions($q: String!, $limit: Int!) {
-        findNodes(search: $q, nodeTypes: [DIMENSION], limit: $limit) {
+      query SearchNodes($q: String!, $nodeTypes: [NodeType!], $limit: Int!) {
+        findNodes(${matchArg}: $q, nodeTypes: $nodeTypes, limit: $limit) {
           name
           current {
             displayName
@@ -1827,7 +1828,10 @@ export const DataJunctionAPI = {
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
       signal,
-      body: JSON.stringify({ query: gqlQuery, variables: { q: query, limit } }),
+      body: JSON.stringify({
+        query: gqlQuery,
+        variables: { q: query, nodeTypes, limit },
+      }),
     });
     const result = await response.json();
     return (result?.data?.findNodes || []).map(node => ({
