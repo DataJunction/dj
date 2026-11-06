@@ -58,6 +58,66 @@ curl -X POST $DJ_SERVER/metadata-schemas/ \
 
 If a repo manages the namespace, this is refused. A deployment reconciles that namespace to exactly what its manifest declares, so anything you register here would be undone on the next push. The error tells you to declare it in the repo instead.
 
+### Built-in semantic-layer schema
+
+DJ automatically registers `semantic_layer` as a global, reserved metadata key.
+It validates the portable metadata returned by the semantic-layer API, including
+units, formats, filter hints, and namespaced client extensions. You do not need to
+declare this schema in individual deployment manifests.
+
+Metric nodes put column metadata directly beneath the key:
+
+```yaml
+custom_metadata:
+  semantic_layer:
+    format:
+      preset: currency
+      precision: 2
+    extensions:
+      superset:
+        d3format: "$,.2f"
+```
+
+Dimension nodes declare metadata by column:
+
+```yaml
+custom_metadata:
+  semantic_layer:
+    columns:
+      country:
+        filter:
+          kind: select
+          operators: ["=", "!="]
+          default_operator: "="
+```
+
+The key is reserved so namespace-scoped schemas cannot redefine the shared
+contract. Producer-specific fields must be placed inside an object under
+`extensions`.
+
+`semantic_layer.format.precision` accepts 0 through 100 decimal places. Unit
+codes follow DJ's structured unit rules: time and data-size units require a
+recognized code, currency codes use three uppercase letters, and percentage,
+proportion, and unitless units do not take codes.
+
+DJ currently accepts `=`, `!=`, `>`, `>=`, `<`, `<=`, `IS NULL`, and `IS NOT NULL`
+in `semantic_layer.filter.operators`. The built-in metadata schema rejects
+`IN`, `NOT IN`, and `between` hints, even though DJ's semantic SQL requests can
+use those operators. Select hints are single-value controls; `multi: true` is
+not accepted. Omit `multi` or set it to `false`.
+
+When a column's final name component is exactly `dateint`, DJ infers
+`semantic_type: date` even if the stored column type is integer. Set
+`semantic_type` explicitly if the column has a different meaning:
+
+```yaml
+custom_metadata:
+  semantic_layer:
+    columns:
+      dateint:
+        semantic_type: number
+```
+
 ## What validation does and does not do
 
 Validation is **lax about keys it does not know**. A key with no registered schema passes untouched. That means registering your first schema breaks nothing that already exists, and the feature is inert until you opt into it.
