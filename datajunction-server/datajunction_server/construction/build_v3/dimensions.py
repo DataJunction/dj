@@ -387,7 +387,10 @@ def _register_pushdown_into_upstream(
         get_column_full_name,
         inject_filter_into_select,
     )
-    from datajunction_server.construction.build_v3.filters import parse_filter
+    from datajunction_server.construction.build_v3.filters import (
+        parse_filter,
+        rejects_null,
+    )
 
     consumed_here = ctx.pushdown_consumed_by_fact.setdefault(parent_node.name, set())
 
@@ -400,6 +403,8 @@ def _register_pushdown_into_upstream(
         try:
             f_ast = parse_filter(filter_str)
         except Exception:  # pragma: no cover
+            continue
+        if not rejects_null(f_ast):
             continue
         for col in f_ast.find_all(ast.Column):
             full = get_column_full_name(col)

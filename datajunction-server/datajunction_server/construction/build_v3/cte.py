@@ -10,6 +10,7 @@ from typing import cast
 from datajunction_server.construction.build_v3.filters import (
     dimension_ref_of_expression,
     parse_filter,
+    rejects_null,
 )
 from datajunction_server.construction.build_v3.materialization import (
     get_table_reference_parts_with_materialization,
@@ -1647,6 +1648,8 @@ def _resolve_pushdown_filters_for_cte(
             cursor = cursor.set_op.right
 
     for filter_str in pushdown_filters:
+        if not rejects_null(parse_filter(filter_str)):
+            continue
         rewritten = _rewrite_filter_for_select(
             filter_str,
             effective_aliases,
