@@ -2550,16 +2550,16 @@ def collect_node_ctes(
         pending = [n for n in pushdown.shared_read_nodes if n in all_node_names]
         while pending:
             name = pending.pop()
-            if name in no_pushdown_nodes:
-                continue
             no_pushdown_nodes.add(name)
             shared_node = ctx.nodes[name]
             if shared_node.current and shared_node.current.query:  # pragma: no branch
-                for ref in get_table_references_from_ast(
-                    ctx.get_parsed_query(shared_node),
-                ):
-                    if ref in all_node_names:
-                        pending.append(ref)
+                pending.extend(
+                    ref
+                    for ref in get_table_references_from_ast(
+                        ctx.get_parsed_query(shared_node),
+                    )
+                    if ref in all_node_names and ref not in no_pushdown_nodes
+                )
 
     # Build CTE name mapping
     cte_names: dict[str, str] = {}
