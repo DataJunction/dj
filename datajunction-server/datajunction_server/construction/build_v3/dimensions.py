@@ -401,9 +401,8 @@ def _group_into_branches(ctx: BuildContext, names: list[str]) -> list[list[int]]
         queue = list(ctx.parent_map.get(name, []))
         while queue:
             up = queue.pop()
-            if up not in seen:
-                seen.add(up)
-                queue.extend(ctx.parent_map.get(up, []))
+            seen.add(up)
+            queue.extend(p for p in ctx.parent_map.get(up, []) if p not in seen)
         return seen
 
     above = [ancestors(name) for name in names]
