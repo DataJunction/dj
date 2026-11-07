@@ -255,12 +255,16 @@ class PushdownFilters:
             attribute sharing a name with the raw FK column, so it must not be
             pushed into ANY CTE (incl. an upstream ancestor that projects the FK
             without owning the link).  See ``_resolve_pushdown_filters_for_cte``.
+        shared_read_nodes: Names of nodes whose CTE is joined more than once
+            (e.g. one dimension linked under several roles).  Filters are not
+            pushed into these CTEs, since each join needs its own predicate.
     """
 
     filters: list[str]
     column_aliases: dict[str, str]
     outer_only_refs: set[str] = field(default_factory=set)
     fk_collision_cols: set[str] = field(default_factory=set)
+    shared_read_nodes: set[str] = field(default_factory=set)
 
 
 @dataclass

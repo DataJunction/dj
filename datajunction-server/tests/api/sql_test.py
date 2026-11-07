@@ -4427,7 +4427,6 @@ async def test_role_path_dimensions_mixed_paths(
         SELECT  country_code,
         	name
          FROM default.examples.countries
-         WHERE  name = 'Canada' AND name = 'United States'
         ),
         default_user_dim AS (
         SELECT  birth_country,
@@ -4442,7 +4441,7 @@ async def test_role_path_dimensions_mixed_paths(
         	SUM(t1.age) age_sum_4ebaaaaa
          FROM default_user_dim t1 LEFT OUTER JOIN default_special_country_dim t2 ON t1.birth_country = t2.country_code
         LEFT OUTER JOIN default_special_country_dim t3 ON t1.residence_country = t3.country_code
-         WHERE  t3.name = 'Canada' AND t3.name = 'United States'
+         WHERE  t2.name = 'Canada' AND t3.name = 'United States'
          GROUP BY  t2.name, t3.name
         )
 
@@ -4802,7 +4801,6 @@ async def test_role_path_dimensions_performance_complex_query(
         SELECT  country_code,
         	name
          FROM default.examples.countries
-         WHERE  name IN ('Canada', 'United States', 'Mexico')
         ),
         default_user_dim AS (
         SELECT  birth_country,
@@ -4838,7 +4836,7 @@ async def test_role_path_dimensions_performance_complex_query(
         LEFT OUTER JOIN default_weeks t6 ON t5.dateint BETWEEN t6.week_start_date AND t6.week_end_date
         LEFT OUTER JOIN default_months t7 ON t6.month_id = t7.month_id
         LEFT OUTER JOIN default_years t8 ON t7.year_id = t8.year_id
-         WHERE  t3.name IN ('Canada', 'United States', 'Mexico') AND t4.region_name = 'North America' AND t7.month_name IN ('January', 'February', 'March') AND t8.year_number >= 2020
+         WHERE  t2.name IN ('Canada', 'United States', 'Mexico') AND t4.region_name = 'North America' AND t7.month_name IN ('January', 'February', 'March') AND t8.year_number >= 2020
          GROUP BY  t2.name, t3.name, t4.region_name, t7.month_name, t8.year_number
         )
 
