@@ -454,10 +454,6 @@ async def _build_shared_materialized_graph(client):
 
 
 class TestPushdownSharedMaterializedNode:
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Branch without a live linked node is left unfiltered",
-    )
     @pytest.mark.asyncio
     async def test_no_unfiltered_branch_under_shared_materialized_node(
         self,

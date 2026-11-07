@@ -393,34 +393,57 @@ def _unbuilt_nodes_under(ctx: BuildContext, root: Node) -> set[str]:
     return below - built
 
 
-def _group_into_branches(ctx: BuildContext, names: list[str]) -> list[list[int]]:
-    """Group indexes of ``names`` so nodes on one ancestor chain share a group."""
+def _every_branch_covered(
+    ctx: BuildContext,
+    root: Node,
+    live: set[str],
+    linked: set[str],
+) -> bool:
+    """
+    True if every UNION arm under ``root`` that reaches a linked node also
+    reaches a node in ``live``. Joined inputs need only one covered side; a
+    materialized node ends the search. Arms with no linked node are skipped.
+    """
+    from datajunction_server.construction.build_v3.cte import _set_op_arms
 
-    def ancestors(name: str) -> set[str]:
-        seen: set[str] = set()
-        queue = list(ctx.parent_map.get(name, []))
-        while queue:
-            up = queue.pop()
-            seen.add(up)
-            queue.extend(p for p in ctx.parent_map.get(up, []) if p not in seen)
-        return seen
+    def covered(node: Node) -> bool:
+        parents = [ctx.nodes[p] for p in ctx.parent_map.get(node.name, [])]
+        if node.name in live or not _reaches(ctx, node.name, linked):
+            return True
+        if should_use_materialized_table(ctx, node) or not parents:
+            return False
+        arms = _set_op_arms(ctx.get_parsed_query(node).select)
+        if len(arms) == 1:
+            return any(covered(p) for p in parents)
+        return all(
+            any(covered(p) for p in parents if p.name in _table_names(arm))
+            for arm in arms
+        )
 
-    above = [ancestors(name) for name in names]
-    groups: list[list[int]] = []
-    for i, name in enumerate(names):
-        linked = [
-            g
-            for g in groups
-            if any(
-                names[j] in above[i] or name in above[j] or names[j] == name for j in g
-            )
-        ]
-        merged = [i]
-        for g in linked:
-            merged.extend(g)
-            groups.remove(g)
-        groups.append(merged)
-    return groups
+    return covered(root)
+
+
+def _reaches(ctx: BuildContext, name: str, targets: set[str]) -> bool:
+    """True if ``name`` or any of its ancestors is in ``targets``."""
+    queue = [name]
+    while queue:
+        node = queue.pop()
+        if node in targets:
+            return True
+        queue.extend(ctx.parent_map.get(node, []))
+    return False
+
+
+def _table_names(arm: ast.SelectExpression) -> set[str]:
+    """Names of tables read by ``arm``, leaving out its later UNION arms."""
+    names: set[str] = set()
+    for tbl in arm.find_all(ast.Table):
+        owner: ast.Node | None = tbl
+        while owner is not None and owner is not arm.set_op:
+            owner = owner.parent
+        if owner is None:
+            names.add(tbl.name.identifier(quotes=False))
+    return names
 
 
 def _register_pushdown_into_upstream(
@@ -488,14 +511,18 @@ def _register_pushdown_into_upstream(
         for linked_node, fk_col in candidates
     ]
     # A candidate can take the filter when none of its targets lacks a CTE.
-    # Candidates on one chain (one an ancestor of another) form a branch; a
-    # branch is covered when any of its candidates can take the filter.
+    # Every UNION arm under the fact must reach such a candidate.
     can_receive = [
         bool(targets) and not any(t[0] in unbuilt for t in targets)
         for targets in resolved_targets
     ]
-    branches = _group_into_branches(ctx, [node.name for node, _ in candidates])
-    if any(not any(can_receive[i] for i in branch) for branch in branches):
+    live = {node.name for (node, _), ok in zip(candidates, can_receive) if ok}
+    if not _every_branch_covered(
+        ctx,
+        parent_node,
+        live,
+        {node.name for node, _ in candidates},
+    ):
         return False
 
     any_consumed = False
