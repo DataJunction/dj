@@ -396,3 +396,89 @@ class TestPushdownChainOfLinks:
             """,
             normalize_aliases=True,
         )
+
+
+async def _build_shared_materialized_graph(client):
+    """
+    audit_clean (linked, materialized) feeds two transforms; only audit_a is
+    linked to the date dimension. A UNION ALL fact reads both and hides the key.
+    """
+    await _build_graph(client, link_source=False)
+    for branch, linked in (("a", True), ("b", False)):
+        await _post(
+            client,
+            "/nodes/transform/",
+            {
+                "name": f"v3.audit_{branch}",
+                "query": (
+                    "SELECT audit_date, account_id, event_type FROM v3.audit_clean"
+                ),
+                "mode": "published",
+            },
+        )
+        if linked:
+            await _post(
+                client,
+                f"/nodes/v3.audit_{branch}/link",
+                {
+                    "dimension_node": "v3.audit_date_dim",
+                    "join_type": "inner",
+                    "join_on": (
+                        f"v3.audit_{branch}.audit_date = v3.audit_date_dim.dateint"
+                    ),
+                },
+            )
+    await _post(
+        client,
+        "/nodes/transform/",
+        {
+            "name": "v3.account_events_union",
+            "query": (
+                "SELECT account_id, event_type, 1 AS event_count FROM v3.audit_a "
+                "UNION ALL "
+                "SELECT account_id, event_type, 1 AS event_count FROM v3.audit_b"
+            ),
+            "mode": "published",
+            "primary_key": ["account_id", "event_type"],
+        },
+    )
+    await _post(
+        client,
+        "/nodes/metric/",
+        {
+            "name": "v3.total_union_events",
+            "query": "SELECT SUM(event_count) FROM v3.account_events_union",
+            "mode": "published",
+        },
+    )
+
+
+class TestPushdownSharedMaterializedNode:
+    @pytest.mark.xfail(
+        strict=True,
+        reason="Branch without a live linked node is left unfiltered",
+    )
+    @pytest.mark.asyncio
+    async def test_no_unfiltered_branch_under_shared_materialized_node(
+        self,
+        client_with_build_v3,
+    ):
+        """Only one branch has a live linked node; the other reads the
+        materialized table directly, so the request must not succeed with
+        that branch unfiltered."""
+        client = client_with_build_v3
+        await _build_shared_materialized_graph(client)
+        await _materialize(client, "v3.audit_clean", "clean_mat")
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_union_events"],
+                "dimensions": ["v3.account_events_union.event_type"],
+                "filters": ["v3.audit_date_dim.dateint >= 20260101"],
+            },
+        )
+        assert response.status_code == 422, response.json()
+        assert response.json()["message"] == (
+            "Cannot find join path from v3.account_events_union to dimension "
+            "v3.audit_date_dim. Please create a dimension link between these nodes."
+        )
