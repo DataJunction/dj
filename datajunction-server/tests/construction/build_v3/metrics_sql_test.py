@@ -3514,9 +3514,8 @@ class TestFilterOnlyDimensionLoop:
         client_with_build_v3,
     ):
         """
-        Filter with a role-qualified subscript whose base ref is checked against
-        multiple filter-only dimensions exercises the ctx.filter_dimensions loop
-        in metrics.py.
+        A filter on a role the node has no link for is rejected, even next to
+        a valid filter-only dimension.
         """
         response = await client_with_build_v3.get(
             "/sql/metrics/v3/",
@@ -3530,42 +3529,11 @@ class TestFilterOnlyDimensionLoop:
             },
         )
 
-        # The query may succeed or raise a dimension resolution error; either way
-        # the filter_dimensions loop is exercised with multiple entries.
-        assert response.status_code == 200
-        assert_sql_equal(
-            response.json()["sql"],
-            """
-            WITH v3_order_details AS (
-              SELECT
-                o.status,
-                oi.product_id,
-                oi.quantity * oi.unit_price AS line_total
-              FROM default.v3.orders o
-              JOIN default.v3.order_items oi ON o.order_id = oi.order_id
-            ),
-            v3_product AS (
-              SELECT
-                product_id,
-                category,
-                subcategory
-              FROM default.v3.products
-              WHERE subcategory = 'tools' AND category = 'electronics'
-            ),
-            order_details_0 AS (
-              SELECT
-                t1.status,
-                SUM(t1.line_total) line_total_sum_e1f61696
-              FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-              WHERE  t2.subcategory = 'tools' AND t2.category = 'electronics'
-              GROUP BY  t1.status
-            )
-            SELECT
-              order_details_0.status AS status,
-              SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue
-            FROM order_details_0
-            GROUP BY  order_details_0.status
-            """,
+        # v3.product has no link under role `buyer->home`.
+        assert response.status_code == 422
+        assert response.json()["message"] == (
+            "Cannot find join path from v3.order_details to dimension "
+            "v3.product. Please create a dimension link between these nodes."
         )
 
 

@@ -104,6 +104,7 @@ def find_join_path(
 
     No role means the null role: it matches only a role-free link, never a link
     that has a role. Pass ``any_role`` to take the best path whatever its role.
+    A named role that no link has is never replaced by another role.
 
     Returns None if no path found.
     """
@@ -125,12 +126,11 @@ def find_join_path(
             role=role,
         )
 
-    if not role and not any_role:
+    # No link has this role. Only ``any_role`` takes the best path whatever
+    # its role; a named role is never replaced by another.
+    if not any_role:
         return None
 
-    # Fallback: a role was given that no link has, so use the actual link's role
-    # (or, for ``any_role``, the best path whatever its role).
-    # We prefer empty role (null) over named roles when falling back
     fallback_paths = []
     for (src_id, dim_name, stored_role), path_links in ctx.join_paths.items():
         if src_id == source_revision_id and dim_name == target_dim_name:
@@ -143,14 +143,6 @@ def find_join_path(
             key=lambda x: (len(x[1]), x[0] != "", x[0]),
         )  # Shortest path, then empty role, then alphabetical
         stored_role, path_links = fallback_paths[0]
-
-        if role and stored_role != role_path:
-            logger.info(  # pragma: no cover
-                "[BuildV3] Role mismatch: requested '%s' but using '%s' for dimension %s",
-                role,
-                stored_role or "null",
-                target_dim_name,
-            )
 
         return JoinPath(
             links=path_links,

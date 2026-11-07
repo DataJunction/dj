@@ -440,11 +440,6 @@ async def test_single_parent_filters_on_its_own_role(
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(
-    strict=True,
-    raises=KnownWrongResult,
-    reason="filtering roles x and y together ANDs both on every parent (country = 'Canada' AND country = 'United States')",
-)
 async def test_measures_each_role_filter_reaches_the_parent_with_that_role(
     client_with_build_v3,
 ):
@@ -469,11 +464,6 @@ async def test_measures_each_role_filter_reaches_the_parent_with_that_role(
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(
-    strict=True,
-    raises=KnownWrongResult,
-    reason="the x filter is applied to parent B through its role y join",
-)
 async def test_measures_role_filter_on_parent_without_that_role(
     client_with_build_v3,
 ):
@@ -496,11 +486,6 @@ async def test_measures_role_filter_on_parent_without_that_role(
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(
-    strict=True,
-    raises=KnownWrongResult,
-    reason="parent B is grouped by its role y join labelled country_x",
-)
 async def test_measures_group_by_role_on_parent_without_that_role(
     client_with_build_v3,
 ):
@@ -524,11 +509,6 @@ async def test_measures_group_by_role_on_parent_without_that_role(
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(
-    strict=True,
-    raises=KnownWrongResult,
-    reason="filtering roles x and y together ANDs both on every parent (country = 'Canada' AND country = 'United States')",
-)
 async def test_metrics_role_filters_with_shared_dimension(client_with_build_v3):
     """/sql/metrics/v3: x filter reaches A, y filter reaches B, or a clean error."""
     await build_two_parents(client_with_build_v3)
@@ -553,11 +533,6 @@ async def test_metrics_role_filters_with_shared_dimension(client_with_build_v3):
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(
-    strict=True,
-    raises=KnownWrongResult,
-    reason="the x filter is applied to parent B through its role y join",
-)
 async def test_metrics_role_filter_on_parent_without_that_role(client_with_build_v3):
     """/sql/metrics/v3: an x filter must not filter parent B through role y."""
     await build_two_parents(client_with_build_v3)
@@ -579,11 +554,6 @@ async def test_metrics_role_filter_on_parent_without_that_role(client_with_build
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(
-    strict=True,
-    raises=KnownWrongResult,
-    reason="parent B is grouped by its role y join labelled country_x",
-)
 async def test_metrics_group_by_role_on_parent_without_that_role(
     client_with_build_v3,
 ):

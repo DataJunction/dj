@@ -247,87 +247,20 @@ async def test_indirect_self_join_employee_manager(
     )
     assert response.status_code in (200, 201), response.text
 
-    # Test /sql/measures/v3 - validates self-join through indirect dimension link
-    response = await client_with_service_setup.get(
-        "/sql/measures/v3",
-        params={
-            "metrics": ["default.total_sales"],
-            "dimensions": [
-                "default.emp.name[manager]",
-            ],
-        },
-    )
-    assert response.status_code == 200, response.text
-    data = response.json()
-    assert_sql_equal(
-        data["grain_groups"][0]["sql"],
-        """
-        WITH default_emp AS (
-          SELECT
-            employee_id,
-            name
-          FROM default.public.employees
-        ),
-        default_sales_with_emp AS (
-          SELECT
-            s.amount,
-            s.employee_id
-          FROM default.public.sales s
-          LEFT JOIN default.public.employees e ON s.employee_id = e.employee_id
+    # The transform links emp without a role, so it cannot reach `manager`.
+    for endpoint in ("measures", "metrics"):
+        response = await client_with_service_setup.get(
+            f"/sql/{endpoint}/v3",
+            params={
+                "metrics": ["default.total_sales"],
+                "dimensions": ["default.emp.name[manager]"],
+            },
         )
-        SELECT
-          t2.name name_manager,
-          SUM(t1.amount) amount_sum_b1a226f0
-        FROM default_sales_with_emp t1
-        LEFT OUTER JOIN default_emp t2 ON t1.employee_id = t2.employee_id
-        GROUP BY
-          t2.name
-        """,
-    )
-
-    # Test /sql/metrics/v3 - validates full aggregation with self-join
-    response = await client_with_service_setup.get(
-        "/sql/metrics/v3",
-        params={
-            "metrics": ["default.total_sales"],
-            "dimensions": [
-                "default.emp.name[manager]",
-            ],
-        },
-    )
-    assert response.status_code == 200, response.text
-    data = response.json()
-    assert_sql_equal(
-        data["sql"],
-        """
-        WITH default_emp AS (
-          SELECT
-            employee_id,
-            name
-          FROM default.public.employees
-        ),
-        default_sales_with_emp AS (
-          SELECT
-            s.amount,
-            s.employee_id
-          FROM default.public.sales s
-          LEFT JOIN default.public.employees e ON s.employee_id = e.employee_id
-        ),
-        sales_with_emp_0 AS (
-          SELECT
-            t2.name name_manager,
-            SUM(t1.amount) amount_sum_b1a226f0
-          FROM default_sales_with_emp t1 LEFT OUTER JOIN default_emp t2 ON t1.employee_id = t2.employee_id
-          GROUP BY  t2.name
+        assert response.status_code == 422, response.text
+        assert response.json()["message"] == (
+            "Cannot find join path from default.sales_with_emp to dimension "
+            "default.emp. Please create a dimension link between these nodes."
         )
-        SELECT
-          sales_with_emp_0.name_manager AS name_manager,
-          SUM(sales_with_emp_0.amount_sum_b1a226f0) AS total_sales
-        FROM sales_with_emp_0
-        GROUP BY
-          sales_with_emp_0.name_manager
-        """,
-    )
 
 
 @pytest.mark.asyncio
