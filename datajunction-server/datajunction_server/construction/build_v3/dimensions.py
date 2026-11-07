@@ -12,6 +12,7 @@ from typing import cast
 
 from datajunction_server.construction.build_v3.materialization import (
     get_table_reference_parts_with_materialization,
+    should_use_materialized_table,
 )
 from datajunction_server.construction.build_v3.decomposition import (
     get_base_metrics_for_derived,
@@ -365,6 +366,29 @@ def _resolve_filter_only_dim(
     return None
 
 
+def _unbuilt_nodes_under(ctx: BuildContext, root: Node) -> set[str]:
+    """Nodes below ``root`` that get no CTE because a materialized table covers them."""
+
+    def is_materialized(name: str) -> bool:
+        node = ctx.nodes.get(name)
+        return node is not None and should_use_materialized_table(ctx, node)
+
+    def reach(stop_at_materialized: bool) -> set[str]:
+        found = {root.name}
+        queue = [root.name]
+        while queue:
+            name = queue.pop()
+            if stop_at_materialized and is_materialized(name):
+                continue
+            new = [p for p in ctx.parent_map.get(name, []) if p not in found]
+            found.update(new)
+            queue.extend(new)
+        return found
+
+    built = {n for n in reach(True) if not is_materialized(n)}
+    return reach(False) - built
+
+
 def _register_pushdown_into_upstream(
     ctx: BuildContext,
     parent_node: Node,
@@ -409,6 +433,8 @@ def _register_pushdown_into_upstream(
     if not matching:
         return False  # pragma: no cover
 
+    unbuilt = _unbuilt_nodes_under(ctx, parent_node)
+
     # Build a children-of map lazily, only for sources we actually need.
     children_cache: dict[str, list[str]] = {}
 
@@ -422,17 +448,25 @@ def _register_pushdown_into_upstream(
         children_cache[node_name] = result
         return result
 
+    # Targets whose CTE is never built (materialized, or under a
+    # materialized node) cannot hold the filter.
+    usable = [
+        (
+            fk_col,
+            [
+                t
+                for t in _resolve_pushdown_targets(ctx, linked_node, fk_col, children_of)
+                if t[0] not in unbuilt
+                and not should_use_materialized_table(ctx, ctx.nodes[t[0]])
+            ],
+        )
+        for linked_node, fk_col in candidates
+    ]
+
+    any_consumed = False
     for filter_str in matching:
         consumed = False
-        for linked_node, fk_col in candidates:  # pragma: no branch
-            targets = _resolve_pushdown_targets(
-                ctx,
-                linked_node,
-                fk_col,
-                children_of,
-            )
-            if not targets:
-                continue  # pragma: no cover
+        for fk_col, targets in usable:
             for target_name, qualifier, arm_select in targets:
                 rewritten = _rewrite_filter_col_refs(
                     filter_str,
@@ -455,10 +489,11 @@ def _register_pushdown_into_upstream(
                     )
                     if all(str(rewritten) != str(e) for e in registered):
                         registered.append(rewritten)
-            consumed = True
-        if consumed:  # pragma: no branch
+            consumed = consumed or bool(targets)
+        if consumed:
             consumed_here.add(filter_str)
-    return bool(consumed_here)
+            any_consumed = True
+    return any_consumed
 
 
 def _resolve_pushdown_targets(
