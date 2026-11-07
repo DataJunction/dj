@@ -581,19 +581,15 @@ def _nodes_joined_more_than_once(
 
 def _aliases_for_shared_columns(
     resolved_dimensions: list[ResolvedDimension],
+    filter_column_aliases: dict[str, str],
     main_alias: str,
     dim_aliases: dict[tuple[str, str | None], str],
-    parent_node: Node,
 ) -> dict[str, ast.Name]:
     """Table-qualified names for refs whose column name is read from several tables."""
     refs: dict[str, tuple[str, str]] = {}
     for resolved_dim in resolved_dimensions:
-        column = _get_filter_column_name_for_dimension(
-            resolved_dim,
-            parent_node,
-        ) or str(resolved_dim.column_name)
         refs[resolved_dim.original_ref] = (
-            column,
+            filter_column_aliases[resolved_dim.original_ref],
             get_dimension_table_alias(resolved_dim, main_alias, dim_aliases),
         )
     tables_by_column: dict[str, set[str]] = {}
@@ -624,9 +620,9 @@ def build_outer_where(
         **filter_column_aliases,
         **_aliases_for_shared_columns(
             resolved_dimensions,
+            filter_column_aliases,
             main_alias,
             dim_aliases,
-            parent_node,
         ),
     }
     where_clause = parse_and_resolve_filters(

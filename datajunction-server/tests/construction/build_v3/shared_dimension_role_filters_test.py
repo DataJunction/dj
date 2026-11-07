@@ -29,11 +29,17 @@ def run_in_sqlite(sql: str) -> list[tuple]:
         INSERT INTO order_items VALUES (1, 1, 10), (2, 1, 20), (3, 1, 30), (4, 2, 5);
         CREATE TABLE places (place_id INT, country TEXT);
         INSERT INTO places VALUES (1, 'Canada'), (2, 'United States'), (3, 'Mexico');
+        CREATE TABLE legs (from_loc INT, to_loc INT, carrier_id INT, amount REAL);
+        INSERT INTO legs VALUES (1, 2, 1, 10), (2, 1, 1, 20), (1, 3, 2, 30), (3, 2, 2, 5);
+        CREATE TABLE carriers (carrier_id INT, from_loc INT);
+        INSERT INTO carriers VALUES (1, 7), (2, 8);
         CREATE TABLE trips (from_place_id INT, to_place_id INT, amount REAL);
         INSERT INTO trips VALUES (1, 2, 10), (2, 1, 20), (1, 3, 30), (1, 2, 5);
         """,
     )
-    return conn.execute(sql.replace("default.v3.", "")).fetchall()
+    return conn.execute(
+        sql.replace("default.v3.", "").replace("analytics.dim.", ""),
+    ).fetchall()
 
 
 @pytest.mark.asyncio
@@ -293,3 +299,138 @@ async def test_role_filters_are_not_pushed_into_transforms_below_a_shared_dimens
         normalize_aliases=True,
     )
     assert run_in_sqlite(sql) == [("Canada", "United States", 15.0)]
+
+
+async def build_legs_with_materialized_parent(client):
+    """`v3.legs` links `v3.place_dim` as `from` then `to`, and joins `v3.carrier`,
+    which has a column named like the first link's key."""
+    for name, columns, table in [
+        (
+            "v3.src_legs",
+            [
+                {"name": "from_loc", "type": "int"},
+                {"name": "to_loc", "type": "int"},
+                {"name": "carrier_id", "type": "int"},
+                {"name": "amount", "type": "double"},
+            ],
+            "legs",
+        ),
+        (
+            "v3.src_locs",
+            [{"name": "loc_id", "type": "int"}, {"name": "label", "type": "string"}],
+            "locs",
+        ),
+        (
+            "v3.src_carriers",
+            [
+                {"name": "carrier_id", "type": "int"},
+                {"name": "from_loc", "type": "int"},
+            ],
+            "carriers",
+        ),
+    ]:
+        resp = await client.post(
+            "/nodes/source/",
+            json={
+                "name": name,
+                "columns": columns,
+                "mode": "published",
+                "catalog": "default",
+                "schema_": "v3",
+                "table": table,
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+    for kind, name, query, extra in [
+        (
+            "transform",
+            "v3.legs",
+            "SELECT from_loc, to_loc, carrier_id, amount FROM v3.src_legs",
+            {},
+        ),
+        (
+            "dimension",
+            "v3.place_dim",
+            "SELECT loc_id, label FROM v3.src_locs",
+            {"primary_key": ["loc_id"]},
+        ),
+        (
+            "dimension",
+            "v3.carrier",
+            "SELECT carrier_id, from_loc FROM v3.src_carriers",
+            {"primary_key": ["carrier_id"]},
+        ),
+    ]:
+        resp = await client.post(
+            f"/nodes/{kind}/",
+            json={"name": name, "query": query, "mode": "published", **extra},
+        )
+        assert resp.status_code == 201, resp.json()
+    for dimension, join_on, role in [
+        ("v3.place_dim", "v3.legs.from_loc = v3.place_dim.loc_id", "from"),
+        ("v3.place_dim", "v3.legs.to_loc = v3.place_dim.loc_id", "to"),
+        ("v3.carrier", "v3.legs.carrier_id = v3.carrier.carrier_id", None),
+    ]:
+        resp = await client.post(
+            "/nodes/v3.legs/link/",
+            json={
+                "dimension_node": dimension,
+                "join_type": "left",
+                "join_on": join_on,
+                **({"role": role} if role else {}),
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+    resp = await client.post(
+        "/nodes/metric/",
+        json={
+            "name": "v3.leg_amount",
+            "query": "SELECT SUM(amount) FROM v3.legs",
+            "mode": "published",
+        },
+    )
+    assert resp.status_code == 201, resp.json()
+    resp = await client.post(
+        "/data/v3.legs/availability/",
+        json={
+            "catalog": "analytics",
+            "schema_": "dim",
+            "table": "legs",
+            "valid_through_ts": 9999999999,
+        },
+    )
+    assert resp.status_code == 200, resp.json()
+
+
+@pytest.mark.asyncio
+async def test_outer_filter_keeps_the_column_of_its_own_role(client_with_build_v3):
+    await build_legs_with_materialized_parent(client_with_build_v3)
+    response = await client_with_build_v3.get(
+        "/sql/measures/v3/",
+        params={
+            "metrics": ["v3.leg_amount"],
+            "dimensions": ["v3.place_dim.loc_id[to]", "v3.carrier.from_loc"],
+            "filters": ["v3.place_dim.loc_id[to] = 2"],
+        },
+    )
+    assert response.status_code == 200, response.json()
+    sql = get_first_grain_group(response.json())["sql"]
+    assert_sql_equal(
+        sql,
+        """
+        WITH
+        v3_carrier AS (
+          SELECT carrier_id, from_loc
+          FROM default.v3.carriers
+        )
+        SELECT t1.to_loc loc_id_to,
+          t2.from_loc,
+          SUM(t1.amount) amount_sum_HASH
+        FROM analytics.dim.legs t1
+        LEFT OUTER JOIN v3_carrier t2 ON t1.carrier_id = t2.carrier_id
+        WHERE t1.to_loc = 2
+        GROUP BY t1.to_loc, t2.from_loc
+        """,
+        normalize_aliases=True,
+    )
+    assert sorted(run_in_sqlite(sql)) == [(2, 7, 10.0), (2, 8, 5.0)]
