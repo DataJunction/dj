@@ -74,10 +74,6 @@ async def build_fact_over_two_linked_sources(client):
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(
-    strict=True,
-    reason="the old pushdown filters an alias the unaliased source never gets",
-)
 async def test_filter_applies_to_every_upstream_node_linking_the_dimension(
     client_with_build_v3,
 ):
