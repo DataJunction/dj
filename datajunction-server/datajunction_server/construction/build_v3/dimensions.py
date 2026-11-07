@@ -393,6 +393,37 @@ def _unbuilt_nodes_under(ctx: BuildContext, root: Node) -> set[str]:
     return below - built
 
 
+def _group_into_branches(ctx: BuildContext, names: list[str]) -> list[list[int]]:
+    """Group indexes of ``names`` so nodes on one ancestor chain share a group."""
+
+    def ancestors(name: str) -> set[str]:
+        seen: set[str] = set()
+        queue = list(ctx.parent_map.get(name, []))
+        while queue:
+            up = queue.pop()
+            if up not in seen:
+                seen.add(up)
+                queue.extend(ctx.parent_map.get(up, []))
+        return seen
+
+    above = [ancestors(name) for name in names]
+    groups: list[list[int]] = []
+    for i, name in enumerate(names):
+        linked = [
+            g
+            for g in groups
+            if any(
+                names[j] in above[i] or name in above[j] or names[j] == name for j in g
+            )
+        ]
+        merged = [i]
+        for g in linked:
+            merged.extend(g)
+            groups.remove(g)
+        groups.append(merged)
+    return groups
+
+
 def _register_pushdown_into_upstream(
     ctx: BuildContext,
     parent_node: Node,
@@ -457,15 +488,23 @@ def _register_pushdown_into_upstream(
         _resolve_pushdown_targets(ctx, linked_node, fk_col, children_of)
         for linked_node, fk_col in candidates
     ]
-    # A filter is dropped from the outer query only if every target under
-    # this fact can receive it.
-    if any(t[0] in unbuilt for targets in resolved_targets for t in targets):
+    # A candidate can take the filter when none of its targets lacks a CTE.
+    # Candidates on one chain (one an ancestor of another) form a branch; a
+    # branch is covered when any of its candidates can take the filter.
+    can_receive = [
+        bool(targets) and not any(t[0] in unbuilt for t in targets)
+        for targets in resolved_targets
+    ]
+    branches = _group_into_branches(ctx, [node.name for node, _ in candidates])
+    if any(not any(can_receive[i] for i in branch) for branch in branches):
         return False
 
     any_consumed = False
     for filter_str in matching:
         consumed = False
-        for (linked_node, fk_col), targets in zip(candidates, resolved_targets):
+        for (_, fk_col), targets, ok in zip(candidates, resolved_targets, can_receive):
+            if not ok:
+                continue
             targets = [
                 t
                 for t in targets

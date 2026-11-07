@@ -19,7 +19,7 @@ async def _post(client, path, payload):
     assert response.status_code < 300, response.json()
 
 
-async def _build_graph(client, link_source: bool):
+async def _build_graph(client, link_source: bool, with_high: bool = False):
     """
     audit_log (linked to audit_date_dim via audit_date) ->
     [audit_clean] -> account_events -> total_event_count.
@@ -85,6 +85,29 @@ async def _build_graph(client, link_source: bool):
             "join_on": f"{link_from}.audit_date = v3.audit_date_dim.dateint",
         },
     )
+    fact_from = "v3.audit_clean"
+    if with_high:
+        fact_from = "v3.audit_high"
+        await _post(
+            client,
+            "/nodes/transform/",
+            {
+                "name": "v3.audit_high",
+                "query": (
+                    "SELECT audit_date, account_id, event_type FROM v3.audit_clean"
+                ),
+                "mode": "published",
+            },
+        )
+        await _post(
+            client,
+            "/nodes/v3.audit_high/link",
+            {
+                "dimension_node": "v3.audit_date_dim",
+                "join_type": "inner",
+                "join_on": "v3.audit_high.audit_date = v3.audit_date_dim.dateint",
+            },
+        )
     await _post(
         client,
         "/nodes/transform/",
@@ -92,7 +115,7 @@ async def _build_graph(client, link_source: bool):
             "name": "v3.account_events",
             "query": (
                 "SELECT account_id, event_type, COUNT(*) AS event_count "
-                "FROM v3.audit_clean GROUP BY account_id, event_type"
+                f"FROM {fact_from} GROUP BY account_id, event_type"
             ),
             "mode": "published",
             "primary_key": ["account_id", "event_type"],
@@ -325,6 +348,47 @@ class TestPushdownUnionBranches:
                 UNION ALL
                 SELECT event_type, 1 AS event_count
                 FROM v3_audit_clean_b
+            )
+            SELECT t1.event_type, SUM(t1.event_count) event_count_sum_HASH
+            FROM v3_account_events t1
+            GROUP BY t1.event_type
+            """,
+            normalize_aliases=True,
+        )
+
+
+async def _build_chain_graph(client):
+    """
+    audit_log -> audit_clean -> audit_high -> account_events, with both
+    transforms linked to the date dimension and the fact hiding the key.
+    """
+    await _build_graph(client, link_source=False, with_high=True)
+
+
+class TestPushdownChainOfLinks:
+    @pytest.mark.asyncio
+    async def test_filter_lands_on_live_node_above_materialized(
+        self,
+        client_with_build_v3,
+    ):
+        """A live transform above a materialized one can still take the
+        filter, so the request is valid."""
+        await _build_chain_graph(client_with_build_v3)
+        await _materialize(client_with_build_v3, "v3.audit_clean", "clean_mat")
+        response = await _request_filtered(client_with_build_v3)
+        assert response.status_code == 200, response.json()
+        assert_sql_equal(
+            get_first_grain_group(response.json())["sql"],
+            """
+            WITH v3_audit_high AS (
+                SELECT account_id, event_type
+                FROM analytics.warehouse.clean_mat
+                WHERE audit_date >= 20260101
+            ),
+            v3_account_events AS (
+                SELECT account_id, event_type, COUNT(*) AS event_count
+                FROM v3_audit_high
+                GROUP BY account_id, event_type
             )
             SELECT t1.event_type, SUM(t1.event_count) event_count_sum_HASH
             FROM v3_account_events t1
