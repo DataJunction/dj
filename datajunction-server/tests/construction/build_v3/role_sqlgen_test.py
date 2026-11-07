@@ -66,6 +66,16 @@ INSERT INTO rp_sales_b VALUES (1, 1, 1), (2, 1, 2), (3, 1, 4);
 """
 
 
+class KnownWrongResult(Exception):
+    """The generated SQL returns a known wrong result."""
+
+
+def expect_equal(actual, expected):
+    """Raise KnownWrongResult when a 200 response gives the wrong result."""
+    if actual != expected:
+        raise KnownWrongResult(f"actual {actual!r} != expected {expected!r}")
+
+
 def execute(sql: str, fixture_sql: str) -> list[tuple]:
     """Run SQL against small physical tables, omitting the fixture catalog."""
     with sqlite3.connect(":memory:") as db:
@@ -388,6 +398,7 @@ async def measures_by_parent(client, metrics, dimensions, filters):
         "/sql/measures/v3/",
         params={"metrics": metrics, "dimensions": dimensions, "filters": filters},
     )
+    assert response.status_code < 500, response.text
     if response.status_code != 200:
         return response.status_code, {}
     groups = {}
@@ -431,6 +442,7 @@ async def test_single_parent_filters_on_its_own_role(
 @pytest.mark.asyncio
 @pytest.mark.xfail(
     strict=True,
+    raises=KnownWrongResult,
     reason="filtering roles x and y together ANDs both on every parent (country = 'Canada' AND country = 'United States')",
 )
 async def test_measures_each_role_filter_reaches_the_parent_with_that_role(
@@ -448,17 +460,18 @@ async def test_measures_each_role_filter_reaches_the_parent_with_that_role(
         ],
     )
     if status != 200:
-        assert 400 <= status < 500
+        assert 400 <= status < 500, status
         return
-    assert {parent: rows for parent, (_, rows) in groups.items()} == {
-        "a": [(10.0,)],
-        "b": [(2.0,)],
-    }
+    expect_equal(
+        {parent: rows for parent, (_, rows) in groups.items()},
+        {"a": [(10.0,)], "b": [(2.0,)]},
+    )
 
 
 @pytest.mark.asyncio
 @pytest.mark.xfail(
     strict=True,
+    raises=KnownWrongResult,
     reason="the x filter is applied to parent B through its role y join",
 )
 async def test_measures_role_filter_on_parent_without_that_role(
@@ -473,16 +486,19 @@ async def test_measures_role_filter_on_parent_without_that_role(
         ["v3.location.country[x] = 'Canada'"],
     )
     if status != 200:
-        assert 400 <= status < 500
+        assert 400 <= status < 500, status
         return
     # Parent B is skipped (left unfiltered) or dropped, never filtered by y.
-    assert groups["a"][1] == [(10.0,)]
-    assert groups.get("b", (None, [(7.0,)]))[1] == [(7.0,)]
+    expect_equal(
+        (groups["a"][1], groups.get("b", (None, [(7.0,)]))[1]),
+        ([(10.0,)], [(7.0,)]),
+    )
 
 
 @pytest.mark.asyncio
 @pytest.mark.xfail(
     strict=True,
+    raises=KnownWrongResult,
     reason="parent B is grouped by its role y join labelled country_x",
 )
 async def test_measures_group_by_role_on_parent_without_that_role(
@@ -497,20 +513,20 @@ async def test_measures_group_by_role_on_parent_without_that_role(
         [],
     )
     if status != 200:
-        assert 400 <= status < 500
+        assert 400 <= status < 500, status
         return
-    assert groups["a"][1] == [
-        ("Canada", 10.0),
-        ("Mexico", 40.0),
-        ("United States", 20.0),
-    ]
+    expect_equal(
+        groups["a"][1],
+        [("Canada", 10.0), ("Mexico", 40.0), ("United States", 20.0)],
+    )
     if "b" in groups:
-        assert "country_x" not in groups["b"][0]
+        expect_equal("country_x" in groups["b"][0], False)
 
 
 @pytest.mark.asyncio
 @pytest.mark.xfail(
     strict=True,
+    raises=KnownWrongResult,
     reason="filtering roles x and y together ANDs both on every parent (country = 'Canada' AND country = 'United States')",
 )
 async def test_metrics_role_filters_with_shared_dimension(client_with_build_v3):
@@ -528,14 +544,18 @@ async def test_metrics_role_filters_with_shared_dimension(client_with_build_v3):
         },
     )
     if response.status_code != 200:
-        assert 400 <= response.status_code < 500
+        assert 400 <= response.status_code < 500, response.text
         return
-    assert execute(response.json()["sql"], TWO_PARENT_TABLES) == [(2026, 10.0, 2.0)]
+    expect_equal(
+        execute(response.json()["sql"], TWO_PARENT_TABLES),
+        [(2026, 10.0, 2.0)],
+    )
 
 
 @pytest.mark.asyncio
 @pytest.mark.xfail(
     strict=True,
+    raises=KnownWrongResult,
     reason="the x filter is applied to parent B through its role y join",
 )
 async def test_metrics_role_filter_on_parent_without_that_role(client_with_build_v3):
@@ -550,14 +570,18 @@ async def test_metrics_role_filter_on_parent_without_that_role(client_with_build
         },
     )
     if response.status_code != 200:
-        assert 400 <= response.status_code < 500
+        assert 400 <= response.status_code < 500, response.text
         return
-    assert execute(response.json()["sql"], TWO_PARENT_TABLES) == [(2026, 10.0, 7.0)]
+    expect_equal(
+        execute(response.json()["sql"], TWO_PARENT_TABLES),
+        [(2026, 10.0, 7.0)],
+    )
 
 
 @pytest.mark.asyncio
 @pytest.mark.xfail(
     strict=True,
+    raises=KnownWrongResult,
     reason="parent B is grouped by its role y join labelled country_x",
 )
 async def test_metrics_group_by_role_on_parent_without_that_role(
@@ -572,4 +596,5 @@ async def test_metrics_group_by_role_on_parent_without_that_role(
             "dimensions": ["v3.location.country[x]"],
         },
     )
-    assert 400 <= response.status_code < 500, response.json()
+    assert response.status_code < 500, response.text
+    expect_equal(response.status_code // 100, 4)
