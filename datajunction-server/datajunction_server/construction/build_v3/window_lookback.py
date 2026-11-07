@@ -233,13 +233,46 @@ def _read_lookback_role_aware(
     return (wl, None) if wl else None
 
 
+class _UnboundableFilter(Exception):
+    """A filter on the order column that cannot become a window bound."""
+
+
+_FLIPPED_OPS = {
+    ast.BinaryOpKind.Eq: ast.BinaryOpKind.Eq,
+    ast.BinaryOpKind.Gt: ast.BinaryOpKind.Lt,
+    ast.BinaryOpKind.GtEq: ast.BinaryOpKind.LtEq,
+    ast.BinaryOpKind.Lt: ast.BinaryOpKind.Gt,
+    ast.BinaryOpKind.LtEq: ast.BinaryOpKind.GtEq,
+}
+
+
+def _column_ref(expr: ast.Node) -> tuple[str, str | None] | None:
+    """Read ``(node.column, role)`` from ``col`` or ``col[role]``."""
+    role = None
+    if isinstance(expr, ast.Subscript):
+        role = str(expr.index)
+        expr = expr.expr
+    if isinstance(expr, ast.Column):
+        return expr.identifier(False), role
+    return None
+
+
+def _step_strict_bound(value: ast.Expression, step: int) -> ast.Number:
+    """Turn a strict integer bound into the equivalent inclusive one."""
+    if isinstance(value, ast.Number) and isinstance(value.value, int):
+        return ast.Number(value.value + step)
+    raise _UnboundableFilter()
+
+
 def _order_filter_bounds(
     filter_ast: ast.Expression,
-    order_col_name: str,
+    order_ref: tuple[str, str | None],
 ) -> tuple[ast.Expression | None, ast.Expression | None] | None:
     """
-    Read (low, high) bounds off a dimension filter that constrains the order
-    column, or None if this filter does not constrain it.
+    Read (low, high) inclusive bounds off a filter on the order column, or
+    None if the filter does not mention it. ``order_ref`` is the order
+    column's ``(node.column, role)``; a filter on another role of the same
+    column is not a bound.
 
     Supports the shapes the live path needs to expand:
       - ``col = R``             -> (R, R)            (a self-contained point)
@@ -247,35 +280,56 @@ def _order_filter_bounds(
       - ``col >= A`` / ``col > A`` -> (A, None)      (a low-only partial bound)
       - ``col <= B`` / ``col < B`` -> (None, B)      (a high-only partial bound)
 
+    A strict integer bound moves by one to stay inclusive. Raises
+    :class:`_UnboundableFilter` for a strict non-integer bound or a comparison
+    that buries the column in a larger expression.
+
     Partial bounds (one side ``None``) let the caller stitch a range expressed
     as two separate filter strings (``col >= A`` and ``col <= B``) into a single
     ``[A, B]`` extent. The caller is responsible for combining them.
     """
-    cols = [c for c in filter_ast.find_all(ast.Column) if c.name.name == order_col_name]
-    if not cols:
+    # Columns inside a role subscript belong to the roled reference.
+    subscripts = list(filter_ast.find_all(ast.Subscript))
+    inside_subscript = {id(n.expr) for n in subscripts} | {
+        id(n.index) for n in subscripts
+    }
+    mentions = (
+        _column_ref(node) == order_ref
+        for node in [
+            *subscripts,
+            *(
+                c
+                for c in filter_ast.find_all(ast.Column)
+                if id(c) not in inside_subscript
+            ),
+        ]
+    )
+    if not any(mentions):
         return None
 
-    if isinstance(filter_ast, ast.Between):
+    if (
+        isinstance(filter_ast, ast.Between)
+        and _column_ref(filter_ast.expr) == order_ref
+    ):
         return filter_ast.low, filter_ast.high
 
-    if isinstance(filter_ast, ast.BinaryOp):
-        left_is_col = (
-            isinstance(filter_ast.left, ast.Column)
-            and filter_ast.left.name.name == order_col_name
-        )
-        # The value sits on whichever side is not the order column.
+    if isinstance(filter_ast, ast.BinaryOp) and filter_ast.op in _FLIPPED_OPS:
+        left_is_col = _column_ref(filter_ast.left) == order_ref
+        if not left_is_col and _column_ref(filter_ast.right) != order_ref:
+            # The column sits inside a larger expression, e.g. ``f(col) = R``.
+            raise _UnboundableFilter()
+        # Read the filter as ``col <op> value``.
+        op = filter_ast.op if left_is_col else _FLIPPED_OPS[filter_ast.op]
         value = filter_ast.right if left_is_col else filter_ast.left
-        op = filter_ast.op
-
         if op == ast.BinaryOpKind.Eq:
             return value, value
-
-        # Normalize the comparison so it reads as ``col <op> value``: if the
-        # column is on the right (``value <op> col``), flip the direction.
-        if op in (ast.BinaryOpKind.GtEq, ast.BinaryOpKind.Gt):
-            return (value, None) if left_is_col else (None, value)
-        if op in (ast.BinaryOpKind.LtEq, ast.BinaryOpKind.Lt):
-            return (None, value) if left_is_col else (value, None)
+        if op == ast.BinaryOpKind.Gt:
+            value = _step_strict_bound(value, 1)
+        if op == ast.BinaryOpKind.Lt:
+            value = _step_strict_bound(value, -1)
+        if op in (ast.BinaryOpKind.Gt, ast.BinaryOpKind.GtEq):
+            return value, None
+        return None, value
 
     return None
 
@@ -493,7 +547,14 @@ def apply_live_window_lookback(ctx: BuildContext) -> WindowLookbackPlan | None:
         bail = False
         for idx, filter_str in enumerate(ctx.dimension_filters):
             filter_ast = parse_filter(filter_str)
-            found = _order_filter_bounds(filter_ast, order_col_name)
+            try:
+                found = _order_filter_bounds(
+                    filter_ast,
+                    (f"{order_node_name}.{order_col_name}", parsed_order.role),
+                )
+            except _UnboundableFilter:
+                bail = True
+                break
             if found is None:
                 continue
             found_low, found_high = found
@@ -560,7 +621,10 @@ def apply_live_window_lookback(ctx: BuildContext) -> WindowLookbackPlan | None:
             if not fact_node.current or not fact_node.current.dimension_links:
                 continue  # pragma: no cover
             for link in fact_node.current.dimension_links:
-                if link.dimension.name != order_node_name:
+                if (
+                    link.dimension.name != order_node_name
+                    or (link.role or None) != parsed_order.role
+                ):
                     continue
                 fk_columns = link.foreign_key_column_names
                 if not fk_columns:
