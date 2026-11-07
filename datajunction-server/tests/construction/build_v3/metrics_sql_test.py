@@ -2405,7 +2405,7 @@ class TestMetricsSQLDerived:
                 oi.quantity * oi.unit_price AS line_total
               FROM default.v3.orders o
               JOIN default.v3.order_items oi ON o.order_id = oi.order_id
-              WHERE o.order_date <= 20240131 AND order_date BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131
+              WHERE order_date BETWEEN (SELECT low_val FROM __wl_low_date_id) AND 20240131 AND o.order_date <= 20240131
             ),
             order_details_0 AS (
               SELECT
