@@ -23,6 +23,62 @@ if TYPE_CHECKING:
     from datajunction_server.database.node import Node
 
 
+_COMPARISONS = {
+    ast.BinaryOpKind.Eq,
+    ast.BinaryOpKind.NotEq,
+    ast.BinaryOpKind.NotEquals,
+    ast.BinaryOpKind.Gt,
+    ast.BinaryOpKind.Lt,
+    ast.BinaryOpKind.GtEq,
+    ast.BinaryOpKind.LtEq,
+}
+
+
+_NULL_MASKING_FUNCTIONS = {
+    "COALESCE",
+    "IFNULL",
+    "NVL",
+    "NVL2",
+    "ISNULL",
+    "ZEROIFNULL",
+    "NANVL",
+    "IF",
+    "IIF",
+    "DECODE",
+}
+
+
+def _masks_null(expr: ast.Expression) -> bool:
+    """Whether the expression can turn a NULL input into a non-NULL value."""
+    return any(
+        expr.filter(
+            lambda node: (
+                isinstance(node, (ast.Case, ast.IsNull, ast.IsDistinctFrom))
+                or (
+                    isinstance(node, ast.Function)
+                    and node.name.name.upper() in _NULL_MASKING_FUNCTIONS
+                )
+            ),
+        ),
+    )
+
+
+def rejects_null(expr: ast.Expression) -> bool:
+    """Whether the filter is never true when its column is NULL."""
+    if isinstance(expr, ast.UnaryOp) and expr.op == ast.UnaryOpKind.Not:
+        return rejects_null(expr.expr)
+    if isinstance(expr, ast.BinaryOp) and expr.op == ast.BinaryOpKind.And:
+        return rejects_null(expr.left) or rejects_null(expr.right)
+    if isinstance(expr, ast.BinaryOp) and expr.op == ast.BinaryOpKind.Or:
+        return rejects_null(expr.left) and rejects_null(expr.right)
+    if isinstance(expr, ast.IsNull):
+        return bool(expr.negated) and not _masks_null(expr.expr)
+    is_comparison = isinstance(expr, ast.BinaryOp) and expr.op in _COMPARISONS
+    return (
+        is_comparison or isinstance(expr, (ast.In, ast.Between, ast.Like))
+    ) and not _masks_null(expr)
+
+
 def parse_filter(filter_str: str) -> ast.Expression:
     """
     Parse a filter string into an AST expression.

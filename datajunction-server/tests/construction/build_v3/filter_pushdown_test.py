@@ -443,11 +443,11 @@ class TestFilterPushdownOperators:
         )
 
     @pytest.mark.asyncio
-    async def test_is_null_filter_pushed_to_dim_cte(
+    async def test_is_null_filter_not_pushed_to_dim_cte(
         self,
         client_with_build_v3,
     ):
-        """IS NULL pushes into the dim CTE."""
+        """IS NULL stays in the outer query so matched rows keep their values."""
         response = await client_with_build_v3.get(
             "/sql/measures/v3/",
             params={
@@ -470,7 +470,6 @@ class TestFilterPushdownOperators:
             v3_product AS (
               SELECT product_id, category, subcategory
               FROM default.v3.products
-              WHERE subcategory IS NULL
             )
             SELECT t2.category,
               SUM(t1.line_total) line_total_sum_e1f61696
