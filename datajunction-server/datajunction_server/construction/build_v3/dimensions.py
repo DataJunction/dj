@@ -422,7 +422,11 @@ def _register_pushdown_into_upstream(
         children_cache[node_name] = result
         return result
 
+    pushed_any = False
     for filter_str in matching:
+        pushable_str, remainder = _split_pushable_conjuncts(filter_str, base_ref)
+        if pushable_str is None:
+            continue
         consumed = False
         for linked_node, fk_col in candidates:  # pragma: no branch
             targets = _resolve_pushdown_targets(
@@ -435,7 +439,7 @@ def _register_pushdown_into_upstream(
                 continue  # pragma: no cover
             for target_name, qualifier, arm_select in targets:
                 rewritten = _rewrite_filter_col_refs(
-                    filter_str,
+                    pushable_str,
                     base_ref,
                     fk_col,
                     qualifier,
@@ -456,9 +460,55 @@ def _register_pushdown_into_upstream(
                     if all(str(rewritten) != str(e) for e in registered):
                         registered.append(rewritten)
             consumed = True
-        if consumed:  # pragma: no branch
+        if not consumed:  # pragma: no cover
+            continue
+        pushed_any = True
+        if remainder is None:
             consumed_here.add(filter_str)
-    return bool(consumed_here)
+        else:
+            # Only part of the filter moved upstream; the rest stays outer.
+            idx = ctx.dimension_filters.index(filter_str)
+            ctx.dimension_filters[idx] = remainder
+    return pushed_any or bool(consumed_here)
+
+
+def _split_pushable_conjuncts(
+    filter_str: str,
+    base_ref: str,
+) -> tuple[str | None, str | None]:
+    """
+    Split ``filter_str`` into the AND conditions that reference only
+    ``base_ref`` and the rest. Returns ``(pushable, remainder)``; ``pushable``
+    is the whole filter and ``remainder`` is ``None`` when every condition
+    qualifies, and ``pushable`` is ``None`` when none do.
+    """
+    from datajunction_server.construction.build_v3.cte import get_column_full_name
+    from datajunction_server.construction.build_v3.filters import (
+        _conjuncts,
+        parse_filter,
+    )
+
+    conjuncts = _conjuncts(parse_filter(filter_str))
+    pushable: list[str] = []
+    remainder: list[str] = []
+    for conjunct in conjuncts:
+        # Role names like ``sold`` in ``dim.col[sold]`` parse as columns.
+        role_ids = {
+            id(col)
+            for subscript in conjunct.find_all(ast.Subscript)
+            for col in subscript.index.find_all(ast.Column)
+        }
+        refs = {
+            (get_column_full_name(col) or "").split("[")[0]
+            for col in conjunct.find_all(ast.Column)
+            if id(col) not in role_ids
+        }
+        (pushable if refs == {base_ref} else remainder).append(str(conjunct))
+    if not remainder:
+        return filter_str, None
+    if not pushable:
+        return None, None
+    return " AND ".join(pushable), " AND ".join(remainder)
 
 
 def _resolve_pushdown_targets(
