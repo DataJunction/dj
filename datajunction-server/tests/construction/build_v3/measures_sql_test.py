@@ -8010,6 +8010,176 @@ class TestFilterPushdownScope:
         )
 
     @pytest.mark.asyncio
+    async def test_multi_fact_filter_applies_to_every_fact(
+        self,
+        client_with_build_v3,
+    ):
+        """One fact hides the dim's FK upstream (filter pushed into its
+        CTE); another fact links the dim directly. Both must be filtered."""
+        client = client_with_build_v3
+        await _setup_audit_dim(client)
+        src_a = await _setup_audit_log_source(client, "mf_a", "audit_log_mf_a")
+        src_b = await _setup_audit_log_source(client, "mf_b", "audit_log_mf_b")
+        for name, query in [
+            (
+                "v3.mf_a_events_hidden",
+                f"SELECT account_id, event_type FROM {src_a} AS s",
+            ),
+            (
+                "v3.mf_b_events_direct",
+                f"SELECT account_id, event_type, audit_date FROM {src_b} AS s",
+            ),
+        ]:
+            resp = await client.post(
+                "/nodes/transform/",
+                json={
+                    "name": name,
+                    "query": query,
+                    "mode": "published",
+                    "primary_key": ["account_id"],
+                },
+            )
+            assert resp.status_code == 201, resp.json()
+        resp = await client.post(
+            "/nodes/v3.mf_b_events_direct/link",
+            json={
+                "dimension_node": "v3.audit_date_dim",
+                "join_type": "inner",
+                "join_on": "v3.mf_b_events_direct.audit_date = v3.audit_date_dim.dateint",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        for name, parent in [
+            ("v3.mf_a_hidden_count", "v3.mf_a_events_hidden"),
+            ("v3.mf_b_direct_count", "v3.mf_b_events_direct"),
+        ]:
+            resp = await client.post(
+                "/nodes/metric/",
+                json={
+                    "name": name,
+                    "query": f"SELECT COUNT(DISTINCT account_id) FROM {parent}",
+                    "mode": "published",
+                },
+            )
+            assert resp.status_code == 201, resp.json()
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.mf_a_hidden_count", "v3.mf_b_direct_count"],
+                "dimensions": [],
+                "filters": ["v3.audit_date_dim.dateint >= 20260101"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sqls = {g["parent_name"]: g["sql"] for g in response.json()["grain_groups"]}
+        assert set(sqls) == {"v3.mf_a_events_hidden", "v3.mf_b_events_direct"}
+        assert_sql_equal(
+            sqls["v3.mf_a_events_hidden"],
+            """
+            WITH v3_mf_a_events_hidden AS (
+              SELECT account_id
+              FROM default.v3.audit_log_mf_a AS s
+              WHERE s.audit_date >= 20260101
+            )
+            SELECT t1.account_id
+            FROM v3_mf_a_events_hidden t1
+            GROUP BY t1.account_id
+            """,
+        )
+        assert_sql_equal(
+            sqls["v3.mf_b_events_direct"],
+            """
+            WITH v3_mf_b_events_direct AS (
+              SELECT account_id
+              FROM default.v3.audit_log_mf_b AS s
+              WHERE audit_date >= 20260101
+            )
+            SELECT t1.account_id
+            FROM v3_mf_b_events_direct t1
+            GROUP BY t1.account_id
+            """,
+        )
+
+    @pytest.mark.asyncio
+    async def test_multi_fact_shared_upstream_filter_applied_once(
+        self,
+        client_with_build_v3,
+    ):
+        """Two facts read one linked upstream transform that hides the
+        FK. The shared CTE gets the predicate once, not once per fact."""
+        client = client_with_build_v3
+        await _setup_audit_dim(client)
+        src = await _setup_audit_log_source(client, "mf_shared", "audit_log_mf_shared")
+        resp = await client.post(
+            "/nodes/transform/",
+            json={
+                "name": "v3.mf_shared_base",
+                "query": f"SELECT account_id, event_type, audit_date FROM {src} AS s",
+                "mode": "published",
+                "primary_key": ["account_id"],
+            },
+        )
+        assert resp.status_code == 201, resp.json()
+        resp = await client.post(
+            "/nodes/v3.mf_shared_base/link",
+            json={
+                "dimension_node": "v3.audit_date_dim",
+                "join_type": "inner",
+                "join_on": "v3.mf_shared_base.audit_date = v3.audit_date_dim.dateint",
+            },
+        )
+        assert resp.status_code in (200, 201), resp.json()
+        for name in ["v3.mf_shared_a", "v3.mf_shared_b"]:
+            resp = await client.post(
+                "/nodes/transform/",
+                json={
+                    "name": name,
+                    "query": "SELECT account_id, event_type FROM v3.mf_shared_base",
+                    "mode": "published",
+                    "primary_key": ["account_id"],
+                },
+            )
+            assert resp.status_code == 201, resp.json()
+            resp = await client.post(
+                "/nodes/metric/",
+                json={
+                    "name": f"{name}_count",
+                    "query": f"SELECT COUNT(DISTINCT account_id) FROM {name}",
+                    "mode": "published",
+                },
+            )
+            assert resp.status_code == 201, resp.json()
+        response = await client.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.mf_shared_a_count", "v3.mf_shared_b_count"],
+                "dimensions": [],
+                "filters": ["v3.audit_date_dim.dateint >= 20260101"],
+            },
+        )
+        assert response.status_code == 200, response.json()
+        sqls = {g["parent_name"]: g["sql"] for g in response.json()["grain_groups"]}
+        assert set(sqls) == {"v3.mf_shared_a", "v3.mf_shared_b"}
+        for fact in ["a", "b"]:
+            assert_sql_equal(
+                sqls[f"v3.mf_shared_{fact}"],
+                f"""
+                WITH v3_mf_shared_base AS (
+                  SELECT account_id
+                  FROM default.v3.audit_log_mf_shared AS s
+                  WHERE audit_date >= 20260101 AND s.audit_date >= 20260101
+                ),
+                v3_mf_shared_{fact} AS (
+                  SELECT account_id
+                  FROM v3_mf_shared_base
+                )
+                SELECT t1.account_id
+                FROM v3_mf_shared_{fact} t1
+                GROUP BY t1.account_id
+                """,
+            )
+
+    @pytest.mark.asyncio
     async def test_transform_link_plus_source_link_double_filter(
         self,
         client_with_build_v3,
