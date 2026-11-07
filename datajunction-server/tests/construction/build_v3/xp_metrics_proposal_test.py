@@ -13,7 +13,7 @@ experimentation metric becomes a ratio of two unit-grain metrics:
 These tests pin what this branch does with that shape. The fixtures stand in
 for the real tables:
 
-    account_id      -> v3.customer.customer_id (linked to both facts)
+    account_id      -> v3.customer.customer_id[customer] (linked to both facts)
     allocation_day  -> v3.page_views_enriched  (the allocated population)
     some_fact       -> v3.order_details        (the activity)
 """
@@ -22,8 +22,8 @@ import pytest
 
 from tests.construction.build_v3 import assert_sql_equal
 
-UNIT = "v3.customer.customer_id"
-BY_MONTH = {"dimensions": ["v3.date.month"]}
+UNIT = "v3.customer.customer_id[customer]"
+BY_MONTH = {"dimensions": ["v3.date.month[order]"]}
 
 
 async def create_metric(client, name, query, **declarations):
@@ -104,7 +104,7 @@ async def test_cross_fact_ratio_at_unit_grain_is_refused(client_with_build_v3):
         "/sql/metrics/v3/",
         params={
             "metrics": ["v3.xp_avg_per_allocated"],
-            "dimensions": ["v3.date.month", UNIT],
+            "dimensions": ["v3.date.month[order]", UNIT],
         },
     )
     assert response.status_code == 422
@@ -165,30 +165,30 @@ async def test_global_grain_ratio_builds_but_is_a_different_number(
         FROM default.v3.page_views
         ),
         order_details_0 AS (
-        SELECT t2.month,
+        SELECT t2.month AS month_order,
             SUM(t1.line_total) line_total_sum_e1f61696
         FROM v3_order_details t1
         LEFT OUTER JOIN v3_date t2 ON t1.order_date = t2.date_id
         GROUP BY t2.month
         ),
         page_views_enriched_0 AS (
-        SELECT t2.month,
+        SELECT t2.month AS month_order,
             t1.customer_id
         FROM v3_page_views_enriched t1
         LEFT OUTER JOIN v3_date t2 ON t1.page_date = t2.date_id
         GROUP BY t2.month, t1.customer_id
         ),
         base_metrics AS (
-        SELECT COALESCE(order_details_0.month, page_views_enriched_0.month) AS month,
+        SELECT COALESCE(order_details_0.month_order, page_views_enriched_0.month_order) AS month_order,
             COUNT(DISTINCT page_views_enriched_0.customer_id) AS visitor_count,
             SUM(SUM(order_details_0.line_total_sum_e1f61696)) OVER () AS xp_activity_global
         FROM order_details_0
         FULL OUTER JOIN page_views_enriched_0
-            ON order_details_0.month = page_views_enriched_0.month
+            ON order_details_0.month_order = page_views_enriched_0.month_order
         GROUP BY 1
         )
 
-        SELECT base_metrics.month AS month,
+        SELECT base_metrics.month_order AS month_order,
             base_metrics.xp_activity_global / NULLIF(base_metrics.visitor_count, 0) AS xp_avg_global
         FROM base_metrics
         """,

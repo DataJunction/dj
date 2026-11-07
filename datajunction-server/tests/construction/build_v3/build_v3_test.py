@@ -479,31 +479,30 @@ class TestAddDimensionsFromMetricExpressions:
     ):
         """
         When a metric uses a dimension that's already covered by a user-requested
-        dimension (same node.column), it should NOT be added again.
+        dimension (same node.column and role), it should NOT be added again.
         """
         # Create a metric that uses v3.date.week in ORDER BY
         response = await client_with_build_v3.post(
             "/nodes/metric/",
             json={
-                "name": "v3.test_wow_week_plain",
-                "description": "WoW metric using plain week reference",
+                "name": "v3.test_wow_week_ordered",
+                "description": "WoW metric using roled week reference",
                 "query": """
                     SELECT
-                        (v3.total_revenue - LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.week))
-                        / NULLIF(LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.week), 0) * 100
+                        (v3.total_revenue - LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.week[order]))
+                        / NULLIF(LAG(v3.total_revenue, 1) OVER (ORDER BY v3.date.week[order]), 0) * 100
                 """,
                 "mode": "published",
             },
         )
         assert response.status_code == 201, response.json()
 
-        # Request the same dimension with a role - v3.date.week[order]
-        # The metric expression uses v3.date.week (no role)
-        # These should be treated as "covered" (same node.column)
+        # The metric expression and the request both use v3.date.week[order],
+        # so the request already covers it
         ctx = await setup_build_context(
             session=session,
-            metrics=["v3.test_wow_week_plain"],
-            dimensions=["v3.date.week[order]"],  # Requested WITH role
+            metrics=["v3.test_wow_week_ordered"],
+            dimensions=["v3.date.week[order]"],
         )
 
         # Should only have one week dimension, not two

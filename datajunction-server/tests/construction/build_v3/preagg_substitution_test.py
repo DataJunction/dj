@@ -1690,28 +1690,31 @@ class TestExternalPreAggRouting:
         self,
         client_with_build_v3,
     ):
-        """A bare reference is rejected only when several roles reach the
-        dimension, since it then names none of them. Single-role dimensions,
-        locally-owned columns and role-free links stay legal.
+        """A bare reference is the null role, so it is rejected whenever the
+        dimension is reachable only through roles, naming the roles that would
+        work. Locally-owned columns and role-free links stay legal.
         """
-        rejected = await _register_external_preagg(
-            client_with_build_v3,
-            metrics=["v3.total_revenue"],
-            dimensions=["v3.location.country"],
-            table_ref={
-                "catalog": "default",
-                "schema": "analytics",
-                "table": "revenue_by_country",
-            },
-            measure_columns={"v3.total_revenue": "rev_sum"},
-            table_columns={"country": "string", "rev_sum": "double"},
-            expected_status=422,
-        )
-        assert rejected.json()["message"] == (
-            "Dimension `v3.location.country` is ambiguous across roles. "
-            "Use one of: `v3.location.country[customer->home]`, "
-            "`v3.location.country[from]`, `v3.location.country[to]`"
-        )
+        for bare, roles in (
+            ("v3.location.country", "customer->home, from, to"),
+            ("v3.customer.customer_id", "customer"),
+        ):
+            rejected = await _register_external_preagg(
+                client_with_build_v3,
+                metrics=["v3.total_revenue"],
+                dimensions=[bare],
+                table_ref={
+                    "catalog": "default",
+                    "schema": "analytics",
+                    "table": "revenue_by_bare_dimension",
+                },
+                measure_columns={"v3.total_revenue": "rev_sum"},
+                table_columns={"dim": "string", "rev_sum": "double"},
+                expected_status=422,
+            )
+            assert (
+                f"{bare} has no role, but {bare.rsplit('.', 1)[0]} is reachable "
+                f"from v3.order_details only through roles: {roles}."
+            ) in rejected.text
 
         # References that are legal stay legal: a role-qualified dimension, a
         # locally-owned column, the FK column behind a join, and a role-free link.
@@ -1737,9 +1740,9 @@ class TestExternalPreAggRouting:
                 {"category": "string", "rev_sum": "double"},
             ),
             (
-                "v3.customer.customer_id",
-                "revenue_by_customer_bare",
-                {"customer_id": "int", "rev_sum": "double"},
+                "v3.customer.customer_id[customer]",
+                "revenue_by_customer_roled",
+                {"customer_id_customer": "int", "rev_sum": "double"},
             ),
         ):
             await _register_external_preagg(
@@ -1757,18 +1760,18 @@ class TestExternalPreAggRouting:
             )
 
     @pytest.mark.asyncio
-    async def test_external_preagg_bare_and_role_qualified_refs_interoperate(
+    async def test_external_preagg_role_qualified_ref_routes_and_bare_is_rejected(
         self,
         client_with_build_v3,
     ):
-        """When one role reaches a dimension, a bare and a role-qualified
-        reference name the same thing, so either spelling matches a pre-agg
-        registered with the other -- including its column mapping.
+        """A pre-agg registered with a role-qualified reference, including its
+        column mapping, serves that reference. The bare spelling is the null
+        role, which the dimension does not have, so it is rejected.
         """
         await _register_external_preagg(
             client_with_build_v3,
             metrics=["v3.total_revenue"],
-            dimensions=["v3.customer.customer_id"],
+            dimensions=["v3.customer.customer_id[customer]"],
             table_ref={
                 "catalog": "default",
                 "schema": "analytics",
@@ -1776,28 +1779,35 @@ class TestExternalPreAggRouting:
                 "valid_through_ts": 20250101,
             },
             measure_columns={"v3.total_revenue": "rev_sum"},
-            dimension_columns={"v3.customer.customer_id": "cust_key"},
+            dimension_columns={"v3.customer.customer_id[customer]": "cust_key"},
             table_columns={"cust_key": "int", "rev_sum": "double"},
         )
-        # The output alias follows the spelling that was requested; only matching
-        # is canonicalized.
-        for dimension, alias in (
-            ("v3.customer.customer_id", "customer_id"),
-            ("v3.customer.customer_id[customer]", "customer_id_customer"),
-        ):
-            response = await client_with_build_v3.get(
-                "/sql/measures/v3/",
-                params={"metrics": ["v3.total_revenue"], "dimensions": [dimension]},
-            )
-            assert response.status_code == 200
-            assert_sql_equal(
-                get_first_grain_group(response.json())["sql"],
-                f"""
-                SELECT cust_key {alias}, SUM(rev_sum) rev_sum
-                FROM default.analytics.revenue_by_customer_key
-                GROUP BY cust_key
-                """,
-            )
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.customer.customer_id[customer]"],
+            },
+        )
+        assert response.status_code == 200
+        assert_sql_equal(
+            get_first_grain_group(response.json())["sql"],
+            """
+            SELECT cust_key customer_id_customer, SUM(rev_sum) rev_sum
+            FROM default.analytics.revenue_by_customer_key
+            GROUP BY cust_key
+            """,
+        )
+
+        bare = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.total_revenue"],
+                "dimensions": ["v3.customer.customer_id"],
+            },
+        )
+        assert bare.status_code == 422
+        assert "v3.customer.customer_id has no role" in bare.text
 
     @pytest.mark.asyncio
     async def test_external_preagg_dimension_column_must_exist(
@@ -2928,7 +2938,7 @@ class TestCrossFactMetrics:
             "/preaggs/plan/",
             json={
                 "metrics": ["v3.total_revenue"],
-                "dimensions": ["v3.customer.customer_id"],
+                "dimensions": ["v3.customer.customer_id[customer]"],
             },
         )
         assert plan_response.status_code == 201
@@ -2949,7 +2959,7 @@ class TestCrossFactMetrics:
             "/sql/metrics/v3/",
             params={
                 "metrics": ["v3.revenue_per_visitor"],
-                "dimensions": ["v3.customer.customer_id"],
+                "dimensions": ["v3.customer.customer_id[customer]"],
             },
         )
         assert metrics_response.status_code == 200
@@ -2965,20 +2975,27 @@ class TestCrossFactMetrics:
             FROM default.v3.page_views
             ),
             order_details_0 AS (
-            SELECT  customer_id,
+            SELECT  customer_id_customer,
                 SUM(line_total_sum_e1f61696) line_total_sum_e1f61696
             FROM warehouse.preaggs.v3_revenue_by_customer
-            GROUP BY  customer_id
+            GROUP BY  customer_id_customer
             ),
             page_views_enriched_0 AS (
-            SELECT t1.customer_id
+            SELECT t1.customer_id AS customer_id_customer,
+                t1.customer_id
             FROM v3_page_views_enriched t1
             GROUP BY  t1.customer_id
+            ),
+            page_views_enriched_0_agg AS (
+            SELECT  customer_id_customer,
+                COUNT(DISTINCT customer_id) AS customer_id
+            FROM page_views_enriched_0
+            GROUP BY  customer_id_customer
             )
 
-            SELECT  COALESCE(order_details_0.customer_id, page_views_enriched_0.customer_id) AS customer_id,
-                SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT page_views_enriched_0.customer_id), 0) AS revenue_per_visitor
-            FROM order_details_0 FULL OUTER JOIN page_views_enriched_0 ON order_details_0.customer_id = page_views_enriched_0.customer_id
+            SELECT  COALESCE(order_details_0.customer_id_customer, page_views_enriched_0_agg.customer_id_customer) AS customer_id_customer,
+                SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(MAX(page_views_enriched_0_agg.customer_id), 0) AS revenue_per_visitor
+            FROM order_details_0 FULL OUTER JOIN page_views_enriched_0_agg ON order_details_0.customer_id_customer = page_views_enriched_0_agg.customer_id_customer
             GROUP BY  1
             """,
         )
@@ -2995,7 +3012,7 @@ class TestCrossFactMetrics:
             "/preaggs/plan/",
             json={
                 "metrics": ["v3.total_revenue"],
-                "dimensions": ["v3.customer.customer_id"],
+                "dimensions": ["v3.customer.customer_id[customer]"],
             },
         )
         preagg1 = plan1.json()["preaggs"][0]
@@ -3014,7 +3031,7 @@ class TestCrossFactMetrics:
             "/preaggs/plan/",
             json={
                 "metrics": ["v3.page_view_count"],  # or similar metric from page_views
-                "dimensions": ["v3.customer.customer_id"],
+                "dimensions": ["v3.customer.customer_id[customer]"],
             },
         )
         preagg2 = plan2.json()["preaggs"][0]
@@ -3033,7 +3050,7 @@ class TestCrossFactMetrics:
             "/sql/metrics/v3/",
             params={
                 "metrics": ["v3.revenue_per_visitor"],
-                "dimensions": ["v3.customer.customer_id"],
+                "dimensions": ["v3.customer.customer_id[customer]"],
             },
         )
         # Assert: Both CTEs read from pre-agg tables, FULL OUTER JOINed
@@ -3046,19 +3063,26 @@ class TestCrossFactMetrics:
             FROM default.v3.page_views
             ),
             order_details_0 AS (
-            SELECT  customer_id,
+            SELECT  customer_id_customer,
                 SUM(line_total_sum_e1f61696) line_total_sum_e1f61696
             FROM warehouse.preaggs.v3_revenue_by_customer
-            GROUP BY  customer_id
+            GROUP BY  customer_id_customer
             ),
             page_views_enriched_0 AS (
-            SELECT  t1.customer_id
+            SELECT  t1.customer_id AS customer_id_customer,
+                t1.customer_id
             FROM v3_page_views_enriched t1
             GROUP BY  t1.customer_id
+            ),
+            page_views_enriched_0_agg AS (
+            SELECT  customer_id_customer,
+                COUNT(DISTINCT customer_id) AS customer_id
+            FROM page_views_enriched_0
+            GROUP BY  customer_id_customer
             )
-            SELECT  COALESCE(order_details_0.customer_id, page_views_enriched_0.customer_id) AS customer_id,
-                SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT page_views_enriched_0.customer_id), 0) AS revenue_per_visitor
-            FROM order_details_0 FULL OUTER JOIN page_views_enriched_0 ON order_details_0.customer_id = page_views_enriched_0.customer_id
+            SELECT  COALESCE(order_details_0.customer_id_customer, page_views_enriched_0_agg.customer_id_customer) AS customer_id_customer,
+                SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(MAX(page_views_enriched_0_agg.customer_id), 0) AS revenue_per_visitor
+            FROM order_details_0 FULL OUTER JOIN page_views_enriched_0_agg ON order_details_0.customer_id_customer = page_views_enriched_0_agg.customer_id_customer
             GROUP BY  1
             """,
         )
@@ -4611,59 +4635,59 @@ class TestPreAggJoinBack:
             client_with_build_v3,
             metrics=["v3.total_revenue"],
             dimensions=[
-                "v3.customer.customer_id[customer]",
+                "v3.product.product_id",
                 "v3.order_details.status",
             ],
             table_ref=self.TABLE,
             measure_columns={"v3.total_revenue": "rev_sum"},
-            dimension_columns={"v3.customer.customer_id[customer]": "cust_key"},
-            table_columns={"cust_key": "int", "status": "string", "rev_sum": "double"},
+            dimension_columns={"v3.product.product_id": "prod_key"},
+            table_columns={"prod_key": "int", "status": "string", "rev_sum": "double"},
         )
         params = {
             "metrics": ["v3.total_revenue"],
-            "dimensions": ["v3.customer.customer_id", "v3.customer.name[customer]"],
+            "dimensions": ["v3.product.product_id", "v3.product.category"],
         }
         assert_sql_equal(
             await self._measures_sql(client_with_build_v3, params),
             """
-            WITH v3_customer AS (
-                SELECT customer_id, name FROM default.v3.customers
+            WITH v3_product AS (
+                SELECT product_id, category FROM default.v3.products
             ),
             v3_order_details_preagg AS (
-                SELECT cust_key customer_id, cust_key customer_id_1, rev_sum
+                SELECT prod_key product_id, prod_key product_id_1, rev_sum
                 FROM default.analytics.rev_by_cust
             )
-            SELECT t1.customer_id_1 customer_id,
-                   t2.name name_customer,
+            SELECT t1.product_id_1 product_id,
+                   t2.category,
                    SUM(t1.rev_sum) rev_sum
             FROM v3_order_details_preagg t1
-            LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
-            GROUP BY t1.customer_id_1, t2.name
+            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            GROUP BY t1.product_id_1, t2.category
             """,
         )
         assert_sql_equal(
             await self._metrics_sql(client_with_build_v3, params),
             """
-            WITH v3_customer AS (
-                SELECT customer_id, name FROM default.v3.customers
+            WITH v3_product AS (
+                SELECT product_id, category FROM default.v3.products
             ),
             v3_order_details_preagg AS (
-                SELECT cust_key customer_id, cust_key customer_id_1, rev_sum
+                SELECT prod_key product_id, prod_key product_id_1, rev_sum
                 FROM default.analytics.rev_by_cust
             ),
             order_details_0 AS (
-                SELECT t1.customer_id_1 customer_id,
-                       t2.name name_customer,
+                SELECT t1.product_id_1 product_id,
+                       t2.category,
                        SUM(t1.rev_sum) rev_sum
                 FROM v3_order_details_preagg t1
-                LEFT OUTER JOIN v3_customer t2 ON t1.customer_id = t2.customer_id
-                GROUP BY t1.customer_id_1, t2.name
+                LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+                GROUP BY t1.product_id_1, t2.category
             )
-            SELECT order_details_0.customer_id AS customer_id,
-                   order_details_0.name_customer AS name_customer,
+            SELECT order_details_0.product_id AS product_id,
+                   order_details_0.category AS category,
                    SUM(order_details_0.rev_sum) AS total_revenue
             FROM order_details_0
-            GROUP BY order_details_0.customer_id, order_details_0.name_customer
+            GROUP BY order_details_0.product_id, order_details_0.category
             """,
         )
 

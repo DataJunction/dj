@@ -7,6 +7,7 @@ from datajunction_server.construction.build_v3.filters import parse_filter
 from datajunction_server.construction.build_v3.measures import build_lookback_filter
 from datajunction_server.construction.build_v3.window_lookback import (
     WindowLookback,
+    _UnboundableFilter,
     _dimension_physical_table,
     _order_filter_bounds,
     _read_lookback_role_aware,
@@ -300,14 +301,27 @@ def test_read_lookback_role_aware_none_when_no_order_by():
 # ---------------------------------------------------------------------------
 
 
+ORDER_REF = ("date_id", None)
+
+
 def test_order_filter_bounds_none_when_column_absent():
-    assert _order_filter_bounds(parse_filter("other_col = 5"), "date_id") is None
+    assert _order_filter_bounds(parse_filter("other_col = 5"), ORDER_REF) is None
+
+
+def test_order_filter_bounds_none_for_other_role():
+    assert (
+        _order_filter_bounds(
+            parse_filter("date_id[registration] = 5"),
+            ("date_id", "order"),
+        )
+        is None
+    )
 
 
 def test_order_filter_bounds_reads_between():
     low, high = _order_filter_bounds(
         parse_filter("date_id BETWEEN 1 AND 10"),
-        "date_id",
+        ORDER_REF,
     )
     assert low.value == 1
     assert high.value == 10
@@ -315,13 +329,30 @@ def test_order_filter_bounds_reads_between():
 
 def test_order_filter_bounds_none_for_unsupported_operator():
     # `!=` constrains the column but yields no range bound to expand against.
-    assert _order_filter_bounds(parse_filter("date_id != 5"), "date_id") is None
+    assert _order_filter_bounds(parse_filter("date_id != 5"), ORDER_REF) is None
 
 
 def test_order_filter_bounds_none_for_non_comparison_predicate():
     # An IN-list references the column but is neither BETWEEN nor a binary
     # comparison, so there is no low/high bound to read.
-    assert _order_filter_bounds(parse_filter("date_id IN (1, 2)"), "date_id") is None
+    assert _order_filter_bounds(parse_filter("date_id IN (1, 2)"), ORDER_REF) is None
+
+
+def test_order_filter_bounds_strict_integer_bounds_become_inclusive():
+    low, high = _order_filter_bounds(parse_filter("date_id > 5"), ORDER_REF)
+    assert (low.value, high) == (6, None)
+    low, high = _order_filter_bounds(parse_filter("10 > date_id"), ORDER_REF)
+    assert (low, high.value) == (None, 9)
+
+
+def test_order_filter_bounds_rejects_strict_non_integer_bound():
+    with pytest.raises(_UnboundableFilter):
+        _order_filter_bounds(parse_filter("date_id > 1.5"), ORDER_REF)
+
+
+def test_order_filter_bounds_rejects_column_inside_expression():
+    with pytest.raises(_UnboundableFilter):
+        _order_filter_bounds(parse_filter("ABS(date_id) = 5"), ORDER_REF)
 
 
 # ---------------------------------------------------------------------------

@@ -42,7 +42,6 @@ from datajunction_server.construction.build_v3.filters import (
     upper_bounds_by_ref,
 )
 from datajunction_server.construction.build_v3.preagg_matcher import (
-    canonical_dimension_ref,
     match_temporal_columns_to_grain,
     temporal_output_name,
 )
@@ -223,8 +222,7 @@ def preagg_is_fresh(ctx: BuildContext, preagg: PreAggregation) -> bool:
         # Externally registered pre-aggs report only the scalar watermark.
         covered_through = availability.valid_through_ts
 
-    # Filter bounds are keyed canonically, so the grain entry must be too.
-    ref = canonical_dimension_ref(ctx, preagg.node_revision_id, axis.grain_ref)
+    ref = axis.grain_ref
     requested_from = lower_bounds_by_ref(ctx, preagg.node_revision_id).get(ref)
     requested_through = upper_bounds_by_ref(ctx, preagg.node_revision_id).get(ref)
 

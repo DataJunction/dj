@@ -13,6 +13,7 @@ from datajunction_server.construction.build_v3.cte import (
     _rewrite_filter_for_cte,
     detect_window_metrics_requiring_grain_groups,
     get_column_full_name,
+    get_grain_level_window_info,
     inject_partition_by_into_windows,
     process_metric_combiner_expression,
     replace_metric_refs_in_ast,
@@ -1065,3 +1066,47 @@ class TestInjectFilterIntoWhereOuterJoinSafe:
             ) l ON users.id = l.user_id
             """,
         )
+
+
+class TestGetGrainLevelWindowInfo:
+    """A LAG/LEAD ORDER BY column keeps its role, so it names the same link."""
+
+    @staticmethod
+    def order_by_columns(order_by: str) -> set[str]:
+        expr = parse(f"SELECT LAG(x, 1) OVER (ORDER BY {order_by}) FROM t").select
+        [(_, columns)] = get_grain_level_window_info(expr.projection[0])
+        return columns
+
+    def test_role_is_kept(self):
+        assert self.order_by_columns("v3.date.week[order]") == {"v3.date.week[order]"}
+
+    def test_role_less_column_has_no_role(self):
+        assert self.order_by_columns("v3.date.week") == {"v3.date.week"}
+
+
+class TestAutoAddedDimensionRoles:
+    """A dimension the metric expression needs is only covered by the same role."""
+
+    @staticmethod
+    def _ctx(dimensions: list[str]):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(metrics=[], dimensions=list(dimensions))
+
+    def test_named_role_is_not_covered_by_the_bare_ref(self):
+        from datajunction_server.construction.build_v3.utils import (
+            _try_add_dim_to_ctx,
+        )
+
+        ctx = self._ctx(["v3.date.week"])
+        _try_add_dim_to_ctx("v3.date.week[order]", ctx, set(ctx.dimensions), "test")
+        assert ctx.dimensions == ["v3.date.week", "v3.date.week[order]"]
+
+    def test_same_role_is_covered(self):
+        from datajunction_server.construction.build_v3.utils import (
+            _try_add_dim_to_ctx,
+        )
+
+        ctx = self._ctx(["v3.date.week[order]"])
+        _try_add_dim_to_ctx("v3.date.week[order]", ctx, set(ctx.dimensions), "test")
+        assert ctx.dimensions == ["v3.date.week[order]"]
