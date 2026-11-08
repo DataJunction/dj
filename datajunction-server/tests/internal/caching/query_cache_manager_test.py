@@ -686,3 +686,26 @@ async def test_marker_lock_released_after_claim(hot_manager):
         set(),
         1,
     )
+
+
+class MarkedOnLockCache(LockingCache):
+    """
+    Cache where another request sets the marker just before the lock is taken.
+    """
+
+    def try_lock(self, key: str, lease: int) -> bool:
+        self.set(key, 1)
+        return super().try_lock(key, lease)
+
+
+@pytest.mark.asyncio
+async def test_refresh_skipped_when_marker_set_during_lock(hot_manager):
+    """
+    A marker set after the first check but before the lock is respected.
+    """
+    manager, _, key = hot_manager
+    cache = MarkedOnLockCache()
+    cache.set(key, [{"sql": "CACHED"}])
+    manager.cache = cache
+    assert await _hit(manager, cache) == ([{"sql": "CACHED"}], [])
+    assert (cache.taken, cache.held) == ([f"refresh:{key}"], set())
