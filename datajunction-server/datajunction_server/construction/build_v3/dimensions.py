@@ -378,16 +378,12 @@ def _register_pushdown_into_upstream(
     transform, the filter goes into that transform's own CTE on the bare
     FK column.
     """
-    from datajunction_server.construction.build_v3.cte import (
-        get_column_full_name,
-        inject_filter_into_select,
-    )
+    from datajunction_server.construction.build_v3.cte import inject_filter_into_select
     from datajunction_server.construction.build_v3.filters import parse_filter
 
     consumed_here = ctx.pushdown_consumed_by_fact.setdefault(parent_node.name, set())
 
-    # Find filter strings that reference this dim ref. Parse each once.
-    base_ref = original_ref.split("[")[0]
+    # Find filter strings that reference exactly this dim ref, role included.
     matching: list[str] = []
     for filter_str in ctx.dimension_filters:
         if filter_str in consumed_here:  # pragma: no cover
@@ -396,11 +392,8 @@ def _register_pushdown_into_upstream(
             f_ast = parse_filter(filter_str)
         except Exception:  # pragma: no cover
             continue
-        for col in f_ast.find_all(ast.Column):
-            full = get_column_full_name(col)
-            if full and full.split("[")[0] == base_ref:
-                matching.append(filter_str)
-                break
+        if _filter_nodes_for_ref(f_ast, original_ref):
+            matching.append(filter_str)
     if not matching:
         return False  # pragma: no cover
 
@@ -431,7 +424,7 @@ def _register_pushdown_into_upstream(
             for target_name, qualifier, arm_select in targets:
                 rewritten = _rewrite_filter_col_refs(
                     filter_str,
-                    base_ref,
+                    original_ref,
                     fk_col,
                     qualifier,
                 )
@@ -542,35 +535,54 @@ def _enclosing_select(node: ast.Node) -> ast.Select | None:
     return None  # pragma: no cover
 
 
+def _filter_nodes_for_ref(
+    filter_ast: ast.Expression,
+    ref: str,
+) -> list[ast.Expression]:
+    """Nodes in a filter naming dimension ref ``ref``, role included."""
+    from datajunction_server.construction.build_v3.cte import get_column_full_name
+    from datajunction_server.construction.build_v3.filters import (
+        dimension_ref_of_expression,
+    )
+
+    nodes: list[ast.Expression] = [
+        sub
+        for sub in filter_ast.find_all(ast.Subscript)
+        if dimension_ref_of_expression(sub) == ref
+    ]
+    for col in filter_ast.find_all(ast.Column):
+        under_subscript = isinstance(col.parent, ast.Subscript)
+        if not under_subscript and get_column_full_name(col) == ref:
+            nodes.append(col)
+    return nodes
+
+
 def _rewrite_filter_col_refs(
     filter_str: str,
-    base_ref: str,
+    ref: str,
     fk_col: str,
     qualifier: str | None,
 ) -> ast.Expression | None:
     """
-    Parse ``filter_str`` and replace every column ref matching ``base_ref``
-    (a dim FQN sans role) with ``[qualifier.]fk_col``. Returns the
-    rewritten AST or ``None`` on parse failure.
+    Parse ``filter_str`` and replace every reference to dimension ref ``ref``
+    (role included, so ``v3.date.date_id[measure]`` as a whole) with
+    ``[qualifier.]fk_col``. Returns the rewritten AST or ``None`` on parse
+    failure.
     """
-    from datajunction_server.construction.build_v3.cte import get_column_full_name
     from datajunction_server.construction.build_v3.filters import parse_filter
 
     try:
         rewritten = parse_filter(filter_str)
     except Exception:  # pragma: no cover
         return None
-    for col in list(rewritten.find_all(ast.Column)):  # pragma: no branch
-        full = get_column_full_name(col)
-        if full is None or full.split("[")[0] != base_ref:  # pragma: no cover
-            continue
+    for node in _filter_nodes_for_ref(rewritten, ref):
         new_name = (
             ast.Name(fk_col, namespace=ast.Name(qualifier))
             if qualifier
             else ast.Name(fk_col)
         )
-        if col.parent is not None:  # pragma: no branch
-            col.parent.replace(col, ast.Column(name=new_name), copy=False)
+        if node.parent is not None:  # pragma: no branch
+            node.parent.replace(node, ast.Column(name=new_name), copy=False)
     return rewritten
 
 
