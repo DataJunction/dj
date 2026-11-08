@@ -174,7 +174,11 @@ class QueryCacheManager(
         if not no_cache:
             try:
                 if cached := self.cache.get(key):
-                    if not no_store and key not in _pending_refresh_keys:
+                    if (
+                        not no_store
+                        and key not in _pending_refresh_keys
+                        and await self._refresh_due(key)
+                    ):
                         _pending_refresh_keys.add(key)
                         get_metrics_provider().gauge(
                             "dj.cache.refresh.pending",
@@ -579,6 +583,20 @@ class QueryCacheManager(
             session_label="cache key generation",
         ) as new_session:
             return await _build_key_with_session(new_session)
+
+    async def _refresh_due(self, key: str) -> bool:
+        """Whether no refresh started for this key recently."""
+        interval = settings.query_cache_refresh_interval
+        if interval <= 0:
+            return True
+        marker = f"refresh:{key}"
+        try:
+            if await run_in_threadpool(self.cache.get, marker):
+                return False
+            await run_in_threadpool(self.cache.set, marker, 1, interval)
+        except Exception as e:
+            self.logger.error("Could not mark refresh of key=%s: %s", key, str(e))
+        return True
 
     async def _refresh_cache_rate_limited(
         self,

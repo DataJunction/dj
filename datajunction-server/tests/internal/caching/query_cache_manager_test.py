@@ -361,3 +361,155 @@ async def test_fallback_uses_the_session_it_is_given():
 
         assert result == [{"sql": "SELECT * FROM test"}]
         assert get_measures_query_mock.call_args.kwargs["session"] is session
+
+
+class FailingMarkerCache(CachelibCache):
+    """
+    Cache whose refresh markers cannot be read.
+    """
+
+    def get(self, key: str):
+        if key.startswith("refresh:"):
+            raise RuntimeError("marker read failed")
+        return super().get(key)
+
+
+async def _hit(manager, cache, cache_control=None):
+    """
+    Make one cache hit and return the refresh tasks it scheduled.
+    """
+    background = mock.Mock(spec=BackgroundTasks)
+    result = await manager.get_or_load(
+        background,
+        DummyRequest(cache_control=cache_control),
+        PARAMS,
+    )
+    return result, [
+        call.args[0].__name__ for call in background.add_task.call_args_list
+    ]
+
+
+PARAMS = QueryRequestParams(nodes=["foo"], dimensions=["dim1"], filters=[])
+
+
+@pytest.fixture
+async def hot_manager():
+    """
+    A manager whose cache already holds the result for PARAMS.
+    """
+    with (
+        patch(
+            "datajunction_server.internal.caching.query_cache_manager.VersionedQueryKey.version_query_request",
+            return_value="versioned123",
+        ),
+        patch(
+            "datajunction_server.internal.caching.query_cache_manager._pending_refresh_keys",
+            set(),
+        ),
+        patch(
+            "datajunction_server.internal.caching.query_cache_manager.settings.query_cache_refresh_interval",
+            300,
+        ),
+    ):
+        cache = CachelibCache()
+        manager = QueryCacheManager(cache, QueryBuildType.MEASURES)
+        key = await manager.build_cache_key(DummyRequest(), PARAMS)
+        cache.set(key, [{"sql": "CACHED"}])
+        yield manager, cache, key
+
+
+@pytest.mark.asyncio
+async def test_refresh_once_per_interval(hot_manager):
+    """
+    A second hit inside the interval schedules no refresh.
+    """
+    from datajunction_server.internal.caching import query_cache_manager as qcm
+
+    manager, cache, key = hot_manager
+    assert await _hit(manager, cache) == (
+        [{"sql": "CACHED"}],
+        ["_refresh_cache_rate_limited"],
+    )
+    assert cache.get(f"refresh:{key}") == 1
+
+    qcm._pending_refresh_keys.clear()
+    assert await _hit(manager, cache) == ([{"sql": "CACHED"}], [])
+
+
+@pytest.mark.asyncio
+async def test_refresh_after_marker_expires(hot_manager):
+    """
+    Once the marker is gone, the next hit schedules a refresh.
+    """
+    from datajunction_server.internal.caching import query_cache_manager as qcm
+
+    manager, cache, key = hot_manager
+    await _hit(manager, cache)
+    qcm._pending_refresh_keys.clear()
+    cache.delete(f"refresh:{key}")
+    assert await _hit(manager, cache) == (
+        [{"sql": "CACHED"}],
+        ["_refresh_cache_rate_limited"],
+    )
+
+
+@pytest.mark.asyncio
+async def test_refresh_when_interval_is_zero(hot_manager):
+    """
+    A zero interval refreshes on every hit.
+    """
+    from datajunction_server.internal.caching import query_cache_manager as qcm
+
+    manager, cache, key = hot_manager
+    with patch.object(qcm.settings, "query_cache_refresh_interval", 0):
+        await _hit(manager, cache)
+        qcm._pending_refresh_keys.clear()
+        assert await _hit(manager, cache) == (
+            [{"sql": "CACHED"}],
+            ["_refresh_cache_rate_limited"],
+        )
+    assert cache.get(f"refresh:{key}") is None
+
+
+@pytest.mark.asyncio
+async def test_refresh_when_marker_fails(hot_manager):
+    """
+    A marker error falls back to refreshing on the hit.
+    """
+    from datajunction_server.internal.caching import query_cache_manager as qcm
+
+    manager, cache, key = hot_manager
+    manager.cache = FailingMarkerCache()
+    manager.cache.set(key, [{"sql": "CACHED"}])
+    for _ in range(2):
+        qcm._pending_refresh_keys.clear()
+        assert await _hit(manager, manager.cache) == (
+            [{"sql": "CACHED"}],
+            ["_refresh_cache_rate_limited"],
+        )
+
+
+@pytest.mark.asyncio
+async def test_no_store_hit_skips_marker(hot_manager):
+    """
+    A no-store hit schedules nothing and leaves no marker.
+    """
+    manager, cache, key = hot_manager
+    assert await _hit(manager, cache, "no-store") == ([{"sql": "CACHED"}], [])
+    assert cache.get(f"refresh:{key}") is None
+
+
+@pytest.mark.asyncio
+async def test_no_cache_skips_marker(hot_manager):
+    """
+    A no-cache request builds fresh and leaves no marker.
+    """
+    manager, cache, key = hot_manager
+    with patch.object(
+        QueryCacheManager,
+        "fallback",
+        return_value=[{"sql": "FRESH"}],
+    ):
+        result, tasks = await _hit(manager, cache, "no-cache")
+    assert (result, tasks) == ([{"sql": "FRESH"}], ["_set_cache_with_error_handling"])
+    assert cache.get(f"refresh:{key}") is None
