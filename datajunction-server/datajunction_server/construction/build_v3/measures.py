@@ -312,7 +312,9 @@ def _get_filter_column_name_for_dimension(
         return None  # pragma: no cover
 
     for link in parent_node.current.dimension_links:
-        if link.dimension.name == dim_node_name:
+        if link.dimension.name == dim_node_name and (
+            not parsed_ref.role or link.role == parsed_ref.role
+        ):
             fk_columns = link.foreign_key_column_names
             if fk_columns:  # pragma: no branch
                 return next(iter(fk_columns))

@@ -199,7 +199,6 @@ def resolve_filter_references(
         if not base_col_ref:
             continue  # pragma: no cover
 
-        # The base ref is kept for the fallback lookup below.
         dim_ref_with_role = dimension_ref_of_expression(subscript)
         if dim_ref_with_role is None:
             continue  # pragma: no cover
@@ -212,10 +211,8 @@ def resolve_filter_references(
             for inner_col in subscript.index.find_all(ast.Column):
                 role_marker_ids.add(id(inner_col))
 
-        # Look up with role first, then fall back to base ref without role
-        alias_to_use = column_aliases.get(dim_ref_with_role) or column_aliases.get(
-            base_col_ref,
-        )
+        # A named role must resolve exactly; never fall back to the bare ref.
+        alias_to_use = column_aliases.get(dim_ref_with_role)
 
         if alias_to_use:
             if cte_alias:

@@ -4668,15 +4668,13 @@ async def test_role_path_dimensions_error_handling(
             "filters": ["default.special_country_dim.name[invalid_role] = 'Canada'"],
         },
     )
-    # v3 does not currently reject unknown role names — it treats the role
-    # token as an opaque alias and emits SQL that joins through whatever path
-    # the role *would* anchor to (here, the only dim_link to
-    # ``special_country_dim`` from the user dim). The upshot is a successful
-    # 200 with a query whose result set may be semantically odd but is
-    # well-formed. (v2 had stricter validation; that error path is not yet
-    # ported to v3 — see TODO in node_query.py.)
-    assert response.status_code == 200
-    assert "name_invalid_role" in response.json()["sql"]
+    # A role the node has no link for is rejected, not bound to another link.
+    assert response.status_code == 422
+    assert response.json()["message"] == (
+        "Cannot find join path from default.user_dim to dimension "
+        "default.special_country_dim. Please create a dimension link between "
+        "these nodes."
+    )
 
     # Test with malformed role path syntax
     response = await module__client_with_examples.get(
