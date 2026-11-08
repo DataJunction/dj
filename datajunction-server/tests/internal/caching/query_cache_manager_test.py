@@ -374,7 +374,7 @@ class FailingMarkerCache(CachelibCache):
         return super().get(key)
 
 
-async def _hit(manager, cache, cache_control=None):
+async def _hit(manager, cache, cache_control=None, params=None):
     """
     Make one cache hit and return the refresh tasks it scheduled.
     """
@@ -382,7 +382,7 @@ async def _hit(manager, cache, cache_control=None):
     result = await manager.get_or_load(
         background,
         DummyRequest(cache_control=cache_control),
-        PARAMS,
+        params or PARAMS,
     )
     return result, [
         call.args[0].__name__ for call in background.add_task.call_args_list
@@ -513,3 +513,108 @@ async def test_no_cache_skips_marker(hot_manager):
         result, tasks = await _hit(manager, cache, "no-cache")
     assert (result, tasks) == ([{"sql": "FRESH"}], ["_set_cache_with_error_handling"])
     assert cache.get(f"refresh:{key}") is None
+
+
+BARE_METRIC = QueryRequestParams(nodes=["foo"], dimensions=[], filters=[])
+
+
+@pytest.mark.parametrize(
+    "query_type, params, expected",
+    [
+        (QueryBuildType.METRICS, BARE_METRIC, True),
+        (
+            QueryBuildType.METRICS,
+            QueryRequestParams(nodes=["foo"], dimensions=[""], filters=[]),
+            True,
+        ),
+        (QueryBuildType.MEASURES, BARE_METRIC, False),
+        (QueryBuildType.NODE, BARE_METRIC, False),
+        (
+            QueryBuildType.METRICS,
+            QueryRequestParams(nodes=["foo", "bar"], dimensions=[], filters=[]),
+            False,
+        ),
+        (
+            QueryBuildType.METRICS,
+            QueryRequestParams(nodes=["foo"], dimensions=["dim1"], filters=[]),
+            False,
+        ),
+        (
+            QueryBuildType.METRICS,
+            QueryRequestParams(nodes=["foo"], dimensions=[], filters=["a = 1"]),
+            False,
+        ),
+        (
+            QueryBuildType.METRICS,
+            QueryRequestParams(nodes=["foo"], dimensions=[], filters=[], orderby=["x"]),
+            False,
+        ),
+        (
+            QueryBuildType.METRICS,
+            QueryRequestParams(nodes=["foo"], dimensions=[], filters=[], limit=5),
+            False,
+        ),
+    ],
+)
+def test_is_single_metric(query_type, params, expected):
+    """
+    Only a metrics request for one bare metric counts.
+    """
+    assert (
+        QueryCacheManager(CachelibCache(), query_type)._is_single_metric(
+            params,
+        )
+        is expected
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "params, all_ancestors",
+    [(BARE_METRIC, True), (PARAMS, False)],
+)
+async def test_key_versions_all_ancestors_of_one_metric(params, all_ancestors):
+    """
+    Only a bare metric's key is versioned by everything upstream.
+    """
+    with patch(
+        "datajunction_server.internal.caching.query_cache_manager.VersionedQueryKey.version_query_request",
+        return_value="versioned123",
+    ) as version:
+        manager = QueryCacheManager(CachelibCache(), QueryBuildType.METRICS)
+        await manager.build_cache_key(DummyRequest(), params)
+    assert version.call_args.kwargs["all_ancestors"] is all_ancestors
+
+
+@pytest.mark.asyncio
+async def test_bare_metric_uses_its_own_refresh_interval():
+    """
+    A bare metric refreshes on its own interval, other requests on theirs.
+    """
+    from datajunction_server.internal.caching import query_cache_manager as qcm
+
+    with (
+        patch(
+            "datajunction_server.internal.caching.query_cache_manager.VersionedQueryKey.version_query_request",
+            return_value="versioned123",
+        ),
+        patch.object(qcm, "_pending_refresh_keys", set()),
+        patch.object(qcm.settings, "query_cache_refresh_interval", 0),
+        patch.object(qcm.settings, "query_cache_single_metric_refresh_interval", 300),
+    ):
+        cache = CachelibCache()
+        manager = QueryCacheManager(cache, QueryBuildType.METRICS)
+        for params in (BARE_METRIC, PARAMS):
+            cache.set(await manager.build_cache_key(DummyRequest(), params), [1])
+
+        outcomes = {}
+        for name, params in (("bare", BARE_METRIC), ("other", PARAMS)):
+            tasks = []
+            for _ in range(2):
+                qcm._pending_refresh_keys.clear()
+                tasks.append((await _hit(manager, cache, params=params))[1])
+            outcomes[name] = tasks
+    assert outcomes == {
+        "bare": [["_refresh_cache_rate_limited"], []],
+        "other": [["_refresh_cache_rate_limited"], ["_refresh_cache_rate_limited"]],
+    }

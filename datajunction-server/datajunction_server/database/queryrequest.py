@@ -10,6 +10,8 @@ from sqlalchemy import (
     DateTime,
     Enum,
     UniqueConstraint,
+    and_,
+    select,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -18,7 +20,7 @@ from sqlalchemy.orm import Mapped, joinedload, mapped_column, selectinload
 
 from datajunction_server.construction.utils import to_namespaced_name
 from datajunction_server.database.base import Base
-from datajunction_server.database.node import Node, NodeRevision
+from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
 from datajunction_server.enum import StrEnum
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
@@ -218,11 +220,15 @@ class VersionedQueryKey:
         dimensions: list[str],
         filters: list[str],
         orderby: list[str],
+        all_ancestors: bool = False,
     ) -> "VersionedQueryKey":
         """
         Versions a query request (e.g., nodes, dimensions, filters, and orderby).
+        With ``all_ancestors``, the parents are every node upstream of the nodes.
         """
         versioned_nodes, versioned_parents = await cls.version_nodes(session, nodes)
+        if all_ancestors:
+            versioned_parents = await cls.version_ancestors(session, nodes)
         versioned_dims = await cls.version_dimensions(
             session,
             dimensions,
@@ -273,6 +279,42 @@ class VersionedQueryKey:
             if node_name in nodes_objs
         ]
         return versioned_nodes, versioned_parents
+
+    @staticmethod
+    async def version_ancestors(
+        session: AsyncSession,
+        nodes: list[str],
+    ) -> list[VersionedNodeKey]:
+        """
+        Versions every node upstream of the nodes, in a single query.
+        """
+        walk = (
+            select(Node.id.label("id"))
+            .where(Node.name.in_(nodes))
+            .cte(
+                "walk",
+                recursive=True,
+            )
+        )
+        parents = (
+            select(NodeRelationship.parent_id)
+            .join(NodeRevision, NodeRevision.id == NodeRelationship.child_id)
+            .join(
+                Node,
+                and_(
+                    Node.id == NodeRevision.node_id,
+                    Node.current_version == NodeRevision.version,
+                ),
+            )
+            .join(walk, walk.c.id == Node.id)
+        )
+        walk = walk.union(parents)
+        rows = await session.execute(
+            select(Node.name, Node.current_version)
+            .join(walk, walk.c.id == Node.id)
+            .where(Node.name.notin_(nodes)),
+        )
+        return sorted(VersionedNodeKey(name, version) for name, version in rows)
 
     @staticmethod
     async def version_dimensions(

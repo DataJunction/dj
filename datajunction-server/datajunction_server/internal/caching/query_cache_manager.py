@@ -177,7 +177,7 @@ class QueryCacheManager(
                     if (
                         not no_store
                         and key not in _pending_refresh_keys
-                        and await self._refresh_due(key)
+                        and await self._refresh_due(key, params)
                     ):
                         _pending_refresh_keys.add(key)
                         get_metrics_provider().gauge(
@@ -555,6 +555,7 @@ class QueryCacheManager(
                 dimensions=sorted(params.dimensions),
                 filters=sorted(params.filters),
                 orderby=params.orderby or [],
+                all_ancestors=self._is_single_metric(params),
             )
             query_request = QueryRequestKey(
                 key=versioned_request,
@@ -584,9 +585,24 @@ class QueryCacheManager(
         ) as new_session:
             return await _build_key_with_session(new_session)
 
-    async def _refresh_due(self, key: str) -> bool:
+    def _is_single_metric(self, params: QueryRequestParams) -> bool:
+        """Whether the request is one bare metric."""
+        return (
+            self.query_type == QueryBuildType.METRICS
+            and len(params.nodes) == 1
+            and not any(params.dimensions)
+            and not params.filters
+            and not params.orderby
+            and not params.limit
+        )
+
+    async def _refresh_due(self, key: str, params: QueryRequestParams) -> bool:
         """Whether no refresh started for this key recently."""
-        interval = settings.query_cache_refresh_interval
+        interval = (
+            settings.query_cache_single_metric_refresh_interval
+            if self._is_single_metric(params)
+            else settings.query_cache_refresh_interval
+        )
         if interval <= 0:
             return True
         marker = f"refresh:{key}"
