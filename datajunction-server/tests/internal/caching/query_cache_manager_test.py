@@ -374,6 +374,27 @@ class FailingMarkerCache(CachelibCache):
         return super().get(key)
 
 
+class LockingCache(CachelibCache):
+    """
+    Cache that grants each lock to one holder at a time.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.held: set[str] = set()
+        self.taken: list[str] = []
+
+    def try_lock(self, key: str, lease: int) -> bool:
+        if key in self.held:
+            return False
+        self.held.add(key)
+        self.taken.append(key)
+        return True
+
+    def unlock(self, key: str) -> None:
+        self.held.discard(key)
+
+
 async def _hit(manager, cache, cache_control=None, params=None):
     """
     Make one cache hit and return the refresh tasks it scheduled.
@@ -618,3 +639,50 @@ async def test_bare_metric_uses_its_own_refresh_interval():
         "bare": [["_refresh_cache_rate_limited"], []],
         "other": [["_refresh_cache_rate_limited"], ["_refresh_cache_rate_limited"]],
     }
+
+
+@pytest.mark.asyncio
+async def test_concurrent_hits_queue_one_refresh(hot_manager):
+    """
+    Hits at the same moment queue one refresh between them.
+    """
+    manager, cache, key = hot_manager
+    hits = await asyncio.gather(*(_hit(manager, cache) for _ in range(5)))
+    assert [tasks for _, tasks in hits] == [["_refresh_cache_rate_limited"]] + [[]] * 4
+
+
+@pytest.mark.asyncio
+async def test_refresh_skipped_when_marker_lock_is_held(hot_manager):
+    """
+    A hit that cannot take the marker lock queues nothing and sets no marker.
+    """
+    from datajunction_server.internal.caching import query_cache_manager as qcm
+
+    manager, _, key = hot_manager
+    cache = LockingCache()
+    cache.set(key, [{"sql": "CACHED"}])
+    manager.cache = cache
+    cache.held.add(f"refresh:{key}")
+    assert await _hit(manager, cache) == ([{"sql": "CACHED"}], [])
+    assert cache.get(f"refresh:{key}") is None
+    assert key not in qcm._pending_refresh_keys
+
+
+@pytest.mark.asyncio
+async def test_marker_lock_released_after_claim(hot_manager):
+    """
+    The marker is set under its lock and the lock is released.
+    """
+    manager, _, key = hot_manager
+    cache = LockingCache()
+    cache.set(key, [{"sql": "CACHED"}])
+    manager.cache = cache
+    assert await _hit(manager, cache) == (
+        [{"sql": "CACHED"}],
+        ["_refresh_cache_rate_limited"],
+    )
+    assert (cache.taken, cache.held, cache.get(f"refresh:{key}")) == (
+        [f"refresh:{key}"],
+        set(),
+        1,
+    )

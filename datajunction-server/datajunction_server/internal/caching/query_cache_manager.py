@@ -174,22 +174,26 @@ class QueryCacheManager(
         if not no_cache:
             try:
                 if cached := self.cache.get(key):
-                    if (
-                        not no_store
-                        and key not in _pending_refresh_keys
-                        and await self._refresh_due(key, params)
-                    ):
+                    if not no_store and key not in _pending_refresh_keys:
+                        # Reserved before any await, so one process queues one.
                         _pending_refresh_keys.add(key)
-                        get_metrics_provider().gauge(
-                            "dj.cache.refresh.pending",
-                            len(_pending_refresh_keys),
-                        )
-                        background_tasks.add_task(
-                            self._refresh_cache_rate_limited,
-                            key,
-                            request,
-                            params,
-                        )
+                        queued = False
+                        try:
+                            if await self._refresh_due(key, params):
+                                get_metrics_provider().gauge(
+                                    "dj.cache.refresh.pending",
+                                    len(_pending_refresh_keys),
+                                )
+                                background_tasks.add_task(
+                                    self._refresh_cache_rate_limited,
+                                    key,
+                                    request,
+                                    params,
+                                )
+                                queued = True
+                        finally:
+                            if not queued:
+                                _pending_refresh_keys.discard(key)
                     get_metrics_provider().counter(
                         "dj.cache.hit",
                         tags=self._metric_tags,
@@ -609,7 +613,19 @@ class QueryCacheManager(
         try:
             if await run_in_threadpool(self.cache.get, marker):
                 return False
-            await run_in_threadpool(self.cache.set, marker, 1, interval)
+            # Only the lock holder may set the marker.
+            if not await run_in_threadpool(
+                self.cache.try_lock,
+                marker,
+                settings.query_cache_lock_lease,
+            ):
+                return False
+            try:
+                if await run_in_threadpool(self.cache.get, marker):
+                    return False
+                await run_in_threadpool(self.cache.set, marker, 1, interval)
+            finally:
+                await run_in_threadpool(self.cache.unlock, marker)
         except Exception as e:
             self.logger.error("Could not mark refresh of key=%s: %s", key, str(e))
         return True
