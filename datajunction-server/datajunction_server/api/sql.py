@@ -10,6 +10,7 @@ from typing import cast
 
 from fastapi import BackgroundTasks, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import lazyload
 
 from datajunction_server.construction.build_v3 import (
     build_combiner_sql,
@@ -774,7 +775,11 @@ async def get_sql_for_metrics(
     session.info["session_label"] = "initial node loading"
 
     # Fetch all metric nodes in a single query (only name/type needed for validation here)
-    nodes = await Node.get_by_names(session, metrics, options=[])
+    nodes = await Node.get_by_names(
+        session,
+        metrics,
+        options=[lazyload(Node.created_by), lazyload(Node.tags)],
+    )
 
     # Check if all requested nodes exist
     found_names = {node.name for node in nodes}
