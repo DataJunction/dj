@@ -175,17 +175,25 @@ class QueryCacheManager(
             try:
                 if cached := self.cache.get(key):
                     if not no_store and key not in _pending_refresh_keys:
+                        # Reserved before any await, so one process queues one.
                         _pending_refresh_keys.add(key)
-                        get_metrics_provider().gauge(
-                            "dj.cache.refresh.pending",
-                            len(_pending_refresh_keys),
-                        )
-                        background_tasks.add_task(
-                            self._refresh_cache_rate_limited,
-                            key,
-                            request,
-                            params,
-                        )
+                        queued = False
+                        try:
+                            if await self._refresh_due(key, params):
+                                get_metrics_provider().gauge(
+                                    "dj.cache.refresh.pending",
+                                    len(_pending_refresh_keys),
+                                )
+                                background_tasks.add_task(
+                                    self._refresh_cache_rate_limited,
+                                    key,
+                                    request,
+                                    params,
+                                )
+                                queued = True
+                        finally:
+                            if not queued:
+                                _pending_refresh_keys.discard(key)
                     get_metrics_provider().counter(
                         "dj.cache.hit",
                         tags=self._metric_tags,
@@ -551,6 +559,7 @@ class QueryCacheManager(
                 dimensions=sorted(params.dimensions),
                 filters=sorted(params.filters),
                 orderby=params.orderby or [],
+                all_ancestors=self._is_single_metric(params),
             )
             query_request = QueryRequestKey(
                 key=versioned_request,
@@ -579,6 +588,47 @@ class QueryCacheManager(
             session_label="cache key generation",
         ) as new_session:
             return await _build_key_with_session(new_session)
+
+    def _is_single_metric(self, params: QueryRequestParams) -> bool:
+        """Whether the request is one bare metric."""
+        return (
+            self.query_type == QueryBuildType.METRICS
+            and len(params.nodes) == 1
+            and not any(params.dimensions)
+            and not params.filters
+            and not params.orderby
+            and not params.limit
+        )
+
+    async def _refresh_due(self, key: str, params: QueryRequestParams) -> bool:
+        """Whether no refresh started for this key recently."""
+        interval = (
+            settings.query_cache_single_metric_refresh_interval
+            if self._is_single_metric(params)
+            else settings.query_cache_refresh_interval
+        )
+        if interval <= 0:
+            return True
+        marker = f"refresh:{key}"
+        try:
+            if await run_in_threadpool(self.cache.get, marker):
+                return False
+            # Only the lock holder may set the marker.
+            if not await run_in_threadpool(
+                self.cache.try_lock,
+                marker,
+                settings.query_cache_lock_lease,
+            ):
+                return False
+            try:
+                if await run_in_threadpool(self.cache.get, marker):
+                    return False
+                await run_in_threadpool(self.cache.set, marker, 1, interval)
+            finally:
+                await run_in_threadpool(self.cache.unlock, marker)
+        except Exception as e:
+            self.logger.error("Could not mark refresh of key=%s: %s", key, str(e))
+        return True
 
     async def _refresh_cache_rate_limited(
         self,

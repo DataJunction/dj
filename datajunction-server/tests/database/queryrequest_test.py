@@ -1,6 +1,7 @@
 import pytest
+from sqlalchemy.orm import joinedload
 
-from datajunction_server.database.node import Node
+from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.queryrequest import (
     QueryBuildType,
     QueryRequestKey,
@@ -440,3 +441,81 @@ def test_query_request_key_instantiation():
     assert request_key.query_type == QueryBuildType.METRICS
     assert request_key.engine_name == "spark"
     assert request_key.limit == 100
+
+
+@pytest.mark.asyncio
+async def test_versioning_ancestors(module__session, module__client_with_roads):
+    """
+    Test versioning every node upstream of a metric
+    """
+    ancestors = await VersionedQueryKey.version_ancestors(
+        module__session,
+        ["default.avg_repair_price"],
+    )
+    assert [str(ancestor.name) for ancestor in ancestors] == [
+        "default.repair_order_details",
+        "default.repair_orders",
+        "default.repair_orders_fact",
+    ]
+
+    seen: dict[str, str] = {}
+    pending = ["default.avg_repair_price"]
+    while pending:
+        for node in await Node.get_by_names(
+            module__session,
+            [pending.pop()],
+            options=[joinedload(Node.current).selectinload(NodeRevision.parents)],
+        ):
+            for parent in node.current.parents:
+                if parent.name not in seen:
+                    seen[parent.name] = parent.current_version
+                    pending.append(parent.name)
+    assert ancestors == sorted(
+        VersionedNodeKey(name, version) for name, version in seen.items()
+    )
+
+
+@pytest.mark.asyncio
+async def test_versioning_ancestors_of_source(
+    module__session,
+    module__client_with_roads,
+):
+    """
+    A node with nothing upstream has no ancestors
+    """
+    assert (
+        await VersionedQueryKey.version_ancestors(
+            module__session,
+            ["default.repair_orders"],
+        )
+        == []
+    )
+
+
+@pytest.mark.asyncio
+async def test_version_query_request_all_ancestors(
+    module__session,
+    module__client_with_roads,
+):
+    """
+    With all ancestors, the key's parents are the whole upstream
+    """
+    request = dict(
+        session=module__session,
+        nodes=["default.avg_repair_price"],
+        dimensions=[],
+        filters=[],
+        orderby=[],
+    )
+    direct = await VersionedQueryKey.version_query_request(**request)
+    everything = await VersionedQueryKey.version_query_request(
+        **request,
+        all_ancestors=True,
+    )
+    assert [str(p.name) for p in direct.parents] == ["default.repair_orders_fact"]
+    assert [str(p.name) for p in everything.parents] == [
+        "default.repair_order_details",
+        "default.repair_orders",
+        "default.repair_orders_fact",
+    ]
+    assert everything.nodes == direct.nodes

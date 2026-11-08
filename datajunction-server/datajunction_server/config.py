@@ -304,6 +304,13 @@ class Settings(BaseSettings):  # pragma: no cover
     # Maximum number of concurrent background cache refreshes.
     # Caps how many SQL rebuilds run simultaneously to avoid DB connection spikes.
     query_cache_max_concurrent_refreshes: int = 3
+    # Minimum seconds between background refreshes of one cached query, across
+    # all workers. Zero refreshes on every cache hit.
+    query_cache_refresh_interval: int = 300
+    # The same for a request for one bare metric. Its key holds the version of
+    # every node upstream, so a refresh only catches what the key lacks, such as
+    # a materialized cube coming online.
+    query_cache_single_metric_refresh_interval: int = 86400
     # While one request builds a query, others for the same key wait this long
     # for it to land in the cache before building it themselves. The lease is the
     # shortest the shared cache allows; it only matters if the builder dies.

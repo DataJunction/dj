@@ -361,3 +361,351 @@ async def test_fallback_uses_the_session_it_is_given():
 
         assert result == [{"sql": "SELECT * FROM test"}]
         assert get_measures_query_mock.call_args.kwargs["session"] is session
+
+
+class FailingMarkerCache(CachelibCache):
+    """
+    Cache whose refresh markers cannot be read.
+    """
+
+    def get(self, key: str):
+        if key.startswith("refresh:"):
+            raise RuntimeError("marker read failed")
+        return super().get(key)
+
+
+class LockingCache(CachelibCache):
+    """
+    Cache that grants each lock to one holder at a time.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.held: set[str] = set()
+        self.taken: list[str] = []
+
+    def try_lock(self, key: str, lease: int) -> bool:
+        if key in self.held:
+            return False
+        self.held.add(key)
+        self.taken.append(key)
+        return True
+
+    def unlock(self, key: str) -> None:
+        self.held.discard(key)
+
+
+async def _hit(manager, cache, cache_control=None, params=None):
+    """
+    Make one cache hit and return the refresh tasks it scheduled.
+    """
+    background = mock.Mock(spec=BackgroundTasks)
+    result = await manager.get_or_load(
+        background,
+        DummyRequest(cache_control=cache_control),
+        params or PARAMS,
+    )
+    return result, [
+        call.args[0].__name__ for call in background.add_task.call_args_list
+    ]
+
+
+PARAMS = QueryRequestParams(nodes=["foo"], dimensions=["dim1"], filters=[])
+
+
+@pytest.fixture
+async def hot_manager():
+    """
+    A manager whose cache already holds the result for PARAMS.
+    """
+    with (
+        patch(
+            "datajunction_server.internal.caching.query_cache_manager.VersionedQueryKey.version_query_request",
+            return_value="versioned123",
+        ),
+        patch(
+            "datajunction_server.internal.caching.query_cache_manager._pending_refresh_keys",
+            set(),
+        ),
+        patch(
+            "datajunction_server.internal.caching.query_cache_manager.settings.query_cache_refresh_interval",
+            300,
+        ),
+    ):
+        cache = CachelibCache()
+        manager = QueryCacheManager(cache, QueryBuildType.MEASURES)
+        key = await manager.build_cache_key(DummyRequest(), PARAMS)
+        cache.set(key, [{"sql": "CACHED"}])
+        yield manager, cache, key
+
+
+@pytest.mark.asyncio
+async def test_refresh_once_per_interval(hot_manager):
+    """
+    A second hit inside the interval schedules no refresh.
+    """
+    from datajunction_server.internal.caching import query_cache_manager as qcm
+
+    manager, cache, key = hot_manager
+    assert await _hit(manager, cache) == (
+        [{"sql": "CACHED"}],
+        ["_refresh_cache_rate_limited"],
+    )
+    assert cache.get(f"refresh:{key}") == 1
+
+    qcm._pending_refresh_keys.clear()
+    assert await _hit(manager, cache) == ([{"sql": "CACHED"}], [])
+
+
+@pytest.mark.asyncio
+async def test_refresh_after_marker_expires(hot_manager):
+    """
+    Once the marker is gone, the next hit schedules a refresh.
+    """
+    from datajunction_server.internal.caching import query_cache_manager as qcm
+
+    manager, cache, key = hot_manager
+    await _hit(manager, cache)
+    qcm._pending_refresh_keys.clear()
+    cache.delete(f"refresh:{key}")
+    assert await _hit(manager, cache) == (
+        [{"sql": "CACHED"}],
+        ["_refresh_cache_rate_limited"],
+    )
+
+
+@pytest.mark.asyncio
+async def test_refresh_when_interval_is_zero(hot_manager):
+    """
+    A zero interval refreshes on every hit.
+    """
+    from datajunction_server.internal.caching import query_cache_manager as qcm
+
+    manager, cache, key = hot_manager
+    with patch.object(qcm.settings, "query_cache_refresh_interval", 0):
+        await _hit(manager, cache)
+        qcm._pending_refresh_keys.clear()
+        assert await _hit(manager, cache) == (
+            [{"sql": "CACHED"}],
+            ["_refresh_cache_rate_limited"],
+        )
+    assert cache.get(f"refresh:{key}") is None
+
+
+@pytest.mark.asyncio
+async def test_refresh_when_marker_fails(hot_manager):
+    """
+    A marker error falls back to refreshing on the hit.
+    """
+    from datajunction_server.internal.caching import query_cache_manager as qcm
+
+    manager, cache, key = hot_manager
+    manager.cache = FailingMarkerCache()
+    manager.cache.set(key, [{"sql": "CACHED"}])
+    for _ in range(2):
+        qcm._pending_refresh_keys.clear()
+        assert await _hit(manager, manager.cache) == (
+            [{"sql": "CACHED"}],
+            ["_refresh_cache_rate_limited"],
+        )
+
+
+@pytest.mark.asyncio
+async def test_no_store_hit_skips_marker(hot_manager):
+    """
+    A no-store hit schedules nothing and leaves no marker.
+    """
+    manager, cache, key = hot_manager
+    assert await _hit(manager, cache, "no-store") == ([{"sql": "CACHED"}], [])
+    assert cache.get(f"refresh:{key}") is None
+
+
+@pytest.mark.asyncio
+async def test_no_cache_skips_marker(hot_manager):
+    """
+    A no-cache request builds fresh and leaves no marker.
+    """
+    manager, cache, key = hot_manager
+    with patch.object(
+        QueryCacheManager,
+        "fallback",
+        return_value=[{"sql": "FRESH"}],
+    ):
+        result, tasks = await _hit(manager, cache, "no-cache")
+    assert (result, tasks) == ([{"sql": "FRESH"}], ["_set_cache_with_error_handling"])
+    assert cache.get(f"refresh:{key}") is None
+
+
+BARE_METRIC = QueryRequestParams(nodes=["foo"], dimensions=[], filters=[])
+
+
+@pytest.mark.parametrize(
+    "query_type, params, expected",
+    [
+        (QueryBuildType.METRICS, BARE_METRIC, True),
+        (
+            QueryBuildType.METRICS,
+            QueryRequestParams(nodes=["foo"], dimensions=[""], filters=[]),
+            True,
+        ),
+        (QueryBuildType.MEASURES, BARE_METRIC, False),
+        (QueryBuildType.NODE, BARE_METRIC, False),
+        (
+            QueryBuildType.METRICS,
+            QueryRequestParams(nodes=["foo", "bar"], dimensions=[], filters=[]),
+            False,
+        ),
+        (
+            QueryBuildType.METRICS,
+            QueryRequestParams(nodes=["foo"], dimensions=["dim1"], filters=[]),
+            False,
+        ),
+        (
+            QueryBuildType.METRICS,
+            QueryRequestParams(nodes=["foo"], dimensions=[], filters=["a = 1"]),
+            False,
+        ),
+        (
+            QueryBuildType.METRICS,
+            QueryRequestParams(nodes=["foo"], dimensions=[], filters=[], orderby=["x"]),
+            False,
+        ),
+        (
+            QueryBuildType.METRICS,
+            QueryRequestParams(nodes=["foo"], dimensions=[], filters=[], limit=5),
+            False,
+        ),
+    ],
+)
+def test_is_single_metric(query_type, params, expected):
+    """
+    Only a metrics request for one bare metric counts.
+    """
+    assert (
+        QueryCacheManager(CachelibCache(), query_type)._is_single_metric(
+            params,
+        )
+        is expected
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "params, all_ancestors",
+    [(BARE_METRIC, True), (PARAMS, False)],
+)
+async def test_key_versions_all_ancestors_of_one_metric(params, all_ancestors):
+    """
+    Only a bare metric's key is versioned by everything upstream.
+    """
+    with patch(
+        "datajunction_server.internal.caching.query_cache_manager.VersionedQueryKey.version_query_request",
+        return_value="versioned123",
+    ) as version:
+        manager = QueryCacheManager(CachelibCache(), QueryBuildType.METRICS)
+        await manager.build_cache_key(DummyRequest(), params)
+    assert version.call_args.kwargs["all_ancestors"] is all_ancestors
+
+
+@pytest.mark.asyncio
+async def test_bare_metric_uses_its_own_refresh_interval():
+    """
+    A bare metric refreshes on its own interval, other requests on theirs.
+    """
+    from datajunction_server.internal.caching import query_cache_manager as qcm
+
+    with (
+        patch(
+            "datajunction_server.internal.caching.query_cache_manager.VersionedQueryKey.version_query_request",
+            return_value="versioned123",
+        ),
+        patch.object(qcm, "_pending_refresh_keys", set()),
+        patch.object(qcm.settings, "query_cache_refresh_interval", 0),
+        patch.object(qcm.settings, "query_cache_single_metric_refresh_interval", 300),
+    ):
+        cache = CachelibCache()
+        manager = QueryCacheManager(cache, QueryBuildType.METRICS)
+        for params in (BARE_METRIC, PARAMS):
+            cache.set(await manager.build_cache_key(DummyRequest(), params), [1])
+
+        outcomes = {}
+        for name, params in (("bare", BARE_METRIC), ("other", PARAMS)):
+            tasks = []
+            for _ in range(2):
+                qcm._pending_refresh_keys.clear()
+                tasks.append((await _hit(manager, cache, params=params))[1])
+            outcomes[name] = tasks
+    assert outcomes == {
+        "bare": [["_refresh_cache_rate_limited"], []],
+        "other": [["_refresh_cache_rate_limited"], ["_refresh_cache_rate_limited"]],
+    }
+
+
+@pytest.mark.asyncio
+async def test_concurrent_hits_queue_one_refresh(hot_manager):
+    """
+    Hits at the same moment queue one refresh between them.
+    """
+    manager, cache, key = hot_manager
+    hits = await asyncio.gather(*(_hit(manager, cache) for _ in range(5)))
+    assert [tasks for _, tasks in hits] == [["_refresh_cache_rate_limited"]] + [[]] * 4
+
+
+@pytest.mark.asyncio
+async def test_refresh_skipped_when_marker_lock_is_held(hot_manager):
+    """
+    A hit that cannot take the marker lock queues nothing and sets no marker.
+    """
+    from datajunction_server.internal.caching import query_cache_manager as qcm
+
+    manager, _, key = hot_manager
+    cache = LockingCache()
+    cache.set(key, [{"sql": "CACHED"}])
+    manager.cache = cache
+    cache.held.add(f"refresh:{key}")
+    assert await _hit(manager, cache) == ([{"sql": "CACHED"}], [])
+    assert cache.get(f"refresh:{key}") is None
+    assert key not in qcm._pending_refresh_keys
+
+
+@pytest.mark.asyncio
+async def test_marker_lock_released_after_claim(hot_manager):
+    """
+    The marker is set under its lock and the lock is released.
+    """
+    manager, _, key = hot_manager
+    cache = LockingCache()
+    cache.set(key, [{"sql": "CACHED"}])
+    manager.cache = cache
+    assert await _hit(manager, cache) == (
+        [{"sql": "CACHED"}],
+        ["_refresh_cache_rate_limited"],
+    )
+    assert (cache.taken, cache.held, cache.get(f"refresh:{key}")) == (
+        [f"refresh:{key}"],
+        set(),
+        1,
+    )
+
+
+class MarkedOnLockCache(LockingCache):
+    """
+    Cache where another request sets the marker just before the lock is taken.
+    """
+
+    def try_lock(self, key: str, lease: int) -> bool:
+        self.set(key, 1)
+        return super().try_lock(key, lease)
+
+
+@pytest.mark.asyncio
+async def test_refresh_skipped_when_marker_set_during_lock(hot_manager):
+    """
+    A marker set after the first check but before the lock is respected.
+    """
+    manager, _, key = hot_manager
+    cache = MarkedOnLockCache()
+    cache.set(key, [{"sql": "CACHED"}])
+    manager.cache = cache
+    assert await _hit(manager, cache) == ([{"sql": "CACHED"}], [])
+    assert (cache.taken, cache.held) == ([f"refresh:{key}"], set())
