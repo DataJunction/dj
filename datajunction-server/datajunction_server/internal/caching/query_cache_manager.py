@@ -180,6 +180,10 @@ class QueryCacheManager(
                         queued = False
                         try:
                             if await self._refresh_due(key, params):
+                                if session is not None:
+                                    # Tasks run before the request's session
+                                    # closes; end its transaction first.
+                                    await session.commit()
                                 get_metrics_provider().gauge(
                                     "dj.cache.refresh.pending",
                                     len(_pending_refresh_keys),

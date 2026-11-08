@@ -709,3 +709,32 @@ async def test_refresh_skipped_when_marker_set_during_lock(hot_manager):
     manager.cache = cache
     assert await _hit(manager, cache) == ([{"sql": "CACHED"}], [])
     assert (cache.taken, cache.held) == ([f"refresh:{key}"], set())
+
+
+@pytest.mark.asyncio
+async def test_hit_ends_transaction_before_queueing_refresh(hot_manager):
+    """
+    The request's session is committed before the refresh is queued, and a hit
+    that queues nothing leaves it alone.
+    """
+    from datajunction_server.internal.caching import query_cache_manager as qcm
+
+    manager, cache, key = hot_manager
+    order: list[str] = []
+    session = mock.AsyncMock()
+    session.commit.side_effect = lambda: order.append("commit")
+
+    async def hit():
+        background = mock.Mock(spec=BackgroundTasks)
+        background.add_task.side_effect = lambda *args: order.append("queued")
+        await manager.get_or_load(
+            background,
+            DummyRequest(),
+            PARAMS,
+            session=session,
+        )
+
+    await hit()
+    qcm._pending_refresh_keys.clear()
+    await hit()
+    assert (order, session.commit.await_count) == (["commit", "queued"], 1)
