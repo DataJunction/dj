@@ -4929,11 +4929,11 @@ async def test_sql_metrics_lean_node_load(
         "warnings": [],
     }
 
-    # The metric node load is followed directly by the next node load
-    assert [query[:20] for query in capture_queries[:5]] == [
+    # Auth queries run in either order
+    heads = [query[:20] for query in capture_queries[:5]]
+    assert [heads[0], sorted(heads[1:3]), *heads[3:]] == [
         "SELECT users.id, use",
-        "SELECT group_members",
-        "SELECT role_assignme",
+        ["SELECT group_members", "SELECT role_assignme"],
         "SELECT node.id, node",
         "SELECT node.id, node",
     ]
