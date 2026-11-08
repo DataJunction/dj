@@ -5,6 +5,7 @@ import pytest
 from httpx import AsyncClient, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import lazyload
 
 from datajunction_server.database.column import Column
 from datajunction_server.database.database import Database
@@ -4892,3 +4893,67 @@ async def test_cube_with_roles(
         "default.continents.continent_name[user_residence_country->country_region->region_continent]",
         "default.years.year_number[user_birth_date->date_week->week_month->month_year]",
     ]
+
+
+EXPECTED_ROADS_METRIC_SQL = "WITH\ndefault_DOT_repair_orders_fact AS (\nSELECT  repair_orders.repair_order_id,\n\trepair_orders.municipality_id,\n\trepair_orders.hard_hat_id,\n\trepair_orders.dispatcher_id,\n\trepair_orders.order_date,\n\trepair_orders.dispatched_date,\n\trepair_orders.required_date,\n\trepair_order_details.discount,\n\trepair_order_details.price,\n\trepair_order_details.quantity,\n\trepair_order_details.repair_type_id,\n\trepair_order_details.price * repair_order_details.quantity AS total_repair_cost,\n\trepair_orders.dispatched_date - repair_orders.order_date AS time_to_dispatch,\n\trepair_orders.dispatched_date - repair_orders.required_date AS dispatch_delay \n FROM roads.repair_orders AS repair_orders JOIN roads.repair_order_details AS repair_order_details ON repair_orders.repair_order_id = repair_order_details.repair_order_id\n),\ndefault_DOT_repair_orders_fact_metrics AS (\nSELECT  count(default_DOT_repair_orders_fact.repair_order_id) default_DOT_num_repair_orders \n FROM default_DOT_repair_orders_fact\n)\n\nSELECT  default_DOT_repair_orders_fact_metrics.default_DOT_num_repair_orders \n FROM default_DOT_repair_orders_fact_metrics\n"
+
+
+@pytest.mark.asyncio
+async def test_sql_metrics_lean_node_load(
+    client_with_roads: AsyncClient,
+    capture_queries: list[str],
+):
+    """
+    The /sql/ node check should not load creators, tags, or catalogs.
+    """
+    response = await client_with_roads.get(
+        "/sql/",
+        params={"metrics": ["default.num_repair_orders"]},
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "sql": EXPECTED_ROADS_METRIC_SQL,
+        "dialect": "spark",
+        "columns": [
+            {
+                "name": "default_DOT_num_repair_orders",
+                "type": "bigint",
+                "column": "default_DOT_num_repair_orders",
+                "node": "default.num_repair_orders",
+                "semantic_entity": "default.num_repair_orders.default_DOT_num_repair_orders",
+                "semantic_type": "metric",
+            },
+        ],
+        "upstream_tables": None,
+        "scan_estimate": None,
+        "warnings": [],
+    }
+
+    # Auth queries run in either order
+    heads = [query[:20] for query in capture_queries[:5]]
+    assert [heads[0], sorted(heads[1:3]), *heads[3:]] == [
+        "SELECT users.id, use",
+        ["SELECT group_members", "SELECT role_assignme"],
+        "SELECT node.id, node",
+        "SELECT node.id, node",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_lean_load_keeps_creator(
+    client_with_roads: AsyncClient,
+    session: AsyncSession,
+):
+    """
+    A later default load still fills in creators and tags.
+    """
+    lean = await Node.get_by_names(
+        session,
+        ["default.num_repair_orders"],
+        options=[lazyload(Node.created_by), lazyload(Node.tags)],
+    )
+    assert [node.name for node in lean] == ["default.num_repair_orders"]
+    full = await Node.get_by_names(session, ["default.num_repair_orders"])
+    assert full[0] is lean[0]
+    assert full[0].created_by.username == "dj"
+    assert full[0].tags == []
