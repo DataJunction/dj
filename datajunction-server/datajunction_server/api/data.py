@@ -380,6 +380,8 @@ async def get_data(
         async_=async_,
         engine_uri=engine.uri,
     )
+    # Release the connection before querying.
+    await session.commit()
     result = await query_service_client.submit_query(
         query_create,
         request_headers=request_headers,
@@ -457,6 +459,8 @@ async def get_data_stream_for_node(
         async_=True,
         engine_uri=engine.uri,
     )
+    # Release the connection before querying.
+    await session.commit()
     initial_query_info = await query_service_client.submit_query(
         query_create,
         request_headers=request_headers,
@@ -582,6 +586,8 @@ async def get_data_for_metrics(
         async_=async_,
         engine_uri=execution_ctx.engine.uri,
     )
+    # Release the connection before querying.
+    await session.commit()
     result = await query_service_client.submit_query(
         query_create,
         request_headers=request_headers,
@@ -659,6 +665,8 @@ async def get_data_stream_for_metrics(
         engine_uri=execution_ctx.engine.uri,
     )
     # Submits the query, equivalent to calling POST /data/ directly
+    # Release the connection before querying.
+    await session.commit()
     initial_query_info = await query_service_client.submit_query(
         query_create,
         request_headers=request_headers,

@@ -2123,3 +2123,56 @@ class TestAvailabilityState:
             "ttl_days": None,
         }
         assert delete_activity["user"] == "dj"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "url",
+    [
+        "/data/default.num_repair_orders/",
+        "/data?metrics=default.num_repair_orders",
+        "/stream/default.num_repair_orders?limit=10",
+        "/stream?metrics=default.num_repair_orders&limit=10",
+    ],
+)
+async def test_session_committed_before_query_is_submitted(
+    module__client_with_roads,
+    url,
+) -> None:
+    """
+    The request's transaction ends right before the query goes to the engine.
+    """
+    from datajunction_server.utils import get_query_service_client
+
+    app = module__client_with_roads._transport.app  # type: ignore
+    query_client = app.dependency_overrides[get_query_service_client]()
+    events: list[str] = []
+    execute, commit = AsyncSession.execute, AsyncSession.commit
+    submit = query_client.submit_query
+
+    async def spy_execute(self, *args, **kwargs):
+        events.append("query")
+        return await execute(self, *args, **kwargs)
+
+    async def spy_commit(self, *args, **kwargs):
+        events.append("commit")
+        return await commit(self, *args, **kwargs)
+
+    async def spy_submit(*args, **kwargs):
+        events.append("submit")
+        return await submit(*args, **kwargs)
+
+    with (
+        mock.patch.object(AsyncSession, "execute", spy_execute),
+        mock.patch.object(AsyncSession, "commit", spy_commit),
+        mock.patch.object(query_client, "submit_query", spy_submit),
+    ):
+        async with module__client_with_roads.stream(
+            "GET",
+            url,
+            headers={"Accept": "text/event-stream"},
+        ) as response:
+            assert response.status_code == 200
+            await response.aread()
+
+    assert events[events.index("submit") - 1] == "commit"
