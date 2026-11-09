@@ -344,8 +344,8 @@ execute DJ's SQL on DuckDB and compare it with a direct calculation or query:
 - ``window_interaction_test.py``: partitioned LAG/LEAD, rolling SUM/AVG, share-of-total windows, scalar descendants,
   metric filters, and bounded date filters match Python calculations over sparse series with lookback/densification.
 - ``dimension_graph_test.py`` and ``fanout_test.py``: roles, defaults, composite keys, multi-hop paths, required
-  dimensions, and aggregation-sensitive fanout warnings match explicit joins. A self-join role fallback bug has a
-  strict expected-failure repro.
+  dimensions, and aggregation-sensitive fanout warnings match explicit joins. An unavailable self-join role
+  must be rejected instead of falling back to a different join path.
 - ``ranked_groups_test.py``: top/bottom tuples (including NULL keys) and Others match independent Python ranking
   and regrouping. Others recomputes distinct counts and ratios rather than combining final metric values.
 - ``materialization_test.py``: both materialized and live SQL match an independent raw-table query.
