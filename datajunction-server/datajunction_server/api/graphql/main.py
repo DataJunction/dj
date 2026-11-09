@@ -50,7 +50,6 @@ from datajunction_server.api.graphql.queries.nodes import (
 )
 from datajunction_server.api.graphql.queries.sql import (
     materialization_plan,
-    measures_sql,
 )
 from datajunction_server.api.graphql.queries.tables import nodes_for_table
 from datajunction_server.api.graphql.queries.tags import (
@@ -72,7 +71,6 @@ from datajunction_server.api.graphql.scalars.node import (
     NodeCount,
 )
 from datajunction_server.api.graphql.scalars.sql import (
-    GeneratedSQL,
     MaterializationPlan,
 )
 from datajunction_server.api.graphql.scalars.tag import Tag
@@ -322,10 +320,6 @@ class Query:
     )
 
     # Generate SQL queries
-    measures_sql: list[GeneratedSQL] = strawberry.field(
-        resolver=log_resolver(measures_sql),
-        description="Get measures SQL for a list of metrics, dimensions, and filters.",
-    )
     materialization_plan: MaterializationPlan = strawberry.field(
         resolver=log_resolver(materialization_plan),
         description="Get materialization plan for a list of metrics, dimensions, and filters.",

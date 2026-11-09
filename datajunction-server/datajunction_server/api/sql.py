@@ -43,7 +43,6 @@ from datajunction_server.models.query import V3ColumnMetadata
 from datajunction_server.models.sql import (
     CombinedMeasuresSQLResponse,
     ComponentResponse,
-    GeneratedSQL,
     GrainGroupResponse,
     MeasuresSQLResponse,
     MetricFormulaResponse,
@@ -58,72 +57,6 @@ from datajunction_server.utils import (
 _logger = logging.getLogger(__name__)
 settings = get_settings()
 router = SecureAPIRouter(tags=["sql"])
-
-
-@router.get(
-    "/sql/measures/v2/",
-    response_model=list[GeneratedSQL],
-    name="Get Measures SQL",
-)
-async def get_measures_sql_for_cube_v2(
-    metrics: list[str] = Query([]),
-    dimensions: list[str] = Query([]),
-    filters: list[str] = Query([]),
-    orderby: list[str] = Query([]),
-    preaggregate: bool = Query(
-        False,
-        description=(
-            "Whether to pre-aggregate to the requested dimensions so that "
-            "subsequent queries are more efficient."
-        ),
-    ),
-    query_params: str = Query("{}", description="Query parameters"),
-    *,
-    include_all_columns: bool = Query(
-        False,
-        description=(
-            "Whether to include all columns or only those necessary "
-            "for the metrics and dimensions in the cube"
-        ),
-    ),
-    cache: Cache = Depends(get_cache),
-    engine_name: str | None = None,
-    engine_version: str | None = None,
-    use_materialized: bool = True,
-    background_tasks: BackgroundTasks,
-    request: Request,
-) -> list[GeneratedSQL]:
-    """
-    Return measures SQL for a set of metrics with dimensions and filters.
-
-    The measures query can be used to produce intermediate table(s) with all the measures
-    and dimensions needed prior to applying specific metric aggregations.
-
-    This endpoint returns one SQL query per upstream node of the requested metrics.
-    For example, if some of your metrics are aggregations on measures in parent node A
-    and others are aggregations on measures in parent node B, this endpoint will generate
-    two measures queries, one for A and one for B.
-    """
-    query_cache_manager = QueryCacheManager(
-        cache=cache,
-        query_type=QueryBuildType.MEASURES,
-    )
-    return await query_cache_manager.get_or_load(
-        background_tasks,
-        request,
-        QueryRequestParams(
-            nodes=metrics,
-            dimensions=dimensions,
-            filters=filters,
-            engine_name=engine_name,
-            engine_version=engine_version,
-            orderby=orderby,
-            query_params=query_params,
-            include_all_columns=include_all_columns,
-            preaggregate=preaggregate,
-            use_materialized=use_materialized,
-        ),
-    )
 
 
 @router.get(

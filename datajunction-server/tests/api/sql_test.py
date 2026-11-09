@@ -117,32 +117,6 @@ def transform_node_sql_request(client_with_roads: AsyncClient):
 
 
 @pytest.fixture
-def measures_sql_request(client_with_roads: AsyncClient):
-    """
-    Request measures SQL for some metrics
-    GET `/sql/measures`
-    """
-
-    async def _make_request() -> Response:
-        measures_sql_params = {
-            "metrics": ["default.num_repair_orders", "default.total_repair_cost"],
-            "dimensions": [
-                "default.dispatcher.company_name",
-                "default.hard_hat.state",
-            ],
-            "filters": ["default.hard_hat.state = 'CA'"],
-            "include_all_columns": True,
-        }
-        response = await client_with_roads.get(
-            "/sql/measures/v2",
-            params=measures_sql_params,
-        )
-        return response
-
-    return _make_request
-
-
-@pytest.fixture
 def metrics_sql_request(client_with_roads: AsyncClient):
     """
     Request metrics SQL for some metrics
@@ -400,92 +374,6 @@ async def test_saving_node_sql_requests(
     assert response["message"] == (
         "default.hard_hat.hard_hat_id, default.hard_hat.state are not available dimensions "
         "on default.repair_orders_fact"
-    )
-
-
-@pytest.mark.asyncio
-@pytest.mark.skip(reason="Not saving v2 measures SQL to cache for the time being")
-async def test_saving_measures_sql_requests(
-    session: AsyncSession,
-    client_with_roads: AsyncClient,
-    measures_sql_request,
-    update_transform_node,
-) -> None:
-    """
-      Test saving query request while requesting measures SQL for a set of metrics + dimensions
-    filters. It also checks that additional arguments like `include_all_columns` are recorded
-      in the query request key.
-      - Requesting metrics SQL (for a set of metrics + dimensions)
-    """
-    response = (await measures_sql_request()).json()
-
-    # Check that the measures SQL request was saved
-    query_requests = await get_query_requests(session, QueryBuildType.MEASURES)
-    assert len(query_requests) == 1
-    assert query_requests[0].nodes == [
-        "default.num_repair_orders@v1.0",
-        "default.total_repair_cost@v1.0",
-    ]
-    assert query_requests[0].dimensions == [
-        "default.dispatcher.company_name@v1.0",
-        "default.hard_hat.state@v1.0",
-    ]
-    assert query_requests[0].filters == ["default.hard_hat.state@v1.0 = 'CA'"]
-    assert query_requests[0].orderby == []
-    assert query_requests[0].limit is None
-    assert query_requests[0].query_type == QueryBuildType.MEASURES
-    assert query_requests[0].other_args == {"include_all_columns": True}
-    assert query_requests[0].query.strip() == response[0]["sql"].strip()
-    assert query_requests[0].columns == response["columns"]
-
-    # Requesting it again should reuse the saved request
-    await measures_sql_request()
-    query_requests = await get_query_requests(session, QueryBuildType.MEASURES)
-    assert len(query_requests) == 1
-
-    # Update the underlying transform behind the metrics
-    response = await update_transform_node()
-    assert response.status_code == 200
-    response = (await measures_sql_request()).json()
-
-    # Check that the measures SQL request was saved
-    query_requests = await get_query_requests(session, QueryBuildType.MEASURES)
-    assert len(query_requests) == 2
-    assert query_requests[1].nodes == [
-        "default.num_repair_orders@v1.0",
-        "default.total_repair_cost@v1.0",
-    ]
-    assert query_requests[1].parents == [
-        "default.repair_order_details@v1.0",
-        "default.repair_orders@v1.0",
-        "default.repair_orders_fact@v2.0",
-    ]
-    assert query_requests[1].dimensions == [
-        "default.dispatcher.company_name@v1.0",
-        "default.hard_hat.state@v1.0",
-    ]
-    assert query_requests[1].filters == ["default.hard_hat.state@v1.0 = 'CA'"]
-    assert query_requests[1].orderby == []
-    assert query_requests[1].limit is None
-    assert query_requests[1].query_type == QueryBuildType.MEASURES
-    assert query_requests[1].other_args == {"include_all_columns": True}
-    assert query_requests[1].query.strip() == response["sql"].strip()
-    assert query_requests[1].columns == response["columns"]
-
-    # Remove a dimension node link to default.hard_hat
-    response = await client_with_roads.request(
-        "DELETE",
-        "/nodes/default.repair_orders_fact/link",
-        json={
-            "dimension_node": "default.hard_hat",
-        },
-    )
-    assert response.status_code == 201
-
-    # And requesting measures SQL with default.hard_hat.state should fail
-    response = (await measures_sql_request()).json()
-    assert response["message"] == (
-        "default.hard_hat.state are not available dimensions on default.num_repair_orders, default.total_repair_cost"
     )
 
 
@@ -3449,7 +3337,7 @@ async def test_filter_pushdowns(
 
 @pytest.mark.asyncio
 async def test_sql_use_materialized_table(
-    measures_sql_request,
+    metrics_sql_request,
     client_with_roads: AsyncClient,
 ):
     """
@@ -3469,9 +3357,8 @@ async def test_sql_use_materialized_table(
         },
     )
     assert availability_response.status_code == 200
-    response = (await measures_sql_request()).json()
-    response = (await measures_sql_request()).json()
-    assert "xyz.hardhat" in response[0]["sql"]
+    response = (await metrics_sql_request()).json()
+    assert "xyz.hardhat" in response["sql"]
     expected_sql = """WITH default_DOT_repair_orders_fact AS (
   SELECT
     repair_orders.repair_order_id,
@@ -3533,32 +3420,30 @@ async def test_sql_use_materialized_table(
   ) default_DOT_hard_hat
   WHERE
     default_DOT_hard_hat.state = 'CA'
+), default_DOT_repair_orders_fact_metrics AS (
+  SELECT
+    default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name,
+    default_DOT_hard_hat.state default_DOT_hard_hat_DOT_state,
+    count(default_DOT_repair_orders_fact.repair_order_id) default_DOT_num_repair_orders,
+    sum(default_DOT_repair_orders_fact.total_repair_cost) default_DOT_total_repair_cost
+  FROM default_DOT_repair_orders_fact
+  INNER JOIN default_DOT_dispatcher
+    ON default_DOT_repair_orders_fact.dispatcher_id = default_DOT_dispatcher.dispatcher_id
+  INNER JOIN default_DOT_hard_hat
+    ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+  WHERE  default_DOT_hard_hat.state = 'CA'
+  GROUP BY  default_DOT_dispatcher.company_name, default_DOT_hard_hat.state
 )
 SELECT
-  default_DOT_repair_orders_fact.repair_order_id default_DOT_repair_orders_fact_DOT_repair_order_id,
-  default_DOT_repair_orders_fact.municipality_id default_DOT_repair_orders_fact_DOT_municipality_id,
-  default_DOT_repair_orders_fact.hard_hat_id default_DOT_repair_orders_fact_DOT_hard_hat_id,
-  default_DOT_repair_orders_fact.dispatcher_id default_DOT_repair_orders_fact_DOT_dispatcher_id,
-  default_DOT_repair_orders_fact.order_date default_DOT_repair_orders_fact_DOT_order_date,
-  default_DOT_repair_orders_fact.dispatched_date default_DOT_repair_orders_fact_DOT_dispatched_date,
-  default_DOT_repair_orders_fact.required_date default_DOT_repair_orders_fact_DOT_required_date,
-  default_DOT_repair_orders_fact.discount default_DOT_repair_orders_fact_DOT_discount,
-  default_DOT_repair_orders_fact.price default_DOT_repair_orders_fact_DOT_price,
-  default_DOT_repair_orders_fact.quantity default_DOT_repair_orders_fact_DOT_quantity,
-  default_DOT_repair_orders_fact.repair_type_id default_DOT_repair_orders_fact_DOT_repair_type_id,
-  default_DOT_repair_orders_fact.total_repair_cost default_DOT_repair_orders_fact_DOT_total_repair_cost,
-  default_DOT_repair_orders_fact.time_to_dispatch default_DOT_repair_orders_fact_DOT_time_to_dispatch,
-  default_DOT_repair_orders_fact.dispatch_delay default_DOT_repair_orders_fact_DOT_dispatch_delay,
-  default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name,
-  default_DOT_hard_hat.state default_DOT_hard_hat_DOT_state
-FROM default_DOT_repair_orders_fact
-INNER JOIN default_DOT_dispatcher
-  ON default_DOT_repair_orders_fact.dispatcher_id = default_DOT_dispatcher.dispatcher_id
-INNER JOIN default_DOT_hard_hat
-  ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
-WHERE  default_DOT_hard_hat.state = 'CA'
+  default_DOT_repair_orders_fact_metrics.default_DOT_dispatcher_DOT_company_name,
+  default_DOT_repair_orders_fact_metrics.default_DOT_hard_hat_DOT_state,
+  default_DOT_repair_orders_fact_metrics.default_DOT_num_repair_orders,
+  default_DOT_repair_orders_fact_metrics.default_DOT_total_repair_cost
+FROM default_DOT_repair_orders_fact_metrics
+ORDER BY default_DOT_repair_orders_fact_metrics.default_DOT_num_repair_orders DESC, default_DOT_repair_orders_fact_metrics.default_DOT_hard_hat_DOT_state
+LIMIT 50
     """
-    assert str(parse(expected_sql)) == str(parse(response[0]["sql"]))
+    assert str(parse(expected_sql)) == str(parse(response["sql"]))
 
 
 @pytest.mark.asyncio

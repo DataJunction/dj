@@ -30,7 +30,6 @@ from datajunction_server.construction.build import (
 )
 from datajunction_server.construction.build_v2 import (
     QueryBuilder,
-    build_preaggregate_query,
     get_dimensions_referenced_in_metrics,
 )
 from datajunction_server.database import Engine
@@ -46,7 +45,6 @@ from datajunction_server.internal.access.authorization import (
 from datajunction_server.internal.engines import get_engine
 from datajunction_server.models import access
 from datajunction_server.models.column import SemanticType
-from datajunction_server.models.cube_materialization import Aggregability
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.node import BuildCriteria
@@ -608,13 +606,10 @@ async def get_measures_query(
     metrics: list[str],
     dimensions: list[str],
     filters: list[str],
-    orderby: list[str] | None = None,
     engine_name: str | None = None,
     engine_version: str | None = None,
     access_checker: AccessChecker | None = None,
-    include_all_columns: bool = False,
     use_materialized: bool = True,
-    preagg_requested: bool = False,
     query_parameters: dict[str, Any] | None = None,
 ) -> list[GeneratedSQL]:
     """
@@ -664,17 +659,6 @@ async def get_measures_query(
     for parent_node, children in common_parents.items():  # type: ignore
         children = sorted(children, key=lambda x: metrics_sorting_order.get(x.name, 0))
 
-        # Determine whether to pre-aggregate to the requested dimensions so that subsequent
-        # queries are more efficient by checking the measures on the requested metrics
-        preaggregate = preagg_requested and all(
-            len(metric_components[metric.name][0]) > 0
-            and all(
-                measure.rule.type in (Aggregability.FULL, Aggregability.LIMITED)
-                for measure in metric_components[metric.name][0]
-            )
-            for metric in children
-        )
-
         measure_columns, dimensional_columns = [], []
         await refresh_if_needed(session, parent_node, ["current"])
         query_builder = await QueryBuilder.create(
@@ -689,30 +673,28 @@ async def get_measures_query(
             .add_dimensions(dimensions)
             .add_filters(filters)
             .add_query_parameters(query_parameters)
-            .order_by(orderby)
             .build()
         )
 
         # Select only columns that were one of the necessary measures
-        if not include_all_columns:
-            parent_ast.select.projection = [
-                expr
-                for expr in parent_ast.select.projection
-                if (
-                    (identifier := expr.alias_or_name.identifier(False))
-                    and (
-                        from_amenable_name(identifier).split(SEPARATOR)[-1]
-                        in parent_columns[parent_node.name]
-                        or identifier in parent_columns[parent_node.name]
-                        or expr.semantic_entity
-                        in set(dimensions_without_roles + dimensions)
-                        or from_amenable_name(identifier) in dimensions_without_roles
-                    )
+        parent_ast.select.projection = [
+            expr
+            for expr in parent_ast.select.projection
+            if (
+                (identifier := expr.alias_or_name.identifier(False))
+                and (
+                    from_amenable_name(identifier).split(SEPARATOR)[-1]
+                    in parent_columns[parent_node.name]
+                    or identifier in parent_columns[parent_node.name]
+                    or expr.semantic_entity
+                    in set(dimensions_without_roles + dimensions)
+                    or from_amenable_name(identifier) in dimensions_without_roles
                 )
-            ]
+            )
+        ]
 
         await refresh_if_needed(session, parent_node.current, ["columns"])
-        parent_ast = rename_columns(parent_ast, parent_node.current, preaggregate)
+        parent_ast = rename_columns(parent_ast, parent_node.current)
 
         # Sort the selected columns into dimension vs measure columns and
         # generate identifiers for them.
@@ -737,24 +719,11 @@ async def get_measures_query(
             CompileContext(session, DJException()),
         )
 
-        final_query = (
-            build_preaggregate_query(
-                parent_ast,
-                parent_node,
-                dimensional_columns,
-                children,
-                metric_components,
-            )
-            if preaggregate
-            else parent_ast
-        )
+        final_query = parent_ast
 
         # Build translated SQL object
         columns_metadata = [
-            assemble_column_metadata(  # pragma: no cover
-                cast(ast.Column, col),
-                preaggregate,
-            )
+            assemble_column_metadata(cast(ast.Column, col))
             for col in final_query.select.projection
         ]
         measures_queries.append(
@@ -768,22 +737,12 @@ async def get_measures_query(
                     for dep in dependencies
                     if dep.type == NodeType.SOURCE
                 ],
-                grain=(
-                    [
-                        col.name
-                        for col in columns_metadata
-                        if col.semantic_type == SemanticType.DIMENSION
-                    ]
-                    if preaggregate
-                    else [pk_col.name for pk_col in parent_node.current.primary_key()]
-                ),
+                grain=[pk_col.name for pk_col in parent_node.current.primary_key()],
                 errors=query_builder.errors,
                 metrics={
                     metric.name: (
                         metric_components[metric.name][0],
-                        str(metric_components[metric.name][1]).replace("\n", "")
-                        if preaggregate
-                        else metric.query,
+                        metric.query,
                     )
                     for metric in children
                 },

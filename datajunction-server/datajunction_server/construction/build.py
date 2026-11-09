@@ -54,7 +54,6 @@ def get_default_criteria(
 def rename_columns(
     built_ast: ast.Query,
     node: NodeRevision,
-    preaggregate: bool = False,
 ):
     """
     Rename columns in the built ast to fully qualified column names.
@@ -81,8 +80,7 @@ def rename_columns(
                 alias_name = node.name + SEPARATOR + expression.alias_or_name.name  # type: ignore
             expression = expression.copy()
             expression.set_semantic_entity(alias_name)  # type: ignore
-            if not preaggregate:
-                expression.set_alias(ast.Name(amenable_name(alias_name)))
+            expression.set_alias(ast.Name(amenable_name(alias_name)))
             projection.append(expression)
         else:  # pragma: no cover
             expression = expression.copy()

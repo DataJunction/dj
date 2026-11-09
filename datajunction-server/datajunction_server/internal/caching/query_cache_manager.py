@@ -42,7 +42,6 @@ from datajunction_server.internal.engines import get_engine
 from datajunction_server.internal.sql import (
     build_node_sql,
     build_sql_for_multiple_metrics,
-    get_measures_query,
 )
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.sql import GeneratedSQL
@@ -52,7 +51,6 @@ logger = logging.getLogger(__name__)
 
 _VERSION_BY_TYPE: dict[QueryBuildType, str] = {
     QueryBuildType.METRICS: "v2",
-    QueryBuildType.MEASURES: "v2",
     QueryBuildType.NODE: "v2",
 }
 settings = get_settings()
@@ -488,13 +486,6 @@ class QueryCacheManager(
                 json.loads(params.query_params) if params.query_params else {}
             )
             match self.query_type:
-                case QueryBuildType.MEASURES:
-                    return await self._build_measures_query(
-                        session,
-                        params,
-                        query_parameters,
-                        access_checker,
-                    )
                 case QueryBuildType.NODE:
                     return await self._build_node_query(
                         session,
@@ -671,28 +662,6 @@ class QueryCacheManager(
         params: "QueryRequestParams",
     ) -> None:
         await self._refresh_cache(key, request, params)
-
-    async def _build_measures_query(
-        self,
-        session: AsyncSession,
-        params: QueryRequestParams,
-        query_parameters: dict[str, Any],
-        access_checker: AccessChecker,
-    ) -> list[GeneratedSQL]:
-        return await get_measures_query(
-            session=session,
-            metrics=params.nodes,
-            dimensions=params.dimensions or [],
-            filters=params.filters or [],
-            orderby=params.orderby or [],
-            engine_name=params.engine_name,
-            engine_version=params.engine_version,
-            access_checker=access_checker,
-            include_all_columns=params.include_all_columns,
-            use_materialized=params.use_materialized,
-            preagg_requested=params.preaggregate,
-            query_parameters=query_parameters,
-        )
 
     async def _build_node_query(
         self,

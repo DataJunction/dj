@@ -1,9 +1,5 @@
 """Generate SQL-related GraphQL queries."""
 
-from typing import Annotated
-
-import strawberry
-from strawberry.scalars import JSON
 from strawberry.types import Info
 
 from datajunction_server.api.graphql.resolvers.nodes import (
@@ -13,8 +9,6 @@ from datajunction_server.api.graphql.resolvers.nodes import (
 )
 from datajunction_server.api.graphql.scalars.sql import (
     CubeDefinition,
-    EngineSettings,
-    GeneratedSQL,
     MaterializationPlan,
     MaterializationUnit,
     MetricComponent,
@@ -22,77 +16,9 @@ from datajunction_server.api.graphql.scalars.sql import (
 )
 from datajunction_server.api.graphql.utils import resolver_session
 from datajunction_server.construction.build import group_metrics_by_parent
-from datajunction_server.database.queryrequest import QueryBuildType
-from datajunction_server.internal.caching.query_cache_manager import (
-    QueryCacheManager,
-    QueryRequestParams,
-)
 from datajunction_server.models.cube_materialization import Aggregability
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 from datajunction_server.utils import SEPARATOR
-
-
-async def measures_sql(
-    cube: CubeDefinition,
-    engine: EngineSettings | None = None,
-    use_materialized: Annotated[
-        bool,
-        strawberry.argument(
-            description="Whether to use materialized nodes where applicable",
-        ),
-    ] = True,
-    include_all_columns: Annotated[
-        bool,
-        strawberry.argument(
-            description="Whether to include all columns or only those necessary "
-            "for the metrics and dimensions in the cube",
-        ),
-    ] = False,
-    preaggregate: Annotated[
-        bool,
-        strawberry.argument(
-            description="Whether to pre-aggregate to the requested dimensions so that "
-            "subsequent queries are more efficient.",
-        ),
-    ] = False,
-    query_parameters: Annotated[
-        JSON | None,
-        strawberry.argument(
-            description="Query parameters to include in the SQL",
-        ),
-    ] = None,
-    *,
-    info: Info,
-) -> list[GeneratedSQL]:
-    """
-    Get measures SQL for a set of metrics with dimensions and filters
-    """
-    async with resolver_session(info) as session:
-        metrics, dimensions = await resolve_metrics_and_dimensions(session, cube)
-        query_cache_manager = QueryCacheManager(
-            cache=info.context["cache"],
-            query_type=QueryBuildType.MEASURES,
-        )
-        queries = await query_cache_manager.get_or_load(
-            info.context["background_tasks"],
-            info.context["request"],
-            QueryRequestParams(
-                nodes=metrics,
-                dimensions=dimensions,
-                filters=cube.filters or [],
-                engine_name=engine.name if engine else None,
-                engine_version=engine.version if engine else None,
-                orderby=cube.orderby,
-                query_params=query_parameters,
-                include_all_columns=include_all_columns,
-                preaggregate=preaggregate,
-                use_materialized=use_materialized,
-            ),
-        )
-        return [
-            await GeneratedSQL.from_pydantic(info, measures_query)
-            for measures_query in queries
-        ]
 
 
 async def materialization_plan(

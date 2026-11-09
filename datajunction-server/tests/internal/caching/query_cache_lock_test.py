@@ -28,7 +28,7 @@ from datajunction_server.internal.caching.query_cache_manager import (
     QueryRequestParams,
 )
 
-KEY = "sql:measures:abc"
+KEY = "sql:metrics:abc"
 PARAMS = QueryRequestParams(nodes=["foo"], dimensions=[], filters=[])
 ERROR_KEY = QueryCacheManager._error_key(KEY, PARAMS)
 
@@ -74,7 +74,7 @@ def quick_waits():
 
 
 def manager_building(cache, builds: list, result=None, delay=0.1):
-    manager = QueryCacheManager(cache, QueryBuildType.MEASURES)
+    manager = QueryCacheManager(cache, QueryBuildType.METRICS)
 
     async def fallback(request, params, session=None):
         builds.append(params)
@@ -268,7 +268,7 @@ async def test_build_does_not_use_the_callers_session():
 
 async def test_a_refusal_for_another_caller_does_not_fail_this_one():
     builds = []
-    manager = QueryCacheManager(LockingCache(), QueryBuildType.MEASURES)
+    manager = QueryCacheManager(LockingCache(), QueryBuildType.METRICS)
 
     async def fallback(request, params, session=None):
         builds.append(request)
@@ -390,7 +390,7 @@ async def test_error_left_before_we_got_the_lock_is_returned_without_building():
 async def test_the_request_releases_its_connection_before_waiting_on_a_build():
     session = mock.AsyncMock(spec=AsyncSession)
     cache, committed_when_built = LockingCache(), []
-    manager = QueryCacheManager(cache, QueryBuildType.MEASURES)
+    manager = QueryCacheManager(cache, QueryBuildType.METRICS)
     manager.build_cache_key = mock.AsyncMock(return_value=KEY)  # type: ignore[method-assign]
 
     async def fallback(request, params, session=None):

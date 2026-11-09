@@ -35,9 +35,6 @@ from datajunction_server.internal.access.authorization import (
 )
 from datajunction_server.models import access
 from datajunction_server.models.column import SemanticType
-from datajunction_server.models.cube_materialization import (
-    MetricComponent,
-)
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node import BuildCriteria
 from datajunction_server.models.node_type import NodeType
@@ -127,116 +124,6 @@ class DimensionJoin:
             self.requested_dimensions.append(dimension)
 
 
-def resolve_metric_component_against_parent(
-    component: MetricComponent,
-    parent_ast: ast.Query,
-    parent_node: Node,
-) -> ast.Query:
-    """
-    Parses and resolves a SQL expression (or aggregated expression) against a parent query AST.
-    We resolve column references based on the parent's column mappings and apply the types
-    from the parent.
-    """
-    # aggregation is function name or template (e.g., "SUM" or "SUM(POWER({}, 2))")
-    if not component.aggregation:
-        expr_sql = component.expression
-    elif "{}" in component.aggregation:  # pragma: no cover
-        # Template case: "SUM(POWER({}, 2))" -> "SUM(POWER(x, 2))"
-        expr_sql = component.aggregation.format(component.expression)
-    else:
-        # Simple case: "SUM" -> "SUM(x)"
-        expr_sql = f"{component.aggregation}({component.expression})"
-    # Add all expressions from the metric component's aggregation level to the GROUP BY
-    group_by_clause = (
-        f"GROUP BY {','.join(component.rule.level)}" if component.rule.level else ""
-    )
-    component_ast = cached_parse(
-        f"SELECT {expr_sql} AS {component.name} FROM {parent_ast.alias_or_name.name} {group_by_clause}",
-    )
-
-    parent_select = parent_ast.select
-    original_columns = {
-        col.name.name: col
-        for col in parent_select.projection
-        if isinstance(col, ast.Column)
-    }
-    for col in component_ast.find_all(ast.Column):
-        if matching := parent_select.column_mapping.get(col.name.name):
-            # Case 1: The column name matches one of the parent's select aliases directly
-            col.name = matching.alias_or_name.copy()
-            col.add_type(matching.type)
-        elif matching := parent_select.semantic_column_mapping.get(col.identifier()):
-            # Case 2: The column name is a joinable dimension and can be found by searching
-            # the semantic entities of each of the parent columns
-            col.name = matching.alias_or_name.copy()
-            col.add_type(matching.type)
-        elif matching := original_columns.get(col.identifier()):
-            # Case 3: The column name has been included as a dimension and so needs to use
-            # semantic entity name rather than the original column name
-            col.name = matching.alias_or_name.copy()
-            col.add_type(matching.type)
-        else:
-            # Case 4: The column is a local dimension reference and cannot be found directly
-            # in the parent's select clause, but can be resolved by prefixing with the parent
-            # node's name (e.g., from `entity` to `default_DOT_transform_DOT_entity`)
-            alias = amenable_name(f"{parent_node.name}{SEPARATOR}{col.name.name}")
-            if matching := parent_select.column_mapping.get(alias):  # pragma: no cover
-                col.name.name = alias
-                col.add_type(matching.type)
-    return component_ast
-
-
-def build_preaggregate_query(
-    parent_ast: ast.Query,
-    parent_node: Node,
-    dimensional_columns: list[ast.Column],
-    children: list[NodeRevision],
-    metric_to_components: dict[str, tuple[list[MetricComponent], ast.Query]],
-):
-    """
-    Builds a measures query preaggregated to the chosen dimensions.
-    """
-    existing_ctes = parent_ast.ctes
-    parent_ast.ctes = []
-    built_parent_ref = parent_node.name + "_built"
-    parent_node_cte = parent_ast.to_cte(ast.Name(amenable_name(built_parent_ref)))
-    from_table = ast.Table(ast.Name(amenable_name(built_parent_ref)))
-
-    final_query = ast.Query(
-        ctes=existing_ctes + [parent_node_cte],
-        select=ast.Select(
-            projection=[
-                ast.Column.from_existing(col, table=from_table)
-                for col in parent_ast.select.projection
-                if col and col.semantic_type == SemanticType.DIMENSION  # type: ignore
-            ],
-            from_=ast.From(relations=[ast.Relation(primary=from_table)]),
-            group_by=[
-                ast.Column(dim.alias_or_name, _table=from_table)
-                for dim in dimensional_columns
-            ],
-        ),
-    )
-
-    added_components = set()
-    for metric in children:
-        for component in metric_to_components[metric.name][0]:
-            if component.name in added_components:
-                continue
-            added_components.add(component.name)
-            component_ast = resolve_metric_component_against_parent(
-                component,
-                parent_ast,
-                parent_node,
-            )
-            for proj in component_ast.select.projection:
-                proj.set_semantic_entity(parent_node.name + SEPARATOR + component.name)  # type: ignore
-                proj.set_semantic_type(SemanticType.MEASURE)  # type: ignore
-            final_query.select.projection.extend(component_ast.select.projection)
-            final_query.select.group_by.extend(component_ast.select.group_by or [])
-    return final_query
-
-
 def get_dimensions_referenced_in_metrics(metric_nodes: list[Node]) -> list[str]:
     """
     Returns a list of dimensions referenced in the metric nodes' query definitions.
@@ -276,7 +163,6 @@ class QueryBuilder:
             required.ref for required in self.node_revision.required_dimensions
         ]
         self._dimensions: list[str] = []
-        self._orderby: list[str] = []
         self._limit: int | None = None
         self._build_criteria: BuildCriteria | None = self.get_default_criteria()
         self._access_checker: AccessChecker | None = None
@@ -364,17 +250,6 @@ class QueryBuilder:
             self.add_dimension(dimension)
         return self
 
-    def order_by(self, orderby: str | list[str] | None = None):
-        """Set order by for the query builder."""
-        if isinstance(orderby, str):
-            if orderby not in self._orderby:
-                self._orderby.append(orderby)
-        else:
-            for order in orderby or []:
-                if order not in self._orderby:  # pragma: no cover
-                    self._orderby.append(order)
-        return self
-
     def limit(self, limit: int | None = None):
         """Set limit for the query builder."""
         if limit:  # pragma: no cover
@@ -440,22 +315,6 @@ class QueryBuilder:
             self.node_revision,
             build_criteria=self._build_criteria,
         )
-
-    @property
-    def context(self) -> dict[str, Any]:
-        """
-        Debug context
-        """
-        return {
-            "node_revision": self.node_revision.name,
-            "filters": self._filters,
-            "required_dimensions": self._required_dimensions,
-            "dimensions": self._dimensions,
-            "orderby": self._orderby,
-            "limit": self._limit,
-            "ignore_errors": self._ignore_errors,
-            "build_criteria": self._build_criteria,
-        }
 
     async def build(self) -> ast.Query:
         """
@@ -524,11 +383,6 @@ class QueryBuilder:
             self.set_dimension_aliases()
 
         self.final_ast.select.limit = self._limit  # type: ignore
-        if self._orderby:
-            if order := self.build_order_bys():
-                self.final_ast.select.organization = ast.Organization(  # type: ignore
-                    order=order,
-                )
 
         # Replace any parameters in the final AST with their values
         for param in self.final_ast.find_all(ast.QueryParameter):  # type: ignore
@@ -581,40 +435,6 @@ class QueryBuilder:
         if self.errors and not self._ignore_errors:
             raise DJQueryBuildException(errors=self.errors)
         return self.final_ast  # type: ignore
-
-    def build_order_bys(self):
-        """
-        Build the ORDER BY clause from the provided order expressions
-        """
-        temp_orderbys = cached_parse(
-            f"SELECT 1 ORDER BY {','.join(self._orderby)}",
-        ).select.organization.order
-        valid_sort_items = [
-            sortitem
-            for sortitem in temp_orderbys
-            if amenable_name(sortitem.expr.identifier())
-            in self.final_ast.select.column_mapping
-        ]
-        if len(valid_sort_items) < len(temp_orderbys):
-            self.errors.append(
-                DJQueryBuildError(
-                    code=ErrorCode.INVALID_ORDER_BY,
-                    message=f"{self._orderby} is not a valid ORDER BY request",
-                    debug=self.context,
-                ),
-            )
-        return [
-            ast.SortItem(
-                expr=self.final_ast.select.column_mapping.get(
-                    amenable_name(sortitem.expr.identifier()),
-                )
-                .copy()
-                .set_alias(None),
-                asc=sortitem.asc,
-                nulls=sortitem.nulls,
-            )
-            for sortitem in valid_sort_items
-        ]
 
     def get_default_criteria(
         self,

@@ -3761,6 +3761,12 @@ async def test_sum() -> None:
         ast.Column(ast.Name("x"), _type=DecimalType(8, 6)),
     ) == DecimalType(18, 6)
     assert Sum.infer_type(ast.Column(ast.Name("x"), _type=DoubleType())) == DoubleType()
+    assert Sum.infer_type(ast.Column(ast.Name("x"), _type=ct.DateType())) == (
+        DoubleType()
+    )
+    assert Sum.infer_type(ast.Column(ast.Name("x"), _type=ct.TimestampType())) == (
+        DoubleType()
+    )
 
 
 @pytest.mark.asyncio

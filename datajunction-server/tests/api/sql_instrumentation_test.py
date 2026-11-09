@@ -127,20 +127,19 @@ async def test_v3_combined_measures_endpoint_emits_structured_log(
 
 
 @pytest.mark.asyncio
-async def test_v2_measures_endpoint_emits_structured_log(
+async def test_v2_node_endpoint_emits_structured_log(
     client_with_roads: AsyncClient,
     caplog,
 ):
     """
-    The legacy `/sql/measures/v2/` endpoint routes through QueryCacheManager.
-    Its fallback() should emit a structured log (with extra={...}) tagged
-    query_version=v2 — matching the v2 builder it actually runs.
+    The `/sql/{node}` endpoint routes through QueryCacheManager. Its fallback()
+    should emit a structured log (with extra={...}) tagged query_version=v2 —
+    matching the v2 builder it actually runs.
     """
     caplog.set_level(logging.INFO, logger="QueryCacheManager")
     response = await client_with_roads.get(
-        "/sql/measures/v2",
+        "/sql/default.repair_orders_fact",
         params={
-            "metrics": ["default.num_repair_orders"],
             "dimensions": ["default.dispatcher.company_name"],
         },
         headers={"Cache-Control": "no-cache, no-store"},
@@ -150,8 +149,9 @@ async def test_v2_measures_endpoint_emits_structured_log(
     matching = _structured_extras(caplog)
     assert matching, "no structured log emitted by QueryCacheManager.fallback"
     extra = matching[-1]
+    assert extra["query_type"] == "node"
     assert extra["query_version"] == "v2"
-    assert extra["metrics"] == ["default.num_repair_orders"]
+    assert extra["metrics"] == ["default.repair_orders_fact"]
     assert extra["dimensions"] == ["default.dispatcher.company_name"]
     assert extra["filters"] is not None
     assert isinstance(extra["elapsed_ms"], float)

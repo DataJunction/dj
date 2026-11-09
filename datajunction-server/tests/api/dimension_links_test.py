@@ -933,8 +933,8 @@ async def test_measures_sql_with_dimension_roles(
         ],
         "filters": ["default.countries.name[user_direct->registration_country] = 'UG'"],
     }
-    response = await dimensions_link_client.get("/sql/measures/v2", params=sql_params)
-    query = response.json()[0]["sql"]
+    response = await dimensions_link_client.get("/sql", params=sql_params)
+    query = response.json()["sql"]
     expected = """WITH default_DOT_events AS (
   SELECT
     default_DOT_events_table.user_id,
@@ -957,19 +957,27 @@ async def test_measures_sql_with_dimension_roles(
     default_DOT_countries_table.name,
     default_DOT_countries_table.population
   FROM examples.countries AS default_DOT_countries_table
+), default_DOT_events_metrics AS (
+  SELECT
+    user_direct__registration_country.name default_DOT_countries_DOT_name_LBRACK_user_direct_MINUS__GT_registration_country_RBRACK,
+    user_direct.snapshot_date default_DOT_users_DOT_snapshot_date_LBRACK_user_direct_RBRACK,
+    user_direct.registration_country default_DOT_users_DOT_registration_country_LBRACK_user_direct_RBRACK,
+    SUM(default_DOT_events.elapsed_secs) default_DOT_elapsed_secs
+  FROM default_DOT_events
+  LEFT JOIN default_DOT_users AS user_direct
+    ON default_DOT_events.user_id = user_direct.user_id
+    AND default_DOT_events.event_start_date = user_direct.snapshot_date
+  INNER JOIN default_DOT_countries AS user_direct__registration_country
+    ON user_direct.registration_country = user_direct__registration_country.country_code
+  WHERE  user_direct__registration_country.name = 'UG'
+  GROUP BY  user_direct__registration_country.name, user_direct.snapshot_date, user_direct.registration_country
 )
 SELECT
-  default_DOT_events.elapsed_secs default_DOT_events_DOT_elapsed_secs,
-  user_direct__registration_country.name default_DOT_countries_DOT_name_LBRACK_user_direct_MINUS__GT_registration_country_RBRACK,
-  user_direct.snapshot_date default_DOT_users_DOT_snapshot_date_LBRACK_user_direct_RBRACK,
-  user_direct.registration_country default_DOT_users_DOT_registration_country_LBRACK_user_direct_RBRACK
-FROM default_DOT_events
-LEFT JOIN default_DOT_users AS user_direct
-  ON default_DOT_events.user_id = user_direct.user_id
-  AND default_DOT_events.event_start_date = user_direct.snapshot_date
-INNER JOIN default_DOT_countries AS user_direct__registration_country
-  ON user_direct.registration_country = user_direct__registration_country.country_code
-WHERE  user_direct__registration_country.name = 'UG'"""
+  default_DOT_events_metrics.default_DOT_countries_DOT_name_LBRACK_user_direct_MINUS__GT_registration_country_RBRACK,
+  default_DOT_events_metrics.default_DOT_users_DOT_snapshot_date_LBRACK_user_direct_RBRACK,
+  default_DOT_events_metrics.default_DOT_users_DOT_registration_country_LBRACK_user_direct_RBRACK,
+  default_DOT_events_metrics.default_DOT_elapsed_secs
+FROM default_DOT_events_metrics"""
     assert str(parse(query)) == str(parse(expected))
 
 
@@ -1120,7 +1128,7 @@ async def test_measures_sql_with_reference_dimension_links(
         ],
     }
 
-    response = await dimensions_link_client.get("/sql/measures/v2", params=sql_params)
+    response = await dimensions_link_client.get("/sql", params=sql_params)
     response_data = response.json()
     expected_sql = """WITH
 default_DOT_events AS (
@@ -1131,37 +1139,43 @@ default_DOT_events AS (
     default_DOT_events_table.elapsed_secs,
     default_DOT_events_table.user_registration_country
   FROM examples.events AS default_DOT_events_table
+), default_DOT_events_metrics AS (
+  SELECT
+    default_DOT_events.user_registration_country default_DOT_users_DOT_registration_country,
+    SUM(default_DOT_events.elapsed_secs) default_DOT_elapsed_secs
+  FROM default_DOT_events
+  GROUP BY default_DOT_events.user_registration_country
 )
 SELECT
-  default_DOT_events.elapsed_secs default_DOT_events_DOT_elapsed_secs,
-  default_DOT_events.user_registration_country default_DOT_users_DOT_registration_country
-FROM default_DOT_events"""
-    assert str(parse(response_data[0]["sql"])) == str(parse(expected_sql))
-    assert response_data[0]["errors"] == []
-    assert response_data[0]["columns"] == [
-        {
-            "name": "default_DOT_events_DOT_elapsed_secs",
-            "type": "int",
-            "column": "elapsed_secs",
-            "node": "default.events",
-            "semantic_entity": "default.events.elapsed_secs",
-            "semantic_type": "measure",
-        },
+  default_DOT_events_metrics.default_DOT_users_DOT_registration_country,
+  default_DOT_events_metrics.default_DOT_elapsed_secs
+FROM default_DOT_events_metrics"""
+    assert str(parse(response_data["sql"])) == str(parse(expected_sql))
+    assert response_data["warnings"] == []
+    assert response_data["columns"] == [
         {
             "name": "default_DOT_users_DOT_registration_country",
             "type": "string",
-            "column": "user_registration_country",
-            "node": "default.events",
+            "column": "registration_country",
+            "node": "default.users",
             "semantic_entity": "default.users.registration_country",
             "semantic_type": "dimension",
+        },
+        {
+            "name": "default_DOT_elapsed_secs",
+            "type": "bigint",
+            "column": "default_DOT_elapsed_secs",
+            "node": "default.elapsed_secs",
+            "semantic_entity": "default.elapsed_secs.default_DOT_elapsed_secs",
+            "semantic_type": "metric",
         },
     ]
     response = await dimensions_link_client.delete(
         "/nodes/default.events/columns/user_registration_country/link",
     )
     assert response.status_code == 200
-    response = await dimensions_link_client.get("/sql/measures/v2", params=sql_params)
-    response = await dimensions_link_client.get("/sql/measures/v2", params=sql_params)
+    response = await dimensions_link_client.get("/sql", params=sql_params)
+    response = await dimensions_link_client.get("/sql", params=sql_params)
     response_data = response.json()
     expected_sql = """
     WITH default_DOT_events AS (
@@ -1181,17 +1195,24 @@ FROM default_DOT_events"""
         default_DOT_users_table.residence_country,
         default_DOT_users_table.account_type
       FROM examples.users AS default_DOT_users_table
+    ),
+    default_DOT_events_metrics AS (
+      SELECT
+        default_DOT_users.registration_country default_DOT_users_DOT_registration_country,
+        SUM(default_DOT_events.elapsed_secs) default_DOT_elapsed_secs
+      FROM default_DOT_events
+      LEFT JOIN default_DOT_users
+        ON default_DOT_events.user_id = default_DOT_users.user_id
+        AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
+      GROUP BY default_DOT_users.registration_country
     )
     SELECT
-      default_DOT_events.elapsed_secs default_DOT_events_DOT_elapsed_secs,
-      default_DOT_users.registration_country default_DOT_users_DOT_registration_country
-    FROM default_DOT_events
-    LEFT JOIN default_DOT_users
-      ON default_DOT_events.user_id = default_DOT_users.user_id
-      AND default_DOT_events.event_start_date = default_DOT_users.snapshot_date
+      default_DOT_events_metrics.default_DOT_users_DOT_registration_country,
+      default_DOT_events_metrics.default_DOT_elapsed_secs
+    FROM default_DOT_events_metrics
     """
-    assert str(parse(response_data[0]["sql"])) == str(parse(expected_sql))
-    assert response_data[0]["errors"] == []
+    assert str(parse(response_data["sql"])) == str(parse(expected_sql))
+    assert response_data["warnings"] == []
 
 
 @pytest.mark.asyncio

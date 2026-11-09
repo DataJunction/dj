@@ -63,13 +63,6 @@ type Column {
   partition: Partition
 }
 
-type ColumnMetadata {
-  name: String!
-  type: String!
-  semanticEntity: SemanticEntity
-  semanticType: SemanticType
-}
-
 input CubeDefinition {
   cube: String = null
   metrics: [String!] = null
@@ -93,12 +86,6 @@ enum CustomMetadataOp {
   LT
   LTE
   CONTAINS
-}
-
-type DJError {
-  code: ErrorCode!
-  message: String
-  context: String
 }
 
 """Date with time (isoformat)"""
@@ -169,67 +156,9 @@ type Engine {
   dialect: Dialect
 }
 
-input EngineSettings {
-  """The name of the engine used by the generated SQL"""
-  name: String!
-
-  """The version of the engine used by the generated SQL"""
-  version: String
-}
-
-enum ErrorCode {
-  UNKNOWN_ERROR
-  NOT_IMPLEMENTED_ERROR
-  ALREADY_EXISTS
-  INVALID_FILTER_PATTERN
-  INVALID_COLUMN_IN_FILTER
-  INVALID_VALUE_IN_FILTER
-  INVALID_ARGUMENTS_TO_FUNCTION
-  INVALID_SQL_QUERY
-  MISSING_COLUMNS
-  UNKNOWN_NODE
-  NODE_TYPE_ERROR
-  INVALID_DIMENSION_JOIN
-  INVALID_COLUMN
-  QUERY_SERVICE_ERROR
-  INVALID_ORDER_BY
-  FANOUT_RISK
-  REQUIRED_FILTER_MISSING
-  RECOMMENDED_FILTER_MISSING
-  DEFAULT_FILTER_APPLIED
-  CONFLICTING_DEFAULT_FILTERS
-  COMPOUND_BUILD_EXCEPTION
-  MISSING_PARENT
-  TYPE_INFERENCE
-  MISSING_PARAMETER
-  AUTHENTICATION_ERROR
-  OAUTH_ERROR
-  INVALID_LOGIN_CREDENTIALS
-  USER_NOT_FOUND
-  UNAUTHORIZED_ACCESS
-  INCOMPLETE_AUTHORIZATION
-  INVALID_PARENT
-  INVALID_DIMENSION
-  INVALID_METRIC
-  INVALID_DIMENSION_LINK
-  INVALID_CUBE
-  TAG_NOT_FOUND
-  CATALOG_NOT_FOUND
-  INVALID_NAMESPACE
-}
-
 type FilterRequirement {
   dimension: [String!]!
   default: String
-}
-
-type GeneratedSQL {
-  node: Node!
-  sql: String!
-  columns: [ColumnMetadata!]!
-  dialect: Dialect!
-  upstreamTables: [String!]!
-  errors: [DJError!]!
 }
 
 type GitBranchConfig {
@@ -728,28 +657,6 @@ type Query {
     includeDeactivated: Boolean! = false
   ): [Node!]!
 
-  """Get measures SQL for a list of metrics, dimensions, and filters."""
-  measuresSql(
-    cube: CubeDefinition!
-    engine: EngineSettings = null
-
-    """Whether to use materialized nodes where applicable"""
-    useMaterialized: Boolean! = true
-
-    """
-    Whether to include all columns or only those necessary for the metrics and dimensions in the cube
-    """
-    includeAllColumns: Boolean! = false
-
-    """
-    Whether to pre-aggregate to the requested dimensions so that subsequent queries are more efficient.
-    """
-    preaggregate: Boolean! = false
-
-    """Query parameters to include in the SQL"""
-    queryParameters: JSON = null
-  ): [GeneratedSQL!]!
-
   """
   Get materialization plan for a list of metrics, dimensions, and filters.
   """
@@ -804,23 +711,6 @@ enum ReaggregationFunction {
   MIN
   MAX
   TDIGEST
-}
-
-type SemanticEntity {
-  name: String!
-
-  """The node this semantic entity is sourced from"""
-  node: String!
-
-  """The column on the node this semantic entity is sourced from"""
-  column: String!
-}
-
-enum SemanticType {
-  MEASURE
-  METRIC
-  DIMENSION
-  TIMESTAMP
 }
 
 type Tag {

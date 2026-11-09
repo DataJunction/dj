@@ -14,6 +14,7 @@ from datajunction_server.database.queryrequest import QueryBuildType
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.internal.access.authorization import AccessChecker
 from datajunction_server.internal.caching.cachelib_cache import CachelibCache
+from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.internal.caching.query_cache_manager import (
     QueryCacheManager,
     QueryRequestParams,
@@ -49,19 +50,8 @@ async def test_cache_key_prefix_uses_query_type():
     The cache key prefix should include the query type.
     """
     cache = CachelibCache()
-    manager = QueryCacheManager(cache, QueryBuildType.MEASURES)
-    assert manager.cache_key_prefix == "sql:measures"
-
-
-def test_measures_metric_tags_query_version_is_v2():
-    """
-    QueryBuildType.MEASURES routes through get_measures_query (the v2 builder),
-    so its emitted query_version tag must be "v2", not "v3". The /sql/measures/v3/
-    endpoint emits its own v3 tag directly and does not go through the cache manager.
-    """
-    cache = CachelibCache()
-    manager = QueryCacheManager(cache, QueryBuildType.MEASURES)
-    assert manager._metric_tags["query_version"] == "v2"
+    manager = QueryCacheManager(cache, QueryBuildType.METRICS)
+    assert manager.cache_key_prefix == "sql:metrics"
 
 
 def test_metric_tags_query_version_for_all_types():
@@ -72,7 +62,6 @@ def test_metric_tags_query_version_for_all_types():
     cache = CachelibCache()
     for query_type in (
         QueryBuildType.METRICS,
-        QueryBuildType.MEASURES,
         QueryBuildType.NODE,
     ):
         assert (
@@ -90,7 +79,7 @@ async def test_build_cache_key_calls_versioning():
         return_value="versioned123",
     ) as version_query_request_mock:
         cache = CachelibCache()
-        manager = QueryCacheManager(cache, QueryBuildType.MEASURES)
+        manager = QueryCacheManager(cache, QueryBuildType.METRICS)
         params = QueryRequestParams(
             nodes=["foo"],
             dimensions=["dim1"],
@@ -100,27 +89,27 @@ async def test_build_cache_key_calls_versioning():
         key = await manager.build_cache_key(request, params)
 
         version_query_request_mock.assert_called_once()
-        assert key.startswith("sql:measures:")
+        assert key.startswith("sql:metrics:")
 
 
 @pytest.mark.asyncio
-async def test_fallback_calls_get_measures_query():
+async def test_fallback_calls_build_metrics_query():
     """
-    Should call get_measures_query with correct args.
+    Should call the metrics query builder.
     """
     mock_access_checker = mock.AsyncMock(spec=AccessChecker)
     with (
         patch(
-            "datajunction_server.internal.caching.query_cache_manager.get_measures_query",
+            "datajunction_server.internal.caching.query_cache_manager.QueryCacheManager._build_metrics_query",
             return_value=[{"sql": "SELECT * FROM test"}],
-        ) as get_measures_query_mock,
+        ) as build_metrics_query_mock,
         patch(
             "datajunction_server.internal.caching.query_cache_manager.build_access_checker_from_request",
             return_value=mock_access_checker,
         ),
     ):
         cache = CachelibCache()
-        manager = QueryCacheManager(cache, QueryBuildType.MEASURES)
+        manager = QueryCacheManager(cache, QueryBuildType.METRICS)
         params = QueryRequestParams(
             nodes=["foo"],
             dimensions=["dim1"],
@@ -129,7 +118,7 @@ async def test_fallback_calls_get_measures_query():
         request = DummyRequest()
         result = await manager.fallback(request, params)
 
-        get_measures_query_mock.assert_called_once()
+        build_metrics_query_mock.assert_called_once()
         assert result == [{"sql": "SELECT * FROM test"}]
 
 
@@ -141,7 +130,7 @@ async def test_get_or_load_respects_cache_control():
     mock_access_checker = mock.AsyncMock(spec=AccessChecker)
     with (
         patch(
-            "datajunction_server.internal.caching.query_cache_manager.get_measures_query",
+            "datajunction_server.internal.caching.query_cache_manager.QueryCacheManager._build_metrics_query",
             return_value=[{"sql": "SELECT * FROM test"}],
         ),
         patch(
@@ -154,7 +143,7 @@ async def test_get_or_load_respects_cache_control():
         ),
     ):
         cache = CachelibCache()
-        manager = QueryCacheManager(cache, QueryBuildType.MEASURES)
+        manager = QueryCacheManager(cache, QueryBuildType.METRICS)
         params = QueryRequestParams(
             nodes=["foo"],
             dimensions=["dim1"],
@@ -203,7 +192,7 @@ async def test_build_cache_key(
         return_value=module__session,
     ):
         cache = CachelibCache()
-        manager = QueryCacheManager(cache, QueryBuildType.MEASURES)
+        manager = QueryCacheManager(cache, QueryBuildType.METRICS)
         params1 = QueryRequestParams(
             nodes=["default.avg_repair_price", "default.num_repair_orders"],
             dimensions=["default.dispatcher.company_name", "default.hard_hat.state"],
@@ -236,26 +225,26 @@ async def test_build_cache_key(
         request = DummyRequest()
         key1 = await manager.build_cache_key(request, params1)
         key2 = await manager.build_cache_key(request, params2)
-        assert key1.startswith("sql:measures:")
-        assert key2.startswith("sql:measures:")
+        assert key1.startswith("sql:metrics:")
+        assert key2.startswith("sql:metrics:")
         assert key1 == key2
 
 
 @pytest.mark.asyncio
-async def test_measures_get_or_load(
+async def test_metrics_get_or_load(
     module__session: AsyncSession,
     module__client_with_roads: AsyncClient,
     module__background_tasks,
 ):
     """
-    Test measures SQL get_or_load.
+    Test metrics SQL get_or_load.
     """
     with patch(
         "datajunction_server.internal.caching.query_cache_manager.session_context",
         return_value=module__session,
     ):
         cache = CachelibCache()
-        manager = QueryCacheManager(cache, QueryBuildType.MEASURES)
+        manager = QueryCacheManager(cache, QueryBuildType.METRICS)
         params = QueryRequestParams(
             nodes=["default.avg_repair_price", "default.num_repair_orders"],
             dimensions=["default.dispatcher.company_name"],
@@ -273,14 +262,14 @@ async def test_measures_get_or_load(
 
         # Validate building the cache key
         key = await manager.build_cache_key(DummyRequest(), params)
-        assert key.startswith("sql:measures:")
+        assert key.startswith("sql:metrics:")
 
         background = BackgroundTasks()
 
         # `no-cache` => should bypass cache
         request = DummyRequest(cache_control="no-cache")
         expected_result = await manager.get_or_load(background, request, params)
-        assert expected_result == [mock.ANY]
+        assert isinstance(expected_result, TranslatedSQL)
 
         # Run tasks, should store
         for func, f_args, f_kwargs in module__background_tasks:
@@ -314,7 +303,7 @@ async def test_cache_backend_error_falls_back_to_fresh_value():
 
     with (
         patch(
-            "datajunction_server.internal.caching.query_cache_manager.get_measures_query",
+            "datajunction_server.internal.caching.query_cache_manager.QueryCacheManager._build_metrics_query",
             return_value=[{"sql": "FRESH"}],
         ),
         patch(
@@ -326,7 +315,7 @@ async def test_cache_backend_error_falls_back_to_fresh_value():
             return_value=mock_access_checker,
         ),
     ):
-        manager = QueryCacheManager(broken_cache, QueryBuildType.MEASURES)
+        manager = QueryCacheManager(broken_cache, QueryBuildType.METRICS)
         params = QueryRequestParams(nodes=["foo"], dimensions=[], filters=[])
         background = BackgroundTasks()
         request = DummyRequest()
@@ -346,21 +335,21 @@ async def test_fallback_uses_the_session_it_is_given():
     session = mock.AsyncMock(spec=AsyncSession)
     with (
         patch(
-            "datajunction_server.internal.caching.query_cache_manager.get_measures_query",
+            "datajunction_server.internal.caching.query_cache_manager.QueryCacheManager._build_metrics_query",
             return_value=[{"sql": "SELECT * FROM test"}],
-        ) as get_measures_query_mock,
+        ) as build_metrics_query_mock,
         patch(
             "datajunction_server.internal.caching.query_cache_manager.build_access_checker_from_request",
             return_value=mock.AsyncMock(spec=AccessChecker),
         ),
     ):
-        manager = QueryCacheManager(CachelibCache(), QueryBuildType.MEASURES)
+        manager = QueryCacheManager(CachelibCache(), QueryBuildType.METRICS)
         params = QueryRequestParams(nodes=["foo"], dimensions=[], filters=[])
 
         result = await manager.fallback(DummyRequest(), params, session)
 
         assert result == [{"sql": "SELECT * FROM test"}]
-        assert get_measures_query_mock.call_args.kwargs["session"] is session
+        assert build_metrics_query_mock.call_args.args[0] is session
 
 
 class FailingMarkerCache(CachelibCache):
@@ -433,7 +422,7 @@ async def hot_manager():
         ),
     ):
         cache = CachelibCache()
-        manager = QueryCacheManager(cache, QueryBuildType.MEASURES)
+        manager = QueryCacheManager(cache, QueryBuildType.METRICS)
         key = await manager.build_cache_key(DummyRequest(), PARAMS)
         cache.set(key, [{"sql": "CACHED"}])
         yield manager, cache, key
@@ -548,7 +537,6 @@ BARE_METRIC = QueryRequestParams(nodes=["foo"], dimensions=[], filters=[])
             QueryRequestParams(nodes=["foo"], dimensions=[""], filters=[]),
             True,
         ),
-        (QueryBuildType.MEASURES, BARE_METRIC, False),
         (QueryBuildType.NODE, BARE_METRIC, False),
         (
             QueryBuildType.METRICS,

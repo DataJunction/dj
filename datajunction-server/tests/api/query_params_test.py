@@ -95,56 +95,6 @@ async def test_query_parameters_node_sql(
 
 
 @pytest.mark.asyncio
-async def test_query_parameters_measures_sql(
-    module__client_with_query_params: AsyncClient,
-):
-    """
-    Test using query parameters in the SQL query
-    """
-    response = await module__client_with_query_params.get(
-        "/sql/measures/v2",
-        params={
-            "metrics": ["default.num_repair_orders"],
-            "dimensions": ["default.hard_hat.hard_hat_id"],
-            "query_params": '{"default.hard_hat.hard_hat_id": 123}',
-        },
-    )
-    assert str(parse(response.json()[0]["sql"])) == str(
-        parse(
-            """
-            WITH default_DOT_repair_orders_fact AS (
-              SELECT
-                CAST(123 AS INT) AS hh_id,
-                repair_orders.hard_hat_id,
-                repair_orders.repair_order_id
-              FROM roads.repair_orders AS repair_orders
-            )
-            SELECT
-              default_DOT_repair_orders_fact.hard_hat_id default_DOT_hard_hat_DOT_hard_hat_id,
-              default_DOT_repair_orders_fact.repair_order_id default_DOT_repair_orders_fact_DOT_repair_order_id
-            FROM default_DOT_repair_orders_fact
-            """,
-        ),
-    )
-
-    response = await module__client_with_query_params.get(
-        "/sql/measures/v2",
-        params={
-            "metrics": ["default.num_repair_orders"],
-            "dimensions": ["default.hard_hat.hard_hat_id"],
-        },
-    )
-    assert response.json()[0]["errors"] == [
-        {
-            "code": "MISSING_PARAMETER",
-            "message": "Missing value for parameter: default.hard_hat.hard_hat_id",
-            "debug": None,
-            "context": "",
-        },
-    ]
-
-
-@pytest.mark.asyncio
 async def test_query_parameters_metrics_sql(
     module__client_with_query_params: AsyncClient,
 ):
