@@ -33,6 +33,11 @@ from datajunction_server.errors import (
     DJDoesNotExistException,
     DJInvalidInputException,
 )
+from datajunction_server.internal.access.authorization import (
+    AccessChecker,
+    AccessDenialMode,
+    AuthContext,
+)
 from datajunction_server.internal.history import ActivityType, EntityType
 from datajunction_server.internal.materializations import (
     collect_materialization_teardowns,
@@ -42,7 +47,10 @@ from datajunction_server.internal.namespace_locks import (
     lock_namespace_boundary_lifecycle,
 )
 from datajunction_server.internal.nodes import get_single_cube_revision_metadata
-from datajunction_server.models.access import ResourceAction, ResourceType
+from datajunction_server.models.access import (
+    ResourceAction,
+    namespace_boundary_scope_targets,
+)
 from datajunction_server.models.deployment import (
     CubeSpec,
     DeploymentSourceType,
@@ -137,8 +145,9 @@ async def list_namespaces_in_hierarchy(
     """
     statement = select(NodeNamespace).where(
         or_(
-            NodeNamespace.namespace.like(
-                f"{namespace}.%",
+            NodeNamespace.namespace.startswith(
+                f"{namespace}.",
+                autoescape=True,
             ),
             NodeNamespace.namespace == namespace,
         ),
@@ -467,17 +476,6 @@ async def create_namespace(
         )
     await session.commit()
     return parents
-
-
-def namespace_boundary_scope_targets(
-    namespace: str,
-) -> list[tuple[ResourceType, str]]:
-    """Return every scope governed by a namespace boundary."""
-    return [
-        (ResourceType.NAMESPACE, namespace),
-        (ResourceType.NAMESPACE, f"{namespace}.*"),
-        (ResourceType.NODE, f"{namespace}.*"),
-    ]
 
 
 def _namespace_boundary_scopes(
@@ -1018,6 +1016,45 @@ async def hard_delete_nodes(
     )
 
 
+async def authorize_namespace_deletions(
+    session: AsyncSession,
+    namespaces: Sequence[str],
+    current_user: User,
+    *,
+    include_descendants: bool = False,
+    lock_lifecycle: bool = True,
+) -> None:
+    """Require management grants for governed boundaries removed by a deletion."""
+    if not namespaces:
+        return
+    if lock_lifecycle:
+        await lock_namespace_boundary_lifecycle(session)
+    targets = [NodeNamespace.namespace.in_(namespaces)]
+    if include_descendants:
+        targets.extend(
+            NodeNamespace.namespace.startswith(f"{namespace}.", autoescape=True)
+            for namespace in namespaces
+        )
+    governed_boundaries = (
+        (
+            await session.execute(
+                select(NodeNamespace.namespace)
+                .where(NodeNamespace.is_governed_boundary.is_(True), or_(*targets))
+                .order_by(NodeNamespace.namespace),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if governed_boundaries:
+        checker = AccessChecker(await AuthContext.from_user(session, current_user))
+        checker.add_namespaces(list(governed_boundaries), ResourceAction.MANAGE)
+        await checker.check(
+            on_denied=AccessDenialMode.RAISE,
+            require_explicit_grant=True,
+        )
+
+
 async def hard_delete_namespace(
     session: AsyncSession,
     namespace: str,
@@ -1035,12 +1072,18 @@ async def hard_delete_namespace(
     the nodes, so a namespace deleted without this leaves the query service running
     jobs no one can find again, let alone stop.
     """
+    await authorize_namespace_deletions(
+        session,
+        [namespace],
+        current_user,
+        include_descendants=True,
+    )
     node_rows = (
         await session.execute(
             select(Node.id, Node.name, Node.type)
             .where(
                 or_(
-                    Node.namespace.like(f"{namespace}.%"),
+                    Node.namespace.startswith(f"{namespace}.", autoescape=True),
                     Node.namespace == namespace,
                 ),
             )

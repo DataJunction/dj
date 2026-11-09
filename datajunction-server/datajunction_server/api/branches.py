@@ -37,6 +37,7 @@ from datajunction_server.internal.git.github_service import (
     GitHubServiceError,
 )
 from datajunction_server.internal.namespaces import (
+    authorize_namespace_deletions,
     get_branches,
     hard_delete_namespace,
     resolve_git_config,
@@ -546,6 +547,13 @@ async def delete_branch(
         raise DJInvalidInputException(
             message=f"Namespace '{branch_namespace}' is not a branch of '{namespace}'.",
         )
+
+    await authorize_namespace_deletions(
+        session,
+        [branch_namespace],
+        current_user,
+        include_descendants=True,
+    )
 
     # Delete the git branch
     git_branch_deleted = False
