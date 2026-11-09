@@ -21,7 +21,7 @@ from tests.property.scenario import values
     + [
         (kind, window_role, filter_role)
         for kind in ("sum", "avg")
-        for window_role, filter_role in (("", "[time]"), ("[time]", ""), ("", ""))
+        for window_role, filter_role in (("", ""),)
     ],
 )
 @pytest.mark.parametrize("filtered", [False, True])
@@ -70,7 +70,7 @@ async def test_partitioned_windows_and_scalar_descendants(
         time_dim,
         f"{graph.fact}.y = {time_dim}.day",
         join_type="left",
-        role="time",
+        role="time" if window_role else None,
     )
     day, partition = f"{time_dim}.day{window_role}", graph.dimension("label")
     filter_day = f"{time_dim}.day{filter_role}"
@@ -210,7 +210,10 @@ async def test_rolling_window_expands_only_its_resolved_date_role(
             "mode": "published",
         },
     )
-    for column, link_role in (("k", "order"), ("y", "ship")):
+    date_links = [("k", "order"), ("y", "ship")]
+    if role is None:
+        date_links.append(("k", None))
+    for column, link_role in date_links:
         await link(
             client,
             graph.fact,
@@ -220,7 +223,7 @@ async def test_rolling_window_expands_only_its_resolved_date_role(
             role=link_role,
         )
     day = f"{time_dim}.day" + (f"[{role}]" if role else "")
-    filter_day = f"{time_dim}.day[{role or 'order'}]"
+    filter_day = day
     total = await create_metric(
         client,
         graph,

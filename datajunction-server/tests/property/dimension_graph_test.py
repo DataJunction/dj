@@ -17,7 +17,6 @@ from tests.property.graph import (
 )
 from tests.property.interaction_graph import link, query
 from tests.property.interaction_scenarios import grouped_scenarios
-from tests.property.known_issues import SELF_JOIN_ROLE_FALLBACK
 from tests.property.random_graph_test import fixed
 from tests.property.scenario import values
 
@@ -133,6 +132,24 @@ async def check_dimension_path(client, conn, path, scenario):
         f"SELECT SUM(x) FROM {graph.fact}",
     )
     ref_sql = f'SELECT t.label, SUM(f.x) FROM "default".pbt.{graph.fact_table} f {join_sql} GROUP BY t.label'
+    if path == "self":
+        # Self-revisiting join paths are not loaded. Main now rejects the
+        # unavailable role instead of silently using the direct null-role link.
+        response = await client.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": [metric],
+                "dimensions": [dimension],
+                "dialect": "spark",
+                "use_materialized": False,
+            },
+        )
+        assert response.status_code == 422, response.json()
+        assert (
+            f"Cannot find join path from {graph.fact} to dimension {target}"
+            in response.json()["message"]
+        )
+        return
     sql, actual = await query(client, conn, [metric], [dimension])
     assert_same_results(
         actual,
@@ -155,8 +172,7 @@ async def test_dimension_paths_match_explicit_joins(
 
 
 @pytest.mark.asyncio
-@SELF_JOIN_ROLE_FALLBACK.xfail()
-async def test_known_issue_self_join_uses_parent_role(
+async def test_unavailable_self_join_role_is_rejected(
     module__client_with_roads,
     duckdb_conn,
 ):
