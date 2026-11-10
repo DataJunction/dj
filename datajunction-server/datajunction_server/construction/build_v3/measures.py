@@ -754,6 +754,7 @@ def _absorb_filtered_joins_for_outer_safety(
     dim_aliases: dict[tuple[str, str | None], str],
     parent_cte_name: str,
     group_by: list[ast.Expression],
+    taken_names: set[str],
 ) -> tuple[ast.Expression | None, list[tuple[str, ast.Query]]]:
     """Apply filters on null-padded sides before the outer join.
 
@@ -857,6 +858,15 @@ def _absorb_filtered_joins_for_outer_safety(
     absorbed_idx = {index_by_alias[a] for a in absorbed}
     kept_joins = [j for i, j in enumerate(extensions) if i not in absorbed_idx]
 
+    # A bare projected column keeps its output name.
+    for item in select.projection:
+        if (
+            isinstance(item, ast.Column)
+            and item.alias is None
+            and column_table_name(item) in absorbed
+        ):
+            item.alias = ast.Name(item.name.name)
+
     # Columns the outer query reads from absorbed aliases.
     outer_nodes: list[ast.Node] = [*select.projection, *other_atoms, *group_by]
     outer_nodes += [
@@ -868,25 +878,19 @@ def _absorb_filtered_joins_for_outer_safety(
         for col in node.find_all(ast.Column)
         if (tname := column_table_name(col)) in absorbed
     ]
-    aliases_by_name: dict[tuple[str, str], set[str]] = {}
-    for col, tname in refs:
-        aliases_by_name.setdefault((root_of[tname], col.name.name), set()).add(tname)
 
-    # Name the wrapper column after its alias when two aliases share a name.
+    # Prefix with the alias so names never clash with the root's columns.
     def wrapper_name(col_name: str, alias: str) -> str:
-        if len(aliases_by_name[(root_of[alias], col_name)]) > 1:
-            return f"{col_name}_{alias}"
-        return col_name
+        return f"{alias}__{col_name}"
 
     wrapper_cols = sorted({(t, c.name.name) for c, t in refs})
     for col, tname in refs:
         new_name = wrapper_name(col.name.name, tname)
         _set_col_table_alias(col, root_of[tname])
-        if new_name != col.name.name:
-            col.name = ast.Name(new_name, namespace=col.name.namespace)
+        col.name = ast.Name(new_name, namespace=col.name.namespace)
 
     ctes: list[tuple[str, ast.Query]] = []
-    used_names: set[str] = set()
+    used_names = set(taken_names)
     for root in [main_alias, *root_join]:
         if root not in fact_atoms:
             continue
@@ -897,10 +901,7 @@ def _absorb_filtered_joins_for_outer_safety(
         for alias, col_name in [c for c in wrapper_cols if root_of[c[0]] == root]:
             ref = make_column_ref(col_name, alias)
             new_name = wrapper_name(col_name, alias)
-            if new_name == col_name:
-                wrapper_proj.append(ref)
-            else:
-                wrapper_proj.append(ast.Alias(child=ref, alias=ast.Name(new_name)))
+            wrapper_proj.append(ast.Alias(child=ref, alias=ast.Name(new_name)))
         side_joins = [
             extensions[i]
             for i in sorted(absorbed_idx)
@@ -920,8 +921,10 @@ def _absorb_filtered_joins_for_outer_safety(
         else:
             table = getattr(getattr(primary, "child", None), "name", None)
             cte_name = f"{table.name if table else root}_filtered"
-            if cte_name in used_names:  # pragma: no cover
-                cte_name = f"{root}_{cte_name}"
+        base_name, suffix = cte_name, 1
+        while cte_name in used_names:
+            suffix += 1
+            cte_name = f"{base_name}_{suffix}"
         used_names.add(cte_name)
         filtered_ref = cast(
             ast.Expression,
@@ -1204,12 +1207,16 @@ def build_dimension_joins(
         jt = rdim.join_path.links[0].join_type
         return 1 if jt in (JoinType.RIGHT, JoinType.FULL) else 0
 
+    def _chain_key(rdim: ResolvedDimension) -> list[tuple[str, str]]:
+        links = rdim.join_path.links if rdim.join_path else []
+        return [(link.dimension.name, link.role or "") for link in links]
+
     ordered_dimensions = sorted(resolved_dimensions, key=_chain_bucket)
     if any(_chain_bucket(rdim) for rdim in resolved_dimensions):
-        # Spine queries join in a fixed order, whatever the request order.
+        # Order chains by their links, not the requested attributes.
         ordered_dimensions = sorted(
             resolved_dimensions,
-            key=lambda rdim: (_chain_bucket(rdim), rdim.original_ref),
+            key=lambda rdim: (_chain_bucket(rdim), _chain_key(rdim)),
         )
 
     dim_aliases: dict[tuple[str, str | None], str] = {}
@@ -1567,6 +1574,7 @@ def build_select_ast(
         dim_aliases=dim_aliases,
         parent_cte_name=get_cte_name(parent_node.name),
         group_by=effective_group_by,
+        taken_names={name for name, _ in ctes},
     )
     ctes.extend(filtered_ctes)
     _apply_outer_where_atoms(
