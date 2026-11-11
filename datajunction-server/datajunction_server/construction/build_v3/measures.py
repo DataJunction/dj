@@ -316,7 +316,8 @@ def _get_filter_column_name_for_dimension(
             not parsed_ref.role or link.role == parsed_ref.role
         ):
             fk_columns = link.foreign_key_column_names
-            if fk_columns:  # pragma: no branch
+            # A reference column is not the join key; keep its own name.
+            if fk_columns and resolved_dim.column_name in fk_columns:
                 return next(iter(fk_columns))
 
     return None  # pragma: no cover
