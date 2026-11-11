@@ -130,14 +130,30 @@ async def ref_client(client_with_build_v3):
             "mode": "published",
         },
     )
+    for name, attribute, value in (
+        ("v3.rl_pro_amount", "plan_label", "Pro"),
+        ("v3.rl_tier_amount", "plan_tier", "tier-b"),
+    ):
+        await post(
+            client,
+            "/nodes/metric/",
+            {
+                "name": name,
+                "query": (
+                    f"SELECT SUM(CASE WHEN v3.rl_plan.{attribute} = '{value}' "
+                    "THEN amount ELSE 0 END) FROM v3.rl_events"
+                ),
+                "mode": "published",
+            },
+        )
     return client
 
 
-async def metrics_sql(client, dimensions=None, filters=None):
+async def metrics_sql(client, dimensions=None, filters=None, metric="v3.rl_amount"):
     response = await client.get(
         "/sql/metrics/v3/",
         params={
-            "metrics": ["v3.rl_amount"],
+            "metrics": [metric],
             "dimensions": dimensions or [],
             "filters": filters or [],
             "dialect": "trino",
@@ -466,3 +482,145 @@ async def test_reference_filter_with_a_right_join_spine(ref_client):
         [f"{ALT_LABEL} = 'Pro'"],
     )
     assert sorted(run_in_duckdb(joined), key=str) == expected
+
+
+PRO_COLUMN = "v3_DOT_rl_plan_DOT_plan_label_amount_sum_25018869"
+TIER_COLUMN = "v3_DOT_rl_plan_DOT_plan_tier_amount_sum_273f5b64"
+
+
+@pytest.mark.asyncio
+async def test_metric_on_reference_attribute_grouped_by_it(ref_client):
+    """The metric tests the same label the request groups by. The label
+    stays in the SELECT and GROUP BY once, read from the events column, and
+    the label groups are not merged."""
+    sql = await metrics_sql(ref_client, [PLAN_LABEL], metric="v3.rl_pro_amount")
+    assert_sql_equal(
+        sql,
+        f"""
+        WITH v3_rl_events AS (
+          SELECT plan_label, amount
+          FROM default.v3.rl_events
+        ),
+        rl_events_0 AS (
+          SELECT t1.plan_label,
+            SUM(CASE WHEN t1.plan_label = 'Pro' THEN t1.amount ELSE 0 END)
+              {PRO_COLUMN}
+          FROM v3_rl_events t1
+          GROUP BY t1.plan_label
+        )
+        SELECT rl_events_0.plan_label AS plan_label,
+          SUM(rl_events_0.{PRO_COLUMN}) AS rl_pro_amount
+        FROM rl_events_0
+        GROUP BY rl_events_0.plan_label
+        """,
+    )
+    assert sorted(run_in_duckdb(sql)) == [
+        ("Basic", 0.0),
+        ("Legacy", 0.0),
+        ("Pro", 50.0),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_metric_on_reference_attribute_not_grouped(ref_client):
+    """Without a grouping the metric reads the label through the plan join.
+    Only Pro events count, so the total is 50."""
+    sql = await metrics_sql(ref_client, metric="v3.rl_pro_amount")
+    assert_sql_equal(
+        sql,
+        f"""
+        WITH v3_rl_events AS (
+          SELECT plan_key, amount
+          FROM default.v3.rl_events
+        ),
+        v3_rl_plan AS (
+          SELECT plan_key, plan_label
+          FROM default.v3.rl_plans
+        ),
+        rl_events_0 AS (
+          SELECT
+            SUM(CASE WHEN t2.plan_label = 'Pro' THEN t1.amount ELSE 0 END)
+              {PRO_COLUMN}
+          FROM v3_rl_events t1
+          LEFT OUTER JOIN v3_rl_plan t2 ON t1.plan_key = t2.plan_key
+        )
+        SELECT SUM(rl_events_0.{PRO_COLUMN}) AS rl_pro_amount
+        FROM rl_events_0
+        """,
+    )
+    assert run_in_duckdb(sql) == [(50.0,)]
+
+
+@pytest.mark.asyncio
+async def test_metric_on_reference_attribute_grouped_by_role(ref_client):
+    """Grouping by the role-qualified label joins the plan dimension once and
+    the metric reads the same join. Each label stays its own group."""
+    sql = await metrics_sql(ref_client, [ALT_LABEL], metric="v3.rl_pro_amount")
+    assert_sql_equal(
+        sql,
+        f"""
+        WITH v3_rl_events AS (
+          SELECT plan_key, amount
+          FROM default.v3.rl_events
+        ),
+        v3_rl_plan AS (
+          SELECT plan_key, plan_label
+          FROM default.v3.rl_plans
+        ),
+        rl_events_0 AS (
+          SELECT t2.plan_label plan_label_alt,
+            SUM(CASE WHEN t2.plan_label = 'Pro' THEN t1.amount ELSE 0 END)
+              {PRO_COLUMN}
+          FROM v3_rl_events t1
+          LEFT OUTER JOIN v3_rl_plan t2 ON t1.plan_key = t2.plan_key
+          GROUP BY t2.plan_label
+        )
+        SELECT rl_events_0.plan_label_alt AS plan_label_alt,
+          SUM(rl_events_0.{PRO_COLUMN}) AS rl_pro_amount
+        FROM rl_events_0
+        GROUP BY rl_events_0.plan_label_alt
+        """,
+    )
+    assert sorted(run_in_duckdb(sql), key=str) == [
+        ("Basic", 0.0),
+        ("Pro", 50.0),
+        (None, 0.0),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_metric_on_joined_attribute_grouped_by_it(ref_client):
+    """With no reference column the metric and the grouping share one join
+    and the tier stays in the SELECT and GROUP BY once. The SQL is the same
+    as before the reference preference."""
+    sql = await metrics_sql(ref_client, [PLAN_TIER], metric="v3.rl_tier_amount")
+    assert_sql_equal(
+        sql,
+        f"""
+        WITH v3_rl_events AS (
+          SELECT plan_key, amount
+          FROM default.v3.rl_events
+        ),
+        v3_rl_plan AS (
+          SELECT plan_key, plan_tier
+          FROM default.v3.rl_plans
+        ),
+        rl_events_0 AS (
+          SELECT t2.plan_tier,
+            SUM(CASE WHEN t2.plan_tier = 'tier-b' THEN t1.amount ELSE 0 END)
+              {TIER_COLUMN}
+          FROM v3_rl_events t1
+          LEFT OUTER JOIN v3_rl_plan t2 ON t1.plan_key = t2.plan_key
+          GROUP BY t2.plan_tier
+        )
+        SELECT rl_events_0.plan_tier AS plan_tier,
+          SUM(rl_events_0.{TIER_COLUMN}) AS rl_tier_amount
+        FROM rl_events_0
+        GROUP BY rl_events_0.plan_tier
+        """,
+    )
+    assert sorted(run_in_duckdb(sql), key=str) == [
+        ("tier-a", 0.0),
+        ("tier-b", 50.0),
+        (None, 0.0),
+    ]

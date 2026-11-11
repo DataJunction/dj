@@ -918,12 +918,17 @@ def resolve_metric_expression_dimensions(
         if not rdim.is_local:
             already_joined.add(parse_dimension_ref(rdim.original_ref).node_name)
 
+    requested_local = {
+        rdim.original_ref for rdim in requested_dimensions if rdim.is_local
+    }
     extra: list[ResolvedDimension] = []
     handled_nodes: set[str] = set()
     for expr in expressions:
         for nc in iter_namespaced_columns(expr):
             if nc.node in already_joined or nc.node in handled_nodes:
                 continue
+            if f"{nc.node}{SEPARATOR}{nc.name}" in requested_local:
+                continue  # read from the parent column
             handled_nodes.add(nc.node)
 
             # The referenced column itself is validated against the dimension

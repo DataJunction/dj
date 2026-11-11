@@ -106,6 +106,7 @@ def _rewrite_col_refs(expr: Any, table_alias: str) -> None:
 def _resolve_dim_namespace_refs(
     expressions: list[ast.Expression],
     dim_node_to_alias: dict[str, str],
+    local_columns: dict[str, tuple[str, str]] | None = None,
 ) -> None:
     """Resolve dim-namespaced column refs in metric/grain expressions.
 
@@ -117,6 +118,10 @@ def _resolve_dim_namespace_refs(
     """
     for expr in expressions:
         for nc in iter_namespaced_columns(expr):
+            local = (local_columns or {}).get(f"{nc.node}{SEPARATOR}{nc.name}")
+            if local is not None:
+                nc.column.name = ast.Name(local[0], namespace=ast.Name(local[1]))
+                continue
             if nc.node not in dim_node_to_alias:
                 continue
             nc.column.name = ast.Name(
@@ -1391,6 +1396,11 @@ def build_select_ast(
         [expr for _, expr in metric_expressions]
         + [expr for expr, _ in grain_col_specs],
         dim_node_to_alias,
+        {
+            rd.original_ref: (rd.column_name, main_alias)
+            for rd in resolved_dimensions
+            if rd.is_local
+        },
     )
 
     # Add metric expressions
