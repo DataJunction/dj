@@ -106,6 +106,7 @@ def _rewrite_col_refs(expr: Any, table_alias: str) -> None:
 def _resolve_dim_namespace_refs(
     expressions: list[ast.Expression],
     dim_node_to_alias: dict[str, str],
+    local_columns: dict[str, tuple[str, str]] | None = None,
 ) -> None:
     """Resolve dim-namespaced column refs in metric/grain expressions.
 
@@ -117,6 +118,10 @@ def _resolve_dim_namespace_refs(
     """
     for expr in expressions:
         for nc in iter_namespaced_columns(expr):
+            local = (local_columns or {}).get(f"{nc.node}{SEPARATOR}{nc.name}")
+            if local is not None:
+                nc.column.name = ast.Name(local[0], namespace=ast.Name(local[1]))
+                continue
             if nc.node not in dim_node_to_alias:
                 continue
             nc.column.name = ast.Name(
@@ -316,7 +321,8 @@ def _get_filter_column_name_for_dimension(
             not parsed_ref.role or link.role == parsed_ref.role
         ):
             fk_columns = link.foreign_key_column_names
-            if fk_columns:  # pragma: no branch
+            # A reference column is not the join key; keep its own name.
+            if fk_columns and resolved_dim.column_name in fk_columns:
                 return next(iter(fk_columns))
 
     return None  # pragma: no cover
@@ -1380,6 +1386,17 @@ def build_select_ast(
         [expr for _, expr in metric_expressions]
         + [expr for expr, _ in grain_col_specs],
         dim_node_to_alias,
+        {
+            rd.original_ref: (rd.column_name, main_alias)
+            for rd in resolved_dimensions
+            if rd.is_local
+            # Skipped keys read the joined column once joined.
+            and (
+                rd.pre_skip_join_path is None
+                or parse_dimension_ref(rd.original_ref).node_name
+                not in dim_node_to_alias
+            )
+        },
     )
 
     # Add metric expressions
