@@ -741,6 +741,12 @@ def _maybe_coalesce_with_sibling(
     return ast.Function(ast.Name("COALESCE"), args=[col_ref, partner])
 
 
+def _is_null_padding(join: ast.Join) -> bool:
+    """Whether the join is RIGHT or FULL OUTER."""
+    join_type = (join.join_type or "").upper()
+    return "RIGHT" in join_type or "FULL" in join_type
+
+
 def _absorb_filtered_joins_for_outer_safety(
     select: ast.Select,
     where_clause: ast.Expression | None,
@@ -748,37 +754,36 @@ def _absorb_filtered_joins_for_outer_safety(
     dim_aliases: dict[tuple[str, str | None], str],
     parent_cte_name: str,
     group_by: list[ast.Expression],
-) -> tuple[ast.Expression | None, tuple[str, ast.Query] | None]:
-    """Absorb LEFT/INNER joins whose dim-alias filter would defeat a
-    downstream RIGHT/FULL OUTER JOIN into a subquery on the parent
-    side.
+    taken_names: set[str],
+) -> tuple[ast.Expression | None, list[tuple[str, ast.Query]]]:
+    """Apply filters on null-padded sides before the outer join.
 
-    Why this is needed: applying a WHERE on a non-preserved-side dim
-    alias *after* a downstream OUTER JOIN preserving the dim side
-    drops the preserved null-fill rows.  The fix is to apply the dim
-    filter *before* the OUTER JOIN — by absorbing the LEFT/INNER join
-    plus its WHERE into a subquery that the OUTER JOIN's preserved
-    side reaches via a clean ``RIGHT/FULL OUTER JOIN <wrapper>``
-    pattern.
+    A RIGHT/FULL OUTER JOIN splits the FROM clause into sides: the parent
+    with its LEFT/INNER joins, and each RIGHT/FULL-joined node with the
+    LEFT/INNER joins hanging off it.  Each join's side is read from the
+    aliases its ON clause uses, so emission order does not matter.
 
-    Builds a filtered CTE named ``<parent_cte_name>_filtered`` that
-    contains the parent + absorbed LEFT/INNER joins with the absorbed
-    WHERE applied inside.  The outer FROM is rewritten to read from
-    that CTE (still aliased as ``main_alias``).  Rewrites references
-    to absorbed aliases (in projection, GROUP BY, remaining join ONs,
-    remaining WHERE atoms) so they point at ``main_alias``.
+    A side is preserved only when no later RIGHT/FULL join pads it with
+    NULLs (the last RIGHT-joined side).  A WHERE filter on a column of any
+    other side would drop the padded rows and turn the outer join into
+    an inner one.  So each such side becomes ``<name>_filtered``: its root
+    plus the joins its filters need, with those filters applied inside.
+    The outer query joins that CTE under the original root alias, and
+    rewrites references to the absorbed aliases to point at it.
 
-    Returns ``(updated_where_clause, new_cte_or_None)``.  The caller is
-    responsible for appending ``new_cte`` (if non-None) to the CTE
-    list attached to the final query.
+    Filters on the preserved side stay in the outer WHERE.
+
+    Returns ``(updated_where_clause, [(cte_name, query), ...])``; the
+    caller appends the CTEs to the query.
     """
     if where_clause is None or not select.from_ or not select.from_.relations:
-        return where_clause, None
+        return where_clause, []
 
     relation = select.from_.relations[0]
     extensions = relation.extensions
-    if not extensions:
-        return where_clause, None
+    padding_idx = [i for i, jn in enumerate(extensions) if _is_null_padding(jn)]
+    if not padding_idx:
+        return where_clause, []
 
     from datajunction_server.construction.build_v3.cte import (
         _filter_namespaces,
@@ -786,121 +791,163 @@ def _absorb_filtered_joins_for_outer_safety(
         _split_and_atoms,
     )
 
-    atoms = _split_and_atoms(where_clause)
-    atoms_by_alias: dict[str, list[ast.Expression]] = {}
+    # Root alias of each side, and the join that introduces each root.
+    root_of: dict[str, str] = {main_alias: main_alias}
+    root_join: dict[str, ast.Join] = {}
+    nullable_roots = {main_alias}
+    for i in padding_idx:
+        root = cast(str, _get_relation_side_id(extensions[i].right))
+        root_of[root] = root
+        root_join[root] = extensions[i]
+        if i != padding_idx[-1] or "FULL" in (extensions[i].join_type or "").upper():
+            nullable_roots.add(root)
+
+    # Assign every other join to the side its ON clause reads from.
+    on_aliases: dict[str, set[str]] = {}
+    index_by_alias: dict[str, int] = {}
+    for i, jn in enumerate(extensions):
+        if i in padding_idx:
+            continue
+        side_alias = cast(str, _get_relation_side_id(jn.right))
+        on_aliases[side_alias] = (
+            {str(column_table_name(c)) for c in jn.criteria.on.find_all(ast.Column)}
+            if jn.criteria and jn.criteria.on
+            else set()
+        ) - {side_alias}
+        index_by_alias[side_alias] = i
+    grew = True
+    while grew:
+        grew = False
+        for side_alias, reads in on_aliases.items():
+            roots = {root_of.get(a) for a in reads}
+            if side_alias not in root_of and len(roots) == 1 and None not in roots:
+                root_of[side_alias] = cast(str, next(iter(roots)))
+                grew = True
+
+    # Route each filter to the null-padded side that owns all of its columns.
+    fact_atoms: dict[str, list[ast.Expression]] = {}
+    lone_atoms: list[ast.Expression] = []
     other_atoms: list[ast.Expression] = []
-    for atom in atoms:
+    for atom in _split_and_atoms(where_clause):
         ns = _filter_namespaces(atom)
-        if len(ns) == 1 and main_alias not in ns:
-            atoms_by_alias.setdefault(next(iter(ns)), []).append(atom)
+        found = {root_of.get(a) for a in ns}
+        owner = next(iter(found)) if len(found) == 1 else None
+        if owner in nullable_roots and (owner != main_alias or ns - {main_alias}):
+            fact_atoms.setdefault(cast(str, owner), []).append(atom)
+        elif len(ns) == 1 and main_alias not in ns:
+            lone_atoms.append(atom)
         else:
             other_atoms.append(atom)
+    if not fact_atoms:
+        return where_clause, []
 
-    # Single pass over join chain: track whether any RIGHT/FULL OUTER is
-    # present (gate) and which LEFT/INNER joins have defeating filters
-    # (candidates).  Absorption only commits when both conditions hold —
-    # otherwise pure-LEFT-chain narrowing semantics are preserved.
-    has_right_full = False
-    to_absorb_idx: list[int] = []
-    absorbed_aliases: set[str] = set()
-    for i, jn in enumerate(extensions):
-        jt = (jn.join_type or "").upper().strip()
-        if "RIGHT" in jt or "FULL" in jt:
-            has_right_full = True
-            continue
-        side_alias = _get_relation_side_id(jn.right)
-        if side_alias and side_alias in atoms_by_alias:
-            # The wrapper holds only the parent and absorbed joins, so a join
-            # whose ON reaches any other alias must stay in the outer query.
-            on_aliases = (
-                {column_table_name(c) for c in jn.criteria.on.find_all(ast.Column)}
-                if jn.criteria and jn.criteria.on
-                else set()
-            )
-            if on_aliases - {main_alias, side_alias} - absorbed_aliases:
-                continue
-            to_absorb_idx.append(i)
-            absorbed_aliases.add(side_alias)
-
-    if not has_right_full or not absorbed_aliases:
-        return where_clause, None
-
-    absorb_set = set(to_absorb_idx)
-    absorbed_joins = [extensions[i] for i in to_absorb_idx]
-    kept_joins = [j for i, j in enumerate(extensions) if i not in absorb_set]
-
-    # Single pass over outer-scope nodes: record column names referenced
-    # from absorbed aliases (for the wrapper projection) AND rewrite the
-    # alias qualifier in place to point at ``main_alias``.  The wrapper
-    # captures ``relation.primary`` and ``absorbed_joins`` by reference
-    # before we mutate them below, so doing both in one pass is safe.
-    absorbed_cols: dict[str, set[str]] = {a: set() for a in absorbed_aliases}
-
-    def _process(node: ast.Node) -> None:
-        for col in node.find_all(ast.Column):
-            tname_str = column_table_name(col)
-            if tname_str is not None and tname_str in absorbed_aliases:
-                absorbed_cols[tname_str].add(col.name.name)
-                _set_col_table_alias(col, main_alias)
-
-    for proj_item in select.projection:
-        _process(proj_item)
-    for kj in kept_joins:
-        if kj.criteria and kj.criteria.on:  # pragma: no branch
-            _process(kj.criteria.on)
-    for atom in other_atoms:
-        _process(atom)
-    for gb_item in group_by:
-        _process(gb_item)
-
-    # Build wrapper projection: parent.* + each absorbed col.
-    wrapper_proj: list[Any] = [
-        ast.Column(name=ast.Name("*"), _table=ast.Table(ast.Name(main_alias))),
+    # A joined dimension needs every join it hangs from.
+    absorbed: set[str] = set()
+    pending = [
+        a
+        for atoms in fact_atoms.values()
+        for at in atoms
+        for a in _filter_namespaces(at)
     ]
-    for alias in absorbed_aliases:
-        for col_name in sorted(absorbed_cols[alias]):
-            wrapper_proj.append(make_column_ref(col_name, alias))
+    while pending:
+        alias = pending.pop()
+        if alias in absorbed or alias in root_join or alias == main_alias:
+            continue
+        absorbed.add(alias)
+        pending.extend(on_aliases[alias])
+    absorbed_idx = {index_by_alias[a] for a in absorbed}
+    kept_joins = [j for i, j in enumerate(extensions) if i not in absorbed_idx]
 
-    absorbed_atoms: list[ast.Expression] = []
-    for alias in absorbed_aliases:
-        absorbed_atoms.extend(atoms_by_alias[alias])
+    # A bare projected column keeps its output name.
+    for item in select.projection:
+        if (
+            isinstance(item, ast.Column)
+            and item.alias is None
+            and column_table_name(item) in absorbed
+        ):
+            item.alias = ast.Name(item.name.name)
 
-    wrapper_select = ast.Select(
-        projection=wrapper_proj,
-        from_=ast.From(
-            relations=[
-                ast.Relation(primary=relation.primary, extensions=absorbed_joins),
-            ],
-        ),
-        where=_and_atoms(absorbed_atoms),
-    )
-    wrapper_query = ast.Query(select=wrapper_select)
-    filtered_cte_name = f"{parent_cte_name}_filtered"
+    # Columns the outer query reads from absorbed aliases.
+    outer_nodes: list[ast.Node] = [*select.projection, *other_atoms, *group_by]
+    outer_nodes += [
+        kj.criteria.on for kj in kept_joins if kj.criteria and kj.criteria.on
+    ]
+    refs = [
+        (col, tname)
+        for node in outer_nodes
+        for col in node.find_all(ast.Column)
+        if (tname := column_table_name(col)) in absorbed
+    ]
 
-    # Outer FROM now reads from the filtered CTE, still aliased as main_alias.
-    relation.primary = cast(
-        ast.Expression,
-        ast.Alias(
-            child=ast.Table(ast.Name(filtered_cte_name)),
-            alias=ast.Name(main_alias),
-        ),
-    )
+    # Prefix with the alias so names never clash with the root's columns.
+    def wrapper_name(col_name: str, alias: str) -> str:
+        return f"{alias}__{col_name}"
+
+    wrapper_cols = sorted({(t, c.name.name) for c, t in refs})
+    for col, tname in refs:
+        new_name = wrapper_name(col.name.name, tname)
+        _set_col_table_alias(col, root_of[tname])
+        col.name = ast.Name(new_name, namespace=col.name.namespace)
+
+    ctes: list[tuple[str, ast.Query]] = []
+    used_names = set(taken_names)
+    for root in [main_alias, *root_join]:
+        if root not in fact_atoms:
+            continue
+        primary = relation.primary if root == main_alias else root_join[root].right
+        wrapper_proj: list[Any] = [
+            ast.Column(name=ast.Name("*", namespace=ast.Name(root))),
+        ]
+        for alias, col_name in [c for c in wrapper_cols if root_of[c[0]] == root]:
+            ref = make_column_ref(col_name, alias)
+            new_name = wrapper_name(col_name, alias)
+            wrapper_proj.append(ast.Alias(child=ref, alias=ast.Name(new_name)))
+        side_joins = [
+            extensions[i]
+            for i in sorted(absorbed_idx)
+            if root_of[cast(str, _get_relation_side_id(extensions[i].right))] == root
+        ]
+        wrapper_query = ast.Query(
+            select=ast.Select(
+                projection=wrapper_proj,
+                from_=ast.From(
+                    relations=[ast.Relation(primary=primary, extensions=side_joins)],
+                ),
+                where=_and_atoms(sorted(fact_atoms[root], key=str)),
+            ),
+        )
+        if root == main_alias:
+            cte_name = f"{parent_cte_name}_filtered"
+        else:
+            table = getattr(getattr(primary, "child", None), "name", None)
+            cte_name = f"{table.name if table else root}_filtered"
+        base_name, suffix = cte_name, 1
+        while cte_name in used_names:
+            suffix += 1
+            cte_name = f"{base_name}_{suffix}"
+        used_names.add(cte_name)
+        filtered_ref = cast(
+            ast.Expression,
+            ast.Alias(
+                child=ast.Table(ast.Name(cte_name)),
+                alias=ast.Name(root),
+            ),
+        )
+        if root == main_alias:
+            relation.primary = filtered_ref
+        else:
+            root_join[root].right = filtered_ref
+        ctes.append((cte_name, wrapper_query))
     relation.extensions = kept_joins
 
-    # Remap dim_aliases so downstream lookups (e.g. _build_group_by)
-    # find main_alias instead of an absorbed dim alias.
+    # Downstream lookups find the root alias instead of an absorbed one.
     for key in list(dim_aliases.keys()):
-        if dim_aliases[key] in absorbed_aliases:
-            dim_aliases[key] = main_alias
+        if dim_aliases[key] in absorbed:
+            dim_aliases[key] = root_of[dim_aliases[key]]
 
-    # Remaining outer-WHERE atoms: compound/cross-namespace atoms +
-    # single-dim atoms whose alias wasn't absorbed (typically the
-    # preserved RIGHT/FULL OUTER side).
-    remaining_atoms: list[ast.Expression] = list(other_atoms)
-    for alias, atoms_for_alias in atoms_by_alias.items():
-        if alias not in absorbed_aliases:
-            remaining_atoms.extend(atoms_for_alias)
-    return _and_atoms(remaining_atoms), (filtered_cte_name, wrapper_query)
+    return _and_atoms(
+        [*sorted(other_atoms, key=str), *sorted(lone_atoms, key=str)],
+    ), ctes
 
 
 def _coalesce_partner_for_full_skipped_fk(
@@ -1160,7 +1207,17 @@ def build_dimension_joins(
         jt = rdim.join_path.links[0].join_type
         return 1 if jt in (JoinType.RIGHT, JoinType.FULL) else 0
 
+    def _chain_key(rdim: ResolvedDimension) -> list[tuple[str, str]]:
+        links = rdim.join_path.links if rdim.join_path else []
+        return [(link.dimension.name, link.role or "") for link in links]
+
     ordered_dimensions = sorted(resolved_dimensions, key=_chain_bucket)
+    if any(_chain_bucket(rdim) for rdim in resolved_dimensions):
+        # Order chains by their links, not the requested attributes.
+        ordered_dimensions = sorted(
+            resolved_dimensions,
+            key=lambda rdim: (_chain_bucket(rdim), _chain_key(rdim)),
+        )
 
     dim_aliases: dict[tuple[str, str | None], str] = {}
     joins: list[ast.Join] = []
@@ -1510,16 +1567,16 @@ def build_select_ast(
     # FROM at the new CTE), rewrites references to absorbed aliases,
     # remaps ``dim_aliases``, and removes the absorbed atoms from
     # ``where_clause``.  Returns a new CTE to append to the query.
-    where_clause, filtered_cte = _absorb_filtered_joins_for_outer_safety(
+    where_clause, filtered_ctes = _absorb_filtered_joins_for_outer_safety(
         select=select,
         where_clause=where_clause,
         main_alias=main_alias,
         dim_aliases=dim_aliases,
         parent_cte_name=get_cte_name(parent_node.name),
         group_by=effective_group_by,
+        taken_names={name for name, _ in ctes},
     )
-    if filtered_cte is not None:
-        ctes.append(filtered_cte)
+    ctes.extend(filtered_ctes)
     _apply_outer_where_atoms(
         select,
         where_clause,

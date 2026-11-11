@@ -8439,18 +8439,18 @@ class TestWrapperCTEAbsorption:
                 WHERE category = 'Electronics'
             ),
             v3_order_details_filtered AS (
-                SELECT *, t2.category
+                SELECT *, t2.category AS t2__category
                 FROM v3_order_details t1
                 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
                 WHERE t2.category = 'Electronics'
             )
-            SELECT t1.category, t3.campaign,
+            SELECT t1.t2__category AS category, t3.campaign,
                 SUM(t1.line_total) line_total_sum_HASH
             FROM v3_order_details_filtered t1
             RIGHT OUTER JOIN v3_allocation t3
                 ON t1.customer_id = t3.customer_id
                 AND t1.order_date = t3.allocated_date
-            GROUP BY t1.category, t3.campaign
+            GROUP BY t1.t2__category, t3.campaign
             """,
             normalize_aliases=True,
         )
@@ -8932,19 +8932,19 @@ class TestWrapperCTEAbsorption:
                 WHERE category = 'Electronics'
             ),
             v3_order_details_filtered AS (
-                SELECT *, t2.category
+                SELECT *, t2.category AS t2__category
                 FROM v3_order_details t1
                 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
                 WHERE t2.category = 'Electronics'
             )
-            SELECT t1.category, t3.campaign,
+            SELECT t1.t2__category AS category, t3.campaign,
                 SUM(t1.line_total) line_total_sum_HASH
             FROM v3_order_details_filtered t1
             RIGHT OUTER JOIN v3_allocation t3
                 ON t1.customer_id = t3.customer_id
                 AND t1.order_date = t3.allocated_date
-            WHERE t1.category != t3.campaign
-            GROUP BY t1.category, t3.campaign
+            WHERE t1.t2__category != t3.campaign
+            GROUP BY t1.t2__category, t3.campaign
             """,
             normalize_aliases=True,
         )
