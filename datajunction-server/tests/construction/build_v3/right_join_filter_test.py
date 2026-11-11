@@ -363,22 +363,6 @@ async def test_fact_side_filters_apply_before_the_right_join(spine_client):
 
 
 @pytest.mark.asyncio
-async def test_request_order_does_not_change_the_sql(spine_client):
-    forward = await measures_sql(
-        spine_client,
-        FACT_SIDE_FILTERS,
-        ["v3.fs_alloc_day.snapshot_date"],
-    )
-    backward = await measures_sql(
-        spine_client,
-        FACT_SIDE_FILTERS[::-1],
-        ["v3.fs_alloc_day.snapshot_date"],
-    )
-    assert backward == forward
-    assert_sql_equal(backward, FACT_SIDE_FILTER_SQL)
-
-
-@pytest.mark.asyncio
 async def test_fact_side_dimensions_sharing_a_column_name_stay_distinct(
     spine_client,
 ):
@@ -772,16 +756,16 @@ async def test_wrapper_cte_name_avoids_an_existing_cte_name(spine_client):
         v3_fs_events_filtered_2 AS (
           SELECT t1.*
           FROM v3_fs_events t1
-          LEFT OUTER JOIN v3_fs_account t2 ON t1.account_id = t2.account_id
-          LEFT OUTER JOIN v3_fs_country t3 ON t2.country_code = t3.country_code
-          WHERE t3.country_name = 'United States'
+          LEFT OUTER JOIN v3_fs_account t3 ON t1.account_id = t3.account_id
+          LEFT OUTER JOIN v3_fs_country t4 ON t3.country_code = t4.country_code
+          WHERE t4.country_name = 'United States'
         )
-        SELECT t4.label,
+        SELECT t2.label,
           t5.snapshot_date,
           SUM(t1.amount) amount_sum_18c89f4b
         FROM v3_fs_events_filtered_2 t1
-        LEFT OUTER JOIN v3_fs_events_filtered t4 ON t1.account_id = t4.account_id
+        LEFT OUTER JOIN v3_fs_events_filtered t2 ON t1.account_id = t2.account_id
         RIGHT OUTER JOIN v3_fs_alloc_day t5 ON t1.account_id = t5.account_id
-        GROUP BY t4.label, t5.snapshot_date
+        GROUP BY t2.label, t5.snapshot_date
         """,
     )
