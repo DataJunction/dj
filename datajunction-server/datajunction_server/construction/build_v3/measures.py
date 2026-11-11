@@ -1207,17 +1207,7 @@ def build_dimension_joins(
         jt = rdim.join_path.links[0].join_type
         return 1 if jt in (JoinType.RIGHT, JoinType.FULL) else 0
 
-    def _chain_key(rdim: ResolvedDimension) -> list[tuple[str, str]]:
-        links = rdim.join_path.links if rdim.join_path else []
-        return [(link.dimension.name, link.role or "") for link in links]
-
     ordered_dimensions = sorted(resolved_dimensions, key=_chain_bucket)
-    if any(_chain_bucket(rdim) for rdim in resolved_dimensions):
-        # Order chains by their links, not the requested attributes.
-        ordered_dimensions = sorted(
-            resolved_dimensions,
-            key=lambda rdim: (_chain_bucket(rdim), _chain_key(rdim)),
-        )
 
     dim_aliases: dict[tuple[str, str | None], str] = {}
     joins: list[ast.Join] = []
