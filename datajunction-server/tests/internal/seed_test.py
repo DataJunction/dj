@@ -1,9 +1,24 @@
+import asyncio
+
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from datajunction_server.database.catalog import Catalog
+from datajunction_server.database.custom_metadata_schema import CustomMetadataSchema
 from datajunction_server.database.engine import Engine
-from datajunction_server.internal.seed import seed_default_catalogs
+from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.internal.custom_metadata import validate_custom_metadata
+from datajunction_server.internal.seed import (
+    seed_default_catalogs,
+    seed_default_custom_metadata_schemas,
+)
+from datajunction_server.models.semantic_layer_metadata import (
+    SEMANTIC_LAYER_METADATA_DESCRIPTION,
+    SEMANTIC_LAYER_METADATA_KEY,
+    SEMANTIC_LAYER_METADATA_SCHEMA,
+)
+from datajunction_server.models.node_type import NodeType
 from datajunction_server.utils import get_settings
 
 
@@ -122,3 +137,128 @@ async def test_seed_default_catalogs_system_exists(clean_session: AsyncSession):
         ],
     )
     assert len(catalogs) == 2
+
+
+@pytest.mark.asyncio
+async def test_seed_registers_reserved_semantic_layer_schema(
+    clean_session: AsyncSession,
+):
+    await seed_default_custom_metadata_schemas(clean_session)
+
+    schema = (
+        await clean_session.execute(
+            select(CustomMetadataSchema).where(
+                CustomMetadataSchema.key == SEMANTIC_LAYER_METADATA_KEY,
+            ),
+        )
+    ).scalar_one()
+    assert schema.namespace is None
+    assert schema.node_type is None
+    assert schema.json_schema == SEMANTIC_LAYER_METADATA_SCHEMA
+    assert schema.value_kind == "object"
+    assert schema.filterable is False
+    assert schema.description == SEMANTIC_LAYER_METADATA_DESCRIPTION
+    assert schema.reserved is True
+
+
+@pytest.mark.asyncio
+async def test_seed_semantic_layer_schema_is_idempotent(clean_session: AsyncSession):
+    await seed_default_custom_metadata_schemas(clean_session)
+    schema = (
+        await clean_session.execute(
+            select(CustomMetadataSchema).where(
+                CustomMetadataSchema.key == SEMANTIC_LAYER_METADATA_KEY,
+            ),
+        )
+    ).scalar_one()
+    schema.json_schema = {"type": "string"}
+    await clean_session.commit()
+    await seed_default_custom_metadata_schemas(clean_session)
+
+    schemas = (
+        (
+            await clean_session.execute(
+                select(CustomMetadataSchema).where(
+                    CustomMetadataSchema.key == SEMANTIC_LAYER_METADATA_KEY,
+                    CustomMetadataSchema.namespace.is_(None),
+                    CustomMetadataSchema.node_type.is_(None),
+                ),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(schemas) == 1
+    assert schemas[0].json_schema == SEMANTIC_LAYER_METADATA_SCHEMA
+
+
+@pytest.mark.asyncio
+async def test_concurrent_seed_semantic_layer_schema(clean_session: AsyncSession):
+    """Two server starts can insert the same reserved schema concurrently."""
+    session_factory = async_sessionmaker(bind=clean_session.bind)
+    async with session_factory() as first, session_factory() as second:
+        await asyncio.gather(
+            seed_default_custom_metadata_schemas(first),
+            seed_default_custom_metadata_schemas(second),
+        )
+
+    schemas = (
+        (
+            await clean_session.execute(
+                select(CustomMetadataSchema).where(
+                    CustomMetadataSchema.key == SEMANTIC_LAYER_METADATA_KEY,
+                    CustomMetadataSchema.deactivated_at.is_(None),
+                ),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(schemas) == 1
+    assert schemas[0].json_schema == SEMANTIC_LAYER_METADATA_SCHEMA
+
+
+@pytest.mark.asyncio
+async def test_seeded_semantic_layer_schema_validates_node_writes(
+    clean_session: AsyncSession,
+):
+    await seed_default_custom_metadata_schemas(clean_session)
+
+    await validate_custom_metadata(
+        clean_session,
+        "finance",
+        NodeType.METRIC,
+        {
+            "semantic_layer": {
+                "semantic_type": "currency",
+                "extensions": {"superset": {"d3format": "$,.2f"}},
+            },
+        },
+    )
+    with pytest.raises(DJInvalidInputException, match="sematic_type"):
+        await validate_custom_metadata(
+            clean_session,
+            "finance",
+            NodeType.METRIC,
+            {"semantic_layer": {"sematic_type": "currency"}},
+        )
+    with pytest.raises(DJInvalidInputException, match="owner"):
+        await validate_custom_metadata(
+            clean_session,
+            "finance",
+            NodeType.METRIC,
+            {"semantic_layer": {"owner": "finance"}},
+        )
+
+    for invalid_metadata in (
+        {"unit": {"kind": "time"}},
+        {"unit": {"kind": "currency", "code": "usd"}},
+        {"format": {"preset": "number", "precision": 101}},
+    ):
+        with pytest.raises(DJInvalidInputException):
+            await validate_custom_metadata(
+                clean_session,
+                "finance",
+                NodeType.METRIC,
+                {"semantic_layer": invalid_metadata},
+            )
