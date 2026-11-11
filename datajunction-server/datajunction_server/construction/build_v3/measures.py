@@ -1400,6 +1400,7 @@ def build_select_ast(
             rd.original_ref: (rd.column_name, main_alias)
             for rd in resolved_dimensions
             if rd.is_local
+            and parse_dimension_ref(rd.original_ref).node_name not in dim_node_to_alias
         },
     )
 

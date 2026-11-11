@@ -66,6 +66,12 @@ async def ref_client(client_with_build_v3):
         "rl_spine",
         [("plan_key", "string"), ("day", "int")],
     )
+    await create_source(
+        client,
+        "v3.rl_src_ledger",
+        "rl_ledger",
+        [("plan_key", "string"), ("note", "string")],
+    )
     await post(
         client,
         "/nodes/transform/",
@@ -103,6 +109,16 @@ async def ref_client(client_with_build_v3):
         "/nodes/v3.rl_events/columns/plan_label/link",
         params={"dimension_node": "v3.rl_plan", "dimension_column": "plan_label"},
     )
+    await post(
+        client,
+        "/nodes/dimension/",
+        {
+            "name": "v3.rl_ledger",
+            "query": "SELECT plan_key, note FROM v3.rl_src_ledger",
+            "mode": "published",
+            "primary_key": ["plan_key"],
+        },
+    )
     for role in (None, "alt"):
         body = {
             "dimension_node": "v3.rl_plan",
@@ -130,6 +146,32 @@ async def ref_client(client_with_build_v3):
             "mode": "published",
         },
     )
+    await post(
+        client,
+        "/nodes/v3.rl_events/link",
+        {
+            "dimension_node": "v3.rl_ledger",
+            "join_type": "full",
+            "join_on": "v3.rl_events.plan_key = v3.rl_ledger.plan_key",
+        },
+    )
+    for name, dim in (
+        ("v3.rl_spine_count", "rl_spine"),
+        ("v3.rl_ledger_count", "rl_ledger"),
+        ("v3.rl_plan_count", "rl_plan"),
+    ):
+        await post(
+            client,
+            "/nodes/metric/",
+            {
+                "name": name,
+                "query": (
+                    f"SELECT SUM(CASE WHEN v3.{dim}.plan_key IS NOT NULL "
+                    "THEN 1 ELSE 0 END) FROM v3.rl_events"
+                ),
+                "mode": "published",
+            },
+        )
     for name, attribute, value in (
         ("v3.rl_pro_amount", "plan_label", "Pro"),
         ("v3.rl_tier_amount", "plan_tier", "tier-b"),
@@ -178,6 +220,8 @@ def run_in_duckdb(sql: str) -> list[tuple]:
         INSERT INTO v3.rl_events VALUES
           (1, 'p1', 'Basic', 10), (2, 'p2', 'Pro', 20),
           (3, 'p2', 'Pro', 30), (4, 'p9', 'Legacy', 40);
+        CREATE TABLE v3.rl_ledger (plan_key TEXT, note TEXT);
+        INSERT INTO v3.rl_ledger VALUES ('p1', 'n1'), ('p5', 'n5');
         CREATE TABLE v3.rl_spine (plan_key TEXT, day INT);
         INSERT INTO v3.rl_spine VALUES ('p1', 1), ('p2', 2), ('p3', 3);
         """,
@@ -624,3 +668,132 @@ async def test_metric_on_joined_attribute_grouped_by_it(ref_client):
         ("tier-b", 50.0),
         (None, 0.0),
     ]
+
+
+def key_count_sql(dim, col, join_type, extra, owner, table=None):
+    """Expected SQL: group by a skipped key plus an extra attribute, with the
+    metric counting rows where that key is not NULL."""
+    return f"""
+    WITH v3_rl_events AS (
+      SELECT plan_key
+      FROM default.v3.rl_events
+    ),
+    v3_{dim} AS (
+      SELECT plan_key, {extra}
+      FROM default.v3.{table or dim}
+    ),
+    rl_events_0 AS (
+      SELECT COALESCE(t1.plan_key, t2.plan_key) AS plan_key,
+        t2.{extra},
+        SUM(CASE WHEN {owner}.plan_key IS NOT NULL THEN 1 ELSE 0 END) {col}
+      FROM v3_rl_events t1
+      {join_type} OUTER JOIN v3_{dim} t2 ON t1.plan_key = t2.plan_key
+      GROUP BY COALESCE(t1.plan_key, t2.plan_key), t2.{extra}
+    )
+    SELECT rl_events_0.plan_key AS plan_key,
+      rl_events_0.{extra} AS {extra},
+      SUM(rl_events_0.{col}) AS {{metric}}
+    FROM rl_events_0
+    GROUP BY rl_events_0.plan_key, rl_events_0.{extra}
+    """
+
+
+@pytest.mark.asyncio
+async def test_metric_on_key_through_right_join(ref_client):
+    """The metric counts the joined key, so the spine day with no events
+    still counts once (p3), as it did before the reference preference."""
+    col = "v3_DOT_rl_spine_DOT_plan_key_sum_f85a59d7"
+    sql = await metrics_sql(
+        ref_client,
+        ["v3.rl_spine.plan_key", "v3.rl_spine.day"],
+        metric="v3.rl_spine_count",
+    )
+    assert_sql_equal(
+        sql,
+        key_count_sql("rl_spine", col, "RIGHT", "day", "t2").replace(
+            "{metric}",
+            "rl_spine_count",
+        ),
+    )
+    assert sorted(run_in_duckdb(sql)) == [("p1", 1, 1), ("p2", 2, 2), ("p3", 3, 1)]
+
+
+@pytest.mark.asyncio
+async def test_metric_on_key_through_full_join(ref_client):
+    """Only ledger rows count: p5 has no events and counts once, while event
+    rows with no ledger row (p2, p9) count zero."""
+    col = "v3_DOT_rl_ledger_DOT_plan_key_sum_28a90cb8"
+    sql = await metrics_sql(
+        ref_client,
+        ["v3.rl_ledger.plan_key", "v3.rl_ledger.note"],
+        metric="v3.rl_ledger_count",
+    )
+    assert_sql_equal(
+        sql,
+        key_count_sql("rl_ledger", col, "FULL", "note", "t2").replace(
+            "{metric}",
+            "rl_ledger_count",
+        ),
+    )
+    assert sorted(run_in_duckdb(sql), key=str) == [
+        ("p1", "n1", 1),
+        ("p2", None, 0),
+        ("p5", "n5", 1),
+        ("p9", None, 0),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_metric_on_key_through_left_join(ref_client):
+    """The same metric through a LEFT join counts the joined key, so p9 with
+    no plan row counts zero."""
+    col = "v3_DOT_rl_plan_DOT_plan_key_sum_86ccb97b"
+    sql = await metrics_sql(
+        ref_client,
+        ["v3.rl_plan.plan_key", "v3.rl_plan.plan_tier"],
+        metric="v3.rl_plan_count",
+    )
+    assert_sql_equal(
+        sql,
+        key_count_sql("rl_plan", col, "LEFT", "plan_tier", "t2", "rl_plans").replace(
+            "{metric}",
+            "rl_plan_count",
+        ),
+    )
+    assert sorted(run_in_duckdb(sql), key=str) == [
+        ("p1", "tier-a", 1),
+        ("p2", "tier-b", 2),
+        ("p9", None, 0),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_metric_on_key_when_dimension_not_joined(ref_client):
+    """With only the key requested no join is needed, so the metric reads the
+    events column and the key stays in the SELECT and GROUP BY."""
+    col = "v3_DOT_rl_plan_DOT_plan_key_sum_86ccb97b"
+    sql = await metrics_sql(
+        ref_client,
+        ["v3.rl_plan.plan_key"],
+        metric="v3.rl_plan_count",
+    )
+    assert_sql_equal(
+        sql,
+        f"""
+        WITH v3_rl_events AS (
+          SELECT plan_key
+          FROM default.v3.rl_events
+        ),
+        rl_events_0 AS (
+          SELECT t1.plan_key,
+            SUM(CASE WHEN t1.plan_key IS NOT NULL THEN 1 ELSE 0 END) {col}
+          FROM v3_rl_events t1
+          GROUP BY t1.plan_key
+        )
+        SELECT rl_events_0.plan_key AS plan_key,
+          SUM(rl_events_0.{col}) AS rl_plan_count
+        FROM rl_events_0
+        GROUP BY rl_events_0.plan_key
+        """,
+    )
+    assert sorted(run_in_duckdb(sql)) == [("p1", 1), ("p2", 2), ("p9", 1)]
