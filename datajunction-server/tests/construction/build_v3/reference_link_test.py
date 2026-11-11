@@ -174,6 +174,7 @@ async def ref_client(client_with_build_v3):
         )
     for name, attribute, value in (
         ("v3.rl_pro_amount", "plan_label", "Pro"),
+        ("v3.rl_legacy_amount", "plan_label", "Legacy"),
         ("v3.rl_tier_amount", "plan_tier", "tier-b"),
     ):
         await post(
@@ -797,3 +798,48 @@ async def test_metric_on_key_when_dimension_not_joined(ref_client):
         """,
     )
     assert sorted(run_in_duckdb(sql)) == [("p1", 1), ("p2", 2), ("p9", 1)]
+
+
+@pytest.mark.asyncio
+async def test_metric_on_reference_label_when_plan_is_joined_for_tier(ref_client):
+    """Grouping by the label and the tier joins the plan dimension for the
+    tier only. The metric still reads the label from the events column, so
+    the Legacy event, which has no plan row, counts toward its group."""
+    sql = await metrics_sql(
+        ref_client,
+        [PLAN_LABEL, PLAN_TIER],
+        metric="v3.rl_legacy_amount",
+    )
+    assert_sql_equal(
+        sql,
+        """
+        WITH v3_rl_events AS (
+          SELECT plan_key, plan_label, amount
+          FROM default.v3.rl_events
+        ),
+        v3_rl_plan AS (
+          SELECT plan_key, plan_tier
+          FROM default.v3.rl_plans
+        ),
+        rl_events_0 AS (
+          SELECT t1.plan_label,
+            t2.plan_tier,
+            SUM(CASE WHEN t1.plan_label = 'Legacy' THEN t1.amount ELSE 0 END)
+              v3_DOT_rl_plan_DOT_plan_label_amount_sum_2e0e8cb8
+          FROM v3_rl_events t1
+          LEFT OUTER JOIN v3_rl_plan t2 ON t1.plan_key = t2.plan_key
+          GROUP BY t1.plan_label, t2.plan_tier
+        )
+        SELECT rl_events_0.plan_label AS plan_label,
+          rl_events_0.plan_tier AS plan_tier,
+          SUM(rl_events_0.v3_DOT_rl_plan_DOT_plan_label_amount_sum_2e0e8cb8)
+            AS rl_legacy_amount
+        FROM rl_events_0
+        GROUP BY rl_events_0.plan_label, rl_events_0.plan_tier
+        """,
+    )
+    assert sorted(run_in_duckdb(sql), key=str) == [
+        ("Basic", "tier-a", 0.0),
+        ("Legacy", None, 40.0),
+        ("Pro", "tier-b", 0.0),
+    ]
