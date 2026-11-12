@@ -22,6 +22,9 @@ from datajunction_server.semantic_fingerprints.engine import (
     local_node_fingerprint,
 )
 from datajunction_server.semantic_fingerprints.v2 import (
+    namespace_free_name,
+)
+from datajunction_server.semantic_fingerprints.v2 import (
     parse_query as parse_query_cached,
 )
 from datajunction_server.sql.parsing.backends.antlr4 import parse
@@ -234,3 +237,27 @@ def test_query_is_parsed_once_across_repeated_fingerprints():
         second = digest(metric)
     assert first == second
     assert parse_query.call_count == 1
+
+
+def test_names_are_unchanged_without_a_namespace():
+    assert namespace_free_name("analytics.main.orders", "") == "analytics.main.orders"
+
+
+def test_nested_node_loaded_with_its_deploy_root_matches_its_deployed_form():
+    deployed = MetricSpec(
+        namespace="analytics.main",
+        name="sub.total",
+        query="SELECT SUM(amount) FROM ${prefix}sub.orders JOIN ${prefix}dates",
+    )
+    loaded = MetricSpec(
+        namespace="analytics.main",
+        name="analytics.main.sub.total",
+        query="SELECT SUM(amount) FROM analytics.main.sub.orders "
+        "JOIN analytics.main.dates",
+    )
+    other_branch = MetricSpec(
+        namespace="analytics.feature",
+        name="sub.total",
+        query="SELECT SUM(amount) FROM ${prefix}sub.orders JOIN ${prefix}dates",
+    )
+    assert digest(loaded) == digest(deployed) == digest(other_branch)
