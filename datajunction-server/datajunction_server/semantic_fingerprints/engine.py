@@ -13,9 +13,6 @@ from datajunction_server.semantic_fingerprints.normalization import (
     semantic_diff as compare_semantics,
 )
 from datajunction_server.semantic_fingerprints.v1 import build_fingerprint
-from datajunction_server.semantic_fingerprints.v2 import (
-    build_fingerprint as build_fingerprint_v2,
-)
 
 if TYPE_CHECKING:
     from datajunction_server.models.deployment import ColumnSpec, NodeSpec
@@ -23,7 +20,6 @@ if TYPE_CHECKING:
 
 _BUILDERS: dict[int, Callable[..., SemanticFingerprint]] = {
     1: build_fingerprint,
-    2: build_fingerprint_v2,
 }
 
 

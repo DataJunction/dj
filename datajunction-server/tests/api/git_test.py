@@ -4407,7 +4407,7 @@ class TestCopyNodesToNamespace:
                 for result in data["deployment_results"]
             )
             assert all(
-                result["semantic_fingerprint"]["version"] == 2
+                result["semantic_fingerprint"]["version"] == 1
                 for result in data["deployment_results"]
             )
             assert all(

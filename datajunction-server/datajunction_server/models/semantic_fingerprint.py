@@ -5,8 +5,10 @@ from typing import Literal, TypeAlias
 from pydantic import BaseModel, Field, field_validator
 
 
-LATEST_SEMANTIC_FINGERPRINT_VERSION = 2
-SUPPORTED_SEMANTIC_FINGERPRINT_VERSIONS = frozenset({1, 2})
+LATEST_SEMANTIC_FINGERPRINT_VERSION = 1
+SUPPORTED_SEMANTIC_FINGERPRINT_VERSIONS = frozenset(
+    {LATEST_SEMANTIC_FINGERPRINT_VERSION},
+)
 UNKNOWN_SEMANTIC_FINGERPRINT: Literal["unknown"] = "unknown"
 
 

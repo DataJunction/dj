@@ -1,4 +1,4 @@
-"""Tests for namespace-independent semantic fingerprints (version 2)."""
+"""Tests that semantic fingerprints do not depend on the deploy namespace."""
 
 from unittest.mock import patch
 
@@ -21,10 +21,10 @@ from datajunction_server.semantic_fingerprints.engine import (
     compose_node_fingerprint,
     local_node_fingerprint,
 )
-from datajunction_server.semantic_fingerprints.v2 import (
+from datajunction_server.semantic_fingerprints.namespace import (
     namespace_free_name,
 )
-from datajunction_server.semantic_fingerprints.v2 import (
+from datajunction_server.semantic_fingerprints.namespace import (
     parse_query as parse_query_cached,
 )
 from datajunction_server.sql.parsing.backends.antlr4 import parse
@@ -80,8 +80,8 @@ def specs(namespace: str) -> dict[str, NodeSpec]:
     }
 
 
-def digest(spec: NodeSpec, version: int = 2) -> SemanticFingerprint:
-    return local_node_fingerprint(spec, version)
+def digest(spec: NodeSpec) -> SemanticFingerprint:
+    return local_node_fingerprint(spec)
 
 
 @pytest.mark.parametrize(
@@ -92,14 +92,7 @@ def test_fingerprint_is_the_same_in_every_namespace(node_type):
     main = digest(specs("analytics.main")[node_type])
     branch = digest(specs("analytics.feature_branch")[node_type])
     assert main == branch
-    assert main.version == 2
-
-
-@pytest.mark.parametrize("node_type", ["transform", "dimension", "metric", "cube"])
-def test_version_1_still_depends_on_the_namespace(node_type):
-    main = digest(specs("analytics.main")[node_type], 1)
-    branch = digest(specs("analytics.feature_branch")[node_type], 1)
-    assert main != branch
+    assert main.version == 1
 
 
 def test_fingerprint_matches_when_names_are_already_qualified():
@@ -203,22 +196,9 @@ def test_parent_fingerprints_do_not_depend_on_the_namespace():
     def metric_digest(namespace: str) -> SemanticFingerprint:
         built = specs(namespace)
         parent = digest(built["transform"])
-        return compose_node_fingerprint(
-            built["metric"],
-            2,
-            parent_fingerprints=[parent],
-        )
+        return compose_node_fingerprint(built["metric"], parent_fingerprints=[parent])
 
     assert metric_digest("analytics.main") == metric_digest("analytics.feature_branch")
-
-
-def test_parent_versions_must_match():
-    with pytest.raises(ValueError, match="Parent fingerprint version does not match"):
-        compose_node_fingerprint(
-            specs("analytics.main")["metric"],
-            2,
-            parent_fingerprints=[SemanticFingerprint(version=1, digest="a" * 64)],
-        )
 
 
 def test_fingerprint_without_a_namespace():

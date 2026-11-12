@@ -35,6 +35,9 @@ from datajunction_server.semantic_fingerprints.engine import (
     compose_node_fingerprint,
     local_node_fingerprint,
 )
+from datajunction_server.semantic_fingerprints.namespace import (
+    parse_query as parse_query_cached,
+)
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 
@@ -884,6 +887,7 @@ def test_fingerprinting_reuses_parsed_query_across_rendered_copies():
         name="metric",
         query="SELECT COUNT(*) FROM ${prefix}source",
     )
+    parse_query_cached.cache_clear()
 
     with patch(
         "datajunction_server.sql.parsing.backends.antlr4.parse",
@@ -1001,11 +1005,3 @@ def test_cycle_fingerprints_do_not_depend_on_the_namespace():
     assert main == by_short_name("ns.feature")
     assert set(main) == {"a", "b", "downstream"}
     assert all(value != UNKNOWN_SEMANTIC_FINGERPRINT for value in main.values())
-
-
-def test_version_1_cycle_fingerprints_still_depend_on_the_namespace():
-    def first(namespace: str):
-        graph = SemanticFingerprintGraph(namespaced_cycle(namespace), version=1)
-        return graph.fingerprint(f"{namespace}.a")
-
-    assert first("ns.main") != first("ns.feature")

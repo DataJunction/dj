@@ -33,7 +33,7 @@ from datajunction_server.semantic_fingerprints.engine import (
     compose_node_fingerprint,
     local_node_fingerprint,
 )
-from datajunction_server.semantic_fingerprints.v2 import (
+from datajunction_server.semantic_fingerprints.namespace import (
     namespace_free_name,
     own_namespace,
 )
@@ -559,10 +559,7 @@ def _compute_merkle_fingerprints(
                             local_fingerprints,
                             internal_edges,
                             external_edges,
-                            rename=_cycle_renamer(
-                                fingerprint_specs[members[0]],
-                                version,
-                            ),
+                            rename=_cycle_renamer(fingerprint_specs[members[0]]),
                         )
                         component_results[component_index] = {
                             name: compose_node_fingerprint(
@@ -671,10 +668,8 @@ class SemanticFingerprintGraph:
         )
 
 
-def _cycle_renamer(spec: NodeSpec, version: int) -> Callable[[str], str]:
-    """Names in a cycle hash, without the deploy namespace from version 2."""
-    if version < 2:
-        return lambda name: name
+def _cycle_renamer(spec: NodeSpec) -> Callable[[str], str]:
+    """Names in a cycle hash, without the deploy namespace."""
     namespace = own_namespace(spec)
     return lambda name: namespace_free_name(name, namespace)
 
