@@ -18,6 +18,19 @@ from datajunction_server.internal.deployment.utils import (
 class TestDimensionReachabilityInMemory:
     """Pure in-memory tests — no DB, no BFS, just the lookup logic."""
 
+    def test_reachable_roles_include_local_and_reference_dimensions(self):
+        reachability = DimensionReachability(
+            {(10, "dim.date", "ordered->calendar"): [100, 101]},
+            local_names={10: "fact.orders"},
+            reference_dims={10: {("dim.date", "shipped")}},
+        )
+        assert reachability.reachable_roles_from(10) == {
+            ("fact.orders", ""),
+            ("dim.date", "ordered->calendar"),
+            ("dim.date", "shipped"),
+        }
+        assert reachability.reachable_roles_from(11) == set()
+
     def test_empty_paths(self):
         r = DimensionReachability({})
         assert r.reachable_from(1) == set()

@@ -137,6 +137,10 @@ class DimensionReachability:
         """All dimension names reachable from a source node."""
         return self._reachable.get(source_rev_id, set())
 
+    def reachable_roles_from(self, source_rev_id: int) -> set[tuple[str, str]]:
+        """Reachable dimension nodes and their exact role paths."""
+        return self._reachable_roles.get(source_rev_id, set())
+
     def shared_dimensions(self, source_rev_ids: set[int]) -> set[str]:
         """Intersection of reachable dimensions across all source nodes."""
         if not source_rev_ids:
