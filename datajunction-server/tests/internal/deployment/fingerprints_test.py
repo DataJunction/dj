@@ -10,6 +10,7 @@ from datajunction_server.internal.deployment.fingerprints import (
     _load_external_specs,
     _parent_candidates,
     _resolved_proposed_specs,
+    _scope_to_namespace,
     _seed_parent_cache_entry,
     _seed_parent_cache_from_pre_parsed,
     build_deployment_fingerprints,
@@ -893,3 +894,31 @@ def test_fingerprinting_reuses_parsed_query_across_rendered_copies():
 
     assert first == second
     assert parse_query.call_count == 1
+
+
+def test_scope_to_namespace_only_sets_specs_inside_the_namespace():
+    inside = transform_spec("inside", "SELECT 1")
+    inside.namespace = None
+    inside.name = "ns.main.inside"
+    outside = transform_spec("outside", "SELECT 1")
+    outside.namespace = None
+    outside.name = "common.outside"
+    already = transform_spec("already", "SELECT 1", namespace="ns.other")
+
+    _scope_to_namespace([inside, outside, already], "ns.main")
+
+    assert (inside.namespace, outside.namespace, already.namespace) == (
+        "ns.main",
+        None,
+        "ns.other",
+    )
+
+
+def test_scope_to_namespace_without_a_namespace_changes_nothing():
+    spec = transform_spec("inside", "SELECT 1")
+    spec.namespace = None
+    spec.name = "ns.main.inside"
+
+    _scope_to_namespace([spec], None)
+
+    assert spec.namespace is None

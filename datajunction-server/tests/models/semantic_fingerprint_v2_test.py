@@ -21,6 +21,9 @@ from datajunction_server.semantic_fingerprints.engine import (
     compose_node_fingerprint,
     local_node_fingerprint,
 )
+from datajunction_server.semantic_fingerprints.v2 import (
+    parse_query as parse_query_cached,
+)
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 
@@ -78,7 +81,10 @@ def digest(spec: NodeSpec, version: int = 2) -> SemanticFingerprint:
     return local_node_fingerprint(spec, version)
 
 
-@pytest.mark.parametrize("node_type", ["source", "transform", "dimension", "metric", "cube"])
+@pytest.mark.parametrize(
+    "node_type",
+    ["source", "transform", "dimension", "metric", "cube"],
+)
 def test_fingerprint_is_the_same_in_every_namespace(node_type):
     main = digest(specs("analytics.main")[node_type])
     branch = digest(specs("analytics.feature_branch")[node_type])
@@ -102,6 +108,17 @@ def test_fingerprint_matches_when_names_are_already_qualified():
         required_dimensions=["analytics.main.order.status"],
     )
     assert digest(templated) == digest(qualified)
+
+
+def test_spec_loaded_without_a_namespace_matches_its_deployed_form():
+    deployed = specs("analytics.main")["metric"]
+    loaded = MetricSpec(
+        name="analytics.main.total_amount",
+        query="SELECT SUM(amount) AS value FROM analytics.main.clean_orders",
+        required_dimensions=["analytics.main.order.status"],
+    )
+    assert loaded.namespace is None
+    assert digest(loaded) == digest(deployed)
 
 
 def test_names_in_other_namespaces_are_kept():
@@ -173,6 +190,7 @@ def test_fingerprint_without_a_namespace():
 
 def test_query_is_parsed_once_across_repeated_fingerprints():
     metric = specs("analytics.main")["metric"]
+    parse_query_cached.cache_clear()
     with patch(
         "datajunction_server.sql.parsing.backends.antlr4.parse",
         wraps=parse,

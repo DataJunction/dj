@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 from collections.abc import Iterable
+from functools import lru_cache
 from typing import TYPE_CHECKING
 
 from datajunction_server.models.semantic_fingerprint import SemanticFingerprint
@@ -15,11 +16,30 @@ from datajunction_server.semantic_fingerprints.normalization import (
     normalize_value,
 )
 from datajunction_server.semantic_fingerprints.v1 import semantic_fields
+from datajunction_server.utils import SEPARATOR
 
 if TYPE_CHECKING:
     from datajunction_server.models.deployment import ColumnSpec, NodeSpec
 
 NAMESPACE_MARKER = "__namespace__"
+
+
+@lru_cache(maxsize=4096)
+def parse_query(query: str):
+    """Parses a query once per distinct text."""
+    from datajunction_server.sql.parsing.backends import antlr4
+
+    return antlr4.parse(query)
+
+
+def own_namespace(spec: NodeSpec) -> str:
+    """
+    The namespace a spec was deployed into.
+
+    Specs loaded from the database have no namespace set, so use the one
+    in the node's name.
+    """
+    return spec.namespace or spec.rendered_name.rpartition(SEPARATOR)[0]
 
 
 def namespace_free_spec(spec: NodeSpec) -> NodeSpec:
@@ -29,18 +49,18 @@ def namespace_free_spec(spec: NodeSpec) -> NodeSpec:
     Names in other namespaces are left as written.
     """
     rendered = spec.rendered_spec()
-    if not spec.namespace:
+    namespace = own_namespace(spec)
+    if not namespace:
         return rendered
-    own_names = re.compile(rf"(?<![\w.]){re.escape(spec.namespace)}\.")
+    own_names = re.compile(rf"(?<![\w.]){re.escape(namespace)}\.")
     text = own_names.sub(
         f"{NAMESPACE_MARKER}.",
         json.dumps(rendered.model_dump(mode="json")),
     )
     result = type(rendered).model_validate_json(text)
     result.namespace = None
-    if spec._namespace_free_query_ast is None and result.rendered_query:
-        spec._namespace_free_query_ast = result.query_ast
-    result._query_ast = spec._namespace_free_query_ast
+    if result.rendered_query:
+        result._query_ast = parse_query(result.rendered_query)
     return result
 
 
