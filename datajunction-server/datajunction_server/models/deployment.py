@@ -669,6 +669,7 @@ class NodeSpec(NamespacedSpec):
         "tags": ChangeTier.NONE,
     }
     _query_ast: Any | None = PrivateAttr(default=None)
+    _namespace_free_query_ast: Any | None = PrivateAttr(default=None)
     # Internal: marks specs from already-validated sources (e.g., branch copies)
     # that can skip expensive SQL parsing and validation
     _skip_validation: bool = PrivateAttr(default=False)
