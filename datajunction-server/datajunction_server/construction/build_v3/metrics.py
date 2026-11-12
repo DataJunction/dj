@@ -514,6 +514,18 @@ def _build_pre_agg_wrapper_cte(
     return wrapper_query, wrapper_alias
 
 
+def _union_cte_columns(target: ast.Query, other: ast.Query) -> None:
+    """Add columns the other copy kept."""
+    if target.select.set_op or other.select.set_op:
+        return
+    have = {str(item) for item in target.select.projection}
+    for item in other.select.projection:
+        if str(item) not in have:
+            target.select.projection.append(
+                parse(f"SELECT {item}").select.projection[0],
+            )
+
+
 def collect_and_build_ctes(
     grain_groups: list[GrainGroupSQL],
     skip_pre_agg: bool = False,
@@ -544,6 +556,8 @@ def collect_and_build_ctes(
                 if cte_name not in shared_ctes:
                     # First time seeing this CTE - add it
                     shared_ctes[cte_name] = deepcopy(inner_cte)
+                else:
+                    _union_cte_columns(shared_ctes[cte_name], inner_cte)
 
     # Build grain group aliases and CTEs
     all_cte_asts: list[ast.Query] = []

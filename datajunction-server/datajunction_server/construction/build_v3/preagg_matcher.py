@@ -69,6 +69,7 @@ def get_required_measure_identities(
             compute_expression_hash(component.expression),
             component.aggregation,
             component.params,
+            component.where,
         )
         for _, component in grain_group.components
     }
@@ -84,6 +85,7 @@ def preagg_measure_matches_component(
         and stored.expr_hash == compute_expression_hash(component.expression)
         and (stored.aggregation or "").strip().upper()
         == component.normalized_aggregation
+        and stored.where == component.where
         and component_params_match(component, stored.params),
     )
 

@@ -206,6 +206,7 @@ async def _preagg_to_info(
                 aggregation=measure.aggregation,
                 merge=measure.merge,
                 rule=measure.rule,
+                where=measure.where,
                 expr_hash=measure.expr_hash,
                 used_by_metrics=sorted(measure_metrics, key=lambda m: m.name)
                 if measure_metrics

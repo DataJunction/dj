@@ -1673,7 +1673,7 @@ async def test_create_invalid_metric(module__client_with_roads: AsyncClient):
         json={
             "query": (
                 "SELECT sum(total_repair_cost) FROM default.repair_orders_fact"
-                " WHERE total_repair_cost > 0"
+                " WHERE default.hard_hat.city = 'x'"
             ),
             "description": "Something invalid",
             "mode": "published",
@@ -1681,7 +1681,7 @@ async def test_create_invalid_metric(module__client_with_roads: AsyncClient):
         },
     )
     assert response.json()["message"] == (
-        "Metric cannot have a WHERE clause. Please use IF(<clause>, ...) instead"
+        "A metric WHERE can only use parent columns, not default.hard_hat."
     )
 
     response = await module__client_with_roads.post(

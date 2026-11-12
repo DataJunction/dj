@@ -424,6 +424,19 @@ def build_row_count_sql(
     )
 
 
+METRIC_WHERE_MESSAGE = "Metrics with a WHERE clause need the v3 endpoints."
+
+
+def reject_metric_where(metric_components: dict) -> None:
+    """Reject metrics this builder would filter wrongly."""
+    if any(
+        component.where
+        for components, _ in metric_components.values()
+        for component in components
+    ):
+        raise DJInvalidInputException(METRIC_WHERE_MESSAGE)
+
+
 async def build_sql_for_multiple_metrics(
     session: AsyncSession,
     metrics: list[str],
@@ -561,6 +574,12 @@ async def build_sql_for_multiple_metrics(
             cube.catalog,
         )
 
+    _, metric_components = await extract_components_and_parent_columns(
+        metric_nodes,
+        session,
+    )
+    reject_metric_where(metric_components)
+
     query_ast = await build_metric_nodes(
         session,
         metric_nodes,
@@ -644,6 +663,7 @@ async def get_measures_query(
         metric_nodes,
         session,
     )
+    reject_metric_where(metric_components)
 
     column_name_regex = r"([A-Za-z0-9_\.]+)(\[[A-Za-z0-9_]+\])?"
     matcher = re.compile(column_name_regex)

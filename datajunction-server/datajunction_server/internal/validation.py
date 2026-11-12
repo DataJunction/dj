@@ -46,7 +46,10 @@ from datajunction_server.models.reaggregate import (
     parse_reaggregate_spec,
     unsupported_dimension_reaggregate_functions,
 )
-from datajunction_server.sql.decompose import validate_fixed_grain_shape
+from datajunction_server.sql.decompose import (
+    validate_fixed_grain_shape,
+    validate_where_shape,
+)
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import (
     SqlParsingError,
@@ -537,7 +540,9 @@ async def validate_node_data(
             }
 
             metric_expression = query_ast.select.projection[0]
-            referenced_columns = metric_expression.find_all(ast.Column)
+            referenced_columns = list(metric_expression.find_all(ast.Column))
+            if query_ast.select.where:
+                referenced_columns += query_ast.select.where.find_all(ast.Column)
 
             missing_columns = []
             for col in referenced_columns:
@@ -1165,7 +1170,9 @@ async def validate_node_data_v2(
                 for col in upstream_node.columns
             }
             metric_expression = query_ast.select.projection[0]
-            referenced_columns = metric_expression.find_all(ast.Column)
+            referenced_columns = list(metric_expression.find_all(ast.Column))
+            if query_ast.select.where:
+                referenced_columns += query_ast.select.where.find_all(ast.Column)
             missing_columns = [
                 col.alias_or_name.name
                 for col in referenced_columns
@@ -1408,6 +1415,32 @@ async def validate_node_data_v2(
     return node_validator
 
 
+def _validate_metric_where(query_ast: ast.Query) -> None:
+    """Check a metric WHERE is supported."""
+    select = query_ast.select
+    if select.from_ is None:
+        raise DJInvalidMetricQueryException(
+            "A WHERE clause is only supported on base metrics.",
+        )
+    own_names: set[str] = set()
+    for table in select.from_.find_all(ast.Table):
+        own_names.add(table.name.identifier())
+        if table.alias:
+            own_names.add(table.alias.name)
+    foreign = sorted(
+        {
+            col.name.namespace.identifier()
+            for col in select.where.find_all(ast.Column)  # type: ignore
+            if col.name.namespace and col.name.namespace.identifier() not in own_names
+        },
+    )
+    if foreign:
+        raise DJInvalidMetricQueryException(
+            f"A metric WHERE can only use parent columns, not {', '.join(foreign)}.",
+        )
+    validate_where_shape(str(query_ast))
+
+
 def validate_metric_query(query_ast: ast.Query, name: str) -> None:
     """
     Validate a metric query.
@@ -1427,9 +1460,7 @@ def validate_metric_query(query_ast: ast.Query, name: str) -> None:
         )
 
     if query_ast.select.where:
-        raise DJInvalidMetricQueryException(
-            "Metric cannot have a WHERE clause. Please use IF(<clause>, ...) instead",
-        )
+        _validate_metric_where(query_ast)
 
     clauses = [
         "GROUP BY" if query_ast.select.group_by else None,

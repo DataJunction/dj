@@ -114,6 +114,7 @@ def measure_identity_token(
     expr_hash: str,
     aggregation: str | None,
     params: dict[str, Any] | None = None,
+    where: str | None = None,
 ) -> str:
     """
     Canonical token identifying one measure: expression hash plus Phase-1
@@ -132,13 +133,17 @@ def measure_identity_token(
     built from these tokens, so that stability is a compatibility requirement, not
     a nicety.
 
+    A metric's own WHERE is part of identity too.
+
     Note the quantile *fractions* a metric asks for are deliberately not here. One
     sketch column serves p50, p95 and p99; folding fractions in would fragment it
     into three identical columns.
     """
     base = f"{expr_hash}:{(aggregation or '').strip().upper()}"
     suffix = canonical_params(params)
-    return f"{base}:{suffix}" if suffix else base
+    token = f"{base}:{suffix}" if suffix else base
+    # Unfiltered tokens stay unchanged.
+    return f"{token}|where={where}" if where else token
 
 
 def get_measure_identities(measures: list[PreAggMeasure]) -> set[str]:
@@ -152,7 +157,7 @@ def get_measure_identities(measures: list[PreAggMeasure]) -> set[str]:
         Set of identity tokens
     """
     return {
-        measure_identity_token(m.expr_hash, m.aggregation, m.params)
+        measure_identity_token(m.expr_hash, m.aggregation, m.params, m.where)
         for m in measures
         if m.expr_hash
     }
