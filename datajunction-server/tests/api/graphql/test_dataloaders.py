@@ -26,6 +26,15 @@ from datajunction_server.instrumentation.provider import (
 )
 
 
+@pytest.fixture(autouse=True)
+def no_inherited_names(monkeypatch):
+    """Mock sessions hold no default branch nodes to fall back to."""
+    monkeypatch.setattr(
+        "datajunction_server.api.graphql.utils.inherited_names",
+        AsyncMock(return_value={}),
+    )
+
+
 @pytest.mark.asyncio
 @patch("datajunction_server.api.graphql.dataloaders.session_context")
 @patch("datajunction_server.api.graphql.dataloaders.DBNode.find_by")

@@ -1,7 +1,7 @@
 """Utils for handling GraphQL queries."""
 
 import re
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any, TypeVar
 
@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from strawberry.types import Info
 from strawberry.types.nodes import FragmentSpread, InlineFragment
 
+from datajunction_server.internal.branch_scope import inherited_names
 from datajunction_server.utils import get_session
 
 CURSOR_SEPARATOR = "-"
@@ -130,3 +131,27 @@ def dedupe_append(base: list[T], extras: list[T]) -> list[T]:
     """
     base_set = set(base)
     return base + [x for x in extras if x not in base_set]
+
+
+async def add_inherited(
+    session: AsyncSession,
+    names: list[str],
+    found: dict[str, T],
+    load: Callable[[list[str]], Awaitable[dict[str, T]]],
+) -> dict[str, T]:
+    """
+    Adds default branch nodes for names missing from `found`.
+
+    The result is keyed by the name that was asked for.
+    """
+    missing = [name for name in names if name not in found]
+    parents = await inherited_names(session, missing) if missing else {}
+    if not parents:
+        return found
+    loaded = await load(list(set(parents.values())))
+    return {
+        **found,
+        **{
+            name: loaded[parent] for name, parent in parents.items() if parent in loaded
+        },
+    }

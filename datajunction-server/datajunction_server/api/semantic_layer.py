@@ -1600,6 +1600,7 @@ async def get_view(
             session,
             view_name,
             for_measures_sql=True,  # load only what we need to build the metrics
+            inherit=True,
         )
     except DJException as exc:
         return _problem(exc.http_status_code or 404, exc.message)
@@ -1972,7 +1973,11 @@ async def _prepare_view_sql(
     if not payload.metrics and not payload.dimensions:
         return _problem(400, "A query must request at least one metric or dimension.")
     try:
-        cube_node = await Node.get_cube_by_name(session, view_name)
+        cube_node = await Node.get_cube_by_name(
+            session,
+            view_name,
+            inherit=True,
+        )
         if cube_node is None or cube_node.current is None:
             return _view_not_found(view_name)
         cube_rev = cube_node.current
@@ -2250,7 +2255,11 @@ async def get_values(
     if not await _can_read_view(view_name, access_checker):
         return _view_not_found(view_name)
     try:
-        cube_node = await Node.get_cube_by_name(session, view_name)
+        cube_node = await Node.get_cube_by_name(
+            session,
+            view_name,
+            inherit=True,
+        )
     except DJException as exc:
         return _problem(exc.http_status_code or 400, exc.message)
     if cube_node is None or cube_node.current is None:

@@ -206,6 +206,7 @@ async def test_get_node_by_name_with_nodes_key(mock_load_options, mock_get_by_na
         session,
         name="test.node",
         options=["option1", "option2"],
+        inherit=True,
     )
 
 
@@ -230,6 +231,7 @@ async def test_get_node_by_name_with_edges_key(mock_load_options, mock_get_by_na
         session,
         name="test.node",
         options=["option1"],
+        inherit=True,
     )
 
 
@@ -256,4 +258,5 @@ async def test_get_node_by_name_with_direct_fields(mock_load_options, mock_get_b
         session,
         name="test.node",
         options=[],
+        inherit=True,
     )
