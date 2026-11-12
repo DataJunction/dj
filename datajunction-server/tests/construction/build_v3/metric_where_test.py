@@ -789,7 +789,10 @@ def test_preagg_measure_matching_requires_equal_where():
 
 def test_grain_groups_split_and_stay_split_by_where():
     """Components with different WHERE clauses never share a grain group."""
-    parent = SimpleNamespace(name="v3.order_details", current=SimpleNamespace(columns=[]))
+    parent = SimpleNamespace(
+        name="v3.order_details",
+        current=SimpleNamespace(columns=[]),
+    )
     group = MetricGroup(
         parent_node=parent,
         decomposed_metrics=[
@@ -896,7 +899,10 @@ async def test_legacy_sql_rejects_a_derived_metric_over_where(client_with_build_
     )
     response = await client_with_build_v3.get(
         "/sql/",
-        params={"metrics": ["v3.completed_share"], "dimensions": ["v3.product.category"]},
+        params={
+            "metrics": ["v3.completed_share"],
+            "dimensions": ["v3.product.category"],
+        },
     )
     assert response.status_code == 422, response.json()
     assert response.json()["message"] == METRIC_WHERE_MESSAGE
@@ -906,7 +912,11 @@ async def test_legacy_sql_rejects_a_derived_metric_over_where(client_with_build_
 async def test_extraction_rejects_a_derived_metric_where():
     """Metrics that predate validation still cannot extract with a WHERE."""
     extractor = MetricComponentExtractor(0)
-    data = MetricData(query="SELECT a / b WHERE x = 1", is_derived=True, base_metrics=[])
+    data = MetricData(
+        query="SELECT a / b WHERE x = 1",
+        is_derived=True,
+        base_metrics=[],
+    )
     with patch.object(extractor, "_load_metric_data", AsyncMock(return_value=data)):
         with pytest.raises(DJInvalidInputException) as exc_info:
             await extractor.extract(None)
