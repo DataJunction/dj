@@ -261,3 +261,31 @@ def test_nested_node_loaded_with_its_deploy_root_matches_its_deployed_form():
         query="SELECT SUM(amount) FROM ${prefix}sub.orders JOIN ${prefix}dates",
     )
     assert digest(loaded) == digest(deployed) == digest(other_branch)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "SELECT id -- user's column\nFROM ${prefix}orders WHERE tag = 'active'",
+        "SELECT id /* user's column */ FROM ${prefix}orders WHERE tag = 'active'",
+        'SELECT "user\'s id" AS id FROM ${prefix}orders',
+        "SELECT id FROM ${prefix}orders WHERE note = 'it''s' AND tag = 'a'",
+        "SELECT id -- see ${prefix}orders\nFROM ${prefix}orders",
+    ],
+)
+def test_comments_and_quotes_do_not_hide_node_names(query):
+    def metric(namespace: str) -> MetricSpec:
+        return MetricSpec(namespace=namespace, name="m", query=query)
+
+    assert digest(metric("analytics.main")) == digest(metric("analytics.feature"))
+
+
+def test_values_after_a_comment_with_an_apostrophe_keep_their_text():
+    def metric(namespace: str) -> MetricSpec:
+        return MetricSpec(
+            namespace=namespace,
+            name="m",
+            query=f"SELECT id -- user's column\nFROM ${{prefix}}orders WHERE tag = '{namespace}.x'",
+        )
+
+    assert digest(metric("analytics.main")) != digest(metric("analytics.feature"))

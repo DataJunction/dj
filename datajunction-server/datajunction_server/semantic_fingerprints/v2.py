@@ -31,8 +31,14 @@ def parse_query(query: str):
     return antlr4.parse(query)
 
 
-# A single-quoted SQL string, where '' is an escaped quote.
-_SQL_STRING = re.compile(r"('(?:[^']|'')*')")
+# SQL text kept as written: line and block comments, and single-quoted
+# strings where '' is an escaped quote. Quoted names are matched so their
+# apostrophes are not read as the start of a string.
+_SQL_TOKEN = re.compile(
+    r"(?P<kept>--[^\n]*|/\*.*?\*/|'(?:[^']|'')*')"
+    r'|(?P<name>"(?:[^"]|"")*"|`[^`]*`)',
+    re.DOTALL,
+)
 # Fields holding SQL text, where quoted strings are values, not names.
 EXPRESSION_KEYS = frozenset({"query", "join_on", "filters", "default"})
 # Fields naming warehouse tables, which no deploy namespace changes.
@@ -51,12 +57,17 @@ def namespace_free_name(text: str, namespace: str) -> str:
 
 
 def _outside_strings(text: str, namespace: str) -> str:
-    parts = _SQL_STRING.split(text)
-    # re.split puts the quoted strings at odd indexes.
-    return "".join(
-        part if index % 2 else namespace_free_name(part, namespace)
-        for index, part in enumerate(parts)
-    )
+    result = []
+    position = 0
+    for token in _SQL_TOKEN.finditer(text):
+        result.append(namespace_free_name(text[position : token.start()], namespace))
+        kept = token.group("kept") is not None
+        result.append(
+            token.group() if kept else namespace_free_name(token.group(), namespace),
+        )
+        position = token.end()
+    result.append(namespace_free_name(text[position:], namespace))
+    return "".join(result)
 
 
 def _rewrite(value: Any, namespace: str, key: str | None = None) -> Any:
