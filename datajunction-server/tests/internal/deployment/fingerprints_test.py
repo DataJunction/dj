@@ -896,29 +896,116 @@ def test_fingerprinting_reuses_parsed_query_across_rendered_copies():
     assert parse_query.call_count == 1
 
 
-def test_scope_to_namespace_only_sets_specs_inside_the_namespace():
-    inside = transform_spec("inside", "SELECT 1")
-    inside.namespace = None
-    inside.name = "ns.main.inside"
-    outside = transform_spec("outside", "SELECT 1")
-    outside.namespace = None
-    outside.name = "common.outside"
+def loaded_spec(name: str) -> TransformSpec:
+    spec = transform_spec("unused", "SELECT 1")
+    spec.namespace = None
+    spec.name = name
+    return spec
+
+
+@pytest.mark.asyncio
+async def test_scope_to_namespace_uses_the_deploy_namespace_inside_it():
+    inside = loaded_spec("ns.main.inside")
     already = transform_spec("already", "SELECT 1", namespace="ns.other")
 
-    _scope_to_namespace([inside, outside, already], "ns.main")
+    with patch(
+        "datajunction_server.internal.namespaces.get_git_info_for_namespaces",
+        AsyncMock(return_value={}),
+    ) as git_infos:
+        await _scope_to_namespace(MagicMock(), [inside, already], "ns.main")
 
-    assert (inside.namespace, outside.namespace, already.namespace) == (
-        "ns.main",
-        None,
-        "ns.other",
-    )
+    assert (inside.namespace, already.namespace) == ("ns.main", "ns.other")
+    git_infos.assert_not_called()
 
 
-def test_scope_to_namespace_without_a_namespace_changes_nothing():
-    spec = transform_spec("inside", "SELECT 1")
-    spec.namespace = None
-    spec.name = "ns.main.inside"
+@pytest.mark.asyncio
+async def test_scope_to_namespace_uses_the_git_root_outside_the_deploy_namespace():
+    nested = loaded_spec("other.main.sub.total")
+    elsewhere = loaded_spec("common.outside")
 
-    _scope_to_namespace([spec], None)
+    with patch(
+        "datajunction_server.internal.namespaces.get_git_info_for_namespaces",
+        AsyncMock(
+            return_value={
+                "other.main.sub": {"branch_namespace": "other.main"},
+                "common": None,
+            },
+        ),
+    ) as git_infos:
+        await _scope_to_namespace(MagicMock(), [nested, elsewhere], "ns.main")
+
+    assert (nested.namespace, elsewhere.namespace) == ("other.main", None)
+    assert git_infos.await_args.args[1] == ["common", "other.main.sub"]
+
+
+@pytest.mark.asyncio
+async def test_scope_to_namespace_without_a_namespace_or_git_info():
+    spec = loaded_spec("ns.main.inside")
+
+    with patch(
+        "datajunction_server.internal.namespaces.get_git_info_for_namespaces",
+        AsyncMock(return_value={"ns.main": None}),
+    ):
+        await _scope_to_namespace(MagicMock(), [spec], None)
 
     assert spec.namespace is None
+
+
+@pytest.mark.asyncio
+async def test_scope_to_namespace_skips_specs_without_a_namespace_in_the_name():
+    spec = loaded_spec("bare")
+
+    with patch(
+        "datajunction_server.internal.namespaces.get_git_info_for_namespaces",
+        AsyncMock(),
+    ) as git_infos:
+        await _scope_to_namespace(MagicMock(), [spec], "ns.main")
+
+    assert spec.namespace is None
+    git_infos.assert_not_called()
+
+
+def namespaced_cycle(namespace: str) -> dict[str, NodeSpec]:
+    def dimension(name: str, target: str) -> DimensionSpec:
+        return DimensionSpec(
+            namespace=namespace,
+            name=name,
+            query="SELECT 1",
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node=f"{namespace}.{target}",
+                    join_type="cross",
+                ),
+            ],
+        )
+
+    downstream = transform_spec(
+        "downstream",
+        "SELECT * FROM ${prefix}a",
+        namespace=namespace,
+    )
+    return spec_map(dimension("a", "b"), dimension("b", "a"), downstream)
+
+
+def test_cycle_fingerprints_do_not_depend_on_the_namespace():
+    def by_short_name(namespace: str):
+        fingerprints = SemanticFingerprintGraph(
+            namespaced_cycle(namespace),
+        ).fingerprints()
+        return {
+            name.removeprefix(f"{namespace}."): value
+            for name, value in fingerprints.items()
+        }
+
+    main = by_short_name("ns.main")
+    assert main == by_short_name("ns.feature")
+    assert set(main) == {"a", "b", "downstream"}
+    assert all(value != UNKNOWN_SEMANTIC_FINGERPRINT for value in main.values())
+
+
+def test_version_1_cycle_fingerprints_still_depend_on_the_namespace():
+    def first(namespace: str):
+        graph = SemanticFingerprintGraph(namespaced_cycle(namespace), version=1)
+        return graph.fingerprint(f"{namespace}.a")
+
+    assert first("ns.main") != first("ns.feature")

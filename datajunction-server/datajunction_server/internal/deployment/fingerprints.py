@@ -33,6 +33,10 @@ from datajunction_server.semantic_fingerprints.engine import (
     compose_node_fingerprint,
     local_node_fingerprint,
 )
+from datajunction_server.semantic_fingerprints.v2 import (
+    namespace_free_name,
+    own_namespace,
+)
 from datajunction_server.semantic_fingerprints.merkle import (
     cycle_component_fingerprint,
     strongly_connected_components,
@@ -555,6 +559,10 @@ def _compute_merkle_fingerprints(
                             local_fingerprints,
                             internal_edges,
                             external_edges,
+                            rename=_cycle_renamer(
+                                fingerprint_specs[members[0]],
+                                version,
+                            ),
                         )
                         component_results[component_index] = {
                             name: compose_node_fingerprint(
@@ -663,14 +671,44 @@ class SemanticFingerprintGraph:
         )
 
 
-def _scope_to_namespace(specs: Iterable[NodeSpec], namespace: str | None) -> None:
-    """Sets the deploy namespace on loaded specs that sit inside it."""
-    if not namespace:
-        return
-    prefix = f"{namespace}{SEPARATOR}"
+def _cycle_renamer(spec: NodeSpec, version: int) -> Callable[[str], str]:
+    """Names in a cycle hash, without the deploy namespace from version 2."""
+    if version < 2:
+        return lambda name: name
+    namespace = own_namespace(spec)
+    return lambda name: namespace_free_name(name, namespace)
+
+
+async def _scope_to_namespace(
+    session: AsyncSession,
+    specs: Iterable[NodeSpec],
+    namespace: str | None,
+) -> None:
+    """
+    Sets the namespace a node was deployed into on specs loaded from the database.
+
+    Nodes inside the deploy namespace take it. Others take the root of their
+    git branch namespace, when they have one.
+    """
+    from datajunction_server.internal.namespaces import get_git_info_for_namespaces
+
+    prefix = f"{namespace}{SEPARATOR}" if namespace else None
+    loose: list[NodeSpec] = []
     for spec in specs:
-        if spec.namespace is None and spec.rendered_name.startswith(prefix):
+        if spec.namespace is not None:
+            continue
+        if prefix and spec.rendered_name.startswith(prefix):
             spec.namespace = namespace
+        else:
+            loose.append(spec)
+    namespaces = {own_namespace(spec) for spec in loose} - {""}
+    if not namespaces:
+        return
+    git_infos = await get_git_info_for_namespaces(session, sorted(namespaces))
+    for spec in loose:
+        root = (git_infos.get(own_namespace(spec)) or {}).get("branch_namespace")
+        if root and spec.rendered_name.startswith(f"{root}{SEPARATOR}"):
+            spec.namespace = root
 
 
 async def build_deployment_fingerprints(
@@ -692,7 +730,7 @@ async def build_deployment_fingerprints(
         (spec.namespace for spec in proposed_specs if spec.namespace),
         None,
     )
-    _scope_to_namespace(existing_specs.values(), namespace)
+    await _scope_to_namespace(session, existing_specs.values(), namespace)
     additional_target_names = set(additional_target_names)
     deleted_names = {spec.rendered_name for spec in deleted_specs}
     submitted_names = {spec.rendered_name for spec in proposed_specs}
@@ -731,7 +769,7 @@ async def build_deployment_fingerprints(
             spec.rendered_name: spec
             for spec in [await node.to_spec(session) for node in target_nodes]
         }
-        _scope_to_namespace(target_specs.values(), namespace)
+        await _scope_to_namespace(session, target_specs.values(), namespace)
         timings["target_to_spec"] = time.perf_counter() - step_started
 
     step_started = time.perf_counter()
@@ -764,7 +802,7 @@ async def build_deployment_fingerprints(
         ignored_parse_errors=deleted_names,
         parent_cache=parent_cache,
     )
-    _scope_to_namespace(external.values(), namespace)
+    await _scope_to_namespace(session, external.values(), namespace)
     timings["external_load"] = time.perf_counter() - step_started
     step_started = time.perf_counter()
     current_external = {**external, **target_specs}

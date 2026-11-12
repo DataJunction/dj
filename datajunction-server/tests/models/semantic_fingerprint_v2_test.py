@@ -121,6 +121,41 @@ def test_spec_loaded_without_a_namespace_matches_its_deployed_form():
     assert digest(loaded) == digest(deployed)
 
 
+def test_quoted_values_and_table_names_keep_their_namespace_text():
+    def metric(namespace: str) -> MetricSpec:
+        return MetricSpec(
+            namespace=namespace,
+            name="total_amount",
+            query=f"SELECT SUM(amount) FROM ${{prefix}}orders WHERE tag = '{namespace}.customer'",
+        )
+
+    def source(namespace: str) -> SourceSpec:
+        return SourceSpec(
+            namespace=namespace,
+            name="orders",
+            catalog="warehouse",
+            schema="sales",
+            table=f"{namespace}.orders",
+            columns=[ColumnSpec(name="order_id", type="bigint")],
+        )
+
+    assert digest(metric("analytics.main")) != digest(metric("analytics.feature"))
+    assert digest(source("analytics.main")) != digest(source("analytics.feature"))
+
+
+def test_filter_values_keep_their_namespace_text():
+    def cube(namespace: str) -> CubeSpec:
+        return CubeSpec(
+            namespace=namespace,
+            name="order_cube",
+            metrics=["${prefix}total_amount"],
+            dimensions=["${prefix}order.status"],
+            filters=[f"${{prefix}}order.status = '{namespace}.open'"],
+        )
+
+    assert digest(cube("analytics.main")) != digest(cube("analytics.feature"))
+
+
 def test_names_in_other_namespaces_are_kept():
     def metric(namespace: str, other: str) -> MetricSpec:
         return MetricSpec(

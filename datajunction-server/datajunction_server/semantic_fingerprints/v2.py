@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 from collections.abc import Iterable
 from functools import lru_cache
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from datajunction_server.models.semantic_fingerprint import SemanticFingerprint
 from datajunction_server.semantic_fingerprints.normalization import (
@@ -32,6 +31,51 @@ def parse_query(query: str):
     return antlr4.parse(query)
 
 
+# A single-quoted SQL string, where '' is an escaped quote.
+_SQL_STRING = re.compile(r"('(?:[^']|'')*')")
+# Fields holding SQL text, where quoted strings are values, not names.
+EXPRESSION_KEYS = frozenset({"query", "join_on", "filters", "default"})
+# Fields naming warehouse tables, which no deploy namespace changes.
+PHYSICAL_KEYS = frozenset({"catalog", "schema_", "table"})
+
+
+def namespace_free_name(text: str, namespace: str) -> str:
+    """Replaces a leading namespace in node names with a fixed marker."""
+    if not namespace:
+        return text
+    return re.sub(
+        rf"(?<![\w.]){re.escape(namespace)}\.",
+        f"{NAMESPACE_MARKER}.",
+        text,
+    )
+
+
+def _outside_strings(text: str, namespace: str) -> str:
+    parts = _SQL_STRING.split(text)
+    # re.split puts the quoted strings at odd indexes.
+    return "".join(
+        part if index % 2 else namespace_free_name(part, namespace)
+        for index, part in enumerate(parts)
+    )
+
+
+def _rewrite(value: Any, namespace: str, key: str | None = None) -> Any:
+    if isinstance(value, str):
+        if key in PHYSICAL_KEYS:
+            return value
+        if key in EXPRESSION_KEYS:
+            return _outside_strings(value, namespace)
+        return namespace_free_name(value, namespace)
+    if isinstance(value, dict):
+        return {
+            namespace_free_name(name, namespace): _rewrite(item, namespace, name)
+            for name, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_rewrite(item, namespace, key) for item in value]
+    return value
+
+
 def own_namespace(spec: NodeSpec) -> str:
     """
     The namespace a spec was deployed into.
@@ -46,18 +90,17 @@ def namespace_free_spec(spec: NodeSpec) -> NodeSpec:
     """
     Renders a spec with its own namespace replaced by a fixed marker.
 
-    Names in other namespaces are left as written.
+    Only node names change. Quoted values and warehouse table names, and
+    names in other namespaces, are left as written.
     """
     rendered = spec.rendered_spec()
     namespace = own_namespace(spec)
     if not namespace:
         return rendered
-    own_names = re.compile(rf"(?<![\w.]){re.escape(namespace)}\.")
-    text = own_names.sub(
-        f"{NAMESPACE_MARKER}.",
-        json.dumps(rendered.model_dump(mode="json")),
-    )
-    result = type(rendered).model_validate_json(text)
+    values = rendered.model_dump(mode="json")
+    for field in semantic_fields(type(spec)):
+        values[field] = _rewrite(values[field], namespace, field)
+    result = type(rendered).model_validate(values)
     result.namespace = None
     if result.rendered_query:
         result._query_ast = parse_query(result.rendered_query)
