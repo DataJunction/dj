@@ -609,6 +609,7 @@ async def build_combiner_sql_from_preaggs(
                 compute_expression_hash(m.expression),
                 m.aggregation,
                 m.params,
+                m.where,
             )
             for m in gg.components
             if m.expression

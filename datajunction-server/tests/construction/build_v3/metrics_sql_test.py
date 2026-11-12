@@ -8166,7 +8166,7 @@ class TestCrossParentDerivedRatio:
               JOIN default.v3.order_items oi ON o.order_id = oi.order_id
             ),
             v3_product AS (
-              SELECT product_id, category FROM default.v3.products
+              SELECT product_id, category, price FROM default.v3.products
             ),
             order_details_0 AS (
               SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696

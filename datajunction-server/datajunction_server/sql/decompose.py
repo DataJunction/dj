@@ -1203,6 +1203,11 @@ def validate_fixed_grain_shape(query: str, fixed_grain: list[str]) -> None:
         )
 
 
+def validate_where_shape(query: str) -> None:
+    """Reject aggregates that cannot carry a WHERE."""
+    MetricComponentExtractor(0)._extract_base(parse(query))
+
+
 MetricExtractionCache = dict[
     tuple[int, Dialect, bool],
     tuple[list[MetricComponent], ast.Query],
@@ -1343,6 +1348,10 @@ class MetricComponentExtractor:
             metric_data = await self._load_metric_data(session)
 
         query_ast = parse(metric_data.query)
+        if metric_data.is_derived and query_ast.select.where:
+            raise DJInvalidInputException(
+                "A WHERE clause is only supported on base metrics.",
+            )
 
         # Extract components from each parent metric
         all_components = []
@@ -1759,6 +1768,8 @@ class MetricComponentExtractor:
                         "a fixed grain requires a decomposable aggregate, and "
                         "this metric's aggregation cannot be split into measures",
                     )
+                if query_ast.select.where:
+                    self._raise_unsupported_where_shape()
                 return [], query_ast
 
             for func, dj_function in agg_funcs:
@@ -1794,7 +1805,15 @@ class MetricComponentExtractor:
         if fixed_grain is not None:
             self._attach_fixed_grain_spec(components, fixed_grain, query_ast)
 
+        # Each component now carries the WHERE.
+        query_ast.select.where = None
         return components, query_ast
+
+    @staticmethod
+    def _raise_unsupported_where_shape() -> None:
+        raise DJInvalidInputException(
+            "A metric WHERE is not supported with this aggregate.",
+        )
 
     def _attach_fixed_grain_spec(
         self,
@@ -1960,6 +1979,11 @@ class MetricComponentExtractor:
                 if col.namespace and col.namespace[0].name == parent_node_alias.name:
                     col.name = ast.Name(col.name.name)
             query_ast.select.from_.relations[0].primary.set_alias(None)  # type: ignore
+        if query_ast.select.where:
+            table_name = str(query_ast.select.from_.relations[0].primary)  # type: ignore
+            for col in query_ast.select.where.find_all(ast.Column):
+                if col.name.namespace and col.name.namespace.identifier() == table_name:
+                    col.name = ast.Name(col.name.name)
         return query_ast
 
     def _decompose(
@@ -2061,13 +2085,14 @@ class MetricComponentExtractor:
         # components still get a ``<base>_<hash>`` name — those need
         # the hash to distinguish different expressions that share a
         # column-name prefix.
+        metric_where = str(query_ast.select.where) if query_ast.select.where else None
         plain_distinct_col: str | None = None
         if is_distinct and comp_def.arg_index is not None:
             _arg = cast(ast.Expression, func.args[comp_def.arg_index])
             if isinstance(_arg, ast.Column):
                 plain_distinct_col = _arg.name.name
 
-        if plain_distinct_col is not None:
+        if plain_distinct_col is not None and metric_where is None:
             component_name = plain_distinct_col
             grain_alias: str | None = plain_distinct_col
         else:
@@ -2086,7 +2111,11 @@ class MetricComponentExtractor:
             component_name = f"{base_name}_{short_hash}"
             # Complex DISTINCT: grain alias equals the component name
             # so the projection alias stays a stable identifier.
-            grain_alias = component_name if is_distinct else None
+            grain_alias = (
+                plain_distinct_col
+                if plain_distinct_col is not None
+                else (component_name if is_distinct else None)
+            )
 
         # Build accumulate expression with template expansion
         accumulate_expr = self._expand_template(comp_def.accumulate, func.args)
@@ -2102,6 +2131,7 @@ class MetricComponentExtractor:
                 level=[str(a) for a in func.args] if is_distinct else None,
             ),
             grain_alias=grain_alias,
+            where=metric_where,
             serialize=comp_def.serialize,
             serialize_targets=list(comp_def.serialize_targets),
             serialize_type=comp_def.serialize_type,
@@ -2133,4 +2163,6 @@ class MetricComponentExtractor:
     def _short_hash(self, expression: str, query_ast: ast.Query) -> str:
         """Generate a short hash for the given expression."""
         signature = expression + str(query_ast.select.from_)
+        if query_ast.select.where:
+            signature += f" WHERE {query_ast.select.where}"
         return hashlib.md5(signature.encode("utf-8")).hexdigest()[:8]

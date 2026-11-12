@@ -893,3 +893,26 @@ def test_fingerprinting_reuses_parsed_query_across_rendered_copies():
 
     assert first == second
     assert parse_query.call_count == 1
+
+
+def test_metric_where_changes_the_semantic_fingerprint():
+    """A metric with a different WHERE is a different semantic definition."""
+    source = source_spec(
+        "source",
+        table="table",
+        columns=[ColumnSpec(name="id", type="bigint")],
+    )
+
+    def fingerprint(query: str):
+        metric = MetricSpec(namespace="ns", name="metric", query=query)
+        graph = SemanticFingerprintGraph(spec_map(source, metric))
+        return graph.fingerprints()["ns.metric"]
+
+    plain = fingerprint("SELECT COUNT(*) FROM ${prefix}source")
+    filtered = fingerprint("SELECT COUNT(*) FROM ${prefix}source WHERE id > 1")
+    other = fingerprint("SELECT COUNT(*) FROM ${prefix}source WHERE id > 2")
+
+    assert len({plain.digest, filtered.digest, other.digest}) == 3
+    assert filtered == fingerprint(
+        "SELECT COUNT(*) FROM ${prefix}source WHERE id > 1",
+    )
