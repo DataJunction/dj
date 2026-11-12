@@ -41,6 +41,71 @@ By parsing each node's SQL into an AST and through dimensional links between col
 DJ can infer a graph of dependencies between nodes, which allows it to find the
 appropriate join paths between nodes to generate queries for metrics.
 
+## Semantic views and Explore
+
+The semantic layer API exposes cubes as views and adds an **Explore** view at
+every discovery level. `POST /semantic/views` accepts either hierarchical
+`path` browsing or `runtime_configuration` selectors. For example:
+
+```json
+{"path": ["sales", "main"]}
+```
+
+The response includes a view named `@explore:sales:main` with display name
+`Explore ( sales / main )`. Namespace-only views use `@explore:sales`; the global
+view uses `@explore` and display name `Explore`. The `uid` equals the scoped name.
+These reserved names cannot collide with a cube's fully qualified DJ node name.
+
+Hierarchy components use UTF-8 URL escaping with `~HH` in place of `%HH`, keeping
+each name in one URL path segment even after URL decoding. For example,
+`feature/foo` becomes `feature~2Ffoo`. Literal `~`, `%`, and `:` become `~7E`,
+`~25`, and `~3A`, so escaped and literal branch names stay distinct.
+
+Use `/semantic/views/{name}` with the **exact name returned by discovery** for
+view details and append `/compatible-metrics`,
+`/compatible-dimensions`, `/sql`, `/query`, `/row-count`, or `/values` for the
+usual semantic operations. No scope needs to be forwarded separately, so generic
+Semantic Layer clients, including the Superset extension, can use these views
+without modifications. For example, the compatibility body can be:
+
+```json
+{
+  "additional_configuration": {},
+  "selected_metrics": ["sales.main.revenue"],
+  "selected_dimensions": []
+}
+```
+
+The scope is decoded and authorized on every request. Invalid names return 404;
+conflicting namespace or branch options in `additional_configuration` return 400.
+The name is an identity, not an authorization grant.
+
+With neither discovery selector, Explore covers all readable active namespaces. A plain
+namespace includes only its direct elements. A Git root includes its branches
+and nested namespaces; adding a branch limits it to that effective Git branch,
+including explicitly linked branch namespaces outside the root's name prefix.
+Independent nested repositories are excluded. Branch names use their actual
+Git spelling, such as `feature/revenue`. A branch requires a Git root namespace.
+
+Explore exposes valid, active metrics and dimension attributes the caller can
+read in the selected scope, including tagged local dimensions and role-qualified
+references. It does not require a cube. Empty selections return every available
+element. Selected metrics restrict dimensions to their common reachable
+attributes; selected dimensions restrict metrics to those supporting all of
+them. Dimension-only selections also narrow the remaining dimensions to
+compatible metric domains or attributes of the same dimension node. Unknown,
+inaccessible, or out-of-scope selections are rejected.
+
+Explore metric and dimension `name` values use their fully qualified DJ IDs,
+including role suffixes, so columns with the same leaf name remain distinct.
+Query result schemas and row keys use these same names, independent of physical
+SQL aliases. Human-readable labels remain available in column metadata.
+
+Explore queries use live source definitions rather than a cube's stored filters
+or materialization. Dimension-only queries use the existing single-node domain
+query behavior; select a metric to combine attributes across dimension nodes.
+Existing cube views retain their fixed element sets, filters, and compatibility.
+
 ## AI Integration
 
 DataJunction provides an MCP (Model Context Protocol) client that enables AI assistants like Claude to interact with your semantic layer.

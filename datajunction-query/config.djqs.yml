@@ -22,6 +22,10 @@ engines:
   #   uri: bigquery:///
   #   extra_params:
   #     project: <your-gcp-project>
+  - name: sales_pg
+    version: ''
+    type: sqlalchemy
+    uri: postgresql+psycopg://readonly_user:readonly_pass@postgres_metadata:5432/sales_demo
 catalogs:
   - name: warehouse
     engines:
@@ -35,3 +39,6 @@ catalogs:
   # - name: <your-gcp-project>
   #   engines:
   #     - bigquery
+  - name: sales
+    engines:
+    - sales_pg

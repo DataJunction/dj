@@ -1,6 +1,6 @@
 """
 Semantic-layer REST API implementing the sl-db-engine-spec over DataJunction
-cubes (each cube = a "view").
+cubes and scoped, graph-backed ``@explore`` views.
 
 Spec: https://github.com/betodealmeida/sl-db-engine-spec/blob/main/server/SPEC.md
 
@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from http import HTTPStatus
 from typing import Any, Literal, TypeAlias, cast
+from urllib.parse import quote, unquote
 
 from fastapi import Body, Depends, Request, Response
 from fastapi.exceptions import RequestValidationError
@@ -32,6 +33,7 @@ from pydantic import (  # pylint: disable=no-name-in-module
 )
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload, noload, selectinload
 from starlette.exceptions import HTTPException
 from starlette.requests import ClientDisconnect
 
@@ -39,6 +41,7 @@ from datajunction_server.construction.build_v3.types import (
     ColumnMetadata as GeneratedColumnMetadata,
 )
 from datajunction_server.database.column import Column
+from datajunction_server.database.attributetype import ColumnAttribute
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.user import User
@@ -61,6 +64,9 @@ from datajunction_server.internal.namespaces import (
     get_git_info_for_namespace,
     get_parent_namespaces,
     resolve_git_info_from_map,
+)
+from datajunction_server.internal.deployment.dimension_reachability import (
+    DimensionReachability,
 )
 from datajunction_server.internal.sql import (
     build_row_count_sql,
@@ -85,6 +91,7 @@ from datajunction_server.construction.build_v3.utils import (
 from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.access import ResourceAction, ResourceType
 from datajunction_server.models.node_type import NodeType
+from datajunction_server.models.node import NodeStatus
 from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.models.semantic_layer_metadata import (
     MAX_FORMAT_PRECISION,
@@ -94,6 +101,7 @@ from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.query_clients.catalog import catalog_from_engine_uri
 from datajunction_server.models.unit import Unit, unit_to_dict
 from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.dag import get_metric_parents_map
 from datajunction_server.sql.parsing.ast import to_sql
 from datajunction_server.sql.parsing.types import ColumnType
 from datajunction_server.typing import QueryState
@@ -189,6 +197,7 @@ DEFAULT_ROW_LIMIT = 10000
 # An explicit limit above this is rejected (400).
 MAX_ROW_LIMIT = 100000
 SEMANTIC_VIEW_FEATURES = ["GROUP_LIMIT", "GROUP_OTHERS"]
+EXPLORE_VIEW_NAME = "@explore"
 
 DIMENSION_FALLBACK_ARROW_TYPE_NAME = "utf8"
 METRIC_FALLBACK_ARROW_TYPE_NAME = "floating"
@@ -479,15 +488,22 @@ def _raw_column_metadata(cube: NodeRevision, column_id: str) -> JSONObject:
             if column_id != base_id and not column_id.startswith(f"{base_id}["):
                 continue
 
-        custom_metadata = revision.custom_metadata or {}
-        if not isinstance(custom_metadata, Mapping):
-            return {}
-        raw = custom_metadata.get(SEMANTIC_LAYER_METADATA_KEY, {})
-        if revision.type != NodeType.METRIC and isinstance(raw, Mapping):
-            columns = raw.get("columns", {})
-            raw = columns.get(element.name, {}) if isinstance(columns, Mapping) else {}
-        return cast(JSONObject, dict(raw)) if isinstance(raw, Mapping) else {}
+        return _revision_column_metadata(
+            revision,
+            column_id if revision.type == NodeType.METRIC else element.name,
+        )
     return {}
+
+
+def _revision_column_metadata(revision: NodeRevision, column_name: str) -> JSONObject:
+    custom_metadata = revision.custom_metadata or {}
+    if not isinstance(custom_metadata, Mapping):
+        return {}
+    raw = custom_metadata.get(SEMANTIC_LAYER_METADATA_KEY, {})
+    if revision.type != NodeType.METRIC and isinstance(raw, Mapping):
+        columns = raw.get("columns", {})
+        raw = columns.get(column_name, {}) if isinstance(columns, Mapping) else {}
+    return cast(JSONObject, dict(raw)) if isinstance(raw, Mapping) else {}
 
 
 def _column_metadata(
@@ -839,6 +855,12 @@ class QueryRequest(RequestModel):
 
     additional_configuration: dict[str, Any] = Field(default_factory=dict)
     query: QueryPayload
+
+
+class ViewRequest(RequestModel):
+    """Optional view settings; an Explore name already carries its scope."""
+
+    additional_configuration: dict[str, Any] = Field(default_factory=dict)
 
 
 class ListViewsRequest(BaseModel):
@@ -1402,6 +1424,342 @@ async def _list_semantic_branches(
     return sorted(branches)
 
 
+def _is_explore_view(view_name: str) -> bool:
+    return view_name == EXPLORE_VIEW_NAME or view_name.startswith(
+        f"{EXPLORE_VIEW_NAME}:",
+    )
+
+
+def _explore_name(namespace: str | None, branch: str | None) -> str:
+    """Carry scope in a name that clients can safely interpolate into a URL path."""
+    if namespace is None and branch is None:
+        return EXPLORE_VIEW_NAME
+    parts = [EXPLORE_VIEW_NAME]
+    for value in (namespace, branch):
+        if value is not None:
+            # Use ~HH instead of %HH so URL decoding cannot turn an escaped
+            # slash into a route separator before FastAPI matches the path.
+            parts.append(quote(value, safe="").replace("~", "%7E").replace("%", "~"))
+    return ":".join(parts)
+
+
+def _explore_configuration(
+    view_name: str,
+    configuration: dict[str, Any],
+) -> dict[str, Any]:
+    """Decode a canonical identity; body options cannot change its scope."""
+    namespace = branch = None
+    if view_name != EXPLORE_VIEW_NAME:
+        try:
+            parts = view_name.split(":")
+            if len(parts) not in (2, 3) or parts[0] != EXPLORE_VIEW_NAME:
+                raise ValueError("Invalid scope")
+            scope = [
+                unquote(part.replace("~", "%"), errors="strict") for part in parts[1:]
+            ]
+            namespace, branch = _discovery_filter(
+                dict(zip(("namespace", "branch"), scope)),
+            )
+            if _explore_name(namespace, branch) != view_name:
+                raise ValueError("Non-canonical scope")
+        except (ValueError, UnicodeError, DJException) as exc:
+            raise DJException(
+                message="Invalid Explore view name",
+                http_status_code=404,
+            ) from exc
+    selectors = {"namespace": namespace, "branch": branch}
+    if any(
+        key in configuration and configuration[key] != value
+        for key, value in selectors.items()
+    ):
+        raise DJException(
+            message="Additional configuration conflicts with the Explore view scope",
+            http_status_code=400,
+        )
+    return {**configuration, **selectors}
+
+
+def _explore_summary(
+    namespace: str | None = None,
+    branch: str | None = None,
+) -> ViewSummary:
+    """Return a self-contained identity and label for this discovery scope."""
+    name = _explore_name(namespace, branch)
+    location = " / ".join(value for value in (namespace, branch) if value is not None)
+    return ViewSummary(
+        name=name,
+        display_name=f"Explore ( {location} )" if location else "Explore",
+        uid=name,
+        features=SEMANTIC_VIEW_FEATURES,
+        namespace=namespace,
+        branch=branch,
+    )
+
+
+@dataclass
+class ExploreView:
+    detail: ViewDetail
+    metric_dimensions: dict[str, set[str]]
+
+    def compatible(
+        self,
+        metrics: list[str],
+        dimensions: list[str],
+    ) -> tuple[set[str], set[str]]:
+        """Intersect selected metrics; expand dimension selections via common facts."""
+        selected_dims = set(dimensions)
+        all_dims = {dim.id for dim in self.detail.dimensions}
+        common_dims = (
+            set.intersection(
+                *(self.metric_dimensions[metric] for metric in metrics),
+            )
+            if metrics
+            else all_dims
+        )
+        if not selected_dims.issubset(common_dims):
+            return set(), set()
+        compatible_metrics = {
+            metric
+            for metric, dims in self.metric_dimensions.items()
+            if selected_dims.issubset(dims)
+        }
+        if dimensions and not metrics:
+            # Without a metric, a user can still select attributes from one
+            # dimension domain. Metrics can connect additional domains.
+            selected_nodes = {
+                dim.split("[", 1)[0].rsplit(".", 1)[0] for dim in dimensions
+            }
+            common_dims = {
+                dim
+                for metric in compatible_metrics
+                for dim in self.metric_dimensions[metric]
+            } | {
+                dim
+                for dim in all_dims
+                if len(selected_nodes) == 1
+                and dim.split("[", 1)[0].rsplit(".", 1)[0] in selected_nodes
+            }
+        return compatible_metrics, common_dims
+
+
+async def _load_explore_view(
+    view_name: str,
+    configuration: dict[str, Any],
+    session: AsyncSession,
+    access_checker: AccessChecker,
+) -> ExploreView | JSONResponse:
+    """Load valid, readable elements within a discovery scope, without a cube."""
+    namespace, branch = _discovery_filter(
+        _explore_configuration(view_name, configuration),
+    )
+    namespaces = await _active_git_namespaces(session, namespace)
+    if namespace is not None:
+        row = namespaces.get(namespace)
+        info = resolve_git_info_from_map(namespace, namespaces) if row else None
+        if row is None or (info and info["git_root_namespace"] != namespace):
+            return _problem(404, "Invalid view discovery path")
+        access_checker.add_namespace(namespace, ResourceAction.READ)
+        approved = await access_checker.approved_resource_keys()
+        if (ResourceType.NAMESPACE, namespace) not in approved:
+            return _problem(404, "Invalid view discovery path")
+        if info is not None:
+            branches = await _list_semantic_branches(namespace, session, access_checker)
+            if isinstance(branches, JSONResponse) or (
+                branch is not None and branch not in branches
+            ):
+                return _problem(404, "Invalid view discovery path")
+        elif branch is not None:
+            return _problem(404, "Invalid view discovery path")
+    else:
+        info = None
+
+    statement = (
+        select(Node)
+        .join(Node.current)
+        .join(NodeNamespace, NodeNamespace.namespace == Node.namespace)
+        .where(
+            Node.deactivated_at.is_(None),
+            NodeNamespace.deactivated_at.is_(None),
+            Node.type.in_(
+                [
+                    NodeType.METRIC,
+                    NodeType.DIMENSION,
+                    NodeType.SOURCE,
+                    NodeType.TRANSFORM,
+                ],
+            ),
+            NodeRevision.status == NodeStatus.VALID,
+        )
+        .options(
+            noload("*"),
+            joinedload(Node.current).options(
+                noload("*"),
+                selectinload(NodeRevision.columns).options(
+                    noload("*"),
+                    selectinload(Column.attributes).joinedload(
+                        ColumnAttribute.attribute_type,
+                    ),
+                ),
+            ),
+        )
+        .order_by(Node.name)
+    )
+    if namespace is not None:
+        matching_namespaces = (
+            {
+                name
+                for name in namespaces
+                if (location := _git_location(name, namespaces)) is not None
+                and location[0] == namespace
+                and (branch is None or location[1] == branch)
+            }
+            if info
+            else {namespace}
+        )
+        statement = statement.where(Node.namespace.in_(matching_namespaces))
+    nodes = list((await session.execute(statement)).unique().scalars())
+    needed_by_node = {}
+    for node in nodes:
+        location = _git_location(node.namespace, namespaces)
+        needed = {location[0]} if location else {node.namespace}
+        if location and location[2]:
+            needed.add(location[2])
+        needed_by_node[node.name] = needed
+        access_checker.add_namespaces(sorted(needed), ResourceAction.READ)
+        access_checker.add_request_by_node_name(node.name, ResourceAction.READ)
+    approved = await access_checker.approved_resource_keys()
+    nodes = [
+        node
+        for node in nodes
+        if (ResourceType.NODE, node.name) in approved
+        and all(
+            (ResourceType.NAMESPACE, name) in approved
+            for name in needed_by_node[node.name]
+        )
+    ]
+
+    metrics = []
+    dimensions: dict[str, DimensionInfo] = {}
+    columns: dict[str, tuple[NodeRevision, Column]] = {}
+    for node in nodes:
+        revision = node.current
+        for column in revision.columns:
+            if node.type == NodeType.METRIC:
+                metrics.append(
+                    MetricInfo(
+                        id=node.name,
+                        name=node.name,
+                        type=_arrow_type_name(column.type)
+                        or METRIC_FALLBACK_ARROW_TYPE_NAME,
+                        definition=node.name,
+                        description=revision.description or column.description,
+                        aggregation="OTHER",
+                        metadata=_column_metadata(
+                            column,
+                            is_metric=True,
+                            raw_metadata=_revision_column_metadata(
+                                revision,
+                                column.name,
+                            ),
+                        ),
+                    ),
+                )
+                break
+            columns[f"{node.name}.{column.name}"] = (revision, column)
+            if node.type == NodeType.DIMENSION or set(column.attribute_names()) & {
+                "dimension",
+                "primary_key",
+            }:
+                dimensions[f"{node.name}.{column.name}"] = _explore_dimension(
+                    f"{node.name}.{column.name}",
+                    revision,
+                    column,
+                )
+
+    # Resolve all ultimate facts together using the same role-aware graph as
+    # cube validation. No graph traversal or SQL compilation per metric.
+    metric_nodes = [node for node in nodes if node.type == NodeType.METRIC]
+    parents = await get_metric_parents_map(session, metric_nodes)
+    parent_ids = {
+        parent.id for parent_nodes in parents.values() for parent in parent_nodes
+    }
+    parent_revisions = (
+        list(
+            (
+                await session.execute(
+                    select(Node.id, NodeRevision.id, Node.name)
+                    .join(Node.current)
+                    .where(
+                        Node.id.in_(parent_ids),
+                        Node.deactivated_at.is_(None),
+                        NodeRevision.status == NodeStatus.VALID,
+                    ),
+                )
+            ).all(),
+        )
+        if parent_ids
+        else []
+    )
+    dimension_columns: dict[str, list[tuple[NodeRevision, Column]]] = {}
+    for revision, column in columns.values():
+        dimension_columns.setdefault(revision.name, []).append((revision, column))
+    reachability = await DimensionReachability.build(
+        session,
+        {revision_id for _, revision_id, _ in parent_revisions},
+        set(dimension_columns),
+        local_names={revision_id: name for _, revision_id, name in parent_revisions},
+    )
+    parent_dimensions: dict[int, set[str]] = {}
+    for parent_id, revision_id, parent_name in parent_revisions:
+        refs = set()
+        for dimension_name, role in reachability.reachable_roles_from(revision_id):
+            for revision, column in dimension_columns.get(dimension_name, []):
+                base = f"{dimension_name}.{column.name}"
+                # Local fact attributes need an explicit dimension/PK tag.
+                if dimension_name == parent_name and base not in dimensions:
+                    continue
+                ref = base + (f"[{role}]" if role else "")
+                dimensions[ref] = _explore_dimension(ref, revision, column)
+                refs.add(ref)
+        parent_dimensions[parent_id] = refs
+    metric_dimensions = {
+        node.name: set.intersection(
+            *(parent_dimensions.get(parent.id, set()) for parent in parents[node.name]),
+        )
+        if parents.get(node.name)
+        else set()
+        for node in metric_nodes
+    }
+    return ExploreView(
+        detail=ViewDetail(
+            **_explore_summary(namespace, branch).model_dump(),
+            metrics=metrics,
+            dimensions=[dimensions[key] for key in sorted(dimensions)],
+        ),
+        metric_dimensions=metric_dimensions,
+    )
+
+
+def _explore_dimension(
+    ref: str,
+    revision: NodeRevision,
+    column: Column,
+) -> DimensionInfo:
+    return DimensionInfo(
+        id=ref,
+        name=ref,
+        type=_arrow_type_name(column.type) or DIMENSION_FALLBACK_ARROW_TYPE_NAME,
+        definition=ref,
+        description=column.description,
+        grain=None,
+        metadata=_column_metadata(
+            column,
+            is_metric=False,
+            raw_metadata=_revision_column_metadata(revision, column.name),
+        ),
+    )
+
+
 @router.post(
     "/views",
     response_model=list[ViewSummary] | BrowseViewsResponse,
@@ -1418,7 +1776,7 @@ async def list_views(
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
 ) -> list[ViewSummary] | BrowseViewsResponse | JSONResponse:
-    """List the semantic views (DJ cubes) available to the caller.
+    """List cube views and an Explore view for the selected discovery scope.
 
     ``/views/list`` remains as a deprecated alias. Full metrics and dimensions
     are fetched per-view via ``/views/{view}``.
@@ -1442,7 +1800,7 @@ async def list_views(
                     next=DiscoverLevel(id="namespace", display_name="Namespace"),
                     values=await _discoverable_namespaces(session, access_checker),
                 ),
-                views=[],
+                views=[_explore_summary()],
             )
 
         is_git_root = False
@@ -1476,7 +1834,7 @@ async def list_views(
                     next=DiscoverLevel(id="branch", display_name="Branch"),
                     values=branch_values,
                 ),
-                views=[],
+                views=[_explore_summary(namespace)],
             )
 
         branch_namespaces: list[tuple[str, str]] = []
@@ -1550,7 +1908,7 @@ async def list_views(
         ):
             return _problem(404, "Invalid view discovery path")
 
-    summaries = []
+    summaries = [_explore_summary(namespace, branch)]
     for cube_name, display_name, location, needed in candidates:
         if (ResourceType.NODE, cube_name) not in approved or any(
             (ResourceType.NAMESPACE, name) not in approved for name in needed
@@ -1588,11 +1946,26 @@ async def list_views(
 )
 async def get_view(
     view_name: str,
+    body: ViewRequest | None = Body(default=None),
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
     access_checker: AccessChecker = Depends(get_access_checker),
 ) -> ViewDetail | JSONResponse:
     """Describe a single semantic view: its metrics and dimensions."""
+    if _is_explore_view(view_name):
+        explore = await _load_explore_view(
+            view_name,
+            body.additional_configuration if body else {},
+            session,
+            access_checker,
+        )
+        return (
+            explore
+            if isinstance(explore, JSONResponse)
+            else JSONResponse(
+                content=_view_detail_json(explore.detail),
+            )
+        )
     if not await _can_read_view(view_name, access_checker):
         return _view_not_found(view_name)
     try:
@@ -1609,7 +1982,11 @@ async def get_view(
 
 
 async def _can_read_view(view_name: str, access_checker: AccessChecker) -> bool:
-    """Apply the same cube READ decision used by view discovery."""
+    """Authorize cube views; Explore authorizes its scope and elements on load."""
+    if _is_explore_view(view_name):
+        # Explore has no node grant: its scope and every exposed element are
+        # authorized by _load_explore_view before any metadata or SQL is returned.
+        return True
     access_checker.add_request_by_node_name(view_name, ResourceAction.READ)
     approved = await access_checker.approved_resource_keys()
     return (ResourceType.NODE, view_name) in approved
@@ -1672,7 +2049,7 @@ def _limit_to_ranked_groups(
 
 async def _build_ranked_groups_sql(
     session: AsyncSession,
-    cube_rev: NodeRevision,
+    cube_rev: NodeRevision | None,
     payload: QueryPayload,
     group_limit: GroupLimitPayload,
     dialect: Dialect,
@@ -1688,7 +2065,7 @@ async def _build_ranked_groups_sql(
         flt.column
         for flt in ranking_filters
         if flt.column is not None
-        and flt.column in cube_rev.cube_node_metrics
+        and flt.type.upper() == "HAVING"
         and flt.column != ranking_metric
     ]
     ranked = await generate_metrics_sql(
@@ -1720,12 +2097,13 @@ async def _build_ranked_groups_sql(
 async def _generate_sql(
     session: AsyncSession,
     payload: QueryPayload,
-    cube_rev: NodeRevision,
+    cube_rev: NodeRevision | None,
     row_count: bool = False,
 ) -> tuple[GeneratedSQLResponse, set[str], ResolvedExecutionContext]:
-    """Generate physical SQL pinned to this cube (``matched_cube=cube_rev``), so
-    we don't let ``find_matching_cube`` pick a different/differently-filtered
-    materialization.
+    """Generate physical SQL for a pinned cube or a live Explore query.
+
+    Cube views cannot use a different/differently-filtered materialization.
+    Explore uses live definitions without applying any cube's stored filters.
     """
     orderby = (
         [f"{o.by} {o.direction.upper()}" for o in payload.order]
@@ -1741,11 +2119,11 @@ async def _generate_sql(
     group_limit = payload.group_limit
     execution = await resolve_dialect_and_engine_for_metrics(
         session=session,
-        metrics=payload.metrics or cube_rev.cube_node_metrics,
+        metrics=payload.metrics or (cube_rev.cube_node_metrics if cube_rev else []),
         dimensions=payload.dimensions,
         filters=request_filters,
         matched_cube=cube_rev,
-        use_materialized=group_limit is None,
+        use_materialized=cube_rev is not None and group_limit is None,
     )
     ranked_sql: V3GeneratedSQL | None = None
     if group_limit and group_limit.group_others and payload.metrics:
@@ -1767,7 +2145,7 @@ async def _generate_sql(
             # A group limit adds a subquery join with null-safe tuple matching.
             # Build both sides from live sources so an available Druid cube
             # cannot route this SQL to Druid's restricted join planner.
-            use_materialized=payload.group_limit is None,
+            use_materialized=cube_rev is not None and payload.group_limit is None,
             dialect=execution.dialect,
             orderby=None if payload.group_limit else orderby,
             limit=None if payload.group_limit else limit,
@@ -1784,7 +2162,7 @@ async def _generate_sql(
             dimensions=payload.dimensions,
             filters=request_filters,
             matched_cube=cube_rev,
-            use_materialized=payload.group_limit is None,
+            use_materialized=cube_rev is not None and payload.group_limit is None,
             dialect=execution.dialect,
             orderby=None if payload.group_limit else orderby,
             limit=None if payload.group_limit else limit,
@@ -1841,7 +2219,18 @@ async def _generate_sql(
             ),
             dialect=generated_sql.dialect.value,
             columns=[
-                ColumnInfo(name=col.name, type=_generated_column_arrow_type_name(col))
+                ColumnInfo(
+                    # Explore names are fully qualified and independent of the
+                    # SQL builder's query-local aliases. Rows are mapped to
+                    # these protocol names by position in _execute_sql.
+                    name=(
+                        col.semantic_name
+                        if cube_rev is None
+                        and col.semantic_name in {*payload.metrics, *payload.dimensions}
+                        else col.name
+                    ),
+                    type=_generated_column_arrow_type_name(col),
+                )
                 for col in columns
             ],
             cube_name=generated_sql.cube_name,
@@ -1878,7 +2267,7 @@ def _catalog_error(
 
 async def _prepare_execution(
     session: AsyncSession,
-    cube_rev: NodeRevision,
+    cube_rev: NodeRevision | None,
     payload: QueryPayload,
     *,
     row_count: bool = False,
@@ -1953,6 +2342,8 @@ async def _prepare_view_sql(
     payload: QueryPayload,
     session: AsyncSession,
     row_count: bool = False,
+    configuration: dict[str, Any] | None = None,
+    access_checker: AccessChecker | None = None,
 ) -> PreparedSemanticQuery | JSONResponse:
     """Validate and generate SQL for a semantic view query."""
     if payload.offset is not None and payload.offset < 0:
@@ -1972,14 +2363,29 @@ async def _prepare_view_sql(
     if not payload.metrics and not payload.dimensions:
         return _problem(400, "A query must request at least one metric or dimension.")
     try:
-        cube_node = await Node.get_cube_by_name(session, view_name)
-        if cube_node is None or cube_node.current is None:
-            return _view_not_found(view_name)
-        cube_rev = cube_node.current
-        # Everything referenced must belong to this cube (full refs incl. role
-        # suffixes), else one view could compute another's metrics.
-        allowed_metrics = set(cube_rev.cube_node_metrics)
-        allowed_dims = set(cube_rev.cube_node_dimensions)
+        explore = None
+        if _is_explore_view(view_name):
+            assert access_checker is not None
+            explore = await _load_explore_view(
+                view_name,
+                configuration or {},
+                session,
+                access_checker,
+            )
+            if isinstance(explore, JSONResponse):
+                return explore
+            cube_rev = None
+            allowed_metrics = {metric.id for metric in explore.detail.metrics}
+            allowed_dims = {dim.id for dim in explore.detail.dimensions}
+        else:
+            cube_node = await Node.get_cube_by_name(session, view_name)
+            if cube_node is None or cube_node.current is None:
+                return _view_not_found(view_name)
+            cube_rev = cube_node.current
+            allowed_metrics = set(cube_rev.cube_node_metrics)
+            allowed_dims = set(cube_rev.cube_node_dimensions)
+        # Everything referenced must belong to this view's scope, including
+        # full dimension references with their role suffixes.
         bad_metrics = [m for m in payload.metrics if m not in allowed_metrics]
         bad_dims = [d for d in payload.dimensions if d not in allowed_dims]
         bad_filters = [
@@ -2063,6 +2469,46 @@ async def _prepare_view_sql(
             return _problem(400, "Filter `type` must be WHERE or HAVING.")
         if any(o.direction.upper() not in {"ASC", "DESC"} for o in payload.order):
             return _problem(400, "Order `direction` must be ASC or DESC.")
+        if explore is not None:
+            # Filters, ordering and ranking also introduce semantic elements.
+            query_metrics = set(payload.metrics)
+            query_dims = set(payload.dimensions)
+            for flt in payload.filters:
+                if flt.column:
+                    (query_metrics if flt.type.upper() == "HAVING" else query_dims).add(
+                        flt.column,
+                    )
+            for item in payload.order:
+                (query_metrics if item.by in allowed_metrics else query_dims).add(
+                    item.by,
+                )
+            _, compatible_dims = explore.compatible(list(query_metrics), [])
+            if query_metrics and not query_dims.issubset(compatible_dims):
+                return _problem(
+                    400,
+                    "Selected metrics and dimensions are not compatible.",
+                )
+            if group_limit := payload.group_limit:
+                ranking_metrics = {group_limit.metric or payload.metrics[0]}
+                ranking_dims = set(group_limit.dimensions)
+                ranking_filters = (
+                    payload.filters
+                    if group_limit.filters is None
+                    else group_limit.filters
+                )
+                for flt in ranking_filters:
+                    if flt.column:
+                        (
+                            ranking_metrics
+                            if flt.type.upper() == "HAVING"
+                            else ranking_dims
+                        ).add(flt.column)
+                _, compatible_dims = explore.compatible(list(ranking_metrics), [])
+                if not ranking_dims.issubset(compatible_dims):
+                    return _problem(
+                        400,
+                        "Ranking metrics and dimensions are not compatible.",
+                    )
         return await _prepare_execution(
             session,
             cube_rev,
@@ -2078,9 +2524,18 @@ async def _generate_view_sql(
     payload: QueryPayload,
     session: AsyncSession,
     row_count: bool = False,
+    configuration: dict[str, Any] | None = None,
+    access_checker: AccessChecker | None = None,
 ) -> GeneratedSQLResponse | JSONResponse:
     """Expose the prepared SQL for the DJ-specific /sql endpoint."""
-    prepared = await _prepare_view_sql(view_name, payload, session, row_count)
+    prepared = await _prepare_view_sql(
+        view_name,
+        payload,
+        session,
+        row_count,
+        configuration,
+        access_checker,
+    )
     return prepared if isinstance(prepared, JSONResponse) else prepared.generated
 
 
@@ -2177,7 +2632,13 @@ async def generate_query_sql(
     """Generate physical SQL for a view query."""
     if not await _can_read_view(view_name, access_checker):
         return _view_not_found(view_name)
-    return await _generate_view_sql(view_name, body.query, session)
+    return await _generate_view_sql(
+        view_name,
+        body.query,
+        session,
+        configuration=body.additional_configuration,
+        access_checker=access_checker,
+    )
 
 
 @router.post("/views/{view_name}/query", response_model=SemanticResult)
@@ -2203,7 +2664,13 @@ async def execute_query(
         if probe
         else body.query
     )
-    prepared = await _prepare_view_sql(view_name, payload, session)
+    prepared = await _prepare_view_sql(
+        view_name,
+        payload,
+        session,
+        configuration=body.additional_configuration,
+        access_checker=access_checker,
+    )
     if isinstance(prepared, JSONResponse):
         return prepared
     result = await _execute_sql(prepared, request, query_service_client)
@@ -2230,7 +2697,14 @@ async def get_row_count(
     """Count rows in the semantic query's result."""
     if not await _can_read_view(view_name, access_checker):
         return _view_not_found(view_name)
-    prepared = await _prepare_view_sql(view_name, body.query, session, row_count=True)
+    prepared = await _prepare_view_sql(
+        view_name,
+        body.query,
+        session,
+        row_count=True,
+        configuration=body.additional_configuration,
+        access_checker=access_checker,
+    )
     if isinstance(prepared, JSONResponse):
         return prepared
     return await _execute_sql(prepared, request, query_service_client)
@@ -2249,6 +2723,25 @@ async def get_values(
     """Return a dimension's distinct values, optionally filtered."""
     if not await _can_read_view(view_name, access_checker):
         return _view_not_found(view_name)
+    if _is_explore_view(view_name):
+        if any(flt.type.upper() != "WHERE" for flt in body.filters):
+            return _problem(400, "Values filters must use WHERE dimensions.")
+        prepared = await _prepare_view_sql(
+            view_name,
+            QueryPayload(
+                dimensions=[body.dimension],
+                filters=body.filters,
+                order=[OrderPayload(by=body.dimension)],
+                limit=DEFAULT_ROW_LIMIT + 1,
+            ),
+            session,
+            configuration=body.additional_configuration,
+            access_checker=access_checker,
+        )
+        if isinstance(prepared, JSONResponse):
+            return prepared
+        result = await _execute_sql(prepared, request, query_service_client)
+        return _values_result(result)
     try:
         cube_node = await Node.get_cube_by_name(session, view_name)
     except DJException as exc:
@@ -2290,6 +2783,12 @@ async def get_values(
     if isinstance(prepared, JSONResponse):
         return prepared
     result = await _execute_sql(prepared, request, query_service_client)
+    return _values_result(result)
+
+
+def _values_result(
+    result: SemanticResult | JSONResponse,
+) -> SemanticResult | JSONResponse:
     if (
         isinstance(result, SemanticResult)
         and len(result.results.rows) > DEFAULT_ROW_LIMIT
@@ -2308,8 +2807,43 @@ async def _compatible_elements(
     session: AsyncSession,
     *,
     metrics: bool,
+    access_checker: AccessChecker | None = None,
 ) -> JSONResponse:
-    """DJ considers all elements on a cube mutually compatible."""
+    """Return graph-compatible Explore elements or a cube's fixed element set."""
+    if _is_explore_view(view_name):
+        assert access_checker is not None
+        explore = await _load_explore_view(
+            view_name,
+            body.additional_configuration,
+            session,
+            access_checker,
+        )
+        if isinstance(explore, JSONResponse):
+            return explore
+        unknown_explore_metrics = set(body.selected_metrics) - set(
+            explore.metric_dimensions,
+        )
+        unknown_explore_dims = set(body.selected_dimensions) - {
+            dim.id for dim in explore.detail.dimensions
+        }
+        if unknown_explore_metrics or unknown_explore_dims:
+            return _problem(
+                400,
+                f"View `{view_name}` does not contain: metrics={sorted(unknown_explore_metrics)} dimensions={sorted(unknown_explore_dims)}",
+                code=SemanticErrorCode.UNKNOWN_METRIC
+                if unknown_explore_metrics
+                else SemanticErrorCode.UNKNOWN_DIMENSION,
+            )
+        metric_ids, dimension_ids = explore.compatible(
+            body.selected_metrics,
+            body.selected_dimensions,
+        )
+        columns = (
+            [metric for metric in explore.detail.metrics if metric.id in metric_ids]
+            if metrics
+            else [dim for dim in explore.detail.dimensions if dim.id in dimension_ids]
+        )
+        return JSONResponse(content=[_column_json(column) for column in columns])
     try:
         cube_node = await Node.get_cube_by_name(
             session,
@@ -2350,10 +2884,16 @@ async def compatible_metrics(
     current_user: User = Depends(get_current_user),
     access_checker: AccessChecker = Depends(get_access_checker),
 ) -> JSONResponse:
-    """Return every metric exposed by this cube."""
+    """Return metrics compatible with the selection within this view."""
     if not await _can_read_view(view_name, access_checker):
         return _view_not_found(view_name)
-    return await _compatible_elements(view_name, body, session, metrics=True)
+    return await _compatible_elements(
+        view_name,
+        body,
+        session,
+        metrics=True,
+        access_checker=access_checker,
+    )
 
 
 @router.post(
@@ -2367,7 +2907,13 @@ async def compatible_dimensions(
     current_user: User = Depends(get_current_user),
     access_checker: AccessChecker = Depends(get_access_checker),
 ) -> JSONResponse:
-    """Return every dimension exposed by this cube."""
+    """Return dimensions compatible with the selection within this view."""
     if not await _can_read_view(view_name, access_checker):
         return _view_not_found(view_name)
-    return await _compatible_elements(view_name, body, session, metrics=False)
+    return await _compatible_elements(
+        view_name,
+        body,
+        session,
+        metrics=False,
+        access_checker=access_checker,
+    )
