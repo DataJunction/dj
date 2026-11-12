@@ -31,12 +31,12 @@ def parse_query(query: str):
     return antlr4.parse(query)
 
 
-# SQL text kept as written: line and block comments, and single-quoted
-# strings where '' is an escaped quote. Quoted names are matched so their
-# apostrophes are not read as the start of a string.
+# Single-quoted strings, where '' is an escaped quote, are kept as written.
+# Comments and quoted names are matched first so an apostrophe inside them
+# is not read as the start of a string.
 _SQL_TOKEN = re.compile(
-    r"(?P<kept>--[^\n]*|/\*.*?\*/|'(?:[^']|'')*')"
-    r'|(?P<name>"(?:[^"]|"")*"|`[^`]*`)',
+    r'(?P<other>--[^\n]*|/\*.*?\*/|"(?:[^"]|"")*"|`[^`]*`)'
+    r"|(?P<string>'(?:[^']|'')*')",
     re.DOTALL,
 )
 # Fields holding SQL text, where quoted strings are values, not names.
@@ -61,9 +61,11 @@ def _outside_strings(text: str, namespace: str) -> str:
     position = 0
     for token in _SQL_TOKEN.finditer(text):
         result.append(namespace_free_name(text[position : token.start()], namespace))
-        kept = token.group("kept") is not None
+        is_string = token.group("string") is not None
         result.append(
-            token.group() if kept else namespace_free_name(token.group(), namespace),
+            token.group()
+            if is_string
+            else namespace_free_name(token.group(), namespace),
         )
         position = token.end()
     result.append(namespace_free_name(text[position:], namespace))

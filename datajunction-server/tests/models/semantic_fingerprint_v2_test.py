@@ -289,3 +289,16 @@ def test_values_after_a_comment_with_an_apostrophe_keep_their_text():
         )
 
     assert digest(metric("analytics.main")) != digest(metric("analytics.feature"))
+
+
+def test_node_names_in_comments_of_text_hashed_expressions_are_rewritten():
+    def cube(namespace: str) -> CubeSpec:
+        return CubeSpec(
+            namespace=namespace,
+            name="order_cube",
+            metrics=["${prefix}total_amount"],
+            dimensions=["${prefix}order.status"],
+            filters=["${prefix}order.status = 'open' /* see ${prefix}order */"],
+        )
+
+    assert digest(cube("analytics.main")) == digest(cube("analytics.feature"))
