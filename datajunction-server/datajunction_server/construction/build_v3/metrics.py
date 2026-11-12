@@ -20,6 +20,7 @@ from datajunction_server.construction.build_v3.cte import (
     get_column_full_name,
     has_window_function,
     inject_partition_by_into_windows,
+    merge_cte_columns,
     references_filter_only_dimension,
     replace_component_refs_in_ast,
     replace_dimension_refs_in_ast,
@@ -514,18 +515,6 @@ def _build_pre_agg_wrapper_cte(
     return wrapper_query, wrapper_alias
 
 
-def _union_cte_columns(target: ast.Query, other: ast.Query) -> None:
-    """Add columns the other copy kept."""
-    if target.select.set_op or other.select.set_op:
-        return
-    have = {str(item) for item in target.select.projection}
-    for item in other.select.projection:
-        if str(item) not in have:
-            target.select.projection.append(
-                parse(f"SELECT {item}").select.projection[0],
-            )
-
-
 def collect_and_build_ctes(
     grain_groups: list[GrainGroupSQL],
     skip_pre_agg: bool = False,
@@ -557,7 +546,7 @@ def collect_and_build_ctes(
                     # First time seeing this CTE - add it
                     shared_ctes[cte_name] = deepcopy(inner_cte)
                 else:
-                    _union_cte_columns(shared_ctes[cte_name], inner_cte)
+                    merge_cte_columns(shared_ctes[cte_name], inner_cte)
 
     # Build grain group aliases and CTEs
     all_cte_asts: list[ast.Query] = []

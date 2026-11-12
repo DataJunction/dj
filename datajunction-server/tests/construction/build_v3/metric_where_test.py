@@ -9,7 +9,7 @@ from datajunction_server.construction.build_v3.decomposition import (
     analyze_grain_groups,
     merge_grain_groups,
 )
-from datajunction_server.construction.build_v3.metrics import _union_cte_columns
+from datajunction_server.construction.build_v3.cte import merge_cte_columns
 from datajunction_server.construction.build_v3.preagg_matcher import (
     preagg_measure_matches_component,
 )
@@ -838,15 +838,94 @@ def test_where_needs_a_decomposable_aggregate():
 
 
 def test_shared_cte_keeps_columns_either_copy_needs():
-    """Duplicate copies of a CTE pruned differently are merged."""
+    """Duplicate copies of a CTE pruned differently are merged by name."""
     kept = parse("SELECT a, b FROM t")
-    other = parse("SELECT b, c AS d FROM t")
-    _union_cte_columns(kept, other)
+    merge_cte_columns(kept, parse("SELECT b, c AS d FROM t"))
     assert str(kept) == str(parse("SELECT a, b, c AS d FROM t"))
 
-    unioned = parse("SELECT a FROM t UNION ALL SELECT a FROM u")
-    _union_cte_columns(unioned, other)
-    assert str(unioned) == str(parse("SELECT a FROM t UNION ALL SELECT a FROM u"))
+
+def test_shared_union_cte_gets_each_arms_own_expression():
+    """A missing column is added to every arm, from that arm's own copy."""
+    kept = parse("SELECT a FROM t UNION ALL SELECT a FROM u")
+    other = parse("SELECT a, x + 1 AS c FROM t UNION ALL SELECT a, y + 2 AS c FROM u")
+    merge_cte_columns(kept, other)
+    assert str(kept) == str(
+        parse("SELECT a, x + 1 AS c FROM t UNION ALL SELECT a, y + 2 AS c FROM u"),
+    )
+
+
+@pytest.mark.asyncio
+async def test_union_parent_keeps_columns_a_later_group_needs(client_with_build_v3):
+    """An unfiltered group first must not drop the column a filtered one reads."""
+    client = client_with_build_v3
+    response = await client.post(
+        "/nodes/transform/",
+        json={
+            "name": "v3.union_details",
+            "description": "Order lines from two copies",
+            "query": (
+                "SELECT order_id, line_number, line_total, status "
+                "FROM v3.order_details UNION ALL "
+                "SELECT order_id, line_number, line_total, status "
+                "FROM v3.order_details"
+            ),
+            "mode": "published",
+            "primary_key": ["order_id", "line_number"],
+        },
+    )
+    assert response.status_code == 201, response.json()
+    await create_metric(
+        client,
+        "v3.union_total",
+        "SELECT SUM(line_total) FROM v3.union_details",
+    )
+    await create_metric(
+        client,
+        "v3.union_completed",
+        "SELECT SUM(line_total) FROM v3.union_details WHERE status = 'completed'",
+    )
+
+    response = await client.get(
+        "/sql/metrics/v3/",
+        params={
+            "metrics": ["v3.union_total", "v3.union_completed"],
+            "dimensions": ["v3.union_details.order_id"],
+        },
+    )
+    assert response.status_code == 200, response.json()
+    assert_sql_equal(
+        response.json()["sql"],
+        """
+        WITH v3_order_details AS (
+            SELECT o.order_id, oi.quantity * oi.unit_price AS line_total, o.status
+            FROM default.v3.orders o
+            JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+        ),
+        v3_union_details AS (
+            SELECT order_id, line_total, status FROM v3_order_details
+            UNION ALL
+            SELECT order_id, line_total, status FROM v3_order_details
+        ),
+        union_details_0 AS (
+            SELECT t1.order_id, SUM(t1.line_total) line_total_sum_e4835ddf
+            FROM v3_union_details t1
+            GROUP BY t1.order_id
+        ),
+        union_details_1 AS (
+            SELECT t1.order_id, SUM(t1.line_total) line_total_sum_361123f4
+            FROM v3_union_details t1
+            WHERE t1.status = 'completed'
+            GROUP BY t1.order_id
+        )
+        SELECT COALESCE(union_details_0.order_id, union_details_1.order_id) AS order_id,
+               SUM(union_details_0.line_total_sum_e4835ddf) AS union_total,
+               SUM(union_details_1.line_total_sum_361123f4) AS union_completed
+        FROM union_details_0
+        FULL OUTER JOIN union_details_1
+            ON union_details_0.order_id = union_details_1.order_id
+        GROUP BY 1
+        """,
+    )
 
 
 @pytest.mark.asyncio
@@ -921,3 +1000,49 @@ async def test_extraction_rejects_a_derived_metric_where():
         with pytest.raises(DJInvalidInputException) as exc_info:
             await extractor.extract(None)
     assert str(exc_info.value) == "A WHERE clause is only supported on base metrics."
+
+
+@pytest.mark.asyncio
+async def test_combined_measures_keep_columns_a_later_group_needs(
+    client_with_build_v3,
+):
+    """The unfiltered group first must not drop the filtered group's column."""
+    await create_metric(client_with_build_v3, "v3.completed_revenue", COMPLETED_REVENUE)
+    response = await client_with_build_v3.get(
+        "/sql/measures/v3/combined",
+        params={
+            "metrics": ["v3.total_revenue", "v3.completed_revenue"],
+            "dimensions": ["v3.product.category"],
+        },
+    )
+    assert response.status_code == 200, response.json()
+    assert_sql_equal(
+        response.json()["sql"],
+        """
+        WITH v3_order_details AS (
+            SELECT oi.product_id, oi.quantity * oi.unit_price AS line_total, o.status
+            FROM default.v3.orders o
+            JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+        ),
+        v3_product AS (
+            SELECT product_id, category FROM default.v3.products
+        ),
+        gg1 AS (
+            SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            GROUP BY t2.category
+        ),
+        gg2 AS (
+            SELECT t2.category, SUM(t1.line_total) line_total_sum_217f4197
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
+            WHERE t1.status = 'completed'
+            GROUP BY t2.category
+        )
+        SELECT COALESCE(gg1.category, gg2.category) category,
+               gg1.line_total_sum_e1f61696,
+               gg2.line_total_sum_217f4197
+        FROM gg1 FULL OUTER JOIN gg2 ON gg1.category = gg2.category
+        """,
+    )
