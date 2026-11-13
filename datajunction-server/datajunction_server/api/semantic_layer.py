@@ -842,10 +842,17 @@ class QueryRequest(RequestModel):
 
 
 class ListViewsRequest(BaseModel):
-    """Discovery options shared by the semantic listing endpoints."""
+    """Legacy flat-list options; hierarchy paths belong to /views."""
 
     runtime_configuration: dict[str, Any] = Field(default_factory=dict)
-    path: list[str | None] | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class BrowseViewsRequest(ListViewsRequest):
+    """Select a discovery location explicitly, including the root with []."""
+
+    path: list[str | None]
 
 
 class DiscoverLevel(BaseModel):
@@ -1404,39 +1411,27 @@ async def _list_semantic_branches(
 
 @router.post(
     "/views",
-    response_model=list[ViewSummary] | BrowseViewsResponse,
+    response_model=BrowseViewsResponse,
     response_model_exclude_unset=True,
 )
-@router.post(
-    "/views/list",
-    response_model=list[ViewSummary] | BrowseViewsResponse,
-    response_model_exclude_unset=True,
-    deprecated=True,
-)
-async def list_views(
-    request: ListViewsRequest | None = Body(default=None),
+async def browse_views(
+    request: BrowseViewsRequest,
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> list[ViewSummary] | BrowseViewsResponse | JSONResponse:
-    """List the semantic views (DJ cubes) available to the caller.
-
-    ``/views/list`` remains as a deprecated alias. Full metrics and dimensions
-    are fetched per-view via ``/views/{view}``.
-    """
+) -> BrowseViewsResponse | JSONResponse:
+    """Return child choices and views at the requested discovery location."""
+    path = request.path
     try:
-        configuration = request.runtime_configuration if request else {}
-        path = request.path if request else None
-        if path is not None:
-            if "namespace" in configuration or "branch" in configuration:
-                raise DJException(
-                    message="Use path or runtime_configuration selectors",
-                    http_status_code=400,
-                )
-            namespace, branch = _path_filter(path)
-        else:
-            namespace, branch = _discovery_filter(configuration)
-
-        if path is not None and not path:
+        if (
+            "namespace" in request.runtime_configuration
+            or "branch" in request.runtime_configuration
+        ):
+            raise DJException(
+                message="Use path or runtime_configuration selectors",
+                http_status_code=400,
+            )
+        namespace, branch = _path_filter(path)
+        if namespace is None:
             return BrowseViewsResponse(
                 hierarchy=ViewHierarchy(
                     next=DiscoverLevel(id="namespace", display_name="Namespace"),
@@ -1445,6 +1440,75 @@ async def list_views(
                 views=[],
             )
 
+        if branch is None:
+            info = await get_git_info_for_namespace(
+                session,
+                namespace,
+                active_only=True,
+            )
+            if info is not None:
+                if len(path) == 2:
+                    return _problem(404, "Invalid view discovery path")
+                branch_values = await _list_semantic_branches(
+                    namespace,
+                    session,
+                    access_checker,
+                )
+                if isinstance(branch_values, JSONResponse):
+                    return branch_values
+                return BrowseViewsResponse(
+                    hierarchy=ViewHierarchy(
+                        next=DiscoverLevel(id="branch", display_name="Branch"),
+                        values=branch_values,
+                    ),
+                    views=[],
+                )
+    except DJException as exc:
+        return _problem(exc.http_status_code or 400, exc.message)
+
+    summaries = await _list_view_summaries(namespace, branch, session, access_checker)
+    if isinstance(summaries, JSONResponse):
+        return summaries
+    hierarchy = (
+        ViewHierarchy(
+            next=DiscoverLevel(id="branch", display_name="Branch"),
+            values=[None],
+        )
+        if len(path) == 1
+        else ViewHierarchy(next=None)
+    )
+    return BrowseViewsResponse(hierarchy=hierarchy, views=summaries)
+
+
+@router.post(
+    "/views/list",
+    response_model=list[ViewSummary],
+    response_model_exclude_unset=True,
+    deprecated=True,
+)
+async def list_views(
+    request: ListViewsRequest | None = Body(default=None),
+    session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
+) -> list[ViewSummary] | JSONResponse:
+    """Return all matching cube views as a legacy flat list."""
+    try:
+        namespace, branch = _discovery_filter(
+            request.runtime_configuration if request else {},
+        )
+    except DJException as exc:
+        return _problem(exc.http_status_code or 400, exc.message)
+    return await _list_view_summaries(namespace, branch, session, access_checker)
+
+
+async def _list_view_summaries(
+    namespace: str | None,
+    branch: str | None,
+    session: AsyncSession,
+    access_checker: AccessChecker,
+) -> list[ViewSummary] | JSONResponse:
+    """Resolve and authorize the shared cube discovery scopes."""
+    try:
         is_git_root = False
         if namespace is not None:
             row = await NodeNamespace.get(
@@ -1463,22 +1527,6 @@ async def list_views(
                 return _problem(404, "Invalid view discovery path")
             is_git_root = info is not None
 
-        if path is not None and len(path) == 1 and namespace and is_git_root:
-            branch_values = await _list_semantic_branches(
-                namespace,
-                session,
-                access_checker,
-            )
-            if isinstance(branch_values, JSONResponse):
-                return branch_values
-            return BrowseViewsResponse(
-                hierarchy=ViewHierarchy(
-                    next=DiscoverLevel(id="branch", display_name="Branch"),
-                    values=branch_values,
-                ),
-                views=[],
-            )
-
         branch_namespaces: list[tuple[str, str]] = []
         if namespace is not None and not is_git_root:
             if branch is not None:
@@ -1494,8 +1542,6 @@ async def list_views(
                 if root_location:
                     valid_branches.add(root_location[1])
                 if not valid_branches:
-                    return _problem(404, "Invalid view discovery path")
-                if path is not None and len(path) == 2 and branch is None:
                     return _problem(404, "Invalid view discovery path")
                 if branch is not None and branch not in valid_branches:
                     return _problem(404, "Invalid view discovery path")
@@ -1565,20 +1611,7 @@ async def list_views(
         if location:
             summary.namespace, summary.branch = location[:2]
         summaries.append(summary)
-    if path is None:
-        return summaries
-    hierarchy = (
-        ViewHierarchy(
-            next=DiscoverLevel(id="branch", display_name="Branch"),
-            values=[None],
-        )
-        if len(path) == 1
-        else ViewHierarchy(next=None)
-    )
-    return BrowseViewsResponse(
-        hierarchy=hierarchy,
-        views=summaries,
-    )
+    return summaries
 
 
 @router.post(

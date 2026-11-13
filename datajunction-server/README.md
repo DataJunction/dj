@@ -41,6 +41,20 @@ By parsing each node's SQL into an AST and through dimensional links between col
 DJ can infer a graph of dependencies between nodes, which allows it to find the
 appropriate join paths between nodes to generate queries for metrics.
 
+## Semantic view discovery
+
+`POST /semantic/views` requires a `path` array and returns the hierarchy and
+views at the selected location. Use `[]` to browse the root. Missing or `null`
+paths are rejected. For example:
+
+```json
+{"path": ["sales", "main"]}
+```
+
+Deprecated `POST /semantic/views/list` returns a flat array of all matching cube
+views and does not accept `path`. It preserves the legacy `runtime_configuration`
+namespace and branch selectors.
+
 ## AI Integration
 
 DataJunction provides an MCP (Model Context Protocol) client that enables AI assistants like Claude to interact with your semantic layer.
