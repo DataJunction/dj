@@ -16,7 +16,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from decimal import Decimal
 from http import HTTPStatus
-from typing import Any, Literal, TypeAlias, cast
+from typing import Any, Literal, TypeAlias, cast, overload
 
 from fastapi import Body, Depends, Request, Response
 from fastapi.exceptions import RequestValidationError
@@ -1446,6 +1446,24 @@ async def list_views(
         session,
         access_checker,
     )
+
+
+@overload
+async def _list_views(
+    configuration: dict[str, Any],
+    path: None,
+    session: AsyncSession,
+    access_checker: AccessChecker,
+) -> list[ViewSummary] | JSONResponse: ...
+
+
+@overload
+async def _list_views(
+    configuration: dict[str, Any],
+    path: list[str | None],
+    session: AsyncSession,
+    access_checker: AccessChecker,
+) -> BrowseViewsResponse | JSONResponse: ...
 
 
 async def _list_views(
