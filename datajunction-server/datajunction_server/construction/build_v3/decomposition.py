@@ -444,13 +444,13 @@ def analyze_grain_groups(
     parent_node = metric_group.parent_node
 
     # Group components by their effective grain
-    # Key: (aggregability, tuple of additional grain columns, tuple of internal dimensions)
+    # Key includes the metric WHERE.
     grain_buckets: dict[
-        tuple[Aggregability, tuple[str, ...], tuple[str, ...]],
+        tuple[Aggregability, tuple[str, ...], tuple[str, ...], str | None],
         list[tuple[Node, MetricComponent]],
     ] = {}
     reaggregate_component_dimensions: dict[
-        tuple[Aggregability, tuple[str, ...], tuple[str, ...]],
+        tuple[Aggregability, tuple[str, ...], tuple[str, ...], str | None],
         dict[str, str],
     ] = {}
 
@@ -468,7 +468,7 @@ def analyze_grain_groups(
             agg_type = component.rule.type
 
             # Explicitly type the key to satisfy mypy
-            key: tuple[Aggregability, tuple[str, ...], tuple[str, ...]]
+            key: tuple[Aggregability, tuple[str, ...], tuple[str, ...], str | None]
             reaggregate_dimension = (
                 component.rule.reaggregate.dimension
                 if (
@@ -486,11 +486,16 @@ def analyze_grain_groups(
             if agg_type == Aggregability.FULL:
                 # FULL: no additional grain columns needed, unless a semi-additive
                 # component must keep its protected dimension as internal grain.
-                key = (Aggregability.FULL, (), internal_dimensions)
+                key = (Aggregability.FULL, (), internal_dimensions, component.where)
             elif agg_type == Aggregability.LIMITED:
                 # LIMITED: add level columns to grain
                 level_cols = tuple(sorted(component.rule.level or []))
-                key = (Aggregability.LIMITED, level_cols, internal_dimensions)
+                key = (
+                    Aggregability.LIMITED,
+                    level_cols,
+                    internal_dimensions,
+                    component.where,
+                )
             else:  # NONE
                 # NONE: use native grain (PK columns)
                 native_grain = get_native_grain(parent_node)
@@ -498,6 +503,7 @@ def analyze_grain_groups(
                     Aggregability.NONE,
                     tuple(sorted(native_grain)),
                     internal_dimensions,
+                    component.where,
                 )  # pragma: no cover
 
             if key not in grain_buckets:
@@ -511,7 +517,7 @@ def analyze_grain_groups(
     # Convert buckets to GrainGroup objects
     grain_groups = []
     for bucket_key, components in grain_buckets.items():
-        agg_type, grain_cols, _internal_dimensions = bucket_key
+        agg_type, grain_cols, _internal_dimensions, where = bucket_key
         # Map each grain expression to its SQL alias.
         # LIMITED: alias comes from component.grain_alias (_make_component decides:
         #   plain column maps to the bare name, complex expr maps to component.name).
@@ -536,6 +542,7 @@ def analyze_grain_groups(
                     bucket_key,
                     {},
                 ),
+                where=where,
             ),
         )
 
@@ -546,7 +553,11 @@ def analyze_grain_groups(
 
         # Check if we already have a NONE grain group at this grain
         existing_none = next(
-            (g for g in grain_groups if g.grain_key[1:] == none_key),
+            (
+                g
+                for g in grain_groups
+                if g.grain_key[1:] == none_key and g.where is None
+            ),
             None,
         )
 
@@ -570,7 +581,11 @@ def analyze_grain_groups(
     # Sort groups: FULL first, then LIMITED, then NONE (for consistent output)
     agg_order = {Aggregability.FULL: 0, Aggregability.LIMITED: 1, Aggregability.NONE: 2}
     grain_groups.sort(
-        key=lambda g: (agg_order.get(g.aggregability, 3), g.grain_columns),
+        key=lambda g: (
+            agg_order.get(g.aggregability, 3),
+            g.grain_columns,
+            g.where or "",
+        ),
     )
 
     return grain_groups
@@ -598,13 +613,13 @@ def merge_grain_groups(grain_groups: list[GrainGroup]) -> list[GrainGroup]:
     # semi-additive collapse. LIMITED/NONE groups must not be merged into a
     # semi-additive FULL group, because their extra grain columns would make the
     # protected-dimension bucket contain multiple rows and corrupt MAX_BY/MIN_BY.
-    by_parent: dict[str, list[GrainGroup]] = defaultdict(list)
+    by_parent: dict[tuple[str, str | None], list[GrainGroup]] = defaultdict(list)
     for gg in grain_groups:
-        by_parent[gg.parent_node.name].append(gg)
+        by_parent[(gg.parent_node.name, gg.where)].append(gg)
 
     merged_groups: list[GrainGroup] = []
 
-    for parent_name, parent_groups in by_parent.items():
+    for parent_groups in by_parent.values():
         if len(parent_groups) == 1:
             # Only one group for this parent - no merge needed
             merged_groups.append(parent_groups[0])
@@ -624,6 +639,7 @@ def merge_grain_groups(grain_groups: list[GrainGroup]) -> list[GrainGroup]:
     merged_groups.sort(
         key=lambda g: (
             g.parent_node.name,
+            g.where or "",
             agg_order.get(g.aggregability, 3),
             g.grain_columns,
         ),
@@ -696,4 +712,5 @@ def _merge_parent_grain_groups(groups: list[GrainGroup]) -> GrainGroup:
         grain_col_aliases=merged_grain_col_aliases,
         reaggregate_component_dimensions=reaggregate_component_dimensions,
         non_decomposable_metrics=all_non_decomposable,
+        where=groups[0].where,
     )

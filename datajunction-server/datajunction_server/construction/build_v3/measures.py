@@ -1263,6 +1263,7 @@ def build_select_ast(
     internal_dimension_aliases: dict[str, str] | None = None,
     filters: list[str] | None = None,
     skip_aggregation: bool = False,
+    metric_where: str | None = None,
 ) -> tuple[ast.Query, list[str], dict[str, int]]:
     """
     Build a SELECT AST for measures SQL with JOIN support.
@@ -1287,6 +1288,7 @@ def build_select_ast(
                  or local columns (e.g., "status = 'active'").
         skip_aggregation: If True, skip adding GROUP BY clause. Used for non-decomposable
                           metrics where raw rows need to be passed through.
+        metric_where: Metric's own WHERE on parent rows.
 
     Returns:
         Tuple of (query, scanned_sources, dimension_group_by_positions):
@@ -1590,6 +1592,10 @@ def build_select_ast(
         main_alias,
         parent_pushdown_active=parent_pushdown_active,
     )
+    if metric_where:
+        metric_where_ast = parse(f"SELECT 1 WHERE {metric_where}").select.where
+        _rewrite_col_refs(metric_where_ast, main_alias)
+        _apply_outer_where_atoms(select, metric_where_ast, main_alias)
     if temporal_filter_ast is not None:  # pragma: no cover
         # ``_build_temporal_pushdown`` always pushes the filter into a
         # CTE and returns ``None``, so this branch is currently dead.
@@ -2508,6 +2514,7 @@ def build_grain_group_sql(
             internal_dimension_aliases=internal_dimension_aliases,
             filters=ctx.dimension_filters,  # Use dimension_filters only (not metric_filters)
             skip_aggregation=skip_agg,
+            metric_where=grain_group.where,
         )
 
     # Build column metadata
@@ -2979,6 +2986,10 @@ def build_window_metric_grain_groups(
 
         if not parent_node or not components_for_grain:
             continue
+        if any(component.where for _, component in components_for_grain):
+            raise DJInvalidInputException(
+                "A metric WHERE is not supported with window metrics.",
+            )
 
         # Determine which dimensions to include at this grain
         # Exclude all dimensions from the same dimension node as the ORDER BY columns

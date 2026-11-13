@@ -188,6 +188,7 @@ async def register_external_preaggregations(
                 compute_expression_hash(component.expression),
                 component.aggregation,
                 component.params,
+                component.where,
             )
         ] = physical_column
 
@@ -275,6 +276,7 @@ async def register_external_preaggregations(
                 expr_hash,
                 component.aggregation,
                 component.params,
+                component.where,
             )
             if identity not in measure_identity_to_column:
                 raise DJInvalidInputException(

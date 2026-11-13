@@ -11,7 +11,7 @@ Key concepts:
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_serializer
 
 from datajunction_server.enum import StrEnum
 from datajunction_server.models.materialization import MaterializationTarget
@@ -132,6 +132,8 @@ class MetricComponent(BaseModel):
     # into it as a template. Rendered from `params` by the decomposition; `params`
     # remains the identity record, this is the emission form.
     merge_args: list[str] = Field(default_factory=list)
+    # Metric's own WHERE clause.
+    where: str | None = None
 
     # Conversion applied when writing this component to a materialized table for
     # a target listed in `serialize_targets` -- see `ComponentDef.serialize`. The
@@ -143,6 +145,14 @@ class MetricComponent(BaseModel):
     serialize_targets: list[MaterializationTarget] = Field(default_factory=list)
     # Column type `serialize` produces. See `ComponentDef.serialize_type`.
     serialize_type: str | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_empty_where(self, handler: Any) -> dict[str, Any]:
+        """Omit `where` when unset."""
+        data = handler(self)
+        if data.get("where") is None:
+            data.pop("where", None)
+        return data
 
     def serializes_for(self, materialization_target: Any | None) -> bool:
         """

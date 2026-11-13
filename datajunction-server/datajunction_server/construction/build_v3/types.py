@@ -677,6 +677,9 @@ class GrainGroup:
     # These need their raw metric expression applied in the final SELECT
     non_decomposable_metrics: list[DecomposedMetricInfo] = field(default_factory=list)
 
+    # Metric WHERE shared by group.
+    where: str | None = None
+
     @property
     def grain_key(self) -> tuple[str, Aggregability, tuple[str, ...]]:
         """
