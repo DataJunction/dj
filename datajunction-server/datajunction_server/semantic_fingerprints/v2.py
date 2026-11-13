@@ -91,12 +91,19 @@ class SemanticGraphSnapshot:
         specs: Mapping[str, NodeSpec],
         resolved_columns: Mapping[str, Iterable[ColumnSpec]] | None = None,
     ) -> None:
+        captured_specs = {}
+        for name, spec in sorted(specs.items()):
+            captured = deepcopy(spec)
+            if captured._query_ast is not None and (
+                getattr(captured._query_ast, "_parsed_sql", None)
+                != captured.rendered_query
+            ):
+                captured._query_ast = None
+            captured_specs[name] = captured
         object.__setattr__(
             self,
             "_specs",
-            MappingProxyType(
-                {name: deepcopy(spec) for name, spec in sorted(specs.items())},
-            ),
+            MappingProxyType(captured_specs),
         )
         object.__setattr__(
             self,

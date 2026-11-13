@@ -100,6 +100,51 @@ def test_fingerprinting_reuses_cached_asts_without_mutating_them(monkeypatch):
 
 
 @pytest.mark.parametrize(
+    ("query", "comparison"),
+    [
+        ("SELECT amount - 1 AS value FROM ns.source", "changed"),
+        ("SELECT (", "indeterminate"),
+    ],
+)
+def test_copied_query_invalidates_stale_ast_without_mutating_caller(query, comparison):
+    original = project("SELECT amount + 1 AS value FROM ns.source")
+    caller_ast = original.query_ast
+    before = evaluate(source(), original)
+    changed = original.model_copy(update={"query": query})
+
+    after = evaluate(source(), changed)
+
+    assert after.nodes == evaluate(source(), project(query)).nodes
+    assert (
+        compare_components(
+            before.nodes["ns.project"].full,
+            after.nodes["ns.project"].full,
+        )
+        == comparison
+    )
+    assert changed._query_ast is original._query_ast is caller_ast
+
+
+def test_copied_namespace_invalidates_stale_ast_without_mutating_caller():
+    original = TransformSpec(
+        name="project",
+        namespace="team_a",
+        query="SELECT amount + 1 AS value FROM ${prefix}source",
+    )
+    caller_ast = original.query_ast
+    changed = original.model_copy(update={"namespace": "team_b"})
+    fresh = TransformSpec.model_validate(
+        {**changed.model_dump(), "namespace": changed.namespace},
+    )
+
+    after = evaluate(source("team_b.source"), changed)
+
+    assert after.nodes["team_b.project"].precision == "precise"
+    assert after.nodes == evaluate(source("team_b.source"), fresh).nodes
+    assert changed._query_ast is original._query_ast is caller_ast
+
+
+@pytest.mark.parametrize(
     ("required_dimensions", "expected_precision"),
     [([], "precise"), (["ns.project.amount"], "unknown")],
 )
