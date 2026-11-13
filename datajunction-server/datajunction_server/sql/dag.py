@@ -1266,18 +1266,32 @@ async def get_metric_parents_map(
                 result[metric_name].append(parent_node)
 
     # Recursively resolve metric parents until we reach non-metric nodes
-    visited_metrics: set[str] = set()
+    # A base metric can be reached for different original metrics at different
+    # depths. Track each pair so resolving it early does not drop nested parents.
+    resolved_pairs: set[tuple[str, str]] = set()
 
     while metric_parents_to_resolve:
-        base_metric_names = [
-            name for name in metric_parents_to_resolve if name not in visited_metrics
-        ]
+        metric_parents_to_resolve = {
+            name: remaining
+            for name, originals in metric_parents_to_resolve.items()
+            if (
+                remaining := [
+                    original
+                    for original in set(originals)
+                    if (name, original) not in resolved_pairs
+                ]
+            )
+        }
+        base_metric_names = list(metric_parents_to_resolve)
 
         if not base_metric_names:
             break  # pragma: no cover
 
-        for name in base_metric_names:
-            visited_metrics.add(name)
+        resolved_pairs.update(
+            (name, original)
+            for name, originals in metric_parents_to_resolve.items()
+            for original in originals
+        )
 
         # Get the base metrics' current versions
         base_metrics_stmt = (
@@ -1338,7 +1352,7 @@ async def get_metric_parents_map(
             ]
 
             # Add metric parents to next resolve list (multi-level derived metrics)
-            for parent_node in metric_parents:  # pragma: no cover
+            for parent_node in metric_parents:
                 if parent_node.name not in next_metric_parents_to_resolve:
                     next_metric_parents_to_resolve[parent_node.name] = []
                 next_metric_parents_to_resolve[parent_node.name].extend(

@@ -41,12 +41,14 @@ from datajunction_server.construction.build_v3.types import (
     ColumnMetadata as GeneratedColumnMetadata,
 )
 from datajunction_server.database.column import Column
+from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.attributetype import ColumnAttribute
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.user import User
 from datajunction_server.construction.build_v3.cube_matcher import (
     ResolvedExecutionContext,
+    preferred_live_engine,
     resolve_dialect_and_engine_for_metrics,
 )
 from datajunction_server.errors import DJException, DJInvalidMetricQueryException
@@ -122,6 +124,7 @@ class SemanticErrorCode(StrEnum):
     UNKNOWN_METRIC = "UNKNOWN_METRIC"
     UNKNOWN_DIMENSION = "UNKNOWN_DIMENSION"
     UNKNOWN_COLUMN = "UNKNOWN_COLUMN"
+    INCOMPATIBLE_SELECTION = "INCOMPATIBLE_SELECTION"
     QUERY_EXECUTION_FAILED = "QUERY_EXECUTION_FAILED"
     INVALID_QUERY_RESULT = "INVALID_QUERY_RESULT"
     TOO_MANY_VALUES = "TOO_MANY_VALUES"
@@ -1496,10 +1499,55 @@ def _explore_summary(
     )
 
 
+ExecutionTarget: TypeAlias = tuple[str, str, str | None]
+
+
+def _explore_execution_target(catalog: Catalog | None) -> ExecutionTarget | None:
+    """Identify an execution target without exposing connection details."""
+    engine = preferred_live_engine(catalog.engines) if catalog else None
+    if engine is None:
+        return None
+    # PostgreSQL cannot reference another database, even through the same engine.
+    return (
+        engine.name,
+        engine.version,
+        catalog.name if engine.dialect == Dialect.POSTGRES else None,
+    )
+
+
 @dataclass
 class ExploreView:
     detail: ViewDetail
     metric_dimensions: dict[str, set[str]]
+    metric_targets: dict[str, ExecutionTarget | None]
+    metric_parents: dict[str, set[int]]
+
+    def execution_error(self, metrics: set[str]) -> str | None:
+        targets = {self.metric_targets[metric] for metric in metrics}
+        if None in targets or len(targets) > 1:
+            return "Selected metrics do not share a compatible execution target."
+        return None
+
+    def selection_error(
+        self,
+        metrics: set[str],
+        dimensions: set[str],
+        join_dimensions: set[str],
+    ) -> str | None:
+        """Validate operands, using only output dimensions as cross-fact join keys."""
+        if error := self.execution_error(metrics):
+            return error
+        if not metrics:
+            return None
+        common_dims = set.intersection(
+            *(self.metric_dimensions[metric] for metric in metrics),
+        )
+        if not dimensions.issubset(common_dims):
+            return "Selected metrics and dimensions are not compatible."
+        parents = set.union(*(self.metric_parents[metric] for metric in metrics))
+        if len(parents) > 1 and not common_dims.intersection(join_dimensions):
+            return "Metrics from different facts require a selected shared dimension."
+        return None
 
     def compatible(
         self,
@@ -1508,6 +1556,9 @@ class ExploreView:
     ) -> tuple[set[str], set[str]]:
         """Intersect selected metrics; expand dimension selections via common facts."""
         selected_dims = set(dimensions)
+        selected_metrics = set(metrics)
+        if self.execution_error(selected_metrics):
+            return set(), set()
         all_dims = {dim.id for dim in self.detail.dimensions}
         common_dims = (
             set.intersection(
@@ -1522,6 +1573,16 @@ class ExploreView:
             metric
             for metric, dims in self.metric_dimensions.items()
             if selected_dims.issubset(dims)
+            and (
+                not metrics
+                and not dimensions
+                or self.selection_error(
+                    selected_metrics | {metric},
+                    selected_dims,
+                    selected_dims,
+                )
+                is None
+            )
         }
         if dimensions and not metrics:
             # Without a metric, a user can still select attributes from one
@@ -1594,6 +1655,7 @@ async def _load_explore_view(
             noload("*"),
             joinedload(Node.current).options(
                 noload("*"),
+                joinedload(NodeRevision.catalog).selectinload(Catalog.engines),
                 selectinload(NodeRevision.columns).options(
                     noload("*"),
                     selectinload(Column.attributes).joinedload(
@@ -1746,6 +1808,14 @@ async def _load_explore_view(
             dimensions=[dimensions[key] for key in sorted(dimensions)],
         ),
         metric_dimensions=metric_dimensions,
+        metric_targets={
+            node.name: _explore_execution_target(node.current.catalog)
+            for node in metric_nodes
+        },
+        metric_parents={
+            node.name: {parent.id for parent in parents.get(node.name, [])}
+            for node in metric_nodes
+        },
     )
 
 
@@ -2491,11 +2561,16 @@ async def _prepare_view_sql(
                 (query_metrics if item.by in allowed_metrics else query_dims).add(
                     item.by,
                 )
-            _, compatible_dims = explore.compatible(list(query_metrics), [])
-            if query_metrics and not query_dims.issubset(compatible_dims):
+            error = explore.selection_error(
+                query_metrics,
+                query_dims,
+                set(payload.dimensions),
+            )
+            if error:
                 return _problem(
                     400,
-                    "Selected metrics and dimensions are not compatible.",
+                    error,
+                    code=SemanticErrorCode.INCOMPATIBLE_SELECTION,
                 )
             if group_limit := payload.group_limit:
                 ranking_metrics = {group_limit.metric or payload.metrics[0]}
@@ -2512,11 +2587,17 @@ async def _prepare_view_sql(
                             if flt.type.upper() == "HAVING"
                             else ranking_dims
                         ).add(flt.column)
-                _, compatible_dims = explore.compatible(list(ranking_metrics), [])
-                if not ranking_dims.issubset(compatible_dims):
+                error = explore.execution_error(query_metrics | ranking_metrics)
+                error = error or explore.selection_error(
+                    ranking_metrics,
+                    ranking_dims,
+                    set(group_limit.dimensions),
+                )
+                if error:
                     return _problem(
                         400,
-                        "Ranking metrics and dimensions are not compatible.",
+                        error,
+                        code=SemanticErrorCode.INCOMPATIBLE_SELECTION,
                     )
         return await _prepare_execution(
             session,

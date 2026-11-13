@@ -12,10 +12,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.api import semantic_layer as api
 from datajunction_server.database.namespace import NodeNamespace
 from datajunction_server.database.node import Node
+from datajunction_server.database.catalog import Catalog
+from datajunction_server.database.engine import Engine
 from datajunction_server.errors import DJException
 from datajunction_server.internal.access.authorization import get_access_checker
 from datajunction_server.models.access import ResourceType
 from datajunction_server.models.node import NodeStatus
+from datajunction_server.models.dialect import Dialect
 from datajunction_server.typing import QueryState
 from datajunction_server.utils import get_query_service_client
 from tests.api.semantic_layer_test import _expect, _setup_cube
@@ -128,6 +131,168 @@ async def test_malformed_explore_names_return_not_found(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "target_case",
+    ["different_engines", "postgres_catalogs", "engine_versions", "trino_federation"],
+)
+async def test_explore_execution_targets(
+    client: AsyncClient,
+    session: AsyncSession,
+    monkeypatch,
+    target_case: str,
+):
+    """Compatibility follows engine identity, including hidden query operands."""
+    await _setup_cube(client)
+    catalog = await Catalog.get_by_name(session, "semcat")
+    if target_case == "trino_federation":
+        engines = list(catalog.engines)
+        # Both catalogs must resolve to Trino, even when another engine is first.
+        catalog.engines = [
+            Engine(name="sales_pg", version="", dialect=Dialect.POSTGRES),
+            *engines,
+        ]
+    else:
+        sales_engine = Engine(name="sales_pg", version="", dialect=Dialect.POSTGRES)
+        catalog.engines = [sales_engine]
+        engines = [
+            Engine(name="metadata_pg", version="", dialect=Dialect.POSTGRES)
+            if target_case == "different_engines"
+            else Engine(name="sales_pg", version="2", dialect=Dialect.POSTGRES)
+            if target_case == "engine_versions"
+            else sales_engine,
+        ]
+    session.add(Catalog(name="othercat", engines=engines))
+    await session.commit()
+    await _expect(
+        await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "sem.shared_region",
+                "mode": "published",
+                "query": "SELECT 1 AS region_id, 'North' AS region_name",
+                "primary_key": ["region_id"],
+            },
+        ),
+        200,
+        201,
+    )
+    await _expect(
+        await client.post(
+            "/nodes/source/",
+            json={
+                "name": "sem.other_sales",
+                "mode": "published",
+                "catalog": "othercat",
+                "schema_": "sem",
+                "table": "other_sales",
+                "columns": [{"name": "region_id", "type": "bigint"}],
+            },
+        ),
+        200,
+        201,
+    )
+    # Virtual dimensions may be linked from facts in different catalogs.
+    for fact in ("sem.sales", "sem.other_sales"):
+        await _expect(
+            await client.post(
+                f"/nodes/{fact}/link/",
+                json={
+                    "dimension_node": "sem.shared_region",
+                    "join_type": "inner",
+                    "join_on": f"{fact}.region_id = sem.shared_region.region_id",
+                },
+            ),
+            200,
+            201,
+        )
+    for name, query in (
+        ("sem.other_count", "SELECT COUNT(*) FROM sem.other_sales"),
+        ("sem.derived_amount", "SELECT sem.total_amount * 2"),
+        ("sem.nested_amount", "SELECT sem.derived_amount * 2"),
+    ):
+        await _expect(
+            await client.post(
+                "/nodes/metric/",
+                json={"name": name, "query": query, "mode": "published"},
+            ),
+            200,
+            201,
+        )
+    view = "/semantic/views/@explore:sem"
+    selected = ["sem.total_amount"]
+    dimension = "sem.shared_region.region_name"
+    other = "sem.other_count"
+    same_fact = {"sem.total_amount", "sem.derived_amount", "sem.nested_amount"}
+    for dims in ([], [dimension]):
+        response = await client.post(
+            f"{view}/compatible-metrics",
+            json={"selected_metrics": selected, "selected_dimensions": dims},
+        )
+        assert response.status_code == 200, response.text
+        expected = same_fact | (
+            {other} if dims and target_case == "trino_federation" else set()
+        )
+        assert {item["id"] for item in response.json()} == expected
+    response = await client.post(f"{view}/compatible-metrics", json={})
+    assert {item["id"] for item in response.json()} == same_fact | {other}
+    response = await client.post(
+        f"{view}/compatible-dimensions",
+        json={"selected_metrics": selected + [other]},
+    )
+    assert response.status_code == 200, response.text
+    assert {item["id"] for item in response.json()} == (
+        {"sem.shared_region.region_id", dimension}
+        if target_case == "trino_federation"
+        else set()
+    )
+    same_fact_query = await client.post(
+        f"{view}/sql",
+        json={"query": {"metrics": sorted(same_fact)}},
+    )
+    assert same_fact_query.status_code == 200, same_fact_query.text
+    cross_fact = {"metrics": selected + [other], "dimensions": [dimension]}
+    response = await client.post(f"{view}/sql", json={"query": cross_fact})
+    if target_case == "trino_federation":
+        assert response.status_code == 200, response.text
+        assert "othercat" in response.json()["sql"]
+        return
+    assert response.status_code == 400, response.text
+    assert response.json()["code"] == "INCOMPATIBLE_SELECTION"
+    assert "execution target" in response.json()["detail"]
+
+    prepare = AsyncMock()
+    monkeypatch.setattr(api, "_prepare_execution", prepare)
+    having = {"type": "HAVING", "column": other, "operator": ">", "value": 1}
+    for extra in (
+        {"metrics": selected + [other]},
+        {"filters": [having]},
+        {"order": [{"by": other}]},
+        {"group_limit": {"dimensions": [dimension], "metric": other, "top": 2}},
+        {
+            "group_limit": {
+                "dimensions": [dimension],
+                "filters": [having],
+                "top": 2,
+            }
+        },
+    ):
+        for endpoint in ("sql", "query", "row-count"):
+            response = await client.post(
+                f"{view}/{endpoint}",
+                json={
+                    "query": {
+                        "metrics": selected,
+                        "dimensions": [dimension],
+                        **extra,
+                    }
+                },
+            )
+            assert response.status_code == 400, response.text
+            assert response.json()["code"] == "INCOMPATIBLE_SELECTION"
+    prepare.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_explore_selection_and_execution(client: AsyncClient, monkeypatch):
     await _setup_cube(client)
     await _expect(await client.post("/namespaces/sem.child"), 200, 201)
@@ -209,6 +374,15 @@ async def test_explore_selection_and_execution(client: AsyncClient, monkeypatch)
         return {column["id"] for column in result.json()}
 
     assert await compatible("metrics") == {metric["id"] for metric in detail["metrics"]}
+    assert await compatible("metrics", selected_metrics=["sem.total_amount"]) == {
+        "sem.total_amount",
+        "sem.order_count",
+    }
+    assert await compatible(
+        "metrics",
+        selected_metrics=["sem.total_amount"],
+        selected_dimensions=["sem.region.region_name"],
+    ) == {"sem.total_amount", "sem.order_count", "sem.region_count"}
     assert await compatible("dimensions") == dimensions
     assert await compatible("dimensions", selected_metrics=["sem.total_amount"]) == {
         "sem.region.region_id",
@@ -304,6 +478,42 @@ async def test_explore_selection_and_execution(client: AsyncClient, monkeypatch)
         },
     )
     assert independent_ranking.status_code == 200, independent_ranking.text
+    cross_fact = ["sem.total_amount", "sem.region_count"]
+    for extra in (
+        {"metrics": cross_fact},
+        {
+            "metrics": cross_fact,
+            "filters": [{"column": "sem.region.region_name", "value": "North"}],
+        },
+        {
+            "filters": [
+                {
+                    "type": "HAVING",
+                    "column": "sem.region_count",
+                    "operator": ">",
+                    "value": 1,
+                }
+            ]
+        },
+        {"order": [{"by": "sem.region_count"}]},
+    ):
+        rejected = await client.post(
+            f"/semantic/views/{view}/sql",
+            json={"query": {"metrics": ["sem.total_amount"], **extra}},
+        )
+        assert rejected.status_code == 400, rejected.text
+        assert rejected.json()["code"] == "INCOMPATIBLE_SELECTION"
+        assert "selected shared dimension" in rejected.json()["detail"]
+    joined = await client.post(
+        f"/semantic/views/{view}/sql",
+        json={
+            "query": {
+                "metrics": cross_fact,
+                "dimensions": ["sem.region.region_name"],
+            }
+        },
+    )
+    assert joined.status_code == 200, joined.text
     assert (
         await client.post(
             f"/semantic/views/{view}/sql",
