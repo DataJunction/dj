@@ -19,12 +19,24 @@ while preserving existing output components and their consumers.
 
 Complex joins, CTEs, subqueries, set operations, windows, HAVING, DISTINCT,
 limits, and unsupported expressions retain conservative whole-node dependencies
-or return unknown when the captured evidence is incomplete. A calculation
-component includes SQL, rows, values, and grain while excluding optional
-dimension links. Conservative SQL depends on parent calculations, so adding
-an unused link does not invalidate those values. SQL that reads dimension
-attributes retains its link contracts. Standalone metric constraints use
-conservative context until configured context is available.
+or return unknown when the captured evidence is incomplete. Standalone metric
+constraints use conservative context. The configured entry point separates that
+context from the metric formula. A separate calculation component includes SQL,
+rows, values, and grain while excluding optional dimension links. Conservative
+SQL fallbacks depend on their parents' calculation components, so adding an
+unused link does not invalidate the calculation. SQL that implicitly reads a
+dimension attribute retains the relevant link contracts.
+
+Configured derived metrics recursively include their referenced metrics under
+the requested dimensions and filters, along with each intermediate formula and
+metric contract. Missing references and recursive metric cycles remain unknown.
+Joined ancestry can use conservative whole-input dependencies. Configured join
+routes must match the requested role sequence, including the empty role for an
+ordinary dimension request. All candidate routes with that role remain included;
+the candidate does not reproduce the planner's choice among those routes.
+Formula expressions that read dimension attributes retain all eligible roles,
+matching the planner's any-role lookup. Configured evaluation builds the formula
+graph once, then attaches the metric and cube demands.
 
 Descriptions, display labels, owners, tags, custom metadata, column presentation
 attributes, and Spark hints are excluded from precise and conservative hashes.
@@ -37,10 +49,11 @@ the specifications. A versioned structural representation removes aliases and
 source qualifiers after binding. Numeric literal text is retained from DJ's
 cached parse tree because the AST can lose decimal precision. Forms with
 omitted AST semantics use conservative token fallback when the complete parse
-tree establishes relation and dimension dependencies. This includes TRY_CAST,
-sampling, aggregate FILTER/null treatment, custom TRIM characters, and lateral
-views. Missing or ambiguous evidence remains unknown. Fixed digests,
-alias/comment equivalence, and value/row change controls cover the boundary.
+tree establishes their relation and dimension dependencies. This includes
+TRY_CAST, sampling, aggregate FILTER/null treatment, custom TRIM characters,
+and lateral views. Missing or ambiguous dependency evidence remains unknown.
+Fixed digests, alias/comment equivalence, and value/row change controls cover
+the supported boundary.
 
 Conservative fallback uses the authored SQL token stream from DJ's parse cache.
 It ignores comments and whitespace while retaining literal text and clauses.
