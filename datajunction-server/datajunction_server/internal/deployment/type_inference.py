@@ -10,6 +10,9 @@ pipeline.
 """
 
 import logging
+import pickle
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass, field
 
 from datajunction_server.errors import DJNotImplementedException
@@ -72,9 +75,33 @@ class TypeResolutionError(Exception):
     """Raised when type resolution fails (missing table, missing column, etc.)."""
 
 
+# Pickled trees are about 4 KB each, against 3-4 ms to parse and 0.1 ms to load.
+PARSE_CACHE_SIZE = 16384
+_parse_cache: OrderedDict[str, bytes] = OrderedDict()
+_parse_cache_lock = threading.Lock()
+
+
 def parse_query(query_str: str) -> ast.Query:
-    """Parse a SQL query string into an AST. Thread-safe — suitable for threadpool."""
-    return parse(query_str)
+    """
+    Parse a SQL query string into an AST. Thread-safe — suitable for threadpool.
+
+    Repeated text is loaded from a cache, so every caller gets its own tree.
+    """
+    with _parse_cache_lock:
+        cached = _parse_cache.get(query_str)
+        if cached is not None:
+            _parse_cache.move_to_end(query_str)
+    if cached is not None:
+        return pickle.loads(cached)
+    tree = parse(query_str)
+    # Trees built in fast mode have no parent links, so they are never kept.
+    if tree.select.parent is not None:
+        blob = pickle.dumps(tree, protocol=pickle.HIGHEST_PROTOCOL)
+        with _parse_cache_lock:
+            _parse_cache[query_str] = blob
+            while len(_parse_cache) > PARSE_CACHE_SIZE:
+                _parse_cache.popitem(last=False)
+    return tree
 
 
 def _unresolved_refs_in(expr: ast.Node) -> list[str]:
