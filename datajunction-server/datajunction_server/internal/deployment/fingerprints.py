@@ -156,11 +156,14 @@ def _seed_parent_cache_from_pre_parsed(
         return
     for name, reusable in pre_parsed_queries.items():
         spec = specs.get(name)
-        if not isinstance(spec, (TransformSpec, DimensionSpec)):
+        if not isinstance(spec, (TransformSpec, DimensionSpec, MetricSpec)):
             continue
         if spec.rendered_query != reusable.text:
             continue
-        _seed_parent_cache_entry(spec, parent_cache, reusable.parsed)
+        tree = reusable.parsed
+        if isinstance(spec, MetricSpec):
+            tree = NodeRevision.alias_metric_tree(tree, spec.rendered_name)
+        _seed_parent_cache_entry(spec, parent_cache, tree)
 
 
 def _reuse_unchanged_query_asts(

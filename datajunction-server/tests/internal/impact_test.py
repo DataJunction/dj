@@ -28,6 +28,8 @@ from datajunction_server.internal.impact import (
 from datajunction_server.models.impact import DownstreamImpact, ImpactType
 from datajunction_server.models.node import NodeStatus, NodeType
 from datajunction_server.models.user import OAuthProvider
+from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.types import (
     BigIntType,
     DoubleType,
@@ -1817,3 +1819,39 @@ async def test_impact_owners_are_eager_loaded_no_n_plus_one(
     assert "users.username" in selected
     for column in ("password", "email", "oauth_provider", "is_admin"):
         assert column not in selected
+
+
+@pytest.mark.asyncio
+async def test_reusable_metric_query_is_unchanged_by_revalidation(
+    session,
+    current_user: User,
+):
+    """Fingerprinting gets the metric's tree as parsed, not as annotated."""
+    session.add(NodeNamespace(namespace="ns"))
+    source, source_rev = _make_node(
+        "ns.source",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+        columns=[("amount", DoubleType())],
+    )
+    metric, metric_rev = _make_node(
+        "ns.total",
+        NodeType.METRIC,
+        NodeStatus.VALID,
+        current_user.id,
+        query="SELECT SUM(amount) FROM ns.source",
+        columns=[("total", DoubleType())],
+    )
+    await _persist(session, source, source_rev, metric, metric_rev)
+    await _persist(session, _link(source, metric_rev))
+
+    propagation = await propagate_impact(session, "ns", {"ns.source"})
+
+    reusable = propagation.reusable_queries["ns.total"]
+    assert reusable.text == "SELECT SUM(amount) FROM ns.source"
+    fresh = parse(reusable.text)
+    assert reusable.parsed == fresh
+    assert [column.__dict__ for column in reusable.parsed.find_all(ast.Column)] == [
+        column.__dict__ for column in fresh.find_all(ast.Column)
+    ]

@@ -8,6 +8,7 @@ Structured in three phases:
 """
 
 import asyncio
+import copy
 import logging
 import time
 from collections import defaultdict
@@ -67,7 +68,7 @@ class ImpactPropagationResult:
     """Result of downstream impact propagation."""
 
     impacts: list[DownstreamImpact]
-    # Non-metric queries already parsed here, reusable by the fingerprint pass.
+    # Queries already parsed here, reusable by the fingerprint pass.
     reusable_queries: dict[str, ReusableQuery] = field(default_factory=dict)
 
 
@@ -536,6 +537,15 @@ async def _revalidate_and_apply(
         if n.current and n.current.status == NodeStatus.INVALID
     }
 
+    # Revalidation annotates the trees it is given, so metrics keep a clean copy.
+    untouched_metrics = {
+        name: copy.deepcopy(parsed)
+        for name, parsed in pre_parsed.items()
+        if not isinstance(parsed, Exception)
+        and (node := visited_by_name.get(name)) is not None
+        and node.type == NodeType.METRIC
+    }
+
     for depth in sorted(by_depth.keys()):
         for impact in by_depth[depth]:
             # Use pre-parsed AST if available (parsed in threadpool)
@@ -567,13 +577,16 @@ async def _revalidate_and_apply(
             loaded_nodes,
         )
 
-    # Non-metric queries only, paired with the text parsed for equality checks.
+    # Paired with the text parsed, for equality checks.
     reusable_queries = {
-        name: ReusableQuery(text=queries_to_parse[name], parsed=parsed)
+        name: ReusableQuery(
+            text=queries_to_parse[name],
+            parsed=untouched_metrics.get(name, parsed),
+        )
         for name, parsed in pre_parsed.items()
         if not isinstance(parsed, Exception)
         and (node := visited_by_name.get(name)) is not None
-        and node.type not in (NodeType.SOURCE, NodeType.METRIC)
+        and node.type != NodeType.SOURCE
     }
 
     return ImpactPropagationResult(impacts=results, reusable_queries=reusable_queries)
