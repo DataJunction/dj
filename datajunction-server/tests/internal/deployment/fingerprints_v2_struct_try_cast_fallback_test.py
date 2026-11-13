@@ -1,4 +1,4 @@
-"""Struct fields and safe TRY_CAST joins retain conservative fallback coverage."""
+"""Struct fields bind precisely while TRY_CAST joins retain conservative fallback."""
 
 import asyncio
 
@@ -82,7 +82,7 @@ def test_alias_qualified_struct_fields_are_bound_to_the_input_schema():
 
     result = _evaluate(profile, device_source, device, mobile)
 
-    assert result.nodes["ns.mobile_app_profile_session"].precision == "conservative"
+    assert result.nodes["ns.mobile_app_profile_session"].precision == "precise"
     assert result.nodes["ns.mobile_app_profile_session"].full.digest is not None
 
 

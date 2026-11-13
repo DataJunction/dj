@@ -17,8 +17,13 @@ components track input rows and row conditions. Aggregate values also depend on
 the rows they aggregate. An unrelated projection can change a node's full hash
 while preserving existing output components and their consumers.
 
-Complex joins, CTEs, subqueries, set operations, windows, HAVING, DISTINCT,
-limits, and unsupported expressions retain conservative whole-node dependencies
+Flat projections through one explicitly aliased inner join also bind used columns,
+including captured struct fields. Join predicates must be ANDs of cross-input
+column equalities. Joined rows track both input row contracts, ON, and WHERE
+dependencies.
+
+Other joins, joined aggregates, CTEs, subqueries, set operations, windows, HAVING,
+DISTINCT, limits, and unsupported expressions retain conservative whole-node dependencies
 or return unknown when the captured evidence is incomplete. Standalone metric
 constraints use conservative context. The configured entry point separates that
 context from the metric formula. A separate calculation component includes SQL,
