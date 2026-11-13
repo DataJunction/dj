@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from datajunction_server.construction.build_v3 import window_lookback as wl_mod
+from datajunction_server.construction.build_v3.dimension_refs import split_dimension_ref
 from datajunction_server.construction.build_v3.filters import parse_filter
 from datajunction_server.construction.build_v3.measures import build_lookback_filter
 from datajunction_server.construction.build_v3.window_lookback import (
@@ -327,6 +328,31 @@ def test_order_filter_bounds_reads_between():
     assert high.value == 10
 
 
+@pytest.mark.parametrize("column", ["date_id", "v3.date.date_id[order]"])
+@pytest.mark.parametrize(
+    "predicate, low, high",
+    [
+        ("{col} >= 2", "2", None),
+        ("2 <= {col}", "2", None),
+        ("{col} <= 5", None, "5"),
+        ("5 >= {col}", None, "5"),
+        ("{col} = 3", "3", "3"),
+    ],
+)
+def test_order_filter_bounds_recognizes_role_qualified_columns(
+    column,
+    predicate,
+    low,
+    high,
+):
+    actual_low, actual_high = _order_filter_bounds(
+        parse_filter(predicate.format(col=column)),
+        split_dimension_ref(column),
+    )
+    assert (str(actual_low) if actual_low is not None else None) == low
+    assert (str(actual_high) if actual_high is not None else None) == high
+
+
 def test_order_filter_bounds_none_for_unsupported_operator():
     # `!=` constrains the column but yields no range bound to expand against.
     assert _order_filter_bounds(parse_filter("date_id != 5"), ORDER_REF) is None
@@ -425,6 +451,7 @@ def _ctx(
         decomposed_metrics={d.metric_node.name: d for d in decomposed_list},
         dimension_filters=list(dimension_filters),
         nodes={order_node: node},
+        join_paths={},
         metric_groups=metric_groups or [],
         upstream_pushdown_filters={},
         pushdown_consumed_filters=set(),
@@ -450,32 +477,104 @@ def test_apply_skips_filters_not_on_order_column():
     assert apply_live_window_lookback(ctx) is None
 
 
+@pytest.mark.parametrize("column", ["v3.date.date_id[ship]", "other.date.date_id"])
+def test_apply_preserves_bounds_on_another_sequence_or_role(column):
+    filters = [f"{column} BETWEEN 1 AND 10"]
+    ctx = _ctx([_decomposed(_ROLE_WINDOW)], filters)
+    assert apply_live_window_lookback(ctx) is None
+    assert ctx.dimension_filters == filters
+    assert ctx.pushdown_consumed_filters == set()
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    ["IN (1, 2)", "!= 5"],
+)
+def test_apply_preserves_non_range_filter_on_order_sequence(predicate):
+    filters = [f"v3.date.date_id[order] {predicate}"]
+    ctx = _ctx([_decomposed(_ROLE_WINDOW)], filters)
+    assert apply_live_window_lookback(ctx) is None
+    assert ctx.dimension_filters == filters
+    assert ctx.pushdown_consumed_filters == set()
+    assert ctx.upstream_pushdown_filters == {}
+
+
+@pytest.mark.parametrize("order_role", [None, "order", "ship"])
+@pytest.mark.parametrize("filter_role", [None, "order", "ship"])
+def test_order_sequence_matching_requires_exact_role(order_role, filter_role):
+    # Main treats an omitted role as the null role, never a named default.
+    column = "v3.date.date_id"
+    filter_column = column + (f"[{filter_role}]" if filter_role else "")
+    bounds = _order_filter_bounds(
+        parse_filter(f"{filter_column} BETWEEN 1 AND 10"),
+        (column, order_role),
+    )
+    if order_role == filter_role:
+        assert bounds is not None
+        assert tuple(bound.value for bound in bounds) == (1, 10)
+    else:
+        assert bounds is None
+
+
 def test_apply_bails_on_non_comparable_low_bound():
     # A string low bound cannot be compared/interpolated -> bail, leave filters intact.
-    ctx = _ctx([_decomposed(_ROLE_WINDOW)], ["v3.date.date_id >= 'a'"])
+    ctx = _ctx([_decomposed(_BARE_WINDOW)], ["v3.date.date_id >= 'a'"])
     assert apply_live_window_lookback(ctx) is None
     assert ctx.dimension_filters == ["v3.date.date_id >= 'a'"]
     assert ctx.pushdown_consumed_filters == set()
 
 
 def test_apply_bails_on_non_comparable_high_bound():
-    ctx = _ctx([_decomposed(_ROLE_WINDOW)], ["v3.date.date_id <= 'z'"])
+    ctx = _ctx([_decomposed(_BARE_WINDOW)], ["v3.date.date_id <= 'z'"])
     assert apply_live_window_lookback(ctx) is None
     assert ctx.dimension_filters == ["v3.date.date_id <= 'z'"]
 
 
-def test_apply_noop_when_order_dim_unreachable_from_facts(monkeypatch):
+@pytest.mark.parametrize("column", ["v3.date.date_id", "v3.date.date_id[order]"])
+def test_apply_noop_when_order_dim_unreachable_from_facts(mocker, column):
     """Bounds resolve, but no fact links to the order dimension -> no expansion."""
-    monkeypatch.setattr(
+    physical_table = mocker.patch.object(
         wl_mod,
         "_dimension_physical_table",
-        lambda ctx, node: "cat.sch.dim_table",
+        return_value="cat.sch.dim_table",
     )
     ctx = _ctx(
-        [_decomposed(_ROLE_WINDOW)],
-        ["v3.date.date_id BETWEEN 20240101 AND 20240131"],
+        [_decomposed(_ROLE_WINDOW if "[order]" in column else _BARE_WINDOW)],
+        [f"{column} BETWEEN 20240101 AND 20240131"],
         metric_groups=[],  # no facts -> injected_any stays False
     )
     assert apply_live_window_lookback(ctx) is None
+    physical_table.assert_called_once()
     # The original filter is left intact since nothing was expanded.
-    assert ctx.dimension_filters == ["v3.date.date_id BETWEEN 20240101 AND 20240131"]
+    assert ctx.dimension_filters == [f"{column} BETWEEN 20240101 AND 20240131"]
+
+
+@pytest.mark.parametrize("path_kind", ["missing", "non_key", "partial"])
+def test_apply_preserves_filters_when_order_column_has_no_fact_key(mocker, path_kind):
+    mocker.patch.object(
+        wl_mod,
+        "_dimension_physical_table",
+        return_value="cat.sch.dates",
+    )
+    fact = SimpleNamespace(name="v3.fact", current=SimpleNamespace(id=1))
+    filters = ["v3.date.date_id[order] BETWEEN 1 AND 10"]
+    ctx = _ctx(
+        [_decomposed(_ROLE_WINDOW)],
+        filters,
+        metric_groups=[SimpleNamespace(parent_node=fact)],
+    )
+    date_link = SimpleNamespace(
+        dimension=ctx.nodes["v3.date"],
+        foreign_keys_reversed={"v3.date.other_id": "v3.fact.order_date"},
+    )
+    if path_kind == "non_key":
+        ctx.join_paths[(1, "v3.date", "order")] = [date_link]
+    elif path_kind == "partial":
+        date_link.foreign_keys_reversed = {"v3.date.date_id": "v3.bridge.date_id"}
+        bridge_link = SimpleNamespace(foreign_keys_reversed={})
+        ctx.join_paths[(1, "v3.date", "order")] = [bridge_link, date_link]
+
+    assert apply_live_window_lookback(ctx) is None
+    assert ctx.dimension_filters == filters
+    assert ctx.pushdown_consumed_filters == set()
+    assert ctx.upstream_pushdown_filters == {}

@@ -6,15 +6,16 @@ version are both evaluated on DuckDB over random rows. Any difference in the
 results means DJ changed the query's meaning.
 """
 
-import re
-
 import duckdb
 import pytest
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
+from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from tests.property.budget import examples
+from tests.property.comparison import PropertyMismatch
+from tests.property.known_issues import PRINTER_NUMERIC_UNARY_INSTABILITY
 
 COLUMNS = ["a", "b", "c"]
 
@@ -175,9 +176,30 @@ def test_dj_printing_preserves_meaning(conn, expression, data):
     )
 
 
-def without_negative_zero(sql: str) -> str:
-    # DJ reads the literal `-0` as 0; the value is the same either way.
-    return re.sub(r"(?<![\w.])-0(?![\w.])", "0", sql)
+def assert_printing_is_stable(expression: str):
+    once = dj_roundtrip(expression)
+    twice = dj_roundtrip(once)
+    if twice != once:
+        raise PropertyMismatch(f"{expression!r}: {once!r} became {twice!r}")
+
+
+@pytest.mark.parametrize("expression", ["(- -0)", "(- (1))"])
+@PRINTER_NUMERIC_UNARY_INSTABILITY.xfail()
+def test_known_issue_numeric_unary_printing_is_unstable(expression):
+    assert_printing_is_stable(expression)
+
+
+@pytest.mark.parametrize(
+    "expression",
+    ["'(5)'", "'(-0)'", "CONCAT('(5)', '(-1)')"],
+)
+def test_printing_preserves_parentheses_inside_strings(expression):
+    assert dj_roundtrip(expression) == expression
+    assert_printing_is_stable(expression)
+
+
+def test_parenthesized_negative_literal_is_stable():
+    assert_printing_is_stable("ABS((-1))")
 
 
 @settings(max_examples=examples(1000))
@@ -185,4 +207,14 @@ def without_negative_zero(sql: str) -> str:
 def test_dj_printing_is_stable(expression):
     once = dj_roundtrip(expression)
     assume(KNOWN_DOUBLE_MINUS not in once)
-    assert without_negative_zero(dj_roundtrip(once)) == without_negative_zero(once)
+    # known_issues.PRINTER_NUMERIC_UNARY_INSTABILITY: reparsing a numeric
+    # unary operation can fold it into a Number and lose its parentheses or
+    # negative zero. Exclude that AST shape, without rewriting printed SQL.
+    tree = parse(f"SELECT {expression} FROM t")
+    assume(
+        not any(
+            isinstance(node.expr, ast.Number)
+            for node in tree.find_all(ast.ArithmeticUnaryOp)
+        ),
+    )
+    assert_printing_is_stable(expression)
