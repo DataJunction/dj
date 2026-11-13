@@ -1448,7 +1448,7 @@ async def list_views(
     )
 
 
-@overload
+@overload  # pragma: no cover
 async def _list_views(
     configuration: dict[str, Any],
     path: None,
@@ -1457,7 +1457,7 @@ async def _list_views(
 ) -> list[ViewSummary] | JSONResponse: ...
 
 
-@overload
+@overload  # pragma: no cover
 async def _list_views(
     configuration: dict[str, Any],
     path: list[str | None],
