@@ -795,16 +795,18 @@ def test_seed_parent_cache_entry_is_idempotent():
     assert cache[id(transform)] is seeded
 
 
-def test_seed_parent_cache_from_pre_parsed_skips_stale_entries():
+def test_seed_parent_cache_from_pre_parsed_skips_stale_and_unmatched_entries():
     """An entry whose parsed text no longer matches the spec's own query
-    text is skipped so a fresh parse is forced instead."""
+    text is skipped so a fresh parse is forced instead, and so is an entry
+    whose name has no query-based spec."""
     metric = MetricSpec(
         namespace="ns",
         name="skip_metric",
         query="SELECT COUNT(*) FROM ${prefix}source",
     )
     transform = transform_spec("stale_text", "SELECT * FROM ${prefix}source")
-    specs = spec_map(metric, transform)
+    source = source_spec("a_source")
+    specs = spec_map(metric, transform, source)
     cache: dict = {}
     pre_parsed = {
         metric.rendered_name: ReusableQuery("SELECT 1", MagicMock()),
@@ -812,6 +814,8 @@ def test_seed_parent_cache_from_pre_parsed_skips_stale_entries():
             "SELECT this text does not match",
             MagicMock(),
         ),
+        source.rendered_name: ReusableQuery("SELECT 1", MagicMock()),
+        "ns.not_in_the_deployment": ReusableQuery("SELECT 1", MagicMock()),
     }
 
     _seed_parent_cache_from_pre_parsed(specs, cache, pre_parsed)
