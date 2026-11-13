@@ -842,10 +842,17 @@ class QueryRequest(RequestModel):
 
 
 class ListViewsRequest(BaseModel):
-    """Discovery options shared by the semantic listing endpoints."""
+    """Legacy flat-list options; hierarchy paths belong to /views."""
 
     runtime_configuration: dict[str, Any] = Field(default_factory=dict)
-    path: list[str | None] | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class BrowseViewsRequest(ListViewsRequest):
+    """Select a discovery location explicitly, including the root with []."""
+
+    path: list[str | None]
 
 
 class DiscoverLevel(BaseModel):
@@ -1404,12 +1411,26 @@ async def _list_semantic_branches(
 
 @router.post(
     "/views",
-    response_model=list[ViewSummary] | BrowseViewsResponse,
+    response_model=BrowseViewsResponse,
     response_model_exclude_unset=True,
 )
+async def browse_views(
+    request: BrowseViewsRequest,
+    session: AsyncSession = Depends(get_session),
+    access_checker: AccessChecker = Depends(get_access_checker),
+) -> BrowseViewsResponse | JSONResponse:
+    """Return child choices and views at the requested discovery location."""
+    return await _list_views(
+        request.runtime_configuration,
+        request.path,
+        session,
+        access_checker,
+    )
+
+
 @router.post(
     "/views/list",
-    response_model=list[ViewSummary] | BrowseViewsResponse,
+    response_model=list[ViewSummary],
     response_model_exclude_unset=True,
     deprecated=True,
 )
@@ -1417,15 +1438,24 @@ async def list_views(
     request: ListViewsRequest | None = Body(default=None),
     session: AsyncSession = Depends(get_session),
     access_checker: AccessChecker = Depends(get_access_checker),
-) -> list[ViewSummary] | BrowseViewsResponse | JSONResponse:
-    """List the semantic views (DJ cubes) available to the caller.
+) -> list[ViewSummary] | JSONResponse:
+    """Return all matching cube views as a legacy flat list."""
+    return await _list_views(
+        request.runtime_configuration if request else {},
+        None,
+        session,
+        access_checker,
+    )
 
-    ``/views/list`` remains as a deprecated alias. Full metrics and dimensions
-    are fetched per-view via ``/views/{view}``.
-    """
+
+async def _list_views(
+    configuration: dict[str, Any],
+    path: list[str | None] | None,
+    session: AsyncSession,
+    access_checker: AccessChecker,
+) -> list[ViewSummary] | BrowseViewsResponse | JSONResponse:
+    """Resolve and authorize the shared cube discovery scopes."""
     try:
-        configuration = request.runtime_configuration if request else {}
-        path = request.path if request else None
         if path is not None:
             if "namespace" in configuration or "branch" in configuration:
                 raise DJException(
