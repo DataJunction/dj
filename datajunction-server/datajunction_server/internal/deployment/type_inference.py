@@ -16,6 +16,7 @@ from datajunction_server.errors import DJNotImplementedException
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import fast_parse_mode
 from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.sql.parsing.cache import parse_cached
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.sql.parsing.types import (
     BooleanType,
@@ -74,7 +75,7 @@ class TypeResolutionError(Exception):
 
 def parse_query(query_str: str) -> ast.Query:
     """Parse a SQL query string into an AST. Thread-safe — suitable for threadpool."""
-    return parse(query_str)
+    return parse_cached(query_str)
 
 
 def _unresolved_refs_in(expr: ast.Node) -> list[str]:
