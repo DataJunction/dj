@@ -1,4 +1,4 @@
-"""Joined SQL fallback tracks calculations while keeping optional links separate."""
+"""Joined SQL fingerprints track calculations while keeping optional links separate."""
 
 import asyncio
 
@@ -42,6 +42,13 @@ def _component(result, node, kind, field=""):
     return result.components[ComponentKey(node, kind, field)]
 
 
+def _comparison(before, after, node, kind, field=""):
+    return compare_components(
+        _component(before, node, kind, field),
+        _component(after, node, kind, field),
+    )
+
+
 def _region():
     rows = _source("ns.region_rows", "regions", [("id", "bigint"), ("name", "string")])
     region = DimensionSpec(
@@ -51,6 +58,65 @@ def _region():
         primary_key=["id"],
     )
     return rows, region
+
+
+def _mobile_join_specs(*, query=None):
+    sessions = _source(
+        "ns.profile_sessions",
+        "profile_sessions",
+        [
+            ("session_id", "string"),
+            ("account_id", "bigint"),
+            ("source", "string"),
+            ("device_type_id", "bigint"),
+            ("device_model", "string"),
+            ("alternate_model", "string"),
+            ("amount", "double"),
+        ],
+    )
+    device_rows = _source(
+        "ns.device_rows",
+        "device_rows",
+        [
+            ("device_type_id", "bigint"),
+            ("device_model", "string"),
+            ("hw_major_category", "string"),
+            ("cl_source", "string"),
+        ],
+    )
+    columns = [
+        ColumnSpec(name="device_type_id", type="bigint"),
+        ColumnSpec(name="device_model", type="string"),
+        ColumnSpec(name="hw_major_category", type="string"),
+    ]
+    device = DimensionSpec(
+        name="ns.device",
+        query="SELECT device_type_id, device_model, hw_major_category FROM ns.device_rows",
+        columns=columns,
+        primary_key=["device_type_id", "device_model"],
+    )
+    joined = TransformSpec(
+        name="ns.mobile_sessions",
+        query=query
+        or """
+            SELECT s.session_id, s.amount AS amount, d.hw_major_category
+            FROM ns.profile_sessions AS s
+            JOIN ns.device AS d
+              ON s.device_type_id = d.device_type_id
+             AND s.device_model = d.device_model
+            WHERE s.source IN ('android', 'iOS')
+              AND d.hw_major_category IN ('Mobile', 'Tablet')
+        """,
+    )
+    count = MetricSpec(
+        name="ns.mobile_session_count",
+        query="SELECT COUNT(*) FROM ns.mobile_sessions",
+    )
+    amount = MetricSpec(
+        name="ns.mobile_session_amount",
+        query="SELECT SUM(amount) FROM ns.mobile_sessions",
+    )
+    return sessions, device_rows, device, joined, count, amount
 
 
 def test_joined_fallback_tracks_all_input_calculations():
@@ -91,6 +157,186 @@ def test_joined_fallback_tracks_all_input_calculations():
         )
         == "changed"
     )
+
+
+def test_unused_joined_dimension_output_does_not_change_existing_metrics():
+    specs = _mobile_join_specs()
+    before = _evaluate(*specs)
+    sessions, device_rows, _, joined, count, amount = specs
+    expanded_device = DimensionSpec(
+        name="ns.device",
+        query=(
+            "SELECT device_type_id, device_model, hw_major_category, cl_source "
+            "FROM ns.device_rows"
+        ),
+        columns=[
+            ColumnSpec(name="device_type_id", type="bigint"),
+            ColumnSpec(name="device_model", type="string"),
+            ColumnSpec(name="hw_major_category", type="string"),
+            ColumnSpec(name="cl_source", type="string"),
+        ],
+        primary_key=["device_type_id", "device_model"],
+    )
+    after = _evaluate(sessions, device_rows, expanded_device, joined, count, amount)
+
+    assert _comparison(before, after, "ns.device", "full") == "changed"
+    assert before.nodes["ns.mobile_sessions"].precision == "precise"
+    assert all(
+        _comparison(before, after, node, kind, field) == "unchanged"
+        for node, kind, field in (
+            ("ns.mobile_sessions", "rows", ""),
+            ("ns.mobile_sessions", "full", ""),
+            ("ns.mobile_sessions", "output", "amount"),
+            ("ns.mobile_session_count", "full", ""),
+            ("ns.mobile_session_amount", "full", ""),
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "join_key",
+        "dimension_filter",
+        "input_filter",
+    ],
+)
+def test_join_and_filter_changes_reach_metric_rows(change):
+    specs = _mobile_join_specs()
+    before = _evaluate(*specs)
+    sessions, device_rows, device, joined, count, amount = specs
+    query = joined.query
+    if change == "join_key":
+        query = query.replace(
+            "s.device_model = d.device_model",
+            "s.alternate_model = d.device_model",
+        )
+    elif change == "dimension_filter":
+        query = query.replace("('Mobile', 'Tablet')", "('Mobile')")
+    else:
+        query = query.replace("('android', 'iOS')", "('android')")
+    changed = joined.model_copy(update={"query": query})
+    after = _evaluate(sessions, device_rows, device, changed, count, amount)
+
+    assert before.nodes["ns.mobile_sessions"].precision == "precise"
+    assert _comparison(before, after, "ns.mobile_sessions", "rows") == "changed"
+    for metric_name in ("ns.mobile_session_count", "ns.mobile_session_amount"):
+        assert _comparison(before, after, metric_name, "full") == "changed"
+
+
+def test_referenced_join_value_changes_only_its_metric():
+    specs = _mobile_join_specs()
+    before = _evaluate(*specs)
+    sessions, device_rows, device, joined, count, amount = specs
+    changed = joined.model_copy(
+        update={"query": joined.query.replace("s.amount", "s.amount + 1")},
+    )
+    after = _evaluate(sessions, device_rows, device, changed, count, amount)
+
+    assert (
+        _comparison(
+            before,
+            after,
+            "ns.mobile_session_count",
+            "full",
+        )
+        == "unchanged"
+    )
+    assert (
+        _comparison(
+            before,
+            after,
+            "ns.mobile_session_amount",
+            "full",
+        )
+        == "changed"
+    )
+
+
+def test_same_named_and_nested_join_columns_keep_provider_identity():
+    left = SourceSpec(
+        name="ns.left_rows",
+        catalog="warehouse",
+        schema_="sales",
+        table="left_rows",
+        columns=[
+            ColumnSpec(name="id", type="bigint"),
+            ColumnSpec(name="amount", type="double"),
+            ColumnSpec(name="payload_a", type="struct<id bigint>"),
+            ColumnSpec(name="payload_b", type="struct<id bigint>"),
+        ],
+    )
+    right = SourceSpec(
+        name="ns.right_rows",
+        catalog="warehouse",
+        schema_="sales",
+        table="right_rows",
+        columns=[
+            ColumnSpec(name="id", type="bigint"),
+            ColumnSpec(name="amount", type="double"),
+        ],
+        primary_key=["id"],
+    )
+    query = (
+        "SELECT l.amount - r.amount AS difference, l.payload_a.id AS nested_value "
+        "FROM ns.left_rows l JOIN ns.right_rows r ON l.id = r.id"
+    )
+    joined = TransformSpec(name="ns.bound_join", query=query)
+    before = _evaluate(left, right, joined)
+    swapped = joined.model_copy(
+        update={"query": query.replace("l.amount - r.amount", "r.amount - l.amount")},
+    )
+    nested = joined.model_copy(
+        update={"query": query.replace("l.payload_a.id", "l.payload_b.id")},
+    )
+    swapped_result = _evaluate(left, right, swapped)
+    nested_result = _evaluate(left, right, nested)
+
+    assert before.nodes["ns.bound_join"].precision == "precise"
+    assert (
+        _comparison(
+            before,
+            swapped_result,
+            "ns.bound_join",
+            "output",
+            "difference",
+        )
+        == "changed"
+    )
+    assert (
+        _comparison(
+            before,
+            nested_result,
+            "ns.bound_join",
+            "output",
+            "nested_value",
+        )
+        == "changed"
+    )
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "SELECT s.session_id FROM ns.profile_sessions s LEFT JOIN ns.device d ON s.device_type_id = d.device_type_id AND s.device_model = d.device_model",
+        "SELECT s.session_id FROM ns.profile_sessions s JOIN ns.device d ON s.device_type_id = d.device_type_id AND s.device_model = d.device_model JOIN ns.device d2 ON s.device_type_id = d2.device_type_id AND s.device_model = d2.device_model",
+        "SELECT s.session_id FROM ns.profile_sessions s JOIN ns.profile_sessions s2 ON s.session_id = s2.session_id",
+        'SELECT s.session_id FROM ns.profile_sessions AS "s" JOIN ns.device d ON s.device_type_id = d.device_type_id AND s.device_model = d.device_model',
+        "SELECT s.device_type_id.missing FROM ns.profile_sessions s JOIN ns.device d ON s.device_type_id = d.device_type_id AND s.device_model = d.device_model",
+        "SELECT * FROM ns.profile_sessions s JOIN ns.device d ON s.device_type_id = d.device_type_id AND s.device_model = d.device_model",
+    ],
+)
+def test_outer_and_other_join_shapes_remain_conservative(query):
+    sessions, device_rows, device, _, _, _ = _mobile_join_specs()
+    result = _evaluate(
+        sessions,
+        device_rows,
+        device,
+        TransformSpec(name="ns.unsupported_join", query=query),
+    )
+
+    assert result.nodes["ns.unsupported_join"].precision == "conservative"
+    assert result.nodes["ns.unsupported_join"].reasons
 
 
 def test_optional_links_do_not_change_unrelated_join_calculation_components():

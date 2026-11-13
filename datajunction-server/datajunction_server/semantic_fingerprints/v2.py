@@ -124,6 +124,19 @@ class SemanticGraphSnapshot:
     def resolved_columns(self) -> Mapping[str, tuple[ColumnSpec, ...]]:
         return MappingProxyType(deepcopy(dict(self._resolved_columns)))
 
+    def _with_internal_specs(
+        self,
+        specs: Mapping[str, NodeSpec],
+    ) -> SemanticGraphSnapshot:
+        snapshot = object.__new__(SemanticGraphSnapshot)
+        object.__setattr__(
+            snapshot,
+            "_specs",
+            MappingProxyType(dict(sorted(specs.items()))),
+        )
+        object.__setattr__(snapshot, "_resolved_columns", self._resolved_columns)
+        return snapshot
+
 
 @lru_cache(maxsize=256)
 def _parsed_type(value: str | None) -> str | None:
