@@ -6,6 +6,7 @@ import hashlib
 from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass
+from functools import cached_property, lru_cache
 from heapq import heapify, heappop, heappush
 from types import MappingProxyType
 from typing import Literal
@@ -36,7 +37,7 @@ class ComponentKey:
     kind: str
     field: str = ""
 
-    @property
+    @cached_property
     def token(self) -> str:
         return canonical_json([self.node, self.kind, self.field])
 
@@ -117,11 +118,12 @@ class SemanticGraphSnapshot:
         return MappingProxyType(deepcopy(dict(self._resolved_columns)))
 
 
-def _parsed_type(value: str | None) -> object | None:
+@lru_cache(maxsize=256)
+def _parsed_type(value: str | None) -> str | None:
     if value is None:
         return None
     try:
-        return ColumnType.validate(value)
+        return str(ColumnType.validate(value))
     except Exception:
         return None
 
