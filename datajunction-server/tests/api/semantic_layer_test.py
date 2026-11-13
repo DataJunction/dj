@@ -2647,6 +2647,12 @@ async def test_semantic_git_discovery_and_view_filtering(
         json={"path": ["legacy.feature"]},
     )
     assert linked_branch.status_code == 404, linked_branch.text
+    linked_branch_listing = await client.post(
+        "/semantic/views/list",
+        json={"runtime_configuration": {"namespace": "legacy.feature"}},
+    )
+    assert linked_branch_listing.status_code == 404, linked_branch_listing.text
+    assert linked_branch_listing.json()["detail"] == "Invalid view discovery path"
     assert "flat.release" in first_level.json()["hierarchy"]["values"]
     assert "demo.metrics.other" in first_level.json()["hierarchy"]["values"]
     assert "plain.metrics" in first_level.json()["hierarchy"]["values"]
