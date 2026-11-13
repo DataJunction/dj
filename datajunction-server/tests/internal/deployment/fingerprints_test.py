@@ -11,6 +11,7 @@ from datajunction_server.internal.deployment.fingerprints import (
     _load_external_specs,
     _parent_candidates,
     _resolved_proposed_specs,
+    _scope_to_namespace,
     _seed_parent_cache_entry,
     _seed_parent_cache_from_pre_parsed,
     build_deployment_fingerprints,
@@ -922,3 +923,80 @@ def test_fingerprinting_reuses_parsed_query_across_rendered_copies():
 
     assert first == second
     assert parse_query.call_count == 1
+
+
+def loaded_spec(name: str) -> TransformSpec:
+    spec = transform_spec("unused", "SELECT 1")
+    spec.namespace = None
+    spec.name = name
+    return spec
+
+
+def test_scope_to_namespace_sets_only_specs_inside_the_deploy_namespace():
+    inside = loaded_spec("ns.main.sub.inside")
+    outside = loaded_spec("other.main.sub.total")
+    bare = loaded_spec("bare")
+    already = transform_spec("already", "SELECT 1", namespace="ns.other")
+
+    _scope_to_namespace([inside, outside, bare, already], "ns.main")
+
+    assert (inside.namespace, outside.namespace, bare.namespace, already.namespace) == (
+        "ns.main",
+        None,
+        None,
+        "ns.other",
+    )
+
+
+def test_scope_to_namespace_without_a_namespace_changes_nothing():
+    spec = loaded_spec("ns.main.inside")
+
+    _scope_to_namespace([spec], None)
+
+    assert spec.namespace is None
+
+
+def namespaced_cycle(namespace: str) -> dict[str, NodeSpec]:
+    def dimension(name: str, target: str) -> DimensionSpec:
+        return DimensionSpec(
+            namespace=namespace,
+            name=name,
+            query="SELECT 1",
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node=f"{namespace}.{target}",
+                    join_type="cross",
+                ),
+            ],
+        )
+
+    downstream = transform_spec(
+        "downstream",
+        "SELECT * FROM ${prefix}a",
+        namespace=namespace,
+    )
+    return spec_map(dimension("a", "b"), dimension("b", "a"), downstream)
+
+
+def test_cycle_fingerprints_do_not_depend_on_the_namespace():
+    def by_short_name(namespace: str):
+        fingerprints = SemanticFingerprintGraph(
+            namespaced_cycle(namespace),
+        ).fingerprints()
+        return {
+            name.removeprefix(f"{namespace}."): value
+            for name, value in fingerprints.items()
+        }
+
+    main = by_short_name("ns.main")
+    assert main == by_short_name("ns.feature")
+    assert set(main) == {"a", "b", "downstream"}
+    assert all(value != UNKNOWN_SEMANTIC_FINGERPRINT for value in main.values())
+
+
+def test_version_1_cycle_fingerprints_still_depend_on_the_namespace():
+    def first(namespace: str):
+        graph = SemanticFingerprintGraph(namespaced_cycle(namespace), version=1)
+        return graph.fingerprint(f"{namespace}.a")
+
+    assert first("ns.main") != first("ns.feature")

@@ -86,10 +86,26 @@ def _updated_dimension_project(project: DeploymentSpec) -> DeploymentSpec:
     return updated
 
 
-def _fingerprint_graph(*projects: DeploymentSpec) -> SemanticFingerprintGraph:
-    return SemanticFingerprintGraph(
-        {node.rendered_name: node for project in projects for node in project.nodes},
+def _as_loaded(node):
+    """A node as the server reads it back: qualified name, no namespace."""
+    return node.rendered_spec().model_copy(
+        update={"name": node.rendered_name, "namespace": None},
     )
+
+
+def _fingerprint_graph(
+    *projects: DeploymentSpec,
+    loaded: tuple[DeploymentSpec, ...] = (),
+) -> SemanticFingerprintGraph:
+    """Projects in the deployed namespace, plus others the server loads."""
+    nodes = {node.rendered_name: node for project in projects for node in project.nodes}
+    nodes.update(
+        {
+            node.rendered_name: _as_loaded(node)
+            for node in (n for p in loaded for n in p.nodes)
+        },
+    )
+    return SemanticFingerprintGraph(nodes)
 
 
 async def _deploy(client, *specs: DeploymentSpec):
@@ -551,7 +567,7 @@ class TestDeploymentImpactEndpoint:
             for impact in data["downstream_impacts"]
             if impact["name"] == "impact_external_consumer.derived"
         )
-        expected = _fingerprint_graph(updated_parent, consumer).fingerprint(
+        expected = _fingerprint_graph(updated_parent, loaded=(consumer,)).fingerprint(
             consumer.nodes[0].rendered_name,
         )
         assert external["is_external"] is True
@@ -684,7 +700,7 @@ class TestDeploymentImpactEndpoint:
             for impact in data["downstream_impacts"]
             if impact["name"] == "impact_link_consumer.fact"
         )
-        expected = _fingerprint_graph(updated_parent, consumer).fingerprint(
+        expected = _fingerprint_graph(updated_parent, loaded=(consumer,)).fingerprint(
             consumer.nodes[0].rendered_name,
         )
         assert external["semantic_fingerprint"] == expected.model_dump()
@@ -720,7 +736,7 @@ class TestDeploymentImpactEndpoint:
             for impact in data["downstream_impacts"]
             if impact["name"] == "impact_filter_consumer.cube"
         )
-        expected = _fingerprint_graph(updated_parent, consumer).fingerprint(
+        expected = _fingerprint_graph(updated_parent, loaded=(consumer,)).fingerprint(
             consumer.nodes[2].rendered_name,
         )
         assert external["semantic_fingerprint"] == expected.model_dump()
