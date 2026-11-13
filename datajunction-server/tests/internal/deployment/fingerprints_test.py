@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from datajunction_server.database.node import NodeRevision
 from datajunction_server.internal.deployment.fingerprints import (
     SEMANTIC_PARENT_RESOLVERS,
     SemanticFingerprintGraph,
@@ -794,9 +795,8 @@ def test_seed_parent_cache_entry_is_idempotent():
     assert cache[id(transform)] is seeded
 
 
-def test_seed_parent_cache_from_pre_parsed_skips_non_reusable_and_stale_entries():
-    """Metrics are excluded (fingerprinting needs their alias-wrapped AST),
-    and an entry whose parsed text no longer matches the spec's own query
+def test_seed_parent_cache_from_pre_parsed_skips_stale_entries():
+    """An entry whose parsed text no longer matches the spec's own query
     text is skipped so a fresh parse is forced instead."""
     metric = MetricSpec(
         namespace="ns",
@@ -807,7 +807,7 @@ def test_seed_parent_cache_from_pre_parsed_skips_non_reusable_and_stale_entries(
     specs = spec_map(metric, transform)
     cache: dict = {}
     pre_parsed = {
-        metric.rendered_name: ReusableQuery(metric.rendered_query, MagicMock()),
+        metric.rendered_name: ReusableQuery("SELECT 1", MagicMock()),
         transform.rendered_name: ReusableQuery(
             "SELECT this text does not match",
             MagicMock(),
@@ -817,6 +817,31 @@ def test_seed_parent_cache_from_pre_parsed_skips_non_reusable_and_stale_entries(
     _seed_parent_cache_from_pre_parsed(specs, cache, pre_parsed)
 
     assert cache == {}
+
+
+def test_seed_parent_cache_from_pre_parsed_aliases_metrics():
+    """A metric reuses the parsed tree, with its alias set to the node name."""
+    metric = MetricSpec(
+        namespace="ns",
+        name="reuse_metric",
+        query="SELECT COUNT(*) AS other FROM ${prefix}source",
+    )
+    cache: dict = {}
+    pre_parsed = {
+        metric.rendered_name: ReusableQuery(
+            metric.rendered_query,
+            parse(metric.rendered_query),
+        ),
+    }
+
+    _seed_parent_cache_from_pre_parsed(spec_map(metric), cache, pre_parsed)
+
+    expected = NodeRevision.metric_alias_ast(
+        metric.rendered_query,
+        metric.rendered_name,
+    )
+    assert str(metric._query_ast) == str(expected)
+    assert cache[id(metric)][0] == frozenset({"ns.source"})
 
 
 @pytest.mark.asyncio

@@ -2178,10 +2178,15 @@ class NodeRevision(
         node's name. Callers that only need the AST (not re-serialized
         SQL text) should use this directly to skip a redundant re-parse.
         """
-        from datajunction_server.sql.parsing import ast
         from datajunction_server.sql.parsing.backends.antlr4 import parse
 
-        tree = parse(query)
+        return NodeRevision.alias_metric_tree(parse(query), name)
+
+    @staticmethod
+    def alias_metric_tree(tree, name: str):
+        """Reassigns the first projection's alias to the node's name, in place."""
+        from datajunction_server.sql.parsing import ast
+
         projection_0 = tree.select.projection[0]
         tree.select.projection[0] = projection_0.set_alias(
             ast.Name(amenable_name(name)),
