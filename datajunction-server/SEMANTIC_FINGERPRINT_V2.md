@@ -1,18 +1,50 @@
-# Offline semantic fingerprint component core
+# Narrow offline semantic fingerprint candidate
 
-Version 2 is an inactive candidate. Deployment responses, validation, and the
-default fingerprint engine continue to use version 1.
+Version 2 is explicitly invoked for local evaluation. Deployment responses,
+validation, and the default fingerprint engine continue to use version 1.
 
-This layer provides isolated `SemanticGraphSnapshot` inputs, component addresses
-and recipes, labelled dependency hashing, and deterministic evaluation of
-component graphs, including cycles. It accepts explicit component definitions;
-SQL dependency extraction and the node fingerprint entry point follow in the
-next layer.
+`SemanticGraphSnapshot(specs, resolved_columns)` copies captured definitions and
+source schemas. `await compute_v2_fingerprints(snapshot)` returns per-output,
+row, and full-node components with their dependency bindings. Evaluation makes
+no database calls and does not reconstruct compiler or ORM objects.
+
+## Precision boundary
+
+The SQL analyzer reuses DJ's parsed AST over captured schemas. Its precise scope
+is flat, single-source projections, scalar expressions, WHERE predicates, and common
+aggregates. Output components track their referenced provider values. Row
+components track input rows and row conditions. Aggregate values also depend on
+the rows they aggregate. An unrelated projection can change a node's full hash
+while preserving existing output components and their consumers.
+
+Complex joins, CTEs, subqueries, set operations, windows, HAVING, DISTINCT,
+limits, and unsupported expressions return unknown in this analyzer. Standalone
+metric constraints also remain unknown until configured dimension analysis is
+available.
+
+Descriptions, display labels, owners, tags, custom metadata, column presentation
+attributes, and Spark hints are excluded from precise hashes.
+Recommended filters with no effective default (`None` or `""`) are warning-only
+and contribute no dependency. Required filters and nonempty defaults remain
+semantic. Metadata remains available on captured specifications.
+
+Cached ASTs are read without mutation, including when v1 has already processed
+the specifications. A versioned structural representation removes aliases and
+source qualifiers after binding. Numeric literal text is retained from DJ's
+cached parse tree because the AST can lose decimal precision. Forms with
+omitted semantics return unknown, including sampling, TRY_CAST, aggregate
+FILTER/null treatment, and custom TRIM characters. Fixed digests,
+alias/comment equivalence, and value/row change controls cover the supported
+boundary.
+
+## Reading the results
 
 A component carries a versioned digest or `"unknown"`, a precision classification,
 and reasons. `compare_components()` returns `indeterminate` when either digest
-is unavailable. Missing dependencies propagate unknown, and conservative
-dependencies propagate conservative precision.
+is unavailable. Unknown-to-unknown equality never establishes unchanged values.
+Conservative results must be reported separately from precise results.
 
-Snapshots copy definitions and resolved column schemas. Evaluation makes no
-database calls and does not reconstruct compiler or ORM objects.
+Labelled component cycles use a deterministic SCC digest. Missing used types or
+unresolved dependencies propagate unknown. The candidate does not detect source
+content changes without a data-version input, or describe unrecorded runtime
+consumers. Comparisons must use the same captured external context on both sides.

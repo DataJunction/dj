@@ -346,7 +346,9 @@ def parse(sql: str | None, from_request: bool = False) -> ast.Query:
         if not sql:
             raise DJParseException("Empty query provided!")
         try:
-            return cast(ast.Query, parse_rule(sql, "singleStatement", from_request))
+            query = cast(ast.Query, parse_rule(sql, "singleStatement", from_request))
+            object.__setattr__(query, "_parsed_sql", sql)
+            return query
         except SqlParsingError as exc:
             raise DJParseException(message=f"Error parsing SQL `{sql}`: {exc}") from exc
         except DJParseException:

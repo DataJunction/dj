@@ -91,12 +91,19 @@ class SemanticGraphSnapshot:
         specs: Mapping[str, NodeSpec],
         resolved_columns: Mapping[str, Iterable[ColumnSpec]] | None = None,
     ) -> None:
+        captured_specs = {}
+        for name, spec in sorted(specs.items()):
+            captured = deepcopy(spec)
+            if captured._query_ast is not None and (
+                getattr(captured._query_ast, "_parsed_sql", None)
+                != captured.rendered_query
+            ):
+                captured._query_ast = None
+            captured_specs[name] = captured
         object.__setattr__(
             self,
             "_specs",
-            MappingProxyType(
-                {name: deepcopy(spec) for name, spec in sorted(specs.items())},
-            ),
+            MappingProxyType(captured_specs),
         )
         object.__setattr__(
             self,
@@ -386,3 +393,57 @@ def _evaluate_definitions(
     if evaluated != len(sccs):
         raise RuntimeError("Component SCC condensation was not acyclic")
     return results
+
+
+async def compute_v2_fingerprints(
+    snapshot: SemanticGraphSnapshot,
+    targets: Iterable[str] | None = None,
+) -> V2FingerprintGraph:
+    """Evaluate version 2 components over one explicit immutable graph snapshot."""
+    from datajunction_server.semantic_fingerprints.v2_dependencies import (
+        build_component_definitions,
+        build_node_component_keys,
+    )
+
+    definitions, output_names, reasons_by_node = build_component_definitions(
+        snapshot,
+    )
+
+    results = _evaluate_definitions(definitions)
+    node_keys = build_node_component_keys(output_names)
+    selected = set(targets) if targets is not None else set(snapshot._specs)
+    node_results: dict[str, NodeComponents] = {}
+    for name in sorted(selected & snapshot._specs.keys()):
+        keys = node_keys[name]
+        outputs = {
+            output: results[key.token] for output, key in keys["outputs"].items()
+        }
+        rows = results[keys["rows"].token]
+        full = results[keys["full"].token]
+        node_reasons = tuple(
+            sorted(
+                set(reasons_by_node.get(name, ()))
+                | set(full.reasons)
+                | {reason for result in outputs.values() for reason in result.reasons}
+                | set(rows.reasons),
+            ),
+        )
+        node_results[name] = NodeComponents(
+            outputs=MappingProxyType(outputs),
+            rows=rows,
+            full=full,
+            precision=full.precision,
+            reasons=node_reasons,
+        )
+    components = {
+        definition.key: results[token] for token, definition in definitions.items()
+    }
+    bindings = {
+        definition.key: tuple(definition.dependencies)
+        for definition in definitions.values()
+    }
+    return V2FingerprintGraph(
+        nodes=MappingProxyType(node_results),
+        components=MappingProxyType(components),
+        bindings=MappingProxyType(bindings),
+    )
