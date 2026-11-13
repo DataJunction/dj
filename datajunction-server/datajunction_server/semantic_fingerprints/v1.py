@@ -1,4 +1,4 @@
-"""Semantic fingerprint version 1."""
+"""Frozen semantic fingerprint version 1."""
 
 from __future__ import annotations
 
@@ -14,7 +14,6 @@ from datajunction_server.models.deployment import (
     TransformSpec,
 )
 from datajunction_server.models.semantic_fingerprint import SemanticFingerprint
-from datajunction_server.semantic_fingerprints.namespace import namespace_free_spec
 from datajunction_server.semantic_fingerprints.normalization import (
     canonical_json,
     normalize_field,
@@ -76,7 +75,12 @@ def build_fingerprint(
 ) -> SemanticFingerprint:
     """Build a version 1 semantic fingerprint."""
     fingerprint_fields = semantic_fields(type(spec))
-    rendered = namespace_free_spec(spec, fingerprint_fields)
+    rendered = spec.rendered_spec()
+    # rendered_spec() reconstructs the model and drops private attributes.
+    # Both specs have the same rendered query, so reuse its parsed AST across
+    # current and proposed fingerprints instead of parsing each copy again.
+    if rendered.rendered_query is not None:
+        rendered._query_ast = spec.query_ast
 
     fields = {
         field: normalize_field(

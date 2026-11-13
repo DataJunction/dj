@@ -1,16 +1,24 @@
-"""Renders specs without the namespace they were deployed into."""
+"""Semantic fingerprint version 2: independent of the deploy namespace."""
 
 from __future__ import annotations
 
+import hashlib
 import re
 from collections.abc import Iterable
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
+from datajunction_server.models.semantic_fingerprint import SemanticFingerprint
+from datajunction_server.semantic_fingerprints.normalization import (
+    canonical_json,
+    normalize_field,
+    normalize_value,
+)
+from datajunction_server.semantic_fingerprints.v1 import semantic_fields
 from datajunction_server.utils import SEPARATOR
 
 if TYPE_CHECKING:
-    from datajunction_server.models.deployment import NodeSpec
+    from datajunction_server.models.deployment import ColumnSpec, NodeSpec
 
 NAMESPACE_MARKER = "__namespace__"
 
@@ -91,7 +99,7 @@ def own_namespace(spec: NodeSpec) -> str:
     return spec.namespace or spec.rendered_name.rpartition(SEPARATOR)[0]
 
 
-def namespace_free_spec(spec: NodeSpec, fields: Iterable[str]) -> NodeSpec:
+def namespace_free_spec(spec: NodeSpec) -> NodeSpec:
     """
     Renders a spec with its own namespace replaced by a fixed marker.
 
@@ -103,10 +111,48 @@ def namespace_free_spec(spec: NodeSpec, fields: Iterable[str]) -> NodeSpec:
     if not namespace:
         return rendered
     values = rendered.model_dump(mode="json")
-    for field in fields:
+    for field in semantic_fields(type(spec)):
         values[field] = _rewrite(values[field], namespace, field)
     result = type(rendered).model_validate(values)
     result.namespace = None
     if result.rendered_query:
         result._query_ast = parse_query(result.rendered_query)
     return result
+
+
+def build_fingerprint(
+    spec: NodeSpec,
+    parent_fingerprints: Iterable[SemanticFingerprint],
+    *,
+    resolved_columns: list[ColumnSpec] | None,
+) -> SemanticFingerprint:
+    """Build a version 2 semantic fingerprint."""
+    rendered = namespace_free_spec(spec)
+    fields = {
+        field: normalize_field(
+            rendered,
+            field,
+            resolved_columns=resolved_columns,
+            structural_version=1,
+        )
+        for field in semantic_fields(type(spec))
+    }
+    node_payload = {
+        "domain": "datajunction/node-semantic",
+        "node_type": normalize_value(rendered.node_type),
+        "fields": fields,
+    }
+    node_digest = hashlib.sha256(
+        canonical_json(node_payload).encode("utf-8"),
+    ).hexdigest()
+    parents = list(parent_fingerprints)
+    if any(parent.version != 2 for parent in parents):
+        raise ValueError("Parent fingerprint version does not match node version")
+    payload = {
+        "domain": "datajunction/node-semantic-merkle",
+        "version": 2,
+        "node": node_digest,
+        "parents": sorted({parent.digest for parent in parents}),
+    }
+    digest = hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+    return SemanticFingerprint(version=2, digest=digest)

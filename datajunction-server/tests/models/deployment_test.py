@@ -2011,22 +2011,43 @@ def fingerprint(spec: NodeSpec) -> SemanticFingerprint:
     return local_node_fingerprint(spec)
 
 
-GOLDEN_FINGERPRINTS = {
+GOLDEN_FINGERPRINTS_V1 = {
     "source": "71dcbc388988c2bdd850670427710384687b58565ee38ca392dc220adfed868d",
-    "transform": "cf93f232fc6eac27e5c2d9048823c1d24509def19e183abc284c0225133a2424",
-    "dimension": "8b0d98f2943d1939733122d6a682d68d234b933ffbeace3aa1642bedb5b3e06c",
-    "metric": "e09d7bdcf54e8145543da87a2387af606661561848e517fac818d4a1c02d7d12",
-    "cube": "e98e379b60fdb866ac4a0a9c057a1be559bba10ae0bb8c966858e06ab92e6d28",
+    "transform": "978e692880c7bcfb1bd78ece85895a1ec1558e85377b064a8dac3f3719cff2a5",
+    "dimension": "f7b3c87a61fdadf9997432fd9334befdf43f2488874ef555e3f7d4c4ba86e3e1",
+    "metric": "86cd19032016a7114dcfbf7114893b0386e0b56327113cac570c900d18135406",
+    "cube": "9b0a56d974d1e3769bc2db94e2cfbae7a6a4839f664eebd2a4387ef112ceea81",
 }
+
+GOLDEN_FINGERPRINTS = {
+    "source": "9e51171ad2884aa006e6b8a2aebcc8debeeec2780c50e9e3948d4bfb742182bd",
+    "transform": "7a61a076f836707989b8a8b8d4ad26cd9d9db42f98415420e25f0a9650db82e1",
+    "dimension": "63c0edb8b3d74a5f82dfbb24e5ac6341b46b92b971b5ff25a3a6d6e375c016a0",
+    "metric": "1ace2375b6eef19b7ef88e696eebdcb7ebbee3a0321f09fe29c79d95fdae148d",
+    "cube": "e430c1eebb68d22f2519089af11ee180a6cebb014738fcf2cd5409ddbf377f3b",
+}
+
+
+@pytest.mark.parametrize("node_type", GOLDEN_FINGERPRINTS_V1)
+def test_semantic_fingerprint_v1_golden_digests(node_type):
+    spec = semantic_specs()[node_type]
+    result = local_node_fingerprint(spec, 1)
+    assert result == SemanticFingerprint(
+        version=1,
+        digest=GOLDEN_FINGERPRINTS_V1[node_type],
+    )
+    assert result == local_node_fingerprint(spec, 1)
 
 
 @pytest.mark.parametrize("node_type", GOLDEN_FINGERPRINTS)
 def test_semantic_fingerprint_golden_digests(node_type):
     spec = semantic_specs()[node_type]
     result = fingerprint(spec)
-    assert result == SemanticFingerprint(digest=GOLDEN_FINGERPRINTS[node_type])
+    assert result == SemanticFingerprint(
+        version=2,
+        digest=GOLDEN_FINGERPRINTS[node_type],
+    )
     assert result == fingerprint(spec)
-    assert result.version == 1
 
 
 def test_semantic_fingerprint_changes_for_offset():
@@ -2575,9 +2596,9 @@ def test_semantic_fingerprint_digest_validation(digest):
 
 def test_semantic_fingerprint_rejects_unknown_version():
     with pytest.raises(ValidationError):
-        SemanticFingerprint(version=2, digest="a" * 64)
-    with pytest.raises(ValueError, match="Unsupported semantic fingerprint version: 2"):
-        local_node_fingerprint(semantic_specs()["source"], version=2)
+        SemanticFingerprint(version=3, digest="a" * 64)
+    with pytest.raises(ValueError, match="Unsupported semantic fingerprint version: 3"):
+        local_node_fingerprint(semantic_specs()["source"], version=3)
 
 
 def test_semantic_fingerprint_combines_sorted_parent_hashes():
@@ -2609,7 +2630,7 @@ def test_semantic_fingerprint_combines_sorted_parent_hashes():
             ),
         ],
     )
-    mismatched = SemanticFingerprint.model_construct(version=2, digest="b" * 64)
+    mismatched = SemanticFingerprint.model_construct(version=1, digest="b" * 64)
     with pytest.raises(ValueError, match="Parent fingerprint version"):
         compose_node_fingerprint(node, parent_fingerprints=[mismatched])
 
