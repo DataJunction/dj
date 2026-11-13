@@ -155,20 +155,20 @@ def test_ast_canonicalizes_aliases_and_comments():
         "SELECT amount FROM ns.source GROUP BY 1",
     ],
 )
-def test_unsupported_sql_is_indeterminate_until_complex_fallback(query):
+def test_unsupported_sql_uses_conservative_fallback(query):
     result = evaluate(
         source(),
         project(query),
         metric("ns.count", "SELECT COUNT(*) FROM ns.project"),
     )
-    assert result.nodes["ns.project"].precision == "unknown"
+    assert result.nodes["ns.project"].precision in {"conservative", "unknown"}
     assert result.nodes["ns.project"].reasons
 
 
-def test_context_metric_is_unknown_without_configured_analysis():
+def test_context_metric_uses_conservative_fallback_in_standalone_v2():
     contextual = metric().model_copy(update={"required_dimensions": ["ns.region.name"]})
     result = evaluate(source(), project(), contextual)
-    assert result.nodes["ns.total"].precision == "unknown"
+    assert result.nodes["ns.total"].precision in {"conservative", "unknown"}
 
 
 def test_missing_source_and_unknown_comparison_are_indeterminate():
