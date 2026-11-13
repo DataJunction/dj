@@ -113,15 +113,30 @@ def test_fingerprint_matches_when_names_are_already_qualified():
     assert digest(templated) == digest(qualified)
 
 
-def test_spec_loaded_without_a_namespace_matches_its_deployed_form():
+def test_spec_loaded_into_the_deploy_namespace_matches_its_deployed_form():
     deployed = specs("analytics.main")["metric"]
     loaded = MetricSpec(
+        namespace="analytics.main",
         name="analytics.main.total_amount",
         query="SELECT SUM(amount) AS value FROM analytics.main.clean_orders",
         required_dimensions=["analytics.main.order.status"],
     )
-    assert loaded.namespace is None
     assert digest(loaded) == digest(deployed)
+
+
+def test_spec_outside_the_deploy_namespace_keeps_its_names():
+    external = MetricSpec(
+        name="shared.main.sub.total",
+        query="SELECT SUM(amount) FROM shared.main.sub.orders JOIN shared.main.dates",
+    )
+    assert external.namespace is None
+    deployed = MetricSpec(
+        namespace="shared.main",
+        name="sub.total",
+        query="SELECT SUM(amount) FROM ${prefix}sub.orders JOIN ${prefix}dates",
+    )
+    assert digest(external) == digest(external)
+    assert digest(external) != digest(deployed)
 
 
 def test_quoted_values_and_table_names_keep_their_namespace_text():
@@ -302,3 +317,12 @@ def test_node_names_in_comments_of_text_hashed_expressions_are_rewritten():
         )
 
     assert digest(cube("analytics.main")) == digest(cube("analytics.feature"))
+
+
+def test_version_1_rejects_parents_of_another_version():
+    with pytest.raises(ValueError, match="Parent fingerprint version does not match"):
+        compose_node_fingerprint(
+            specs("analytics.main")["metric"],
+            1,
+            parent_fingerprints=[SemanticFingerprint(version=2, digest="a" * 64)],
+        )

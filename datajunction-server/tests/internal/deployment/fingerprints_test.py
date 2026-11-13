@@ -903,66 +903,28 @@ def loaded_spec(name: str) -> TransformSpec:
     return spec
 
 
-@pytest.mark.asyncio
-async def test_scope_to_namespace_uses_the_deploy_namespace_inside_it():
-    inside = loaded_spec("ns.main.inside")
+def test_scope_to_namespace_sets_only_specs_inside_the_deploy_namespace():
+    inside = loaded_spec("ns.main.sub.inside")
+    outside = loaded_spec("other.main.sub.total")
+    bare = loaded_spec("bare")
     already = transform_spec("already", "SELECT 1", namespace="ns.other")
 
-    with patch(
-        "datajunction_server.internal.namespaces.get_git_info_for_namespaces",
-        AsyncMock(return_value={}),
-    ) as git_infos:
-        await _scope_to_namespace(MagicMock(), [inside, already], "ns.main")
+    _scope_to_namespace([inside, outside, bare, already], "ns.main")
 
-    assert (inside.namespace, already.namespace) == ("ns.main", "ns.other")
-    git_infos.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_scope_to_namespace_uses_the_git_root_outside_the_deploy_namespace():
-    nested = loaded_spec("other.main.sub.total")
-    elsewhere = loaded_spec("common.outside")
-
-    with patch(
-        "datajunction_server.internal.namespaces.get_git_info_for_namespaces",
-        AsyncMock(
-            return_value={
-                "other.main.sub": {"branch_namespace": "other.main"},
-                "common": None,
-            },
-        ),
-    ) as git_infos:
-        await _scope_to_namespace(MagicMock(), [nested, elsewhere], "ns.main")
-
-    assert (nested.namespace, elsewhere.namespace) == ("other.main", None)
-    assert git_infos.await_args.args[1] == ["common", "other.main.sub"]
+    assert (inside.namespace, outside.namespace, bare.namespace, already.namespace) == (
+        "ns.main",
+        None,
+        None,
+        "ns.other",
+    )
 
 
-@pytest.mark.asyncio
-async def test_scope_to_namespace_without_a_namespace_or_git_info():
+def test_scope_to_namespace_without_a_namespace_changes_nothing():
     spec = loaded_spec("ns.main.inside")
 
-    with patch(
-        "datajunction_server.internal.namespaces.get_git_info_for_namespaces",
-        AsyncMock(return_value={"ns.main": None}),
-    ):
-        await _scope_to_namespace(MagicMock(), [spec], None)
+    _scope_to_namespace([spec], None)
 
     assert spec.namespace is None
-
-
-@pytest.mark.asyncio
-async def test_scope_to_namespace_skips_specs_without_a_namespace_in_the_name():
-    spec = loaded_spec("bare")
-
-    with patch(
-        "datajunction_server.internal.namespaces.get_git_info_for_namespaces",
-        AsyncMock(),
-    ) as git_infos:
-        await _scope_to_namespace(MagicMock(), [spec], "ns.main")
-
-    assert spec.namespace is None
-    git_infos.assert_not_called()
 
 
 def namespaced_cycle(namespace: str) -> dict[str, NodeSpec]:

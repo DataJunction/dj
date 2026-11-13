@@ -15,7 +15,6 @@ from datajunction_server.semantic_fingerprints.normalization import (
     normalize_value,
 )
 from datajunction_server.semantic_fingerprints.v1 import semantic_fields
-from datajunction_server.utils import SEPARATOR
 
 if TYPE_CHECKING:
     from datajunction_server.models.deployment import ColumnSpec, NodeSpec
@@ -89,16 +88,6 @@ def _rewrite(value: Any, namespace: str, key: str | None = None) -> Any:
     return value
 
 
-def own_namespace(spec: NodeSpec) -> str:
-    """
-    The namespace a spec was deployed into.
-
-    Specs loaded from the database have no namespace set, so use the one
-    in the node's name.
-    """
-    return spec.namespace or spec.rendered_name.rpartition(SEPARATOR)[0]
-
-
 def namespace_free_spec(spec: NodeSpec) -> NodeSpec:
     """
     Renders a spec with its own namespace replaced by a fixed marker.
@@ -107,7 +96,7 @@ def namespace_free_spec(spec: NodeSpec) -> NodeSpec:
     names in other namespaces, are left as written.
     """
     rendered = spec.rendered_spec()
-    namespace = own_namespace(spec)
+    namespace = spec.namespace
     if not namespace:
         return rendered
     values = rendered.model_dump(mode="json")
