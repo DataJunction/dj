@@ -81,6 +81,11 @@ _parse_cache: OrderedDict[str, bytes] = OrderedDict()
 _parse_cache_lock = threading.Lock()
 
 
+def _fully_linked(tree: ast.Query) -> bool:
+    """Whether every node below the root has a parent link."""
+    return all(node.parent is not None for node in tree.flatten() if node is not tree)
+
+
 def parse_query(query_str: str) -> ast.Query:
     """
     Parse a SQL query string into an AST. Thread-safe — suitable for threadpool.
@@ -95,7 +100,7 @@ def parse_query(query_str: str) -> ast.Query:
         return pickle.loads(cached)
     tree = parse(query_str)
     # Trees built in fast mode have no parent links, so they are never kept.
-    if tree.select.parent is not None:
+    if _fully_linked(tree):
         blob = pickle.dumps(tree, protocol=pickle.HIGHEST_PROTOCOL)
         with _parse_cache_lock:
             _parse_cache[query_str] = blob

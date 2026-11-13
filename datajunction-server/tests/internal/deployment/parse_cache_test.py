@@ -82,3 +82,15 @@ def test_parse_errors_are_not_cached():
         with pytest.raises(DJParseException):
             parse_query("SELECT (")
     assert type_inference._parse_cache == {}
+
+
+def test_tree_is_not_kept_when_only_its_outer_nodes_are_linked():
+    def parse_with_fast_mode_ending_early(query: str):
+        with fast_parse_mode():
+            tree = parse(query)
+        return tree.add_self_as_parent()
+
+    with patch.object(type_inference, "parse", parse_with_fast_mode_ending_early):
+        tree = parse_query("SELECT a FROM t WHERE b > 1")
+    assert tree.select.parent is tree
+    assert type_inference._parse_cache == {}
