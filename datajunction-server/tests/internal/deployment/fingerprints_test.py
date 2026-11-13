@@ -35,6 +35,7 @@ from datajunction_server.semantic_fingerprints.engine import (
     compose_node_fingerprint,
     local_node_fingerprint,
 )
+from datajunction_server.sql.parsing import cache as parse_cache
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 
@@ -913,8 +914,9 @@ def test_fingerprinting_reuses_parsed_query_across_rendered_copies():
         query="SELECT COUNT(*) FROM ${prefix}source",
     )
 
+    parse_cache._cache.clear()
     with patch(
-        "datajunction_server.sql.parsing.backends.antlr4.parse",
+        "datajunction_server.sql.parsing.cache.parse",
         wraps=parse,
     ) as parse_query:
         first = compose_node_fingerprint(metric, parent_fingerprints=[])
