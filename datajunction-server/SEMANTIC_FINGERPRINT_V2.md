@@ -18,12 +18,16 @@ the rows they aggregate. An unrelated projection can change a node's full hash
 while preserving existing output components and their consumers.
 
 Complex joins, CTEs, subqueries, set operations, windows, HAVING, DISTINCT,
-limits, and unsupported expressions return unknown in this analyzer. Standalone
-metric constraints also remain unknown until configured dimension analysis is
-available.
+limits, and unsupported expressions retain conservative whole-node dependencies
+or return unknown when the captured evidence is incomplete. A calculation
+component includes SQL, rows, values, and grain while excluding optional
+dimension links. Conservative SQL depends on parent calculations, so adding
+an unused link does not invalidate those values. SQL that reads dimension
+attributes retains its link contracts. Standalone metric constraints use
+conservative context until configured context is available.
 
 Descriptions, display labels, owners, tags, custom metadata, column presentation
-attributes, and Spark hints are excluded from precise hashes.
+attributes, and Spark hints are excluded from precise and conservative hashes.
 Recommended filters with no effective default (`None` or `""`) are warning-only
 and contribute no dependency. Required filters and nonempty defaults remain
 semantic. Metadata remains available on captured specifications.
@@ -32,10 +36,15 @@ Cached ASTs are read without mutation, including when v1 has already processed
 the specifications. A versioned structural representation removes aliases and
 source qualifiers after binding. Numeric literal text is retained from DJ's
 cached parse tree because the AST can lose decimal precision. Forms with
-omitted semantics return unknown, including sampling, TRY_CAST, aggregate
-FILTER/null treatment, and custom TRIM characters. Fixed digests,
-alias/comment equivalence, and value/row change controls cover the supported
-boundary.
+omitted AST semantics use conservative token fallback when the complete parse
+tree establishes relation and dimension dependencies. This includes TRY_CAST,
+sampling, aggregate FILTER/null treatment, custom TRIM characters, and lateral
+views. Missing or ambiguous evidence remains unknown. Fixed digests,
+alias/comment equivalence, and value/row change controls cover the boundary.
+
+Conservative fallback uses the authored SQL token stream from DJ's parse cache.
+It ignores comments and whitespace while retaining literal text and clauses.
+Equivalent alias or keyword-case changes can still invalidate this fallback.
 
 ## Reading the results
 

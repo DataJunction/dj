@@ -46,18 +46,18 @@ def _evaluate(source, query):
         "SELECT amount FROM ns.source GROUP BY 1",
     ],
 )
-def test_unsupported_construct_is_unknown(query):
+def test_unsupported_construct_is_conservative_or_unknown(query):
     before = _evaluate(_source(), query)
     after = _evaluate(_source(table="replacement"), query)
 
-    assert before.nodes["ns.project"].precision == "unknown"
+    assert before.nodes["ns.project"].precision in {"conservative", "unknown"}
     assert before.nodes["ns.project"].reasons
     assert (
         compare_components(
             before.nodes["ns.project"].full,
             after.nodes["ns.project"].full,
         )
-        == "indeterminate"
+        != "unchanged"
     )
 
 
@@ -159,7 +159,7 @@ def test_case_and_cast_remain_precise(query, changed_query):
 def test_unsupported_select_clauses_are_not_precise(query):
     result = _evaluate(_source(), query)
 
-    assert result.nodes["ns.project"].precision == "unknown"
+    assert result.nodes["ns.project"].precision in {"conservative", "unknown"}
     assert result.nodes["ns.project"].reasons
 
 
