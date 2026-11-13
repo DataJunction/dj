@@ -294,3 +294,166 @@ async def test_event_filter_with_roled_account_requested(status_client):
         normalize_aliases=True,
     )
     assert sorted(run_in_duckdb(sql)) == [("acct-new", 7.0), ("acct-vip", 5.0)]
+
+
+@pytest_asyncio.fixture
+async def snapshot_client(client_with_build_v3):
+    client = client_with_build_v3
+    await create_source(
+        client,
+        "v3.sn_src_facts",
+        "sn_facts",
+        [
+            ("test_id", "int"),
+            ("account_id", "int"),
+            ("amount", "double"),
+            ("snapshot_utc_date", "int"),
+        ],
+    )
+    await create_source(
+        client,
+        "v3.sn_src_alloc",
+        "sn_alloc",
+        [
+            ("test_id", "int"),
+            ("account_id", "int"),
+            ("snapshot_utc_date", "int"),
+            ("country", "string"),
+        ],
+    )
+    await create_source(
+        client,
+        "v3.sn_src_dates",
+        "sn_dates",
+        [("dateint", "int"), ("week", "int")],
+    )
+    await post(
+        client,
+        "/nodes/transform/",
+        {
+            "name": "v3.sn_facts",
+            "query": (
+                "SELECT test_id, account_id, amount, snapshot_utc_date "
+                "FROM v3.sn_src_facts"
+            ),
+            "mode": "published",
+            "primary_key": ["test_id", "account_id", "snapshot_utc_date"],
+        },
+    )
+    await post(
+        client,
+        "/nodes/dimension/",
+        {
+            "name": "v3.sn_alloc",
+            "query": (
+                "SELECT test_id, account_id, snapshot_utc_date, country "
+                "FROM v3.sn_src_alloc"
+            ),
+            "mode": "published",
+            "primary_key": ["test_id", "account_id", "snapshot_utc_date"],
+        },
+    )
+    await post(
+        client,
+        "/nodes/dimension/",
+        {
+            "name": "v3.sn_dates",
+            "query": "SELECT dateint, week FROM v3.sn_src_dates",
+            "mode": "published",
+            "primary_key": ["dateint"],
+        },
+    )
+    await post(
+        client,
+        "/nodes/v3.sn_facts/link",
+        {
+            "dimension_node": "v3.sn_alloc",
+            "join_type": "right",
+            "join_cardinality": "one_to_many",
+            "join_on": (
+                "v3.sn_facts.test_id = v3.sn_alloc.test_id "
+                "AND v3.sn_facts.account_id = v3.sn_alloc.account_id"
+            ),
+        },
+    )
+    await post(
+        client,
+        "/nodes/v3.sn_alloc/link",
+        {
+            "dimension_node": "v3.sn_dates",
+            "join_type": "left",
+            "join_cardinality": "many_to_one",
+            "join_on": "v3.sn_alloc.snapshot_utc_date = v3.sn_dates.dateint",
+            "role": "allocation_snapshot",
+        },
+    )
+    await post(
+        client,
+        "/nodes/metric/",
+        {
+            "name": "v3.sn_snapshot_amount",
+            "query": "SELECT SUM(amount) FROM v3.sn_facts",
+            "mode": "published",
+        },
+    )
+    return client
+
+
+@pytest.mark.asyncio
+async def test_snapshot_role_filter_is_not_bound_to_fact_snapshot_column(
+    snapshot_client,
+):
+    """
+    The fact and the allocation both have `snapshot_utc_date`. A filter on the
+    allocation's snapshot role belongs on the allocation only.
+    """
+    response = await snapshot_client.get(
+        "/sql/measures/v3/",
+        params={
+            "metrics": ["v3.sn_snapshot_amount"],
+            "dimensions": ["v3.sn_alloc.country"],
+            "filters": ["v3.sn_dates.dateint[allocation_snapshot] = 20260101"],
+        },
+    )
+    assert response.status_code == 200, response.text
+    sql = get_first_grain_group(response.json())["sql"]
+    assert_sql_equal(
+        sql,
+        """
+        WITH v3_sn_alloc AS (
+          SELECT test_id, account_id, snapshot_utc_date, country
+          FROM default.v3.sn_alloc
+          WHERE snapshot_utc_date = 20260101
+        ),
+        v3_sn_facts AS (
+          SELECT test_id, account_id, amount
+          FROM default.v3.sn_facts
+        )
+        SELECT t2.country, SUM(t1.amount) amount_sum_HASH
+        FROM v3_sn_facts t1
+        RIGHT OUTER JOIN v3_sn_alloc t2
+          ON t1.test_id = t2.test_id AND t1.account_id = t2.account_id
+        WHERE t2.snapshot_utc_date = 20260101
+        GROUP BY t2.country
+        """,
+        normalize_aliases=True,
+    )
+    conn = duckdb.connect(":memory:")
+    conn.execute("""ATTACH ':memory:' AS "default" """)
+    conn.execute("""USE "default" """)
+    conn.execute("CREATE SCHEMA v3")
+    conn.execute(
+        """
+        CREATE TABLE v3.sn_facts (
+          test_id INT, account_id INT, amount DOUBLE, snapshot_utc_date INT
+        );
+        INSERT INTO v3.sn_facts VALUES (1, 1, 5, 20260102), (1, 2, 7, 20260101);
+        CREATE TABLE v3.sn_alloc (
+          test_id INT, account_id INT, snapshot_utc_date INT, country TEXT
+        );
+        INSERT INTO v3.sn_alloc VALUES
+          (1, 1, 20260101, 'US'), (1, 2, 20260102, 'CA');
+        """,
+    )
+    rows = conn.execute(sql.replace("default.v3.", '"default".v3.')).fetchall()
+    assert rows == [("US", 5.0)]
