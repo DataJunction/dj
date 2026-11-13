@@ -80,12 +80,17 @@ The scope is decoded and authorized on every request. Invalid names return 404;
 conflicting namespace or branch options in `additional_configuration` return 400.
 The name is an identity, not an authorization grant.
 
-With neither discovery selector, Explore covers all readable active namespaces. A plain
-namespace includes only its direct elements. A Git root includes its branches
-and nested namespaces; adding a branch limits it to that effective Git branch,
-including explicitly linked branch namespaces outside the root's name prefix.
-Independent nested repositories are excluded. Branch names use their actual
-Git spelling, such as `feature/revenue`. A branch requires a Git root namespace.
+With neither discovery selector, Explore includes readable active non-Git
+namespaces and only the literal `main` branch of Git repositories. A plain
+namespace includes only its direct elements. A Git root's Explore view also
+defaults to `main`, including matching nested namespaces and explicitly linked
+branch namespaces outside the root's name prefix. This does not follow a
+repository's configured default branch: a repository without `main` contributes
+no Git elements to broader Explore views. Select a branch explicitly to explore
+another branch, such as `@explore:sales:feature~2Frevenue`. Branch selectors and
+cube discovery still expose other branches. Independent nested repositories are
+excluded from a Git root's Explore view. Branch names use their actual Git
+spelling, such as `feature/revenue`. A branch requires a Git root namespace.
 
 Explore exposes valid, active metrics and dimension attributes the caller can
 read in the selected scope, including tagged local dimensions and role-qualified

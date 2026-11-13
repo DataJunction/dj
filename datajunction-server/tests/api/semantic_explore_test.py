@@ -468,15 +468,43 @@ async def test_explore_names_are_unique_and_match_result_columns(client, monkeyp
 @pytest.mark.asyncio
 async def test_explore_git_scopes(client: AsyncClient, session: AsyncSession):
     await _setup_cube(client)
-    for namespace in ("feature", "sem.independent", "empty"):
+    for namespace in (
+        "feature",
+        "feature.nested",
+        "sem.nested",
+        "sem.independent",
+        "plain",
+        "empty",
+    ):
         await _expect(await client.post(f"/namespaces/{namespace}"), 200, 201)
-    for name in ("feature.count", "sem.independent.count"):
+    await _expect(
+        await client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "feature.region",
+                "query": "SELECT region_id, region_name FROM sem.regions",
+                "primary_key": ["region_id"],
+                "mode": "published",
+            },
+        ),
+        200,
+        201,
+    )
+    for name in (
+        "feature.count",
+        "feature.nested.count",
+        "sem.nested.count",
+        "sem.independent.count",
+        "plain.count",
+    ):
         await _expect(
             await client.post(
                 "/nodes/metric/",
                 json={
                     "name": name,
-                    "query": "SELECT COUNT(*) FROM sem.sales",
+                    "query": "SELECT COUNT(*) FROM feature.region"
+                    if name.startswith("feature.")
+                    else "SELECT COUNT(*) FROM sem.sales",
                     "mode": "published",
                 },
             ),
@@ -497,10 +525,19 @@ async def test_explore_git_scopes(client: AsyncClient, session: AsyncSession):
 
     identities = set()
     for path, metric_ids in (
-        ([], {"sem.total_amount", "feature.count", "sem.independent.count"}),
-        (["sem"], {"sem.total_amount", "feature.count"}),
-        (["sem", "main"], {"sem.total_amount"}),
-        (["sem", "feature/foo"], {"feature.count"}),
+        (
+            [],
+            {
+                "sem.total_amount",
+                "sem.nested.count",
+                "sem.independent.count",
+                "plain.count",
+            },
+        ),
+        (["sem"], {"sem.total_amount", "sem.nested.count"}),
+        (["sem", "main"], {"sem.total_amount", "sem.nested.count"}),
+        (["sem", "feature/foo"], {"feature.count", "feature.nested.count"}),
+        (["plain"], {"plain.count"}),
         (["empty", None], set()),
     ):
         listing = await client.post("/semantic/views", json={"path": path})
@@ -526,12 +563,26 @@ async def test_explore_git_scopes(client: AsyncClient, session: AsyncSession):
             assert actual == metric_ids
         else:
             assert metric_ids <= actual
+        dimension_ids = {dim["id"] for dim in detail.json()["dimensions"]}
+        if path == ["sem", "feature/foo"]:
+            assert "feature.region.region_id" in dimension_ids
+        else:
+            assert not any(metric.startswith("feature.") for metric in actual)
+            assert not any(dim.startswith("feature.") for dim in dimension_ids)
         compatible = await client.post(
             f"/semantic/views/{view}/compatible-metrics",
             json={"additional_configuration": {}},
         )
         assert compatible.status_code == 200, compatible.text
         assert {metric["id"] for metric in compatible.json()} == actual
+        compatible_dims = await client.post(
+            f"/semantic/views/{view}/compatible-dimensions",
+            json={"additional_configuration": {}},
+        )
+        assert compatible_dims.status_code == 200, compatible_dims.text
+        assert {dim["id"] for dim in compatible_dims.json()} == dimension_ids
+        if path == ["sem"]:
+            assert listing.json()["hierarchy"]["values"] == ["feature/foo", "main"]
         if path == ["sem", "feature/foo"]:
             sql = await client.post(
                 f"/semantic/views/{view}/sql",
@@ -549,7 +600,25 @@ async def test_explore_git_scopes(client: AsyncClient, session: AsyncSession):
                 },
             )
             assert outside.status_code == 400, outside.text
-    assert len(identities) == 5
+    assert len(identities) == 6
+    # Every operation uses the same main-only catalog for broader views.
+    for view in ("@explore", "@explore:sem"):
+        for endpoint, payload in (
+            ("compatible-metrics", {"selected_metrics": ["feature.count"]}),
+            (
+                "compatible-dimensions",
+                {"selected_dimensions": ["feature.region.region_id"]},
+            ),
+            ("sql", {"query": {"metrics": ["feature.count"]}}),
+            ("query", {"query": {"metrics": ["feature.count"]}}),
+            ("row-count", {"query": {"metrics": ["feature.count"]}}),
+            ("values", {"dimension": "feature.region.region_id"}),
+        ):
+            response = await client.post(
+                f"/semantic/views/{view}/{endpoint}",
+                json=payload,
+            )
+            assert response.status_code == 400, (view, endpoint, response.text)
     for invalid_configuration, status in (
         ({"namespace": "sem", "branch": "missing"}, 404),
         ({"namespace": "feature"}, 404),
@@ -561,6 +630,83 @@ async def test_explore_git_scopes(client: AsyncClient, session: AsyncSession):
             json={"additional_configuration": {}},
         )
         assert response.status_code == status, response.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("has_main", [True, False])
+async def test_broad_explore_uses_literal_main(
+    client: AsyncClient,
+    session: AsyncSession,
+    has_main: bool,
+):
+    """Configured defaults never substitute for the literal main branch."""
+    await _setup_cube(client)
+    if has_main:
+        await _expect(await client.post("/namespaces/release"), 200, 201)
+        await _expect(
+            await client.post(
+                "/nodes/dimension/",
+                json={
+                    "name": "release.region",
+                    "query": "SELECT region_id, region_name FROM sem.regions",
+                    "primary_key": ["region_id"],
+                    "mode": "published",
+                },
+            ),
+            200,
+            201,
+        )
+        await _expect(
+            await client.post(
+                "/nodes/metric/",
+                json={
+                    "name": "release.count",
+                    "query": "SELECT COUNT(*) FROM release.region",
+                    "mode": "published",
+                },
+            ),
+            200,
+            201,
+        )
+        main = await NodeNamespace.get(session, "release")
+        assert main
+        main.parent_namespace = "sem"
+        main.git_branch = "main"
+    root = await NodeNamespace.get(session, "sem")
+    assert root
+    root.github_repo_path = "team/sem"
+    root.default_branch = "develop"
+    await session.commit()
+
+    for view in ("@explore", "@explore:sem"):
+        response = await client.post(f"/semantic/views/{view}", json={})
+        assert response.status_code == 200, response.text
+        detail = response.json()
+        metrics = {metric["id"] for metric in detail["metrics"]}
+        dimensions = {dim["id"] for dim in detail["dimensions"]}
+        assert "sem.total_amount" not in metrics
+        assert not any(dim.startswith("sem.") for dim in dimensions)
+        if has_main:
+            assert "release.count" in metrics
+            assert "release.region.region_id" in dimensions
+        elif view == "@explore:sem":
+            assert metrics == dimensions == set()
+
+    listing = await client.post("/semantic/views", json={"path": ["sem"]})
+    assert listing.status_code == 200, listing.text
+    assert listing.json()["hierarchy"]["values"] == (
+        ["develop", "main"] if has_main else ["develop"]
+    )
+    # Other branches, and their cube discovery, remain explicitly available.
+    develop = api._explore_summary("sem", "develop").name
+    response = await client.post(f"/semantic/views/{develop}", json={})
+    assert response.status_code == 200, response.text
+    assert {metric["id"] for metric in response.json()["metrics"]} == {
+        "sem.total_amount",
+    }
+    listing = await client.post("/semantic/views", json={"path": ["sem", "develop"]})
+    assert listing.status_code == 200, listing.text
+    assert "sem.sales_cube" in {view["name"] for view in listing.json()["views"]}
 
 
 @pytest.mark.asyncio

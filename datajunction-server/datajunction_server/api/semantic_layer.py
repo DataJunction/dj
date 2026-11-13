@@ -1604,19 +1604,28 @@ async def _load_explore_view(
         )
         .order_by(Node.name)
     )
-    if namespace is not None:
+    if namespace is None:
+        # A global Explore keeps plain namespaces, but includes only literal
+        # main from each Git repository, regardless of its configured default.
+        matching_namespaces = {
+            name
+            for name in namespaces
+            if (git_info := resolve_git_info_from_map(name, namespaces)) is None
+            or (git_info["branch"] or git_info["default_branch"]) == "main"
+        }
+    else:
         matching_namespaces = (
             {
                 name
                 for name in namespaces
                 if (location := _git_location(name, namespaces)) is not None
                 and location[0] == namespace
-                and (branch is None or location[1] == branch)
+                and location[1] == (branch or "main")
             }
             if info
             else {namespace}
         )
-        statement = statement.where(Node.namespace.in_(matching_namespaces))
+    statement = statement.where(Node.namespace.in_(matching_namespaces))
     nodes = list((await session.execute(statement)).unique().scalars())
     needed_by_node = {}
     for node in nodes:
