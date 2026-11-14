@@ -1481,28 +1481,39 @@ def _fk_key_column_names(node: Node) -> set[str]:
     return cols
 
 
-def _may_bind_dimension(
+def _may_bind_column(
     ref: str,
     bare_col: str | None,
-    dim_node: Node,
+    node: Node,
     ctx: BuildContext | None,
 ) -> bool:
-    """Whether another node's column may filter this dimension's CTE.
+    """Whether another node's column may filter this node's CTE.
 
-    True when the column is the join key of a link to the dimension, when
-    the owner reads from the dimension, or when the owner is unknown.
+    True when the owner is this node or reads from it, when the column is
+    the join key of a link to this node, when a dimension's attribute maps
+    to a fact or transform, or when the owner is unknown.
     """
     from datajunction_server.construction.build_v3.utils import get_short_name
 
     owner = ctx.nodes.get(ref.rsplit(SEPARATOR, 1)[0]) if ctx else None
     if owner is None or not owner.current or bare_col is None:
         return True
-    if dim_node.name in ctx.parent_map.get(owner.name, []):  # type: ignore[union-attr]
+    if owner.name == node.name:
         return True
+    if owner.type == NodeType.DIMENSION and node.type != NodeType.DIMENSION:
+        return True
+    pending, seen = [owner.name], {owner.name}
+    while pending:
+        for parent in ctx.parent_map.get(pending.pop(), []):  # type: ignore[union-attr]
+            if parent == node.name:
+                return True
+            if parent not in seen:
+                seen.add(parent)
+                pending.append(parent)
     return any(
         get_short_name(dim_key) == bare_col and get_short_name(owner_key) == bare_col
         for link in owner.current.dimension_links or []
-        if link.dimension.name == dim_node.name
+        if link.dimension.name == node.name
         for dim_key, owner_key in (link.foreign_keys_reversed or {}).items()
     )
 
@@ -1590,13 +1601,13 @@ def _resolve_pushdown_filters_for_cte(
                     bare_col in collision_cols or bare_col in node_output_cols
                 ):
                     blocked_refs.add(ref)
-            elif node.type == NodeType.DIMENSION and not _may_bind_dimension(
+            elif not _may_bind_column(
                 base,
                 effective_aliases.get(base),
                 node,
                 ctx,
             ):
-                # Fact columns never bind unrelated dimension columns.
+                # A column never binds an unrelated node's same-named column.
                 blocked_refs.add(ref)
 
     target_select = cast(ast.Select, cte_query.select)
