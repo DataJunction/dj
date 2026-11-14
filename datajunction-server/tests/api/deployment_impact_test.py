@@ -105,11 +105,22 @@ async def _deploy(client, *specs: DeploymentSpec):
 IMPACT_HEADERS = {"Prefer": "respond-async"}
 
 
-async def _impact(client, spec: DeploymentSpec):
+async def _impact(client, spec: DeploymentSpec, params: dict | None = None):
     response = await client.post(
         "/deployments/impact",
         json=spec.model_dump(by_alias=True),
         headers=IMPACT_HEADERS,
+        params=params,
+    )
+    assert response.status_code == 200
+    return await _wait_for_deployment(client, response.json()["uuid"])
+
+
+async def _deploy_result(client, spec: DeploymentSpec, params: dict | None = None):
+    response = await client.post(
+        "/deployments",
+        json=spec.model_dump(by_alias=True),
+        params=params,
     )
     assert response.status_code == 200
     return await _wait_for_deployment(client, response.json()["uuid"])
@@ -210,6 +221,166 @@ class TestDeploymentImpactEndpoint:
             await _impact(client_with_roads, spec)
 
         assert build_fingerprints.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_impact_skips_fingerprints_when_disabled(self, client_with_roads):
+        """With semantic_fingerprints=false no fingerprints are built and
+        every result and downstream impact reports null."""
+        parent = DeploymentSpec(
+            namespace="impact_no_fp_parent",
+            nodes=[_source("base")],
+        )
+        consumer = DeploymentSpec(
+            namespace="impact_no_fp_consumer",
+            nodes=[
+                TransformSpec(
+                    name="derived",
+                    query="SELECT id FROM impact_no_fp_parent.base",
+                ),
+            ],
+        )
+        await _deploy(client_with_roads, parent, consumer)
+        updated_parent = parent.model_copy(deep=True)
+        assert isinstance(updated_parent.nodes[0], SourceSpec)
+        updated_parent.nodes[0].table = "base_v2"
+
+        with mock.patch(
+            "datajunction_server.internal.deployment.orchestrator."
+            "build_deployment_fingerprints",
+            wraps=build_deployment_fingerprints,
+        ) as build_fingerprints:
+            data = await _impact(
+                client_with_roads,
+                updated_parent,
+                params={"semantic_fingerprints": "false"},
+            )
+
+        assert build_fingerprints.await_count == 0
+        assert data["status"] == "success"
+        assert {
+            result["name"]: result["semantic_fingerprint"]
+            for result in data["results"]
+            if result["deploy_type"] == "node"
+        } == {"impact_no_fp_parent.base": None}
+        assert {
+            impact["name"]: impact["semantic_fingerprint"]
+            for impact in data["downstream_impacts"]
+        } == {"impact_no_fp_consumer.derived": None}
+
+    @pytest.mark.asyncio
+    async def test_impact_default_builds_fingerprints(self, client_with_roads):
+        """Without the parameter the fingerprints are built once and returned."""
+        parent = DeploymentSpec(
+            namespace="impact_default_fp_parent",
+            nodes=[_source("base")],
+        )
+        consumer = DeploymentSpec(
+            namespace="impact_default_fp_consumer",
+            nodes=[
+                TransformSpec(
+                    name="derived",
+                    query="SELECT id FROM impact_default_fp_parent.base",
+                ),
+            ],
+        )
+        await _deploy(client_with_roads, parent, consumer)
+        updated_parent = parent.model_copy(deep=True)
+        assert isinstance(updated_parent.nodes[0], SourceSpec)
+        updated_parent.nodes[0].table = "base_v2"
+        graph = _fingerprint_graph(updated_parent, consumer)
+
+        with mock.patch(
+            "datajunction_server.internal.deployment.orchestrator."
+            "build_deployment_fingerprints",
+            wraps=build_deployment_fingerprints,
+        ) as build_fingerprints:
+            data = await _impact(client_with_roads, updated_parent)
+
+        assert build_fingerprints.await_count == 1
+        assert {
+            result["name"]: result["semantic_fingerprint"]
+            for result in data["results"]
+            if result["deploy_type"] == "node"
+        } == {
+            "impact_default_fp_parent.base": graph.fingerprint(
+                "impact_default_fp_parent.base",
+            ).model_dump(),
+        }
+        assert {
+            impact["name"]: impact["semantic_fingerprint"]
+            for impact in data["downstream_impacts"]
+        } == {
+            "impact_default_fp_consumer.derived": graph.fingerprint(
+                "impact_default_fp_consumer.derived",
+            ).model_dump(),
+        }
+
+    @pytest.mark.asyncio
+    async def test_deploy_skips_fingerprints_when_disabled(self, client_with_roads):
+        """POST /deployments honors semantic_fingerprints=false on a
+        deployment that changes nodes and on one with no changes."""
+        spec = DeploymentSpec(
+            namespace="deploy_no_fp",
+            nodes=[_source("orders")],
+        )
+
+        with mock.patch(
+            "datajunction_server.internal.deployment.orchestrator."
+            "build_deployment_fingerprints",
+            wraps=build_deployment_fingerprints,
+        ) as build_fingerprints:
+            created = await _deploy_result(
+                client_with_roads,
+                spec,
+                params={"semantic_fingerprints": "false"},
+            )
+            unchanged = await _deploy_result(
+                client_with_roads,
+                spec,
+                params={"semantic_fingerprints": "false"},
+            )
+
+        assert build_fingerprints.await_count == 0
+        assert {
+            result["name"]: (result["operation"], result["semantic_fingerprint"])
+            for result in created["results"]
+            if result["deploy_type"] == "node"
+        } == {"deploy_no_fp.orders": ("create", None)}
+        assert {
+            result["name"]: (result["operation"], result["semantic_fingerprint"])
+            for result in unchanged["results"]
+            if result["deploy_type"] == "node"
+        } == {"deploy_no_fp.orders": ("noop", None)}
+
+    @pytest.mark.asyncio
+    async def test_deploy_default_builds_fingerprints(self, client_with_roads):
+        """POST /deployments without the parameter builds fingerprints for
+        both a changing deployment and a no-change one."""
+        spec = DeploymentSpec(
+            namespace="deploy_default_fp",
+            nodes=[_source("orders")],
+        )
+        expected = _fingerprint_graph(spec).fingerprint("deploy_default_fp.orders")
+
+        with mock.patch(
+            "datajunction_server.internal.deployment.orchestrator."
+            "build_deployment_fingerprints",
+            wraps=build_deployment_fingerprints,
+        ) as build_fingerprints:
+            created = await _deploy_result(client_with_roads, spec)
+            unchanged = await _deploy_result(client_with_roads, spec)
+
+        assert build_fingerprints.await_count == 2
+        assert {
+            result["name"]: (result["operation"], result["semantic_fingerprint"])
+            for result in created["results"]
+            if result["deploy_type"] == "node"
+        } == {"deploy_default_fp.orders": ("create", expected.model_dump())}
+        assert {
+            result["name"]: (result["operation"], result["semantic_fingerprint"])
+            for result in unchanged["results"]
+            if result["deploy_type"] == "node"
+        } == {"deploy_default_fp.orders": ("noop", expected.model_dump())}
 
     @pytest.mark.asyncio
     async def test_impact_detects_updates(self, client_with_roads):

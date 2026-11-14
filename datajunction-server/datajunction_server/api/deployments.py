@@ -214,6 +214,7 @@ class DeploymentExecutor(ABC):
         spec: DeploymentSpec,
         context: DeploymentContext,
         dry_run: bool = False,
+        semantic_fingerprints: bool = True,
     ) -> str:
         """
         Kick off a deployment job asynchronously.
@@ -250,6 +251,7 @@ class InProcessExecutor(DeploymentExecutor):
         spec: DeploymentSpec,
         context: DeploymentContext,
         dry_run: bool = False,
+        semantic_fingerprints: bool = True,
     ) -> str:
         if self.draining:
             raise HTTPException(
@@ -275,6 +277,7 @@ class InProcessExecutor(DeploymentExecutor):
                 deployment_spec=spec,
                 context=context,
                 dry_run=dry_run,
+                semantic_fingerprints=semantic_fingerprints,
             ),
             name=deployment_uuid,
         )
@@ -334,6 +337,7 @@ class InProcessExecutor(DeploymentExecutor):
         deployment_spec: DeploymentSpec,
         context: DeploymentContext,
         dry_run: bool = False,
+        semantic_fingerprints: bool = True,
     ):
         if await InProcessExecutor.update_status(
             deployment_id,
@@ -352,6 +356,7 @@ class InProcessExecutor(DeploymentExecutor):
                     deployment=deployment_spec,
                     context=context,
                     dry_run=dry_run,
+                    semantic_fingerprints=semantic_fingerprints,
                 )
                 results = execute_result.results
                 final_status = (
@@ -420,6 +425,7 @@ async def create_deployment(
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     cache: Cache = Depends(get_cache),
     access_checker: AccessChecker = Depends(get_access_checker),
+    semantic_fingerprints: bool = True,
 ) -> DeploymentInfo:
     """
     This endpoint takes a deployment specification (namespace, nodes, tags), topologically
@@ -470,6 +476,7 @@ async def create_deployment(
             background_tasks=background_tasks,
             cache=cache,
         ),
+        semantic_fingerprints=semantic_fingerprints,
     )
 
     deployment = await session.get(Deployment, deployment_id)
@@ -577,6 +584,7 @@ async def preview_deployment_impact(
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     cache: Cache = Depends(get_cache),
     access_checker: AccessChecker = Depends(get_access_checker),
+    semantic_fingerprints: bool = True,
 ) -> DeploymentInfo:
     """
     Submit a deployment impact preview for asynchronous processing.
@@ -625,6 +633,7 @@ async def preview_deployment_impact(
             cache=cache,
         ),
         dry_run=True,
+        semantic_fingerprints=semantic_fingerprints,
     )
 
     deployment = await session.get(Deployment, deployment_id)

@@ -420,6 +420,7 @@ class DeploymentOrchestrator:
         session: AsyncSession,
         context: DeploymentContext,
         dry_run: bool = False,
+        semantic_fingerprints: bool = True,
     ):
         # Deployment context
         self.deployment_spec = deployment_spec
@@ -427,6 +428,7 @@ class DeploymentOrchestrator:
         self.session = session
         self.context = context
         self.dry_run = dry_run
+        self.semantic_fingerprints = semantic_fingerprints
 
         # Deployment state tracking
         self.registry = ResourceRegistry()
@@ -679,11 +681,12 @@ class DeploymentOrchestrator:
             if not needs_preagg_reconcile and not declares_cube:
                 with self._timer.phase("governance checks"):
                     await self._run_governance_checks(deployment_plan)
-                with self._timer.phase("build semantic fingerprints"):
-                    await self._build_and_apply_semantic_fingerprints(
-                        deployment_plan,
-                        [],
-                    )
+                if self.semantic_fingerprints:
+                    with self._timer.phase("build semantic fingerprints"):
+                        await self._build_and_apply_semantic_fingerprints(
+                            deployment_plan,
+                            [],
+                        )
                 # A push that only drops a tag from the manifest changes no
                 # nodes, so the reconcile has to run on this path too.
                 self.deployed_results.extend(await self._reconcile_claimed_tags())
@@ -2689,12 +2692,13 @@ class DeploymentOrchestrator:
             )
             downstream = propagation_result.impacts
             p.append(f"{len(downstream)} downstream")
-        with timer.phase("build downstream semantic fingerprints"):
-            await self._build_and_apply_semantic_fingerprints(
-                plan,
-                downstream,
-                propagation_result.reusable_queries,
-            )
+        if self.semantic_fingerprints:
+            with timer.phase("build downstream semantic fingerprints"):
+                await self._build_and_apply_semantic_fingerprints(
+                    plan,
+                    downstream,
+                    propagation_result.reusable_queries,
+                )
 
         # Hard-delete after impact propagation (cascade-deletes
         # NodeRelationship rows that were needed for the BFS above).
