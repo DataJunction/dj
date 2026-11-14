@@ -457,3 +457,110 @@ async def test_snapshot_role_filter_is_not_bound_to_fact_snapshot_column(
     )
     rows = conn.execute(sql.replace("default.v3.", '"default".v3.')).fetchall()
     assert rows == [("US", 5.0)]
+
+
+@pytest_asyncio.fixture
+async def based_status_client(client_with_build_v3):
+    """Like `status_client`, with a transform between the account dimension and its source."""
+    client = client_with_build_v3
+    await create_source(
+        client,
+        "v3.sb_src_events",
+        "sn_events",
+        [("account_id", "int"), ("amount", "double"), ("status", "string")],
+    )
+    await create_source(
+        client,
+        "v3.sb_src_accounts",
+        "sn_accounts",
+        [("account_id", "int"), ("status", "string")],
+    )
+    await post(
+        client,
+        "/nodes/transform/",
+        {
+            "name": "v3.sb_events",
+            "query": "SELECT account_id, amount, status FROM v3.sb_src_events",
+            "mode": "published",
+            "primary_key": ["account_id"],
+        },
+    )
+    await post(
+        client,
+        "/nodes/transform/",
+        {
+            "name": "v3.sb_account_base",
+            "query": "SELECT account_id, status FROM v3.sb_src_accounts",
+            "mode": "published",
+            "primary_key": ["account_id"],
+        },
+    )
+    await post(
+        client,
+        "/nodes/dimension/",
+        {
+            "name": "v3.sb_account",
+            "query": "SELECT account_id, status FROM v3.sb_account_base",
+            "mode": "published",
+            "primary_key": ["account_id"],
+        },
+    )
+    await post(
+        client,
+        "/nodes/v3.sb_events/link",
+        {
+            "dimension_node": "v3.sb_account",
+            "join_type": "left",
+            "join_on": "v3.sb_events.account_id = v3.sb_account.account_id",
+        },
+    )
+    await post(
+        client,
+        "/nodes/metric/",
+        {
+            "name": "v3.sb_amount",
+            "query": "SELECT SUM(amount) FROM v3.sb_events",
+            "mode": "published",
+        },
+    )
+    return client
+
+
+@pytest.mark.asyncio
+async def test_event_filter_is_not_bound_to_transform_under_account(
+    based_status_client,
+):
+    response = await based_status_client.get(
+        "/sql/measures/v3/",
+        params={
+            "metrics": ["v3.sb_amount"],
+            "dimensions": ["v3.sb_account.status"],
+            "filters": ["v3.sb_events.status = 'evt-open'"],
+        },
+    )
+    assert response.status_code == 200, response.text
+    sql = get_first_grain_group(response.json())["sql"]
+    assert_sql_equal(
+        sql,
+        """
+        WITH v3_sb_account_base AS (
+          SELECT account_id, status
+          FROM default.v3.sn_accounts
+        ),
+        v3_sb_events AS (
+          SELECT account_id, amount
+          FROM default.v3.sn_events
+          WHERE status = 'evt-open'
+        ),
+        v3_sb_account AS (
+          SELECT account_id, status
+          FROM v3_sb_account_base
+        )
+        SELECT t2.status, SUM(t1.amount) amount_sum_HASH
+        FROM v3_sb_events t1
+        LEFT OUTER JOIN v3_sb_account t2 ON t1.account_id = t2.account_id
+        GROUP BY t2.status
+        """,
+        normalize_aliases=True,
+    )
+    assert sorted(run_in_duckdb(sql)) == [("acct-new", 7.0), ("acct-vip", 5.0)]
