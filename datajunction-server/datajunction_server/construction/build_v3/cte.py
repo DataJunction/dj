@@ -1481,6 +1481,43 @@ def _fk_key_column_names(node: Node) -> set[str]:
     return cols
 
 
+def _may_bind_column(
+    ref: str,
+    bare_col: str | None,
+    node: Node,
+    ctx: BuildContext | None,
+) -> bool:
+    """Whether another node's column may filter this node's CTE.
+
+    True when the owner is this node or reads from it, when the column is
+    the join key of a link to this node, when a dimension's attribute maps
+    to a fact or transform, or when the owner is unknown.
+    """
+    from datajunction_server.construction.build_v3.utils import get_short_name
+
+    owner = ctx.nodes.get(ref.rsplit(SEPARATOR, 1)[0]) if ctx else None
+    if owner is None or not owner.current or bare_col is None:
+        return True
+    if owner.name == node.name:
+        return True
+    if owner.type == NodeType.DIMENSION and node.type != NodeType.DIMENSION:
+        return True
+    pending, seen = [owner.name], {owner.name}
+    while pending:
+        for parent in ctx.parent_map.get(pending.pop(), []):  # type: ignore[union-attr]
+            if parent == node.name:
+                return True
+            if parent not in seen:
+                seen.add(parent)
+                pending.append(parent)
+    return any(
+        get_short_name(dim_key) == bare_col and get_short_name(owner_key) == bare_col
+        for link in owner.current.dimension_links or []
+        if link.dimension.name == node.name
+        for dim_key, owner_key in (link.foreign_keys_reversed or {}).items()
+    )
+
+
 def _resolve_pushdown_filters_for_cte(
     node: Node,
     cte_query: ast.Query,
@@ -1550,14 +1587,28 @@ def _resolve_pushdown_filters_for_cte(
     # are never blocked; the dim's own CTE / join-key filters stay exempt via
     # ``local_aliases``.
     collision_cols = _fk_key_column_names(node) | (fk_collision_cols or set())
+    joined_refs = outer_only_refs or set()
     blocked_refs: set[str] = set()
-    for ref in outer_only_refs or set():
-        base = ref.split("[")[0]
-        if ref in local_aliases or base in local_aliases:
-            continue  # properly mapped locally (dim's own CTE / join key) — safe
-        bare_col = effective_aliases.get(ref) or effective_aliases.get(base)
-        if bare_col and bare_col in collision_cols:
-            blocked_refs.add(ref)
+    for filter_str in pushdown_filters:
+        for ref in _filter_dim_refs(parse_filter(filter_str)):
+            base = ref.split("[")[0]
+            if ref in local_aliases or base in local_aliases:
+                continue  # properly mapped locally (dim's own CTE / join key) — safe
+            if ref in joined_refs or base in joined_refs:
+                # Joined attributes never bind same-named columns.
+                bare_col = effective_aliases.get(ref) or effective_aliases.get(base)
+                if bare_col and (
+                    bare_col in collision_cols or bare_col in node_output_cols
+                ):
+                    blocked_refs.add(ref)
+            elif not _may_bind_column(
+                base,
+                effective_aliases.get(base),
+                node,
+                ctx,
+            ):
+                # A column never binds an unrelated node's same-named column.
+                blocked_refs.add(ref)
 
     target_select = cast(ast.Select, cte_query.select)
     results: list[tuple[ast.Select, ast.Expression]] = []
@@ -2070,11 +2121,8 @@ def _ref_is_blocked(ref: str, blocked_refs: set[str]) -> bool:
     return any(blocked.startswith(f"{ref}[") for blocked in blocked_refs)
 
 
-def _filter_touches_blocked_ref(
-    filter_ast: ast.Expression,
-    blocked_refs: set[str],
-) -> bool:
-    """Whether any dim ref in the filter is blocked, keeping each ref's role."""
+def _filter_dim_refs(filter_ast: ast.Expression) -> list[str]:
+    """Every dim ref in the filter, keeping each ref's role."""
     refs: list[str] = []
     role_columns: set[int] = set()
     for subscript in filter_ast.find_all(ast.Subscript):
@@ -2088,7 +2136,17 @@ def _filter_touches_blocked_ref(
             ref = get_column_full_name(col)
             if ref:  # pragma: no branch
                 refs.append(ref)
-    return any(_ref_is_blocked(ref, blocked_refs) for ref in refs)
+    return refs
+
+
+def _filter_touches_blocked_ref(
+    filter_ast: ast.Expression,
+    blocked_refs: set[str],
+) -> bool:
+    """Whether any dim ref in the filter is blocked, keeping each ref's role."""
+    return any(
+        _ref_is_blocked(ref, blocked_refs) for ref in _filter_dim_refs(filter_ast)
+    )
 
 
 def _rewrite_filter_for_scope(
