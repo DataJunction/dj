@@ -1492,33 +1492,21 @@ def _passes_column_through(
     A renamed or computed column is a different column, and a name that
     several parents carry cannot be traced to one of them.
     """
-    if not child.current or not parent.current:
+    if column not in {col.name for col in parent.current.columns}:  # type: ignore[union-attr]
         return False
-    if column not in {col.name for col in parent.current.columns or []}:
+    carriers = sum(
+        column in {col.name for col in ctx.nodes[name].current.columns}  # type: ignore[union-attr]
+        for name in ctx.parent_map[child.name]
+    )
+    if carriers != 1:
         return False
-    siblings = [
-        ctx.nodes[name]
-        for name in ctx.parent_map.get(child.name, [])
-        if name in ctx.nodes and ctx.nodes[name].current
-    ]
-    if (
-        sum(
-            column in {col.name for col in sibling.current.columns or []}  # type: ignore[union-attr]
-            for sibling in siblings
-        )
-        != 1
-    ):
-        return False
-    select = ctx.get_parsed_query(child).select
-    for expr in select.projection:
-        if isinstance(expr, ast.Wildcard):
-            return True
-        if not isinstance(expr, ast.Aliasable):
-            continue
-        inner = expr.child if isinstance(expr, ast.Alias) else expr
-        if expr.alias_or_name.name == column:
-            return isinstance(inner, ast.Column) and inner.name.name == column
-    return False
+    named = {
+        expr.alias_or_name.name: expr.child if isinstance(expr, ast.Alias) else expr
+        for expr in ctx.get_parsed_query(child).select.projection
+        if isinstance(expr, ast.Aliasable)
+    }
+    inner = named.get(column)
+    return isinstance(inner, ast.Column) and inner.name.name == column
 
 
 def _may_bind_column(
@@ -1543,18 +1531,15 @@ def _may_bind_column(
         return True
     if owner.type == NodeType.DIMENSION and node.type != NodeType.DIMENSION:
         return True
-    pending, seen = [owner], {owner.name}
+    pending = [owner]
     while pending:
         child = pending.pop()
         for parent_name in ctx.parent_map.get(child.name, []):  # type: ignore[union-attr]
-            parent = ctx.nodes.get(parent_name)  # type: ignore[union-attr]
-            if parent is None or parent_name in seen:
-                continue
+            parent = ctx.nodes[parent_name]  # type: ignore[union-attr]
             if not _passes_column_through(child, parent, bare_col, ctx):  # type: ignore[arg-type]
                 continue
             if parent_name == node.name:
                 return True
-            seen.add(parent_name)
             pending.append(parent)
     return any(
         get_short_name(dim_key) == bare_col and get_short_name(owner_key) == bare_col
