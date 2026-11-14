@@ -564,3 +564,102 @@ async def test_event_filter_is_not_bound_to_transform_under_account(
         normalize_aliases=True,
     )
     assert sorted(run_in_duckdb(sql)) == [("acct-new", 7.0), ("acct-vip", 5.0)]
+
+
+@pytest_asyncio.fixture
+async def renamed_status_client(client_with_build_v3):
+    """`rn_fact.status` is `rn_d.other_status` renamed twice, not `rn_d.status`."""
+    client = client_with_build_v3
+    await create_source(
+        client,
+        "v3.rn_src",
+        "rn_rows",
+        [("status", "string"), ("other_status", "string"), ("amount", "double")],
+    )
+    await post(
+        client,
+        "/nodes/dimension/",
+        {
+            "name": "v3.rn_d",
+            "query": "SELECT status, other_status, amount FROM v3.rn_src",
+            "mode": "published",
+            "primary_key": ["status"],
+        },
+    )
+    await post(
+        client,
+        "/nodes/transform/",
+        {
+            "name": "v3.rn_mid",
+            "query": "SELECT other_status AS old_status, amount FROM v3.rn_d",
+            "mode": "published",
+            "primary_key": ["old_status"],
+        },
+    )
+    await post(
+        client,
+        "/nodes/transform/",
+        {
+            "name": "v3.rn_fact",
+            "query": "SELECT old_status AS status, amount FROM v3.rn_mid",
+            "mode": "published",
+            "primary_key": ["status"],
+        },
+    )
+    await post(
+        client,
+        "/nodes/metric/",
+        {
+            "name": "v3.rn_amount",
+            "query": "SELECT SUM(amount) FROM v3.rn_fact",
+            "mode": "published",
+        },
+    )
+    return client
+
+
+@pytest.mark.asyncio
+async def test_filter_is_not_bound_through_renamed_columns(renamed_status_client):
+    response = await renamed_status_client.get(
+        "/sql/measures/v3/",
+        params={
+            "metrics": ["v3.rn_amount"],
+            "dimensions": [],
+            "filters": ["v3.rn_fact.status = 'open'"],
+        },
+    )
+    assert response.status_code == 200, response.text
+    sql = get_first_grain_group(response.json())["sql"]
+    assert_sql_equal(
+        sql,
+        """
+        WITH v3_rn_d AS (
+          SELECT other_status, amount
+          FROM default.v3.rn_rows
+        ),
+        v3_rn_mid AS (
+          SELECT other_status AS old_status, amount
+          FROM v3_rn_d
+        ),
+        v3_rn_fact AS (
+          SELECT amount
+          FROM v3_rn_mid
+          WHERE old_status = 'open'
+        )
+        SELECT SUM(t1.amount) amount_sum_HASH
+        FROM v3_rn_fact t1
+        """,
+        normalize_aliases=True,
+    )
+    conn = duckdb.connect(":memory:")
+    conn.execute("""ATTACH ':memory:' AS "default" """)
+    conn.execute("""USE "default" """)
+    conn.execute("CREATE SCHEMA v3")
+    conn.execute(
+        """
+        CREATE TABLE v3.rn_rows (status TEXT, other_status TEXT, amount DOUBLE);
+        INSERT INTO v3.rn_rows VALUES ('closed', 'open', 5), ('open', 'closed', 7);
+        """,
+    )
+    rows = conn.execute(sql.replace("default.v3.", '"default".v3.')).fetchall()
+    assert rows == [(5.0,)]

@@ -1481,6 +1481,46 @@ def _fk_key_column_names(node: Node) -> set[str]:
     return cols
 
 
+def _passes_column_through(
+    child: Node,
+    parent: Node,
+    column: str,
+    ctx: BuildContext,
+) -> bool:
+    """Whether the child selects the parent's column under the same name.
+
+    A renamed or computed column is a different column, and a name that
+    several parents carry cannot be traced to one of them.
+    """
+    if not child.current or not parent.current:
+        return False
+    if column not in {col.name for col in parent.current.columns or []}:
+        return False
+    siblings = [
+        ctx.nodes[name]
+        for name in ctx.parent_map.get(child.name, [])
+        if name in ctx.nodes and ctx.nodes[name].current
+    ]
+    if (
+        sum(
+            column in {col.name for col in sibling.current.columns or []}  # type: ignore[union-attr]
+            for sibling in siblings
+        )
+        != 1
+    ):
+        return False
+    select = ctx.get_parsed_query(child).select
+    for expr in select.projection:
+        if isinstance(expr, ast.Wildcard):
+            return True
+        if not isinstance(expr, ast.Aliasable):
+            continue
+        inner = expr.child if isinstance(expr, ast.Alias) else expr
+        if expr.alias_or_name.name == column:
+            return isinstance(inner, ast.Column) and inner.name.name == column
+    return False
+
+
 def _may_bind_column(
     ref: str,
     bare_col: str | None,
@@ -1489,9 +1529,10 @@ def _may_bind_column(
 ) -> bool:
     """Whether another node's column may filter this node's CTE.
 
-    True when the owner is this node or reads from it, when the column is
-    the join key of a link to this node, when a dimension's attribute maps
-    to a fact or transform, or when the owner is unknown.
+    True when the owner is this node, when the owner reads this node's
+    column under the same name (through any number of nodes), when the
+    column is the join key of a link to this node, when a dimension's
+    attribute maps to a fact or transform, or when the owner is unknown.
     """
     from datajunction_server.construction.build_v3.utils import get_short_name
 
@@ -1502,14 +1543,19 @@ def _may_bind_column(
         return True
     if owner.type == NodeType.DIMENSION and node.type != NodeType.DIMENSION:
         return True
-    pending, seen = [owner.name], {owner.name}
+    pending, seen = [owner], {owner.name}
     while pending:
-        for parent in ctx.parent_map.get(pending.pop(), []):  # type: ignore[union-attr]
-            if parent == node.name:
+        child = pending.pop()
+        for parent_name in ctx.parent_map.get(child.name, []):  # type: ignore[union-attr]
+            parent = ctx.nodes.get(parent_name)  # type: ignore[union-attr]
+            if parent is None or parent_name in seen:
+                continue
+            if not _passes_column_through(child, parent, bare_col, ctx):  # type: ignore[arg-type]
+                continue
+            if parent_name == node.name:
                 return True
-            if parent not in seen:
-                seen.add(parent)
-                pending.append(parent)
+            seen.add(parent_name)
+            pending.append(parent)
     return any(
         get_short_name(dim_key) == bare_col and get_short_name(owner_key) == bare_col
         for link in owner.current.dimension_links or []
