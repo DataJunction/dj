@@ -2178,9 +2178,9 @@ class NodeRevision(
         node's name. Callers that only need the AST (not re-serialized
         SQL text) should use this directly to skip a redundant re-parse.
         """
-        from datajunction_server.sql.parsing.backends.antlr4 import parse
+        from datajunction_server.sql.parsing.cache import parse_cached
 
-        return NodeRevision.alias_metric_tree(parse(query), name)
+        return NodeRevision.alias_metric_tree(parse_cached(query), name)
 
     @staticmethod
     def alias_metric_tree(tree, name: str):

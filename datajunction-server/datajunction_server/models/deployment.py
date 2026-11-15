@@ -706,10 +706,10 @@ class NodeSpec(NamespacedSpec):
         """
         Lazily parse and cache the rendered query as an AST.
         """
-        from datajunction_server.sql.parsing.backends.antlr4 import parse
+        from datajunction_server.sql.parsing.cache import parse_cached
 
         if self._query_ast is None and self.rendered_query:
-            self._query_ast = parse(self.rendered_query)
+            self._query_ast = parse_cached(self.rendered_query)
         return self._query_ast
 
     def __eq__(self, other: object) -> bool:

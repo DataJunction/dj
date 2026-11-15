@@ -22,6 +22,7 @@ from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import fast_parse_mode
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
+from datajunction_server.sql.parsing.cache import parse_cached
 from datajunction_server.utils import SEPARATOR
 
 logger = logging.getLogger(__name__)
@@ -161,7 +162,7 @@ def _find_upstreams_for_node(node: NodeSpec) -> tuple[str, list[str], ast.Query 
                 node.rendered_name,
             )
         else:
-            query_ast = parse(node.rendered_query)
+            query_ast = parse_cached(node.rendered_query)
         candidates = extract_upstream_candidates(
             query_ast,
             is_metric=isinstance(node, MetricSpec),
