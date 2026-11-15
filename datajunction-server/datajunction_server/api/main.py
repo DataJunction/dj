@@ -89,8 +89,10 @@ async def lifespan(app: FastAPI):  # pragma: no cover
     sweeper = asyncio.create_task(sweep_forever())
     yield
     sweeper.cancel()
-    shutdown_pool()
-    await executor.drain(settings.deployment_drain_timeout)
+    try:
+        await executor.drain(settings.deployment_drain_timeout)
+    finally:
+        shutdown_pool()
 
 
 def create_app(lifespan):
