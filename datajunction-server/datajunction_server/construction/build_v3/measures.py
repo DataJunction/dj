@@ -17,7 +17,6 @@ if TYPE_CHECKING:
 
 from datajunction_server.construction.build_v3.alias_registry import AliasRegistry
 from datajunction_server.construction.build_v3.cte import (
-    _fk_key_column_names,
     collect_node_ctes,
     extract_dimension_node,
     inject_filter_into_select,
@@ -1481,7 +1480,6 @@ def build_select_ast(
     where_clause: ast.Expression | None = None
     filter_column_aliases: dict[str, str] = {}
     pushdown_outer_only_refs: set[str] = set()
-    pushdown_fk_collision_cols: set[str] = set()
     if all_filters:
         filter_column_aliases = build_filter_column_aliases(
             ctx,
@@ -1489,10 +1487,6 @@ def build_select_ast(
             parent_node,
         )
         pushdown_outer_only_refs = outer_only_filter_refs(resolved_dimensions)
-        # FK columns on the linking (parent) node — used to refuse pushing a
-        # joined dim's same-named non-key attribute filter onto the raw FK
-        # column in any CTE, including upstream ancestors that lack the link.
-        pushdown_fk_collision_cols = _fk_key_column_names(parent_node)
         where_clause = build_outer_where(
             all_filters,
             filter_column_aliases,
@@ -1514,7 +1508,6 @@ def build_select_ast(
             filters=all_filters,
             column_aliases=filter_column_aliases,
             outer_only_refs=pushdown_outer_only_refs,
-            fk_collision_cols=pushdown_fk_collision_cols,
             shared_read_nodes=_nodes_joined_more_than_once(dim_aliases),
         )
         if all_filters

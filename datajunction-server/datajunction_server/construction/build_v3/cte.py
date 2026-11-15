@@ -1461,26 +1461,6 @@ def _inject_filter_into_where(
     inject_filter_into_select(cast(ast.Select, query_ast.select), filter_expr)
 
 
-def _fk_key_column_names(node: Node) -> set[str]:
-    """Short names of the foreign-key *value* columns on ``node``'s dim links.
-
-    Each link's ``foreign_keys_reversed`` maps a dimension PK column to the raw
-    FK column on this node; we return those FK column short names.  A filter on a
-    joined dimension's non-key attribute whose bare name collides with one of
-    these must never be pushed onto it (it would bind a string-attribute
-    predicate to the int FK column).
-    """
-    from datajunction_server.construction.build_v3.utils import get_short_name
-
-    cols: set[str] = set()
-    if node.current and node.current.dimension_links:
-        for link in node.current.dimension_links:
-            for _pk_fqn, fk_fqn in (link.foreign_keys_reversed or {}).items():
-                if fk_fqn:  # pragma: no branch
-                    cols.add(get_short_name(fk_fqn))
-    return cols
-
-
 def _passes_column_through(
     child: Node,
     parent: Node,
@@ -1513,7 +1493,7 @@ def _may_bind_column(
     ref: str,
     bare_col: str | None,
     node: Node,
-    ctx: BuildContext | None,
+    ctx: BuildContext,
 ) -> bool:
     """Whether another node's column may filter this node's CTE.
 
@@ -1524,7 +1504,7 @@ def _may_bind_column(
     """
     from datajunction_server.construction.build_v3.utils import get_short_name
 
-    owner = ctx.nodes.get(ref.rsplit(SEPARATOR, 1)[0]) if ctx else None
+    owner = ctx.nodes.get(ref.rsplit(SEPARATOR, 1)[0])
     if owner is None or not owner.current or bare_col is None:
         return True
     if owner.name == node.name:
@@ -1534,9 +1514,9 @@ def _may_bind_column(
     pending = [owner]
     while pending:
         child = pending.pop()
-        for parent_name in ctx.parent_map.get(child.name, []):  # type: ignore[union-attr]
-            parent = ctx.nodes[parent_name]  # type: ignore[union-attr]
-            if not _passes_column_through(child, parent, bare_col, ctx):  # type: ignore[arg-type]
+        for parent_name in ctx.parent_map.get(child.name, []):
+            parent = ctx.nodes[parent_name]
+            if not _passes_column_through(child, parent, bare_col, ctx):
                 continue
             if parent_name == node.name:
                 return True
@@ -1554,9 +1534,8 @@ def _resolve_pushdown_filters_for_cte(
     cte_query: ast.Query,
     pushdown_filters: list[str],
     filter_column_aliases: dict[str, str],
-    ctx: BuildContext | None = None,
+    ctx: BuildContext,
     outer_only_refs: set[str] | None = None,
-    fk_collision_cols: set[str] | None = None,
 ) -> tuple[list[tuple[ast.Select, ast.Expression]], set[str]]:
     """Determine which user filters can be pushed into this CTE.
 
@@ -1602,22 +1581,11 @@ def _resolve_pushdown_filters_for_cte(
         **local_aliases,
     }
 
-    # Block a filter ref when its resolved bare column is a foreign-key *value*
-    # column (the raw int key on a fact/transform) but the ref has no local
-    # mapping — i.e. the filter targets a joined dimension's non-key attribute
-    # whose name collides with that FK column.  Pushing it would bind a (string)
-    # attribute predicate to the (int) FK column and silently match nothing.
-    #
-    # The FK-column set is the union of THIS node's links and the linking
-    # (parent) node's links (``fk_collision_cols``, threaded in).  The parent
-    # set is essential: the filter can be pushed UPSTREAM into an ancestor CTE
-    # that merely projects the FK column without carrying the link (e.g. a base
-    # transform feeding a linked one) — where a node-local check is blind.  This
-    # single ``blocked_refs`` set is consulted by every pushdown path below.
-    # Genuine dimension attributes (e.g. ``state``) are not FK columns, so they
-    # are never blocked; the dim's own CTE / join-key filters stay exempt via
-    # ``local_aliases``.
-    collision_cols = _fk_key_column_names(node) | (fk_collision_cols or set())
+    # Block a filter ref that would bind a same-named column of another node:
+    # a joined dimension's attribute on any column this node outputs, or a
+    # column of another node unless this node is its source.  The dim's own
+    # CTE and join-key filters stay exempt via ``local_aliases``.  Every
+    # pushdown path below consults ``blocked_refs``.
     joined_refs = outer_only_refs or set()
     blocked_refs: set[str] = set()
     for filter_str in pushdown_filters:
@@ -1628,9 +1596,7 @@ def _resolve_pushdown_filters_for_cte(
             if ref in joined_refs or base in joined_refs:
                 # Joined attributes never bind same-named columns.
                 bare_col = effective_aliases.get(ref) or effective_aliases.get(base)
-                if bare_col and (
-                    bare_col in collision_cols or bare_col in node_output_cols
-                ):
+                if bare_col in node_output_cols:
                     blocked_refs.add(ref)
             elif not _may_bind_column(
                 base,
@@ -1695,9 +1661,7 @@ def _resolve_pushdown_filters_for_cte(
     # e.g. ``observation_window`` resolves to the CROSS-joined dim's
     # alias while ``alloc_group_id`` resolves to the fact's alias, even
     # though both share the same parent qualifier in the outer scope.
-    scope_column_aliases = (
-        _build_all_scope_column_alias_maps(cte_query, ctx) if ctx else []
-    )
+    scope_column_aliases = _build_all_scope_column_alias_maps(cte_query, ctx)
 
     # Identify "wrapped UNION arms" — arms of a set-op chain that
     # lives inside a derived-table boundary (an ast.Query nested
@@ -2710,7 +2674,6 @@ def collect_node_ctes(
                 pushdown.column_aliases,
                 ctx,
                 pushdown.outer_only_refs,
-                pushdown.fk_collision_cols,
             )
             for target_select, filter_ast in injections:
                 inject_filter_into_select(target_select, filter_ast)
