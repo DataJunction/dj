@@ -2063,6 +2063,84 @@ class TestGetMetricParentsMap:
             "default.source6",
         }
 
+    @pytest.mark.asyncio
+    async def test_shared_metric_at_different_depths(
+        self,
+        session: AsyncSession,
+        current_user: User,
+    ):
+        """
+        A metric reached at different depths from two input metrics resolves
+        to the same parents for both (A -> X -> F and B -> Y -> X -> F).
+        """
+        fact = Node(
+            name="nested.fact",
+            type=NodeType.SOURCE,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        fact.current = NodeRevision(
+            node=fact,
+            type=fact.type,
+            name=fact.name,
+            version="1",
+            created_by_id=current_user.id,
+            columns=[Column(name="amount", type=IntegerType(), order=0)],
+        )
+
+        def metric(name: str, query: str, parents: list[Node]) -> Node:
+            node = Node(
+                name=f"nested.{name}",
+                type=NodeType.METRIC,
+                current_version="1",
+                created_by_id=current_user.id,
+            )
+            node.current = NodeRevision(
+                node=node,
+                type=node.type,
+                name=node.name,
+                version="1",
+                query=query,
+                parents=parents,
+                created_by_id=current_user.id,
+                columns=[Column(name=name, type=IntegerType(), order=0)],
+            )
+            return node
+
+        x = metric("x", "SELECT SUM(amount) FROM nested.fact", [fact])
+        y = metric("y", "SELECT nested.x * 2", [x])
+        a = metric("a", "SELECT nested.x + 1", [x])
+        b = metric("b", "SELECT nested.y + 1", [y])
+        c = metric("c", "SELECT nested.x + nested.y", [x, y])
+        dim = Node(
+            name="nested.dim",
+            type=NodeType.DIMENSION,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        dim.current = NodeRevision(
+            node=dim,
+            type=dim.type,
+            name=dim.name,
+            version="1",
+            created_by_id=current_user.id,
+            columns=[Column(name="id", type=IntegerType(), order=0)],
+        )
+        on_dim = metric("on_dim", "SELECT COUNT(id) FROM nested.dim", [dim])
+        nodes = [fact, x, y, a, b, c, dim, on_dim]
+        session.add_all(nodes + [node.current for node in nodes])
+        await session.flush()
+
+        result = await get_metric_parents_map(session, [a, b, c, on_dim])
+        assert {
+            name: [p.name for p in parents] for name, parents in result.items()
+        } == {
+            "nested.a": ["nested.fact"],
+            "nested.b": ["nested.fact"],
+            "nested.c": ["nested.fact"],
+            "nested.on_dim": ["nested.dim"],
+        }
+
 
 class TestGetSharedDimensions:
     """
@@ -2767,7 +2845,7 @@ class TestGetSharedDimensions:
             await get_metrics_dimensions(session, metrics)
             batched = calls
 
-        assert (one_by_one, batched) == (20, 8)
+        assert (one_by_one, batched) == (20, 6)
 
     @pytest.mark.asyncio
     async def test_get_common_dimensions_no_overlap_returns_empty(
