@@ -22,6 +22,7 @@ async def deploy(
     deployment: DeploymentSpec,
     context: DeploymentContext,
     dry_run: bool = False,
+    semantic_fingerprints: bool = True,
 ) -> DeploymentExecuteResult:
     """
     Deploy to a namespace based on the given deployment specification.
@@ -32,5 +33,6 @@ async def deploy(
         session=session,
         context=context,
         dry_run=dry_run,
+        semantic_fingerprints=semantic_fingerprints,
     )
     return await orchestrator.execute()
