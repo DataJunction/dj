@@ -4,14 +4,18 @@ import asyncio
 import atexit
 import math
 import multiprocessing
+import os
 import pickle
 import threading
+import time
 from concurrent.futures import ProcessPoolExecutor
+from typing import cast
 
 import datajunction_server.database  # noqa: F401  (must load before the parser)
 from datajunction_server.sql.parsing import ast, cache
 
 MAX_BATCH = 200
+TERMINATE_WAIT = 2
 WARMUP_QUERIES = ("SELECT 1 AS a", "SELECT a, SUM(b) FROM t GROUP BY a")
 
 _pool: ProcessPoolExecutor | None = None
@@ -52,12 +56,29 @@ def _parse_batch(queries: list[str], fast: bool) -> list[Outcome]:
     return outcomes
 
 
+def _gone(pid: int) -> bool:
+    """Whether no process has this id."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    return False
+
+
 def _stop(pool: ProcessPoolExecutor) -> None:
     """Shut a pool down and end its workers."""
     workers = list(pool._processes.values())
+    pids = [cast(int, worker.pid) for worker in workers]
     pool.shutdown(wait=False, cancel_futures=True)
     for worker in workers:
         worker.terminate()
+    # The pool's own thread reaps the workers, so they are not joined here.
+    deadline = time.monotonic() + TERMINATE_WAIT
+    while time.monotonic() < deadline and not all(_gone(pid) for pid in pids):
+        time.sleep(0.02)
+    for worker, pid in zip(workers, pids):
+        if not _gone(pid):
+            worker.kill()
 
 
 def get_pool(size: int) -> ProcessPoolExecutor:

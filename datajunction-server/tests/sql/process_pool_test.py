@@ -1,6 +1,8 @@
 """Tests for parsing queries in worker processes."""
 
+import os
 import pickle
+import subprocess
 import time
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
@@ -73,8 +75,13 @@ async def test_results_match_a_fresh_parse_in_real_workers():
     workers = list(process_pool._pool._processes.values())
     shutdown_pool()
     for worker in workers:
-        worker.join(10)
-    assert [worker.is_alive() for worker in workers] == [False] * len(workers)
+        for _ in range(500):
+            if process_pool._gone(worker.pid):
+                break
+            time.sleep(0.02)
+    assert [process_pool._gone(worker.pid) for worker in workers] == [True] * len(
+        workers,
+    )
 
 
 @pytest.mark.asyncio
@@ -207,3 +214,39 @@ def test_warm_up_parses_its_queries():
     assert [c.args[0] for c in parse_mock.call_args_list] == list(
         process_pool.WARMUP_QUERIES,
     )
+
+
+def test_workers_that_ignore_terminate_are_killed():
+    class FakeWorker:
+        def __init__(self, pid):
+            self.pid = pid
+            self.calls = []
+
+        def terminate(self):
+            self.calls.append("terminate")
+
+        def kill(self):
+            self.calls.append("kill")
+
+    class FakePool:
+        _processes = {1: FakeWorker(10), 2: FakeWorker(20)}
+
+        def shutdown(self, wait, cancel_futures):
+            pass
+
+    with (
+        patch.object(process_pool, "TERMINATE_WAIT", 0.1),
+        patch.object(process_pool, "_gone", side_effect=lambda pid: pid == 10),
+    ):
+        process_pool._stop(FakePool())
+    assert [w.calls for w in FakePool._processes.values()] == [
+        ["terminate"],
+        ["terminate", "kill"],
+    ]
+
+
+def test_gone_tells_live_and_missing_processes_apart():
+    assert process_pool._gone(os.getpid()) is False
+    child = subprocess.Popen(["true"])
+    child.wait()
+    assert process_pool._gone(child.pid) is True
