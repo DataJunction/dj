@@ -13,6 +13,29 @@ _cache: OrderedDict[tuple[str, bool], bytes] = OrderedDict()
 _lock = threading.Lock()
 
 
+def dump(tree: ast.Query) -> bytes:
+    """Pickle a tree for the cache."""
+    return pickle.dumps(tree, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def lookup(query: str) -> ast.Query | None:
+    """Load a tree from the cache, or return None on a miss."""
+    key = (query, ast._fast_parse.get())
+    with _lock:
+        cached = _cache.get(key)
+        if cached is not None:
+            _cache.move_to_end(key)
+    return pickle.loads(cached) if cached is not None else None
+
+
+def store(query: str, blob: bytes, fast: bool) -> None:
+    """Add a pickled tree made by `dump` to the cache."""
+    with _lock:
+        _cache[(query, fast)] = blob
+        while len(_cache) > PARSE_CACHE_SIZE:
+            _cache.popitem(last=False)
+
+
 def parse_cached(query: str) -> ast.Query:
     """
     Parse a SQL query. Thread-safe, suitable for a threadpool.
@@ -21,17 +44,9 @@ def parse_cached(query: str) -> ast.Query:
     Trees built in fast mode, which have no parent links, are kept apart.
     """
     fast = ast._fast_parse.get()
-    key = (query, fast)
-    with _lock:
-        cached = _cache.get(key)
-        if cached is not None:
-            _cache.move_to_end(key)
+    cached = lookup(query)
     if cached is not None:
-        return pickle.loads(cached)
+        return cached
     tree = parse(query)
-    blob = pickle.dumps(tree, protocol=pickle.HIGHEST_PROTOCOL)
-    with _lock:
-        _cache[key] = blob
-        while len(_cache) > PARSE_CACHE_SIZE:
-            _cache.popitem(last=False)
+    store(query, dump(tree), fast)
     return tree

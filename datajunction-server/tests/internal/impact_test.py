@@ -4,7 +4,8 @@ Unit tests for datajunction_server.internal.impact.propagate_impact
 
 from collections.abc import AsyncGenerator
 from datetime import UTC
-from unittest.mock import patch
+from concurrent.futures.process import BrokenProcessPool
+from unittest.mock import AsyncMock, call, patch
 
 import pytest
 import pytest_asyncio
@@ -1855,3 +1856,66 @@ async def test_reusable_metric_query_is_unchanged_by_revalidation(
     assert [column.__dict__ for column in reusable.parsed.find_all(ast.Column)] == [
         column.__dict__ for column in fresh.find_all(ast.Column)
     ]
+
+
+async def _impact_with_pool_size(session, current_user: User, size: int, pool):
+    session.add(NodeNamespace(namespace="ns"))
+    parent, parent_rev = _make_node(
+        "ns.source",
+        NodeType.SOURCE,
+        NodeStatus.VALID,
+        current_user.id,
+        columns=[("a", IntegerType())],
+    )
+    child, child_rev = _make_node(
+        "ns.transform",
+        NodeType.TRANSFORM,
+        NodeStatus.VALID,
+        current_user.id,
+        query="SELECT a FROM ns.source",
+    )
+    await _persist(session, parent, parent_rev, child, child_rev)
+    await _persist(session, _link(parent, child_rev))
+    with (
+        patch("datajunction_server.internal.impact.parse_in_pool", pool),
+        patch(
+            "datajunction_server.internal.impact.settings.parse_process_pool_size",
+            size,
+        ),
+    ):
+        return await propagate_impact(session, "ns", {"ns.source"})
+
+
+@pytest.mark.asyncio
+async def test_pool_size_zero_parses_in_threads(session, current_user: User):
+    pool = AsyncMock()
+    propagation = await _impact_with_pool_size(session, current_user, 0, pool)
+    assert [(i.name, i.impact_type) for i in propagation.impacts] == [
+        ("ns.transform", ImpactType.MAY_AFFECT),
+    ]
+    assert pool.await_args_list == []
+
+
+@pytest.mark.asyncio
+async def test_pool_size_above_zero_parses_in_the_pool(session, current_user: User):
+    async def parse_here(queries, size):
+        return {name: parse(query) for name, query in queries.items()}
+
+    pool = AsyncMock(side_effect=parse_here)
+    propagation = await _impact_with_pool_size(session, current_user, 3, pool)
+    assert [(i.name, i.impact_type) for i in propagation.impacts] == [
+        ("ns.transform", ImpactType.MAY_AFFECT),
+    ]
+    assert pool.await_args_list == [
+        call({"ns.transform": "SELECT a FROM ns.source"}, 3),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_failed_pool_falls_back_to_threads(session, current_user: User):
+    pool = AsyncMock(side_effect=BrokenProcessPool("worker died"))
+    propagation = await _impact_with_pool_size(session, current_user, 3, pool)
+    assert [(i.name, i.impact_type) for i in propagation.impacts] == [
+        ("ns.transform", ImpactType.MAY_AFFECT),
+    ]
+    assert pool.await_count == 1
