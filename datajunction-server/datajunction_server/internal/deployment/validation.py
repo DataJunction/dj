@@ -597,19 +597,22 @@ class NodeSpecBulkValidator:
                 errors = []
             else:
                 parent_columns_map = self._build_parent_columns_map(spec)
-                raw_query = spec.rendered_query or ""
-                query_str = (
-                    NodeRevision.format_metric_alias(
-                        raw_query,
-                        spec.rendered_name,
+                pre_parsed = spec.query_ast
+                query_str = ""
+                if pre_parsed is None:
+                    raw_query = spec.rendered_query or ""
+                    query_str = (
+                        NodeRevision.format_metric_alias(
+                            raw_query,
+                            spec.rendered_name,
+                        )
+                        if spec.node_type == NodeType.METRIC
+                        else raw_query
                     )
-                    if spec.node_type == NodeType.METRIC
-                    else raw_query
-                )
                 validation = validate_node_query(
                     query_str,
                     parent_columns_map,
-                    pre_parsed=spec.query_ast,
+                    pre_parsed=pre_parsed,
                 )
                 type_inference_errors = [
                     DJError(

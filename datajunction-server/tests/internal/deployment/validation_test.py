@@ -13,6 +13,7 @@ from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.errors import DJError, ErrorCode
+from datajunction_server.internal.deployment.type_inference import validate_node_query
 from datajunction_server.internal.deployment.validation import (
     NodeSpecBulkValidator,
     NodeValidationResult,
@@ -156,6 +157,72 @@ class TestValidateQuery:
         assert result.status == NodeStatus.INVALID
         error_codes = [e.code for e in result.errors]
         assert ErrorCode.TYPE_INFERENCE in error_codes
+
+    @pytest.mark.asyncio
+    async def test_invalid_metric_query_result(
+        self,
+        validation_context: ValidationContext,
+    ):
+        """A metric whose query does not parse gives one SQL error result."""
+        spec = MetricSpec(
+            name="bad_metric",
+            query="SELECT COUNT( FROM test.parent",
+            mode="published",
+        )
+        validator = NodeSpecBulkValidator(validation_context)
+        result = validator.validate_query_node(spec)
+        assert result == NodeValidationResult(
+            spec=spec,
+            status=NodeStatus.INVALID,
+            inferred_columns=[],
+            errors=[
+                DJError(
+                    code=ErrorCode.INVALID_SQL_QUERY,
+                    message=(
+                        "Error parsing SQL `SELECT COUNT( FROM test.parent`: "
+                        "('Parse error 1:19:', "
+                        "\"mismatched input 'test' expecting ')'\")"
+                    ),
+                ),
+            ],
+            dependencies=[],
+        )
+
+    @pytest.mark.asyncio
+    async def test_metric_alias_only_built_without_parsed_tree(
+        self,
+        validation_context: ValidationContext,
+    ):
+        """The formatted metric query is built only when there is no parsed tree."""
+        spec = MetricSpec(
+            name="metric",
+            query="SELECT COUNT(*) FROM test.parent",
+            mode="published",
+        )
+        validator = NodeSpecBulkValidator(validation_context)
+        with (
+            patch.object(
+                NodeRevision,
+                "format_metric_alias",
+                wraps=NodeRevision.format_metric_alias,
+            ) as alias,
+            patch(
+                "datajunction_server.internal.deployment.validation.validate_node_query",
+                wraps=validate_node_query,
+            ) as infer,
+        ):
+            validator.validate_query_node(spec)
+            alias.assert_not_called()
+            assert infer.call_args.args[0] == ""
+            assert infer.call_args.kwargs["pre_parsed"] is not None
+
+            with patch.object(MetricSpec, "query_ast", None):
+                validator.validate_query_node(spec)
+            alias.assert_called_once_with("SELECT COUNT(*) FROM test.parent", "metric")
+            assert infer.call_args.args[0] == (
+                "SELECT  COUNT(*) metric \n FROM test.parent\n\n"
+            )
+            assert infer.call_args.kwargs["pre_parsed"] is None
 
     @pytest.mark.asyncio
     async def test_validate_query_node_later_exception(
