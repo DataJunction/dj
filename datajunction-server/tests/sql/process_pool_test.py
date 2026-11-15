@@ -70,6 +70,11 @@ async def test_results_match_a_fresh_parse_in_real_workers():
         (QUERIES["ns.bad"], False),
     }
     assert isinstance(process_pool._pool, ProcessPoolExecutor)
+    workers = list(process_pool._pool._processes.values())
+    shutdown_pool()
+    for worker in workers:
+        worker.join(10)
+    assert [worker.is_alive() for worker in workers] == [False] * len(workers)
 
 
 @pytest.mark.asyncio

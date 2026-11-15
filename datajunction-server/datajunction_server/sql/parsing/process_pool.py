@@ -52,13 +52,21 @@ def _parse_batch(queries: list[str], fast: bool) -> list[Outcome]:
     return outcomes
 
 
+def _stop(pool: ProcessPoolExecutor) -> None:
+    """Shut a pool down and end its workers."""
+    workers = list(pool._processes.values())
+    pool.shutdown(wait=False, cancel_futures=True)
+    for worker in workers:
+        worker.terminate()
+
+
 def get_pool(size: int) -> ProcessPoolExecutor:
     """Return the shared pool, starting it on first use."""
     global _pool, _pool_size
     with _pool_lock:
         if _pool is None or _pool_size != size:
             if _pool is not None:
-                _pool.shutdown(wait=False, cancel_futures=True)
+                _stop(_pool)
             _pool = ProcessPoolExecutor(
                 max_workers=size,
                 mp_context=multiprocessing.get_context("spawn"),
@@ -74,7 +82,7 @@ def shutdown_pool() -> None:
     with _pool_lock:
         pool, _pool = _pool, None
     if pool is not None:
-        pool.shutdown(wait=False, cancel_futures=True)
+        _stop(pool)
 
 
 atexit.register(shutdown_pool)
