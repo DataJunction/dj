@@ -1,5 +1,8 @@
 """Tests for the parsed query cache."""
 
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
 import pytest
@@ -15,8 +18,10 @@ from datajunction_server.sql.parsing.cache import parse_cached
 @pytest.fixture(autouse=True)
 def empty_cache():
     cache._cache.clear()
+    cache._inflight.clear()
     yield
     cache._cache.clear()
+    cache._inflight.clear()
 
 
 def parse_calls(*queries: str) -> int:
@@ -115,3 +120,107 @@ def test_parse_errors_are_not_cached():
         with pytest.raises(DJParseException):
             parse_cached("SELECT (")
     assert cache._cache == {}
+
+
+def run_together(queries: list[str]) -> list:
+    """Request each query from its own thread, all starting together."""
+    results: list = [None] * len(queries)
+    barrier = threading.Barrier(len(queries))
+
+    def work(index: int) -> None:
+        barrier.wait()
+        try:
+            results[index] = parse_cached(queries[index])
+        except Exception as exc:  # noqa: BLE001
+            results[index] = exc
+
+    threads = [threading.Thread(target=work, args=(i,)) for i in range(len(queries))]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    return results
+
+
+def test_concurrent_requests_for_a_new_query_parse_it_once():
+    query = "SELECT SUM(a) AS total FROM ns.t WHERE b > 1"
+    calls = []
+
+    def slow_parse(text: str):
+        calls.append(text)
+        time.sleep(0.3)
+        return parse(text)
+
+    with patch.object(cache, "parse", slow_parse):
+        results = run_together([query] * 8)
+    assert calls == [query]
+    assert len({id(tree) for tree in results}) == 8
+    expected = str(parse(query))
+    assert [str(tree) for tree in results] == [expected] * 8
+    assert [tree.select.projection[0].parent is tree.select for tree in results] == [
+        True,
+    ] * 8
+    assert cache._inflight == {}
+
+
+def test_distinct_queries_are_parsed_at_the_same_time():
+    queries = [f"SELECT {i} FROM t{i}" for i in range(3)]
+    barrier = threading.Barrier(3, timeout=10)
+
+    def parse_when_all_arrive(text: str):
+        barrier.wait()
+        return parse(text)
+
+    with patch.object(cache, "parse", parse_when_all_arrive):
+        with ThreadPoolExecutor(3) as pool:
+            trees = list(pool.map(parse_cached, queries))
+    assert [str(tree) for tree in trees] == [str(parse(q)) for q in queries]
+    assert cache._inflight == {}
+
+
+def test_failed_parse_clears_the_entry_and_later_calls_work():
+    calls = []
+
+    def failing_parse(text: str):
+        calls.append(text)
+        time.sleep(0.2)
+        raise DJParseException("boom")
+
+    with patch.object(cache, "parse", failing_parse):
+        results = run_together(["SELECT ("] * 4)
+    assert [type(result) for result in results] == [DJParseException] * 4
+    assert [str(result) for result in results] == ["boom"] * 4
+    # Waiters retry on their own, so there is at least one and at most four parses.
+    assert 1 <= len(calls) <= 4
+    assert cache._inflight == {}
+    assert cache._cache == {}
+    assert str(parse_cached("SELECT a FROM t")) == str(parse("SELECT a FROM t"))
+    assert cache._inflight == {}
+
+
+def test_failure_in_one_thread_does_not_stop_waiters_from_parsing():
+    query = "SELECT a FROM t"
+    first_started = threading.Event()
+    release = threading.Event()
+    calls = []
+
+    def fail_then_succeed(text: str):
+        calls.append(text)
+        if len(calls) == 1:
+            first_started.set()
+            release.wait(10)
+            raise DJParseException("first parse failed")
+        return parse(text)
+
+    with patch.object(cache, "parse", fail_then_succeed):
+        with ThreadPoolExecutor(2) as pool:
+            leader = pool.submit(parse_cached, query)
+            assert first_started.wait(10)
+            waiter = pool.submit(parse_cached, query)
+            time.sleep(0.2)
+            release.set()
+            with pytest.raises(DJParseException, match="first parse failed"):
+                leader.result(10)
+            assert str(waiter.result(10)) == str(parse(query))
+    assert calls == [query, query]
+    assert cache._inflight == {}

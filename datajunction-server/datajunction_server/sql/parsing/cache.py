@@ -11,6 +11,8 @@ from datajunction_server.sql.parsing.backends.antlr4 import parse
 PARSE_CACHE_SIZE = 32768
 _cache: OrderedDict[tuple[str, bool], bytes] = OrderedDict()
 _lock = threading.Lock()
+# Keys being parsed right now; the event is set when that parse ends.
+_inflight: dict[tuple[str, bool], threading.Event] = {}
 
 
 def _fully_linked(tree: ast.Query) -> bool:
@@ -27,19 +29,34 @@ def parse_cached(query: str) -> ast.Query:
     """
     fast = ast._fast_parse
     key = (query, fast)
-    with _lock:
-        cached = _cache.get(key)
-        if cached is not None:
-            _cache.move_to_end(key)
-    if cached is not None:
-        return pickle.loads(cached)
-    tree = parse(query)
-    # Another thread can switch fast mode while this parse runs, so the tree
-    # is checked instead of the flag.
-    if fast or _fully_linked(tree):
-        blob = pickle.dumps(tree, protocol=pickle.HIGHEST_PROTOCOL)
+    while True:
         with _lock:
-            _cache[key] = blob
-            while len(_cache) > PARSE_CACHE_SIZE:
-                _cache.popitem(last=False)
-    return tree
+            cached = _cache.get(key)
+            if cached is not None:
+                _cache.move_to_end(key)
+            else:
+                pending = _inflight.get(key)
+                if pending is None:
+                    _inflight[key] = threading.Event()
+        if cached is not None:
+            return pickle.loads(cached)
+        if pending is None:
+            break
+        # Another thread is parsing this text. If its parse fails, the
+        # cache stays empty and this thread retries, raising its own error.
+        pending.wait()
+    try:
+        tree = parse(query)
+        # Another thread can switch fast mode while this parse runs, so the
+        # tree is checked instead of the flag.
+        if fast or _fully_linked(tree):
+            blob = pickle.dumps(tree, protocol=pickle.HIGHEST_PROTOCOL)
+            with _lock:
+                _cache[key] = blob
+                while len(_cache) > PARSE_CACHE_SIZE:
+                    _cache.popitem(last=False)
+        return tree
+    finally:
+        with _lock:
+            event = _inflight.pop(key)
+        event.set()
