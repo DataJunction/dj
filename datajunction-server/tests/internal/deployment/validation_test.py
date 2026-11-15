@@ -171,22 +171,21 @@ class TestValidateQuery:
         )
         validator = NodeSpecBulkValidator(validation_context)
         result = validator.validate_query_node(spec)
-        assert result == NodeValidationResult(
-            spec=spec,
-            status=NodeStatus.INVALID,
-            inferred_columns=[],
-            errors=[
-                DJError(
-                    code=ErrorCode.INVALID_SQL_QUERY,
-                    message=(
-                        "Error parsing SQL `SELECT COUNT( FROM test.parent`: "
-                        "('Parse error 1:19:', "
-                        "\"mismatched input 'test' expecting ')'\")"
-                    ),
+        # Spec equality parses the query, which cannot parse here
+        assert result.spec is spec
+        assert result.status == NodeStatus.INVALID
+        assert result.inferred_columns == []
+        assert result.errors == [
+            DJError(
+                code=ErrorCode.INVALID_SQL_QUERY,
+                message=(
+                    "Error parsing SQL `SELECT COUNT( FROM test.parent`: "
+                    "('Parse error 1:19:', "
+                    "\"mismatched input 'test' expecting ')'\")"
                 ),
-            ],
-            dependencies=[],
-        )
+            ),
+        ]
+        assert result.dependencies == []
 
     @pytest.mark.asyncio
     async def test_metric_alias_only_built_without_parsed_tree(
