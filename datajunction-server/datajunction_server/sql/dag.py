@@ -980,8 +980,17 @@ async def get_dimensions(
         )
         all_dimensions.append(parent_dims)
 
+    return _intersect_parent_dimensions(all_dimensions)
+
+
+def _intersect_parent_dimensions(
+    all_dimensions: list[list[DimensionAttributeOutput]],
+) -> list[DimensionAttributeOutput]:
+    """
+    Keep the dimensions that every parent offers, taken from the first parent.
+    """
     if not all_dimensions:
-        return []  # pragma: no cover
+        return []
 
     if len(all_dimensions) == 1:
         return all_dimensions[0]
@@ -996,6 +1005,57 @@ async def get_dimensions(
         [d for d in all_dimensions[0] if d.name in common_names],
         key=lambda x: (x.name, ",".join(x.path)),
     )
+
+
+async def get_metrics_dimensions(
+    session: AsyncSession,
+    metric_nodes: list[Node],
+    with_attributes: bool = True,
+    depth: int = 30,
+) -> dict[str, list[DimensionAttributeOutput | Node]]:
+    """
+    Batched get_dimensions for metrics: returns each metric's dimensions by
+    metric name, computing the dimensions of each shared parent only once.
+    """
+    if not metric_nodes:
+        return {}
+    metric_to_parents = await get_metric_parents_map(session, metric_nodes)
+    unique_parents = {
+        parent.id: parent
+        for parents in metric_to_parents.values()
+        for parent in parents
+    }
+    revisions: dict[int, NodeRevision] = {}
+    if unique_parents:
+        rows = await session.execute(
+            select(NodeRevision).where(
+                or_(
+                    *(
+                        and_(
+                            NodeRevision.node_id == parent.id,
+                            NodeRevision.version == parent.current_version,
+                        )
+                        for parent in unique_parents.values()
+                    ),
+                ),
+            ),
+        )
+        revisions = {rev.node_id: rev for rev in rows.scalars()}
+    parent_dims: dict[int, list] = {
+        parent_id: await get_dimensions_dag(
+            session,
+            revisions[parent_id],
+            with_attributes,
+            depth=depth,
+        )
+        for parent_id in unique_parents
+    }
+    return {
+        metric.name: _intersect_parent_dimensions(
+            [parent_dims[parent.id] for parent in metric_to_parents[metric.name]],
+        )
+        for metric in metric_nodes
+    }
 
 
 async def get_filter_only_dimensions(

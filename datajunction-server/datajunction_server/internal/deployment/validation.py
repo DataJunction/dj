@@ -62,7 +62,10 @@ from datajunction_server.models.node import NodeStatus, NodeType
 from datajunction_server.models.reaggregate import (
     unsupported_dimension_reaggregate_functions,
 )
-from datajunction_server.sql.dag import get_dimensions, get_metric_parents_map
+from datajunction_server.sql.dag import (
+    get_metric_parents_map,
+    get_metrics_dimensions,
+)
 from datajunction_server.sql.decompose import validate_fixed_grain_shape
 from datajunction_server.sql.parsing.ast import fast_parse_mode
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse_rule
@@ -1431,11 +1434,11 @@ class NodeSpecBulkValidator:
     ) -> None:
         """
         For every cross-fact derived metric spec (one whose node_graph entry
-        contains >1 metric parent), call get_dimensions once per unique base
-        metric and store the result in self._metric_dimensions.
+        contains >1 metric parent), look up dimensions for all unique base
+        metrics in one batch and store the result in self._metric_dimensions.
 
         Deduplication: if 10 derived metrics all reference the same 2 base
-        metrics, we issue exactly 2 get_dimensions calls.
+        metrics, each base metric is looked up once.
 
         Metric parents that are not in dependency_nodes (e.g. being deployed
         for the first time with no DB record yet) are silently skipped — the
@@ -1455,13 +1458,14 @@ class NodeSpecBulkValidator:
             if len(metric_parents) > 1:
                 base_metric_names.update(metric_parents)
 
-        for name in base_metric_names:
-            node = self.context.dependency_nodes[name]
-            dims = await get_dimensions(
-                self.context.session,
-                node,
-                with_attributes=True,
-            )
+        if not base_metric_names:
+            return
+        metric_dims = await get_metrics_dimensions(
+            self.context.session,
+            [self.context.dependency_nodes[name] for name in base_metric_names],
+            with_attributes=True,
+        )
+        for name, dims in metric_dims.items():
             self._metric_dimensions[name] = {d.name for d in dims}
 
     def _check_cross_fact_dimensions(self, spec: NodeSpec) -> DJError | None:

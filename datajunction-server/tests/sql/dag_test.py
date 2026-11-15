@@ -22,6 +22,7 @@ from datajunction_server.sql.dag import (
     get_dimension_dag_indegree,
     get_dimensions,
     get_dimensions_dag,
+    get_metrics_dimensions,
     get_downstream_nodes,
     get_metric_parents_map,
     get_nodes_with_common_dimensions,
@@ -2638,6 +2639,135 @@ class TestGetSharedDimensions:
         # No date or customer
         assert "shared_dims.dim_date.id" not in dim_names
         assert "shared_dims.dim_customer.id" not in dim_names
+
+    @pytest.mark.asyncio
+    async def test_get_metrics_dimensions_matches_get_dimensions(
+        self,
+        session: AsyncSession,
+        current_user: User,
+        shared_dims_test_graph,
+    ):
+        """
+        The batched lookup returns the same dimensions as get_dimensions for
+        every metric, including metrics with no dimensions or no shared ones.
+        """
+        graph = shared_dims_test_graph
+
+        bare_source = Node(
+            name="shared_dims.bare_source",
+            type=NodeType.SOURCE,
+            current_version="1",
+            created_by_id=current_user.id,
+        )
+        bare_source_rev = NodeRevision(
+            node=bare_source,
+            type=bare_source.type,
+            name=bare_source.name,
+            version="1",
+            created_by_id=current_user.id,
+            columns=[Column(name="amount", type=IntegerType(), order=0)],
+        )
+        bare_source.current = bare_source_rev
+        session.add_all([bare_source, bare_source_rev])
+        await session.flush()
+
+        def metric(name: str, query: str, parents: list[Node]) -> Node:
+            node = Node(
+                name=f"shared_dims.{name}",
+                type=NodeType.METRIC,
+                current_version="1",
+                created_by_id=current_user.id,
+            )
+            node.current = NodeRevision(
+                node=node,
+                type=node.type,
+                name=node.name,
+                version="1",
+                query=query,
+                parents=parents,
+                created_by_id=current_user.id,
+                columns=[Column(name=name, type=IntegerType(), order=0)],
+            )
+            return node
+
+        bare_metric = metric(
+            "bare_total",
+            "SELECT SUM(amount) FROM shared_dims.bare_source",
+            [bare_source],
+        )
+        no_overlap = metric(
+            "no_overlap",
+            "SELECT shared_dims.revenue / shared_dims.inventory_total",
+            [graph["revenue"], graph["inventory_total"]],
+        )
+        orphan = metric("orphan", "SELECT 1", [])
+        session.add_all(
+            [
+                bare_metric,
+                bare_metric.current,
+                no_overlap,
+                no_overlap.current,
+                orphan,
+                orphan.current,
+            ],
+        )
+        await session.flush()
+
+        metrics = [
+            graph["revenue"],
+            graph["orders_count"],
+            graph["page_views"],
+            graph["inventory_total"],
+            graph["revenue_per_order"],
+            graph["revenue_per_pageview"],
+            graph["derived_inventory"],
+            bare_metric,
+            no_overlap,
+            orphan,
+        ]
+        expected = {
+            metric_node.name: await get_dimensions(session, metric_node)
+            for metric_node in metrics
+        }
+        assert await get_metrics_dimensions(session, metrics) == expected
+        assert expected["shared_dims.bare_total"] == []
+        assert expected["shared_dims.no_overlap"] == []
+        assert expected["shared_dims.orphan"] == []
+        assert await get_metrics_dimensions(session, [orphan]) == {
+            "shared_dims.orphan": [],
+        }
+        assert await get_metrics_dimensions(session, []) == {}
+
+    @pytest.mark.asyncio
+    async def test_get_metrics_dimensions_uses_fewer_queries(
+        self,
+        session: AsyncSession,
+        shared_dims_test_graph,
+    ):
+        """
+        Metrics that share parents are looked up once per parent, so the batch
+        needs fewer database calls than looking each metric up separately.
+        """
+        graph = shared_dims_test_graph
+        metrics = [graph["revenue"], graph["orders_count"], graph["revenue_per_order"]]
+
+        calls = 0
+        original_execute = session.execute
+
+        async def counting_execute(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            return await original_execute(*args, **kwargs)
+
+        with patch.object(session, "execute", side_effect=counting_execute):
+            for metric_node in metrics:
+                await get_dimensions(session, metric_node)
+            one_by_one = calls
+            calls = 0
+            await get_metrics_dimensions(session, metrics)
+            batched = calls
+
+        assert (one_by_one, batched) == (20, 8)
 
     @pytest.mark.asyncio
     async def test_get_common_dimensions_no_overlap_returns_empty(
