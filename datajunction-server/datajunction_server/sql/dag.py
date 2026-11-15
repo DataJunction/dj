@@ -980,8 +980,17 @@ async def get_dimensions(
         )
         all_dimensions.append(parent_dims)
 
+    return _intersect_parent_dimensions(all_dimensions)
+
+
+def _intersect_parent_dimensions(
+    all_dimensions: list[list[DimensionAttributeOutput]],
+) -> list[DimensionAttributeOutput]:
+    """
+    Keep the dimensions that every parent offers, taken from the first parent.
+    """
     if not all_dimensions:
-        return []  # pragma: no cover
+        return []
 
     if len(all_dimensions) == 1:
         return all_dimensions[0]
@@ -996,6 +1005,57 @@ async def get_dimensions(
         [d for d in all_dimensions[0] if d.name in common_names],
         key=lambda x: (x.name, ",".join(x.path)),
     )
+
+
+async def get_metrics_dimensions(
+    session: AsyncSession,
+    metric_nodes: list[Node],
+    with_attributes: bool = True,
+    depth: int = 30,
+) -> dict[str, list[DimensionAttributeOutput | Node]]:
+    """
+    Batched get_dimensions for metrics: returns each metric's dimensions by
+    metric name, computing the dimensions of each shared parent only once.
+    """
+    if not metric_nodes:
+        return {}
+    metric_to_parents = await get_metric_parents_map(session, metric_nodes)
+    unique_parents = {
+        parent.id: parent
+        for parents in metric_to_parents.values()
+        for parent in parents
+    }
+    revisions: dict[int, NodeRevision] = {}
+    if unique_parents:
+        rows = await session.execute(
+            select(NodeRevision).where(
+                or_(
+                    *(
+                        and_(
+                            NodeRevision.node_id == parent.id,
+                            NodeRevision.version == parent.current_version,
+                        )
+                        for parent in unique_parents.values()
+                    ),
+                ),
+            ),
+        )
+        revisions = {rev.node_id: rev for rev in rows.scalars()}
+    parent_dims: dict[int, list] = {
+        parent_id: await get_dimensions_dag(
+            session,
+            revisions[parent_id],
+            with_attributes,
+            depth=depth,
+        )
+        for parent_id in unique_parents
+    }
+    return {
+        metric.name: _intersect_parent_dimensions(
+            [parent_dims[parent.id] for parent in metric_to_parents[metric.name]],
+        )
+        for metric in metric_nodes
+    }
 
 
 async def get_filter_only_dimensions(
@@ -1230,64 +1290,45 @@ async def get_metric_parents_map(
     )
     rows = (await session.execute(statement)).all()
 
-    # Build mapping and track metric parents that need further resolution
-    # Maps: parent_metric_name -> [original_metric_names that need this parent resolved]
-    metric_parents_to_resolve: dict[str, list[str]] = {}
+    # Per metric: its non-metric parents and its metric parents
+    direct_parents: dict[str, tuple[list[Node], list[str]]] = {}
 
-    # Group parents by metric name first
-    parents_by_metric: dict[str, list[Node]] = {}
-    for metric_name, parent_node in rows:
-        if metric_name not in parents_by_metric:
-            parents_by_metric[metric_name] = []
-        parents_by_metric[metric_name].append(parent_node)
+    def record_parents(parent_rows) -> list[str]:
+        """Store each metric's direct parents; return its metric parent names."""
+        by_metric: dict[str, list[Node]] = {}
+        for metric_name, parent_node in parent_rows:
+            by_metric.setdefault(metric_name, []).append(parent_node)
+        unresolved: list[str] = []
+        for metric_name, parents in by_metric.items():
+            metric_parents = [p for p in parents if p.type == NodeType.METRIC]
+            other_parents = [
+                p
+                for p in parents
+                if p.type not in (NodeType.METRIC, NodeType.DIMENSION)
+            ]
+            # Dimension parents count only when nothing else is a parent
+            # (the metric is defined directly on a dimension node)
+            if not metric_parents and not other_parents:
+                other_parents = [p for p in parents if p.type == NodeType.DIMENSION]
+            names = [p.name for p in metric_parents]
+            direct_parents[metric_name] = (other_parents, names)
+            unresolved.extend(names)
+        return unresolved
 
-    # Process each metric's parents
-    for metric_name, parents in parents_by_metric.items():
-        metric_parents = [p for p in parents if p.type == NodeType.METRIC]
-        dimension_parents = [p for p in parents if p.type == NodeType.DIMENSION]
-        other_parents = [
-            p for p in parents if p.type not in (NodeType.METRIC, NodeType.DIMENSION)
-        ]
+    to_fetch = [n for n in record_parents(rows) if n not in direct_parents]
 
-        # Add metric parents to resolve list
-        for parent_node in metric_parents:
-            if parent_node.name not in metric_parents_to_resolve:
-                metric_parents_to_resolve[parent_node.name] = []
-            metric_parents_to_resolve[parent_node.name].append(metric_name)
-
-        # Add fact/transform parents directly
-        for parent_node in other_parents:
-            result[metric_name].append(parent_node)
-
-        # Only add dimension parents if there are no other parents
-        # (i.e., the metric is defined directly on a dimension node)
-        if not metric_parents and not other_parents:
-            for parent_node in dimension_parents:
-                result[metric_name].append(parent_node)
-
-    # Recursively resolve metric parents until we reach non-metric nodes
-    visited_metrics: set[str] = set()
-
-    while metric_parents_to_resolve:
-        base_metric_names = [
-            name for name in metric_parents_to_resolve if name not in visited_metrics
-        ]
-
-        if not base_metric_names:
-            break  # pragma: no cover
-
-        for name in base_metric_names:
-            visited_metrics.add(name)
-
-        # Get the base metrics' current versions
+    # Fetch parents of base metrics level by level until none are left
+    while to_fetch:
+        base_names = list(dict.fromkeys(to_fetch))
+        for name in base_names:
+            direct_parents[name] = ([], [])
         base_metrics_stmt = (
             select(Node)
-            .where(Node.name.in_(base_metric_names))
+            .where(Node.name.in_(base_names))
             .where(is_(Node.deactivated_at, None))
             .options(*parent_node_options)
         )
         base_metrics = list((await session.execute(base_metrics_stmt)).scalars().all())
-
         if not base_metrics:
             break  # pragma: no cover
 
@@ -1315,52 +1356,21 @@ async def get_metric_parents_map(
             .options(*parent_node_options)
         )
         base_rows = (await session.execute(statement)).all()
+        to_fetch = [n for n in record_parents(base_rows) if n not in direct_parents]
 
-        # Group parents by base metric name first
-        base_parents_by_metric: dict[str, list[Node]] = {}
-        for base_metric_name, parent_node in base_rows:
-            if base_metric_name not in base_parents_by_metric:
-                base_parents_by_metric[base_metric_name] = []
-            base_parents_by_metric[base_metric_name].append(parent_node)
-
-        # Process results and track new metric parents for next iteration
-        next_metric_parents_to_resolve: dict[str, list[str]] = {}
-
-        for base_metric_name, parents in base_parents_by_metric.items():
-            original_metrics = metric_parents_to_resolve.get(base_metric_name, [])
-
-            metric_parents = [p for p in parents if p.type == NodeType.METRIC]
-            dimension_parents = [p for p in parents if p.type == NodeType.DIMENSION]
-            other_parents = [
-                p
-                for p in parents
-                if p.type not in (NodeType.METRIC, NodeType.DIMENSION)
-            ]
-
-            # Add metric parents to next resolve list (multi-level derived metrics)
-            for parent_node in metric_parents:  # pragma: no cover
-                if parent_node.name not in next_metric_parents_to_resolve:
-                    next_metric_parents_to_resolve[parent_node.name] = []
-                next_metric_parents_to_resolve[parent_node.name].extend(
-                    original_metrics,
-                )
-
-            # Add fact/transform parents to results
-            for parent_node in other_parents:
-                for derived_metric_name in original_metrics:
-                    result[derived_metric_name].append(parent_node)
-
-            # Only add dimension parents if there are no other parents
-            # (i.e., the metric is defined directly on a dimension node)
-            if not metric_parents and not other_parents:  # pragma: no cover
-                for parent_node in dimension_parents:
-                    for derived_metric_name in original_metrics:
-                        result[derived_metric_name].append(parent_node)
-
-        metric_parents_to_resolve = next_metric_parents_to_resolve
+    def leaf_parents(name: str, seen: set[str]) -> list[Node]:
+        """Non-metric parents of a metric, through any nesting depth."""
+        if name in seen:
+            return []
+        seen.add(name)
+        leaves, metric_names = direct_parents.get(name, ([], []))
+        found = list(leaves)
+        for metric_name in metric_names:
+            found.extend(leaf_parents(metric_name, seen))
+        return found
 
     # Deduplicate parents for each metric
-    return {name: list(set(parents)) for name, parents in result.items()}
+    return {name: list(set(leaf_parents(name, set()))) for name in result}
 
 
 async def get_metric_parents(

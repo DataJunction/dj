@@ -13,6 +13,7 @@ from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import OAuthProvider, User
 from datajunction_server.errors import DJError, ErrorCode
+from datajunction_server.internal.deployment.type_inference import validate_node_query
 from datajunction_server.internal.deployment.validation import (
     NodeSpecBulkValidator,
     NodeValidationResult,
@@ -156,6 +157,71 @@ class TestValidateQuery:
         assert result.status == NodeStatus.INVALID
         error_codes = [e.code for e in result.errors]
         assert ErrorCode.TYPE_INFERENCE in error_codes
+
+    @pytest.mark.asyncio
+    async def test_invalid_metric_query_result(
+        self,
+        validation_context: ValidationContext,
+    ):
+        """A metric whose query does not parse gives one SQL error result."""
+        spec = MetricSpec(
+            name="bad_metric",
+            query="SELECT COUNT( FROM test.parent",
+            mode="published",
+        )
+        validator = NodeSpecBulkValidator(validation_context)
+        result = validator.validate_query_node(spec)
+        # Spec equality parses the query, which cannot parse here
+        assert result.spec is spec
+        assert result.status == NodeStatus.INVALID
+        assert result.inferred_columns == []
+        assert result.errors == [
+            DJError(
+                code=ErrorCode.INVALID_SQL_QUERY,
+                message=(
+                    "Error parsing SQL `SELECT COUNT( FROM test.parent`: "
+                    "('Parse error 1:19:', "
+                    "\"mismatched input 'test' expecting ')'\")"
+                ),
+            ),
+        ]
+        assert result.dependencies == []
+
+    @pytest.mark.asyncio
+    async def test_metric_alias_only_built_without_parsed_tree(
+        self,
+        validation_context: ValidationContext,
+    ):
+        """The formatted metric query is built only when there is no parsed tree."""
+        spec = MetricSpec(
+            name="metric",
+            query="SELECT COUNT(*) FROM test.parent",
+            mode="published",
+        )
+        validator = NodeSpecBulkValidator(validation_context)
+        with (
+            patch.object(
+                NodeRevision,
+                "format_metric_alias",
+                wraps=NodeRevision.format_metric_alias,
+            ) as alias,
+            patch(
+                "datajunction_server.internal.deployment.validation.validate_node_query",
+                wraps=validate_node_query,
+            ) as infer,
+        ):
+            validator.validate_query_node(spec)
+            alias.assert_not_called()
+            assert infer.call_args.args[0] == ""
+            assert infer.call_args.kwargs["pre_parsed"] is not None
+
+            with patch.object(MetricSpec, "query_ast", None):
+                validator.validate_query_node(spec)
+            alias.assert_called_once_with("SELECT COUNT(*) FROM test.parent", "metric")
+            assert infer.call_args.args[0] == (
+                "SELECT  COUNT(*) metric \n FROM test.parent\n\n"
+            )
+            assert infer.call_args.kwargs["pre_parsed"] is None
 
     @pytest.mark.asyncio
     async def test_validate_query_node_later_exception(
@@ -2098,12 +2164,12 @@ class TestCrossFactDimensions:
     # ------------------------------------------------------------------ prefetch tests
 
     @pytest.mark.asyncio
-    async def test_prefetch_calls_get_dimensions_for_each_base_metric(
+    async def test_prefetch_looks_up_all_base_metrics_in_one_batch(
         self,
         session: AsyncSession,
         parent_node: Node,
     ):
-        """_prefetch_metric_dimensions issues one get_dimensions call per unique base metric."""
+        """_prefetch_metric_dimensions makes one batched lookup for all base metrics."""
         ma = _make_metric_node("test.metric_a")
         mb = _make_metric_node("test.metric_b")
         context = self._make_context(session, parent_node, ma, mb)
@@ -2114,26 +2180,26 @@ class TestCrossFactDimensions:
         )
         validator = NodeSpecBulkValidator(context)
 
-        # Use a dict-keyed side_effect to avoid order sensitivity (set iteration).
         dim_map = {
             ma.name: [_dim("date_id"), _dim("region")],
             mb.name: [_dim("date_id"), _dim("country")],
         }
 
-        async def fake_get_dimensions(session, node, **kwargs):
-            return dim_map[node.name]
+        async def fake_get_metrics_dimensions(session, metric_nodes, **kwargs):
+            return {node.name: dim_map[node.name] for node in metric_nodes}
 
         with patch(
-            "datajunction_server.internal.deployment.validation.get_dimensions",
-            side_effect=fake_get_dimensions,
+            "datajunction_server.internal.deployment.validation.get_metrics_dimensions",
+            side_effect=fake_get_metrics_dimensions,
         ) as mock_get_dims:
             await validator._prefetch_metric_dimensions([spec])
 
-        assert mock_get_dims.call_count == 2
-        called_nodes = {call.args[1].name for call in mock_get_dims.call_args_list}
-        assert called_nodes == {ma.name, mb.name}
-        assert validator._metric_dimensions[ma.name] == {"date_id", "region"}
-        assert validator._metric_dimensions[mb.name] == {"date_id", "country"}
+        assert mock_get_dims.call_count == 1
+        assert {n.name for n in mock_get_dims.call_args.args[1]} == {ma.name, mb.name}
+        assert validator._metric_dimensions == {
+            ma.name: {"date_id", "region"},
+            mb.name: {"date_id", "country"},
+        }
 
     @pytest.mark.asyncio
     async def test_prefetch_deduplicates_base_metrics(
@@ -2141,7 +2207,7 @@ class TestCrossFactDimensions:
         session: AsyncSession,
         parent_node: Node,
     ):
-        """Two derived metrics sharing the same base metrics → only 2 get_dimensions calls."""
+        """Two derived metrics sharing the same base metrics → each base metric looked up once."""
         ma = _make_metric_node("test.metric_a")
         mb = _make_metric_node("test.metric_b")
         dep_nodes = {
@@ -2169,17 +2235,19 @@ class TestCrossFactDimensions:
         ]
         validator = NodeSpecBulkValidator(context)
 
-        async def fake_get_dimensions(session, node, **kwargs):
-            return [_dim("date_id")]
+        async def fake_get_metrics_dimensions(session, metric_nodes, **kwargs):
+            return {node.name: [_dim("date_id")] for node in metric_nodes}
 
         with patch(
-            "datajunction_server.internal.deployment.validation.get_dimensions",
-            side_effect=fake_get_dimensions,
+            "datajunction_server.internal.deployment.validation.get_metrics_dimensions",
+            side_effect=fake_get_metrics_dimensions,
         ) as mock_get_dims:
             await validator._prefetch_metric_dimensions(specs)
 
-        # Despite 2 derived metrics, only 2 calls (one per unique base metric)
-        assert mock_get_dims.call_count == 2
+        assert sorted(n.name for n in mock_get_dims.call_args.args[1]) == [
+            ma.name,
+            mb.name,
+        ]
 
     @pytest.mark.asyncio
     async def test_prefetch_skips_non_cross_fact_metrics(
@@ -2202,7 +2270,7 @@ class TestCrossFactDimensions:
         validator = NodeSpecBulkValidator(context)
 
         with patch(
-            "datajunction_server.internal.deployment.validation.get_dimensions",
+            "datajunction_server.internal.deployment.validation.get_metrics_dimensions",
         ) as mock_get_dims:
             await validator._prefetch_metric_dimensions([spec])
 
