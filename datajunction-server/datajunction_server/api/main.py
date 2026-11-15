@@ -61,6 +61,7 @@ from datajunction_server.internal.access.authorization.readiness import (
 )
 from datajunction_server.internal.deployment.liveness import sweep_forever
 from datajunction_server.internal.seed import seed_default_catalogs
+from datajunction_server.sql.parsing.warm import warm_parse_cache_if_enabled
 from datajunction_server.utils import get_session_manager, get_settings
 
 _logger = logging.getLogger(__name__)
@@ -247,3 +248,6 @@ def configure_app(app: FastAPI) -> None:
 
 
 app = create_app(lifespan=lifespan)
+
+# Runs at import, so under gunicorn --preload it runs once in the master.
+warm_parse_cache_if_enabled()

@@ -407,6 +407,10 @@ class Settings(BaseSettings):  # pragma: no cover
     # Seconds between sweeps that mark stale deployments interrupted.
     deployment_sweep_interval: int = 30
 
+    # Fill the parse cache from stored queries when the app module is imported.
+    # With gunicorn --preload this runs once in the master and workers inherit it.
+    parse_cache_preload: bool = False
+
     @property
     def effective_reader_concurrency(self) -> int:
         return max(1, self.reader_db.pool_size // 2)
