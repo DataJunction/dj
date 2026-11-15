@@ -6,6 +6,7 @@ Python parser. Skipped unless `native_parser/build.sh` has been run.
 
 import sys
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
@@ -18,6 +19,7 @@ from datajunction_server.sql.parsing.backends.antlr4 import (  # noqa: E402
     visit,
 )
 from datajunction_server.sql.parsing.structural import serialize_ast  # noqa: E402
+from datajunction_server.sql.parsing.backends import native  # noqa: E402
 from datajunction_server.sql.parsing.backends.native import native_tree  # noqa: E402
 
 QUERIES = Path(__file__).resolve().parents[1] / "queries"
@@ -25,7 +27,9 @@ RULE = "singleStatement"
 
 
 def python_ast(sql):
-    return visit(parse_sql_with_sll_fallback(sql, RULE))
+    # Turn the native parser off so this is always the Python parser
+    with mock.patch.object(native, "ENABLED", False):
+        return visit(parse_sql_with_sll_fallback(sql, RULE))
 
 
 def native_ast(sql):
