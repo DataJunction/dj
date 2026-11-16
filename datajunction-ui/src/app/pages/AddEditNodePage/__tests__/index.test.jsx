@@ -216,12 +216,13 @@ describe('AddEditNodePage', () => {
     mockDjClient.DataJunctionAPI.listDeployments = vi
       .fn()
       .mockResolvedValue([]);
-    // magnesium.tech is a flat git-backed namespace → read-only via shape.
+    // magnesium.tech is a flat git-backed namespace with git_only on.
     mockDjClient.DataJunctionAPI.getNamespaceGitConfig = vi
       .fn()
       .mockResolvedValue({
         github_repo_path: 'corp/tech-realtime-guardrails',
         git_branch: 'main',
+        git_only: true,
         git_root_namespace: 'magnesium.tech',
       });
 

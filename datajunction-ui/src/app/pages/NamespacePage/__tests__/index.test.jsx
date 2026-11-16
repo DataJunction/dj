@@ -778,15 +778,15 @@ describe('NamespacePage', () => {
   });
 
   describe('Read-only git states', () => {
-    it('shows the node table but no add/edit controls for a flat (read-only) namespace', async () => {
+    it('shows the node table but no add/edit controls for a flat git_only namespace', async () => {
       // A flat namespace: has a repo path AND its own git_branch, no parent_namespace.
-      // detectShape returns 'flat' → read-only; edit controls must be hidden.
+      // With git_only on it is read-only; edit controls must be hidden.
       const flatConfig = {
         github_repo_path: 'corp/repo',
         git_branch: 'main',
         default_branch: null,
         parent_namespace: null,
-        git_only: false,
+        git_only: true,
         git_root_namespace: 'magnesium.tech',
       };
       mockDjClient.getNamespaceGitConfig.mockResolvedValue(flatConfig);

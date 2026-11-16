@@ -462,19 +462,18 @@ describe('<NodePage />', () => {
     ).toHaveAttribute('href', '/nodes/v3.date');
   }, 60000);
 
-  it('hides Edit and shows the read-only badge for a node in a read-only (flat git) namespace', async () => {
+  it('hides Edit and shows the read-only badge for a node in a flat git_only namespace', async () => {
     const djClient = mockDJClient();
     djClient.DataJunctionAPI.node.mockReturnValue(mocks.mockMetricNode);
     djClient.DataJunctionAPI.getMetric.mockResolvedValue(
       mocks.mockMetricNodeJson,
     );
     // magnesium.tech is a flat git-backed namespace (github_repo_path +
-    // git_branch, no parent) → read-only via shape, even though git_only is
-    // not set. Regression guard: node pages must honor shape-based read-only,
-    // not just the git_only flag.
+    // git_branch, no parent) with git_only on, so node pages are read-only.
     djClient.DataJunctionAPI.getNamespaceGitConfig.mockResolvedValue({
       github_repo_path: 'corp/tech-realtime-guardrails',
       git_branch: 'main',
+      git_only: true,
       git_root_namespace: 'magnesium.tech',
     });
     const element = (

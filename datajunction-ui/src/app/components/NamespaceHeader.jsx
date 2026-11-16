@@ -293,9 +293,11 @@ export default function NamespaceHeader({
   // (parentGitConfig), which has finished loading by the time the verdict fires
   // below — setGitConfigLoading(false) runs after that fetch.
   const onSubBranch = !!branchNamespace && branchNamespace !== gitRootNamespace;
+  // A flat namespace tracks one branch of its repo. Only `git_only` locks it.
+  const isFlat = !onSubBranch && gitShape === 'flat';
   const isDefaultBranch = onSubBranch
     ? gitConfig?.git_branch === rootDefaultBranch
-    : gitShape === 'root' || gitShape === 'flat';
+    : gitShape === 'root';
   const isReadOnly = !!gitConfig?.git_only || isDefaultBranch;
   const isGitDeployed =
     !!sources &&
@@ -307,7 +309,8 @@ export default function NamespaceHeader({
   // root, or an unrecognized-but-git-deployed shape), which `isReadOnly`
   // already covers for the recognized cases.
   const isFeatureBranch = onSubBranch && !isDefaultBranch;
-  const isGitManaged = isReadOnly || (isGitDeployed && !isFeatureBranch);
+  const isGitManaged =
+    isReadOnly || (isGitDeployed && !isFeatureBranch && !isFlat);
   // Repo config is owned by the git root. On a branch, edits target the root
   // (its config is parentGitConfig — branches sit one level below the root); a
   // flat or plain namespace owns its own config. This keeps flat namespaces
@@ -1219,6 +1222,18 @@ export default function NamespaceHeader({
                       onDelete={() => setShowDeleteBranch(true)}
                     />
                   </>
+                );
+              }
+
+              // Editable flat namespace: repo info and settings only.
+              if (isFlat) {
+                return (
+                  <GitMenu
+                    repoPath={gitConfig?.github_repo_path}
+                    branch={repoBranch}
+                    viewInGitUrl={gitUrl}
+                    onOpenSettings={() => setShowGitSettings(true)}
+                  />
                 );
               }
 
