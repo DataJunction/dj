@@ -1515,6 +1515,26 @@ def _reads_from(child: Node, ancestor: str, ctx: BuildContext) -> bool:
     return False
 
 
+def _is_key_column(ref: str, base: str, ctx: BuildContext) -> bool:
+    """Whether the ref, with no role, names a primary key of a dimension."""
+    owner_name, _, column = base.rpartition(SEPARATOR)
+    owner = ctx.nodes.get(owner_name)
+    if ref != base or owner is None or owner.type != NodeType.DIMENSION:
+        return False
+    return column in {col.name for col in owner.current.primary_key()}  # type: ignore[union-attr]
+
+
+def _is_selected_unchanged(
+    ref: str,
+    column: str,
+    node: Node,
+    ctx: BuildContext,
+) -> bool:
+    """Whether the ref's node selects this node's column under the same name."""
+    owner = ctx.nodes.get(ref.rsplit(SEPARATOR, 1)[0])
+    return owner is not None and _traces_to(owner, node.name, column, ctx)
+
+
 def _may_bind_column(
     ref: str,
     bare_col: str | None,
@@ -1611,8 +1631,9 @@ def _resolve_pushdown_filters_for_cte(
 
     # Block a filter ref that would bind a same-named column of another node:
     # a joined dimension's attribute on any column this node outputs, or a
-    # column of another node unless this node is its source.  The dim's own
-    # CTE and join-key filters stay exempt via ``local_aliases``.  Every
+    # column of another node unless this node is its source.  A dimension's
+    # key columns, asked for without a role, are never blocked, and neither
+    # are the dim's own CTE and join-key filters (``local_aliases``).  Every
     # pushdown path below consults ``blocked_refs``.
     joined_refs = outer_only_refs or set()
     blocked_refs: set[str] = set()
@@ -1621,10 +1642,22 @@ def _resolve_pushdown_filters_for_cte(
             base = ref.split("[")[0]
             if ref in local_aliases or base in local_aliases:
                 continue  # properly mapped locally (dim's own CTE / join key) — safe
+            if _is_key_column(ref, base, ctx):
+                continue  # a dimension's keys are copied by name, as before
             if ref in joined_refs or base in joined_refs:
-                # Joined attributes never bind same-named columns.
+                # A joined attribute binds a same-named column only when the
+                # dimension selects that column unchanged from this node.
                 bare_col = effective_aliases.get(ref) or effective_aliases.get(base)
-                if bare_col in node_output_cols:
+                if (
+                    bare_col is not None
+                    and bare_col in node_output_cols
+                    and not _is_selected_unchanged(
+                        base,
+                        bare_col,
+                        node,
+                        ctx,
+                    )
+                ):
                     blocked_refs.add(ref)
             elif not _may_bind_column(
                 base,

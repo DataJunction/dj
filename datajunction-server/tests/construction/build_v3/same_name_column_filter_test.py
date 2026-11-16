@@ -666,13 +666,18 @@ async def test_filter_is_not_bound_through_renamed_columns(renamed_status_client
 
 
 async def build_window_nodes(client, own_column):
-    """`meta` reads the `window` dimension. With `own_column`, `meta` also
-    has a computed column of the same name as the dimension's attribute."""
+    """`meta` reads the `window` dimension. The facts carry `label` as a
+    reference to the dimension's non-key `label`, which the request filters.
+    With `own_column`, `meta` has a computed `label` of its own."""
     await create_source(
         client,
         "v3.mr_window_src",
         "mr_window",
-        [("observation_window", "string"), ("window_end", "int")],
+        [
+            ("observation_window", "string"),
+            ("window_end", "int"),
+            ("label", "string"),
+        ],
     )
     await create_source(
         client,
@@ -691,12 +696,14 @@ async def build_window_nodes(client, own_column):
         "/nodes/dimension/",
         {
             "name": "v3.mr_window",
-            "query": "SELECT observation_window, window_end FROM v3.mr_window_src",
+            "query": (
+                "SELECT observation_window, window_end, label FROM v3.mr_window_src"
+            ),
             "mode": "published",
             "primary_key": ["observation_window"],
         },
     )
-    extra = ", MAX(w.window_end) AS observation_window" if own_column else ""
+    extra = ", MAX(w.window_end) AS label" if own_column else ""
     await post(
         client,
         "/nodes/dimension/",
@@ -718,15 +725,20 @@ async def build_window_nodes(client, own_column):
         {
             "name": "v3.mr_facts",
             "query": (
-                "SELECT f.test_id, f.amount, w.observation_window "
+                "SELECT f.test_id, f.amount, w.observation_window, w.label "
                 "FROM v3.mr_facts_src f CROSS JOIN "
-                "(SELECT observation_window FROM v3.mr_window) w "
+                "(SELECT observation_window, label FROM v3.mr_window) w "
                 "INNER JOIN v3.mr_meta m ON f.test_id = m.test_id"
             ),
             "mode": "published",
             "primary_key": ["test_id", "observation_window"],
         },
     )
+    response = await client.post(
+        "/nodes/v3.mr_facts/columns/label/link",
+        params={"dimension_node": "v3.mr_window", "dimension_column": "label"},
+    )
+    assert response.status_code in (200, 201), response.text
     await post(
         client,
         "/nodes/v3.mr_facts/link",
@@ -750,8 +762,8 @@ async def build_window_nodes(client, own_column):
         "/sql/measures/v3/",
         params={
             "metrics": ["v3.mr_amount"],
-            "dimensions": ["v3.mr_window.observation_window"],
-            "filters": ["v3.mr_window.observation_window IN ('1-35')"],
+            "dimensions": ["v3.mr_window.label"],
+            "filters": ["v3.mr_window.label IN ('a')"],
         },
     )
     assert response.status_code == 200, response.text
@@ -765,8 +777,10 @@ def window_rows(sql):
     conn.execute("CREATE SCHEMA v3")
     conn.execute(
         """
-        CREATE TABLE v3.mr_window (observation_window TEXT, window_end INT);
-        INSERT INTO v3.mr_window VALUES ('1-35', 35), ('1-70', 70);
+        CREATE TABLE v3.mr_window (
+          observation_window TEXT, window_end INT, label TEXT
+        );
+        INSERT INTO v3.mr_window VALUES ('1-35', 35, 'a'), ('1-70', 70, 'b');
         CREATE TABLE v3.mr_plans (test_id INT, end_date INT);
         INSERT INTO v3.mr_plans VALUES (1, 100);
         CREATE TABLE v3.mr_facts (test_id INT, amount DOUBLE);
@@ -785,9 +799,9 @@ async def test_dimension_reading_the_filtered_dimension_is_filtered(
         sql,
         """
         WITH v3_mr_window AS (
-          SELECT observation_window, window_end
+          SELECT observation_window, window_end, label
           FROM default.v3.mr_window
-          WHERE observation_window IN ('1-35')
+          WHERE label IN ('a')
         ),
         v3_mr_meta AS (
           SELECT p.test_id
@@ -795,28 +809,28 @@ async def test_dimension_reading_the_filtered_dimension_is_filtered(
           CROSS JOIN (
             SELECT observation_window AS obs_window, window_end
             FROM v3_mr_window
-            WHERE v3_mr_window.observation_window IN ('1-35')
+            WHERE v3_mr_window.label IN ('a')
           ) w
           GROUP BY p.test_id
         ),
         v3_mr_facts AS (
-          SELECT f.amount, w.observation_window
+          SELECT f.amount, w.label
           FROM default.v3.mr_facts f
           CROSS JOIN (
-            SELECT observation_window
+            SELECT observation_window, label
             FROM v3_mr_window
-            WHERE v3_mr_window.observation_window IN ('1-35')
+            WHERE v3_mr_window.label IN ('a')
           ) w
           INNER JOIN v3_mr_meta m ON f.test_id = m.test_id
-          WHERE w.observation_window IN ('1-35')
+          WHERE w.label IN ('a')
         )
-        SELECT t1.observation_window, SUM(t1.amount) amount_sum_HASH
+        SELECT t1.label, SUM(t1.amount) amount_sum_HASH
         FROM v3_mr_facts t1
-        GROUP BY t1.observation_window
+        GROUP BY t1.label
         """,
         normalize_aliases=True,
     )
-    assert window_rows(sql) == [("1-35", 5.0)]
+    assert window_rows(sql) == [("a", 5.0)]
 
 
 @pytest.mark.asyncio
@@ -828,12 +842,12 @@ async def test_dimension_with_its_own_column_of_that_name_is_not_filtered(
         sql,
         """
         WITH v3_mr_window AS (
-          SELECT observation_window, window_end
+          SELECT observation_window, window_end, label
           FROM default.v3.mr_window
-          WHERE observation_window IN ('1-35')
+          WHERE label IN ('a')
         ),
         v3_mr_meta AS (
-          SELECT p.test_id, MAX(w.window_end) AS observation_window
+          SELECT p.test_id, MAX(w.window_end) AS label
           FROM default.v3.mr_plans p
           CROSS JOIN (
             SELECT observation_window AS obs_window, window_end
@@ -842,20 +856,173 @@ async def test_dimension_with_its_own_column_of_that_name_is_not_filtered(
           GROUP BY p.test_id
         ),
         v3_mr_facts AS (
-          SELECT f.amount, w.observation_window
+          SELECT f.amount, w.label
           FROM default.v3.mr_facts f
           CROSS JOIN (
-            SELECT observation_window
+            SELECT observation_window, label
             FROM v3_mr_window
-            WHERE v3_mr_window.observation_window IN ('1-35')
+            WHERE v3_mr_window.label IN ('a')
           ) w
           INNER JOIN v3_mr_meta m ON f.test_id = m.test_id
-          WHERE w.observation_window IN ('1-35')
+          WHERE w.label IN ('a')
         )
-        SELECT t1.observation_window, SUM(t1.amount) amount_sum_HASH
+        SELECT t1.label, SUM(t1.amount) amount_sum_HASH
         FROM v3_mr_facts t1
-        GROUP BY t1.observation_window
+        GROUP BY t1.label
         """,
         normalize_aliases=True,
     )
-    assert window_rows(sql) == [("1-35", 5.0)]
+    assert window_rows(sql) == [("a", 5.0)]
+
+
+@pytest.mark.asyncio
+async def test_filter_on_dimension_reaches_the_dimension_it_selects_from(
+    client_with_build_v3,
+):
+    """`alloc` selects `observation`'s columns unchanged, so a filter on them
+    also applies to `observation`."""
+    client = client_with_build_v3
+    await create_source(
+        client,
+        "v3.sy_obs_src",
+        "sy_obs",
+        [("account_observation_day", "int"), ("max_observation_end", "int")],
+    )
+    await create_source(
+        client,
+        "v3.sy_alloc_src",
+        "sy_alloc",
+        [("ad_account_id", "int")],
+    )
+    await create_source(
+        client,
+        "v3.sy_events_src",
+        "sy_events",
+        [("ad_account_id", "int"), ("amount", "double")],
+    )
+    await post(
+        client,
+        "/nodes/dimension/",
+        {
+            "name": "v3.sy_obs",
+            "query": (
+                "SELECT CAST(account_observation_day AS INT) AS account_observation_day, "
+                "CAST(max_observation_end AS INT) AS max_observation_end "
+                "FROM v3.sy_obs_src WHERE account_observation_day <> 0"
+            ),
+            "mode": "published",
+            "primary_key": ["account_observation_day", "max_observation_end"],
+        },
+    )
+    await post(
+        client,
+        "/nodes/dimension/",
+        {
+            "name": "v3.sy_alloc",
+            "query": (
+                "SELECT alloc.ad_account_id, observation.account_observation_day, "
+                "observation.max_observation_end FROM v3.sy_alloc_src alloc "
+                "CROSS JOIN v3.sy_obs observation "
+                "WHERE observation.account_observation_day <= observation.max_observation_end"
+            ),
+            "mode": "published",
+            "primary_key": [
+                "ad_account_id",
+                "account_observation_day",
+                "max_observation_end",
+            ],
+        },
+    )
+    await post(
+        client,
+        "/nodes/transform/",
+        {
+            "name": "v3.sy_events",
+            "query": "SELECT ad_account_id, amount FROM v3.sy_events_src",
+            "mode": "published",
+            "primary_key": ["ad_account_id", "amount"],
+        },
+    )
+    await post(
+        client,
+        "/nodes/v3.sy_events/link",
+        {
+            "dimension_node": "v3.sy_alloc",
+            "join_type": "right",
+            "join_cardinality": "one_to_many",
+            "join_on": "v3.sy_events.ad_account_id = v3.sy_alloc.ad_account_id",
+        },
+    )
+    await post(
+        client,
+        "/nodes/metric/",
+        {
+            "name": "v3.sy_amount",
+            "query": "SELECT SUM(amount) FROM v3.sy_events",
+            "mode": "published",
+        },
+    )
+    response = await client.get(
+        "/sql/measures/v3/",
+        params={
+            "metrics": ["v3.sy_amount"],
+            "dimensions": ["v3.sy_alloc.account_observation_day"],
+            "filters": [
+                "v3.sy_alloc.account_observation_day >= -7",
+                "v3.sy_alloc.max_observation_end IN (35)",
+            ],
+        },
+    )
+    assert response.status_code == 200, response.text
+    sql = get_first_grain_group(response.json())["sql"]
+    assert_sql_equal(
+        sql,
+        """
+        WITH v3_sy_events AS (
+          SELECT ad_account_id, amount
+          FROM default.v3.sy_events
+        ),
+        v3_sy_obs AS (
+          SELECT
+            CAST(account_observation_day AS INT) AS account_observation_day,
+            CAST(max_observation_end AS INT) AS max_observation_end
+          FROM default.v3.sy_obs
+          WHERE account_observation_day <> 0
+            AND account_observation_day >= -7
+            AND max_observation_end IN (35)
+        ),
+        v3_sy_alloc AS (
+          SELECT
+            alloc.ad_account_id,
+            observation.account_observation_day,
+            observation.max_observation_end
+          FROM default.v3.sy_alloc alloc
+          CROSS JOIN v3_sy_obs observation
+          WHERE observation.account_observation_day <= observation.max_observation_end
+            AND observation.account_observation_day >= -7
+            AND observation.max_observation_end IN (35)
+        )
+        SELECT t2.account_observation_day, SUM(t1.amount) amount_sum_HASH
+        FROM v3_sy_events t1
+        RIGHT OUTER JOIN v3_sy_alloc t2 ON t1.ad_account_id = t2.ad_account_id
+        WHERE t2.account_observation_day >= -7 AND t2.max_observation_end IN (35)
+        GROUP BY t2.account_observation_day
+        """,
+        normalize_aliases=True,
+    )
+    conn = duckdb.connect(":memory:")
+    conn.execute("""ATTACH ':memory:' AS "default" """)
+    conn.execute("""USE "default" """)
+    conn.execute("CREATE SCHEMA v3")
+    conn.execute(
+        """
+        CREATE TABLE v3.sy_obs (account_observation_day INT, max_observation_end INT);
+        INSERT INTO v3.sy_obs VALUES (-10, 35), (5, 35), (0, 35), (5, 70), (40, 70);
+        CREATE TABLE v3.sy_alloc (ad_account_id INT);
+        INSERT INTO v3.sy_alloc VALUES (100);
+        CREATE TABLE v3.sy_events (ad_account_id INT, amount DOUBLE);
+        INSERT INTO v3.sy_events VALUES (100, 3);
+        """,
+    )
+    rows = conn.execute(sql.replace("default.v3.", '"default".v3.')).fetchall()
+    assert rows == [(5, 3.0)]
