@@ -5,8 +5,16 @@ Tests for building nodes and extracting dependencies
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from types import SimpleNamespace
+
+from datajunction_server.construction.build_v3.measures import (
+    build_dimension_col_expr,
+)
 from datajunction_server.construction.utils import (
+    column_type_category,
+    dimension_link_default_for_column,
     dimension_link_default_literal,
+    dimension_link_typed_default_literal,
     get_dj_node,
 )
 from datajunction_server.errors import DJErrorException
@@ -89,3 +97,106 @@ def test_dimension_link_default_literal(default_value, column_type, expected):
     """
     literal = dimension_link_default_literal(default_value, column_type)
     assert str(literal) == expected
+
+
+@pytest.mark.parametrize(
+    "column_type, expected",
+    [
+        ("tinyint", "integer"),
+        ("smallint", "integer"),
+        ("int", "integer"),
+        ("INTEGER", "integer"),
+        ("bigint", "integer"),
+        ("long", "integer"),
+        ("float", "decimal"),
+        ("double", "decimal"),
+        ("real", "decimal"),
+        ("decimal(10,2)", "decimal"),
+        ("numeric", "decimal"),
+        ("boolean", "boolean"),
+        ("varchar(20)", "string"),
+        ("char(2)", "string"),
+        ("string", "string"),
+        ("date", "date"),
+        ("timestamp", "timestamp"),
+        ("timestamp(3)", "timestamp"),
+        ("timestamp with time zone", "timestamp"),
+        ("timestamp(3) with time zone", "timestamp"),
+        ("timestamp without time zone", "timestamp"),
+        ("timestamp_ntz", "timestamp"),
+        ("binary", None),
+        ("array<int>", None),
+        ("", None),
+        (None, None),
+    ],
+)
+def test_column_type_category(column_type, expected):
+    """A column type maps to a default_values category, ignoring parameters."""
+    assert column_type_category(column_type) == expected
+
+
+@pytest.mark.parametrize(
+    "column_type, expected",
+    [
+        ("varchar(20)", "'Unknown'"),
+        ("bigint", "-1"),
+        ("decimal(10,2)", "0.5"),
+        ("boolean", "False"),
+        ("date", "DATE '1970-01-01'"),
+        ("timestamp", "TIMESTAMP '1970-01-01 00:00:00'"),
+        ("timestamp with time zone", "TIMESTAMP '1970-01-01 00:00:00'"),
+        ("binary", None),
+        (None, None),
+    ],
+)
+def test_dimension_link_typed_default_literal(column_type, expected):
+    """The entry for the column's type category renders as a typed literal."""
+    default_values = {
+        "string": "Unknown",
+        "integer": -1,
+        "decimal": 0.5,
+        "boolean": False,
+        "date": "1970-01-01",
+        "timestamp": "1970-01-01T00:00:00",
+    }
+    literal = dimension_link_typed_default_literal(default_values, column_type)
+    assert (str(literal) if literal is not None else None) == expected
+
+
+def test_dimension_link_typed_default_literal_no_matching_entry():
+    """A category with no entry yields no literal."""
+    assert dimension_link_typed_default_literal({"string": "x"}, "int") is None
+
+
+def test_dimension_link_default_for_column():
+    """default_value applies to every column; default_values only to a match."""
+    assert str(dimension_link_default_for_column("N/A", None, None)) == "'N/A'"
+    assert str(dimension_link_default_for_column(0, None, "int")) == "0"
+    assert str(dimension_link_default_for_column(None, {"integer": 7}, "int")) == "7"
+    assert dimension_link_default_for_column(None, {"integer": 7}, "string") is None
+    assert dimension_link_default_for_column(None, {"integer": 7}, None) is None
+    assert dimension_link_default_for_column(None, None, "int") is None
+    assert dimension_link_default_for_column(None, {}, "int") is None
+
+
+def test_build_dimension_col_expr_unknown_column_type():
+    """Without a known column type, default_values adds no COALESCE."""
+    link = SimpleNamespace(
+        role=None,
+        default_value=None,
+        default_values={"string": "Unknown", "integer": -1},
+    )
+    resolved_dim = SimpleNamespace(
+        is_local=False,
+        column_name="plan_id",
+        node_name="shared.plan",
+        join_path=SimpleNamespace(links=[link], target_node_name="shared.plan"),
+    )
+    expr = build_dimension_col_expr(
+        resolved_dim,  # type: ignore
+        "t1",
+        {("shared.plan", ""): "t2"},
+        "plan_id",
+        ctx=None,
+    )
+    assert str(expr) == "t2.plan_id"

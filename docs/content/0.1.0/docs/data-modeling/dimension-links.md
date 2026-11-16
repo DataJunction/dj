@@ -292,43 +292,57 @@ defined for that dimension.
 #### Default Values for NULL Handling
 
 When using `LEFT` or `RIGHT` join types for dimension links, unmatched rows will produce NULL values for dimension
-columns. You can configure a `default_value` on the dimension link to provide a fallback value in these cases.
+columns. You can configure `default_values` on the dimension link to provide a fallback per column type:
 
-When `default_value` is set, DJ will wrap dimension columns in a `COALESCE` function in the generated SQL:
+```yaml
+dimension_links:
+  - type: join
+    dimension_node: shared.plan
+    join_type: left
+    join_on: fact.plan_id = shared.plan.plan_id
+    default_values:
+      string: Unknown
+      integer: -1
+      date: "1970-01-01"
+```
+
+`default_values` maps a type category to a fallback of that type. The categories are:
+
+| Category | Column types | Rendered as |
+| ---- | ---- | ---- |
+| `string` | `string`, `varchar`, `char` | `'Unknown'` |
+| `integer` | `tinyint`, `smallint`, `int`, `bigint` | `-1` |
+| `decimal` | `float`, `double`, `real`, `decimal(p,s)` | `0.5` |
+| `boolean` | `boolean` | `False` |
+| `date` | `date` | `DATE '1970-01-01'` |
+| `timestamp` | `timestamp`, with or without time zone | `TIMESTAMP '1970-01-01 00:00:00'` |
+
+DJ wraps each projected dimension column in `COALESCE` using the entry for that column's type:
 
 ```sql
--- Without default_value
-SELECT user.name AS user_name
-FROM events
-LEFT JOIN user ON events.user_id = user.id
-
--- With default_value = "Unknown"
-SELECT COALESCE(user.name, 'Unknown') AS user_name
-FROM events
-LEFT JOIN user ON events.user_id = user.id
+SELECT COALESCE(plan.name, 'Unknown') AS plan_name,
+       COALESCE(plan.tier, -1) AS tier,
+       plan.score AS score
+FROM fact
+LEFT JOIN plan ON fact.plan_id = plan.plan_id
 ```
+
+A column whose type has no entry (`score` above, a `double`) is left as-is, with no `COALESCE`.
 
 This is useful when:
 - You want to ensure dimension columns never return NULL in query results
 - Downstream consumers expect non-null values for grouping or display
 - You want to provide meaningful labels like "Unknown", "N/A", or "Other" for unmatched rows
 
-A `default_value` can be a string, a number, or a boolean, and DJ renders it to match the type of whichever
-dimension column it wraps. A numeric fallback on a numeric column becomes a bare number rather than a quoted
-string, so the column keeps its type:
-
-```sql
--- With default_value = 0, on an integer column
-SELECT COALESCE(user.account_tier, 0) AS account_tier
-FROM events
-LEFT JOIN user ON events.user_id = user.id
-```
-
-Because the link's fallback applies to every dimension column reached through it, a value that the column's type
-cannot hold — say `"Unknown"` against an integer column — falls back to a quoted string.
+{{< alert icon="👉" >}}
+`default_value`, a single value applied to every column of the dimension, is deprecated and setting it produces a
+warning on deployment. A single value cannot suit columns of different types, for example `'Unknown'` on an integer
+column. To get the string-only behavior it was meant for, use `default_values: {string: <value>}`. A link cannot set
+both `default_value` and `default_values`.
+{{< /alert >}}
 
 {{< alert icon="👉" >}}
-The `default_value` option is only applicable when using `LEFT` or `RIGHT` join types, as these are the join types
+Defaults are only applicable when using `LEFT` or `RIGHT` join types, as these are the join types
 that can produce NULL values from unmatched rows.
 {{< /alert >}}
 

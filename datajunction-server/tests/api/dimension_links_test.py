@@ -1974,3 +1974,135 @@ async def test_dimension_link_default_values_validation(
         )
         assert response.status_code == 422
         assert message in response.text
+
+
+TYPED_PLAN_COLUMNS = {
+    "tier": "int",
+    "plan_name": "string",
+    "score": "double",
+    "price": "decimal(10,2)",
+    "is_active": "boolean",
+    "started_on": "date",
+    "updated_at": "timestamp",
+    "payload": "binary",
+}
+
+
+async def _link_typed_dimension(
+    client: AsyncClient,
+    link_extra: dict[str, Any],
+) -> None:
+    """Create a dimension with one column per type and link events to it."""
+    columns = [{"name": "plan_id", "type": "int"}] + [
+        {"name": name, "type": col_type}
+        for name, col_type in TYPED_PLAN_COLUMNS.items()
+    ]
+    response = await client.post(
+        "/nodes/source/",
+        json={
+            "name": "default.plans_table",
+            "description": "Plans table",
+            "mode": "published",
+            "catalog": "default",
+            "schema_": "examples",
+            "table": "plans",
+            "columns": columns,
+        },
+    )
+    assert response.status_code in (200, 201), response.text
+    response = await client.post(
+        "/nodes/dimension/",
+        json={
+            "name": "default.plans",
+            "description": "Plans",
+            "mode": "published",
+            "query": f"SELECT plan_id, {', '.join(TYPED_PLAN_COLUMNS)} "
+            "FROM default.plans_table",
+            "primary_key": ["plan_id"],
+        },
+    )
+    assert response.status_code in (200, 201), response.text
+    response = await client.post(
+        "/nodes/default.events/link",
+        json={
+            "dimension_node": "default.plans",
+            "join_type": "left",
+            "join_on": "default.events.user_id = default.plans.plan_id",
+            "join_cardinality": "many_to_one",
+            **link_extra,
+        },
+    )
+    assert response.status_code == 201, response.text
+
+
+async def _typed_projection(client: AsyncClient, v3_path: str) -> str:
+    """Generate SQL over every typed column and return the SQL text."""
+    response = await client.get(
+        v3_path,
+        params={
+            "metrics": ["default.elapsed_secs"],
+            "dimensions": [f"default.plans.{name}" for name in TYPED_PLAN_COLUMNS],
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    if "grain_groups" in body:
+        return body["grain_groups"][0]["sql"]
+    return body["sql"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("v3_path", ["/sql/measures/v3/", "/sql/metrics/v3/"])
+async def test_default_values_select_literal_by_column_type(
+    dimensions_link_client: AsyncClient,
+    v3_path: str,
+):
+    """Each column gets the default for its type; types with no entry stay plain."""
+    await _link_typed_dimension(
+        dimensions_link_client,
+        {"default_values": {"string": "Unknown", "integer": -1, "date": "1970-01-01"}},
+    )
+    sql = await _typed_projection(dimensions_link_client, v3_path)
+    assert "COALESCE(t2.plan_name, 'Unknown') AS plan_name" in sql
+    assert "COALESCE(t2.tier, -1) AS tier" in sql
+    assert "COALESCE(t2.started_on, DATE '1970-01-01') AS started_on" in sql
+    # No entry for these types: no COALESCE
+    for column in ("score", "price", "is_active", "updated_at", "payload"):
+        assert f"COALESCE(t2.{column}" not in sql
+        assert f"t2.{column}" in sql
+
+
+@pytest.mark.asyncio
+async def test_default_values_decimal_boolean_timestamp(
+    dimensions_link_client: AsyncClient,
+):
+    """Decimal, boolean and timestamp entries render as typed literals."""
+    await _link_typed_dimension(
+        dimensions_link_client,
+        {
+            "default_values": {
+                "decimal": 0.5,
+                "boolean": False,
+                "timestamp": "1970-01-01T00:00:00",
+            },
+        },
+    )
+    sql = await _typed_projection(dimensions_link_client, "/sql/measures/v3/")
+    # DECIMAL(10,2) and DOUBLE both take the decimal entry
+    assert "COALESCE(t2.score, 0.5) AS score" in sql
+    assert "COALESCE(t2.price, 0.5) AS price" in sql
+    assert "COALESCE(t2.is_active, False) AS is_active" in sql
+    assert "COALESCE(t2.updated_at, TIMESTAMP '1970-01-01 00:00:00')" in sql
+    for column in ("tier", "plan_name", "started_on", "payload"):
+        assert f"COALESCE(t2.{column}" not in sql
+
+
+@pytest.mark.asyncio
+async def test_default_value_still_applies_to_every_column(
+    dimensions_link_client: AsyncClient,
+):
+    """The deprecated default_value keeps wrapping every projected column."""
+    await _link_typed_dimension(dimensions_link_client, {"default_value": "Unknown"})
+    sql = await _typed_projection(dimensions_link_client, "/sql/measures/v3/")
+    for column in TYPED_PLAN_COLUMNS:
+        assert f"COALESCE(t2.{column}, " in sql
