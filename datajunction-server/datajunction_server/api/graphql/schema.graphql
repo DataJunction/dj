@@ -149,6 +149,7 @@ type DimensionLink {
   role: String
   foreignKeys: JSON!
   defaultValue: JSON
+  defaultValues: JSON
 }
 
 type DimensionReaggregateRule {
