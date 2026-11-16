@@ -1,3 +1,4 @@
+import duckdb
 import pytest
 
 from datajunction_server.construction.build_v3.builder import build_measures_sql
@@ -3800,14 +3801,19 @@ class TestNonDecomposableMetrics:
     @pytest.mark.parametrize("aggregation", ["MAX_BY", "MIN_BY"])
     @pytest.mark.parametrize("filtered", [False, True])
     @pytest.mark.parametrize("merged", [False, True])
+    @pytest.mark.parametrize("collision", [False, True])
     async def test_non_decomposable_metric_references_dimension_columns(
         self,
         client_with_build_v3,
         aggregation,
         filtered,
         merged,
+        collision,
     ):
         """Filtering a dimension input must not make it resolve on the fact table."""
+        dimension_input_name = (
+            "quantity" if collision else "account_days_since_allocation"
+        )
         response = await client_with_build_v3.post(
             "/nodes/dimension/",
             json={
@@ -3816,7 +3822,7 @@ class TestNonDecomposableMetrics:
                 "primary_key": ["date_id"],
                 "query": (
                     "SELECT date_id, "
-                    "day_of_week AS account_days_since_allocation, "
+                    f"day_of_week AS {dimension_input_name}, "
                     "month AS account_observation_day, year FROM v3.src_dates"
                 ),
             },
@@ -3838,7 +3844,7 @@ class TestNonDecomposableMetrics:
                 "name": "v3.conditional_line_total",
                 "mode": "published",
                 "query": (
-                    "SELECT CASE WHEN MAX(v3.allocation_day.account_days_since_allocation) + 1 "
+                    f"SELECT CASE WHEN MAX(v3.allocation_day.{dimension_input_name}) + 1 "
                     ">= MAX(v3.allocation_day.account_observation_day) "
                     f"THEN {aggregation}(line_total, quantity) END "
                     "FROM v3.order_details"
@@ -3854,7 +3860,7 @@ class TestNonDecomposableMetrics:
                 + (["v3.total_revenue"] if merged else []),
                 "dimensions": ["v3.allocation_day.year"],
                 "filters": (
-                    ["v3.allocation_day.account_days_since_allocation >= 0"]
+                    [f"v3.allocation_day.{dimension_input_name} >= 0"]
                     if filtered
                     else []
                 ),
@@ -3870,12 +3876,60 @@ class TestNonDecomposableMetrics:
         dimension_input = next(
             column
             for column in gg["columns"]
-            if column["name"] == "account_days_since_allocation"
+            if column["semantic_entity"] == f"v3.allocation_day.{dimension_input_name}"
         )
         assert dimension_input["type"] == "int"
         assert dimension_input["semantic_entity"] == (
-            "v3.allocation_day.account_days_since_allocation"
+            f"v3.allocation_day.{dimension_input_name}"
         )
+
+        metrics_response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.conditional_line_total"]
+                + (["v3.total_revenue"] if merged else []),
+                "dimensions": ["v3.allocation_day.year"],
+                "filters": [
+                    f"v3.allocation_day.{dimension_input_name} >= 0",
+                    "v3.allocation_day.account_observation_day >= 0",
+                ],
+            },
+        )
+        assert metrics_response.status_code == 200, metrics_response.text
+        # Dimension quantity ranks the rows in the opposite order to fact quantity.
+        # Executing both queries catches missing inputs and silent alias substitution.
+        with duckdb.connect(":memory:") as connection:
+            connection.execute("ATTACH ':memory:' AS \"default\"")
+            connection.execute('USE "default"')
+            connection.execute("CREATE SCHEMA v3")
+            connection.execute(
+                "CREATE TABLE v3.dates (date_id INT, day_of_week INT, month INT, year INT)",
+            )
+            connection.execute(
+                "INSERT INTO v3.dates VALUES (1, 100, 1, 2026), (2, 1, 1, 2026)",
+            )
+            connection.execute("CREATE TABLE v3.orders (order_id INT, order_date INT)")
+            connection.execute("INSERT INTO v3.orders VALUES (1, 1), (2, 2)")
+            connection.execute(
+                "CREATE TABLE v3.order_items (order_id INT, line_number INT, quantity INT, unit_price DOUBLE)",
+            )
+            connection.execute(
+                "INSERT INTO v3.order_items VALUES (1, 1, 1, 100), (2, 1, 2, 10)",
+            )
+            measures_sql = gg["sql"].replace("default.v3.", '"default".v3.')
+            cursor = connection.execute(measures_sql)
+            assert [
+                description[0] for description in cursor.description
+            ] == column_names
+            assert len(cursor.fetchall()) == 2
+            sql = metrics_response.json()["sql"].replace("default.v3.", '"default".v3.')
+            expected = (2026, 20 if aggregation == "MAX_BY" else 100)
+            if merged:
+                expected += (120,)
+            assert connection.execute(sql).fetchall() == [expected]
+
+        if collision:
+            return
 
         # The MAX terms cannot be pre-aggregated separately from MAX_BY/MIN_BY.
         # Without the filter, auto-added dimensions already project both inputs
@@ -3894,13 +3948,9 @@ class TestNonDecomposableMetrics:
                 "t2.year, "
                 + ("" if filtered else "t2.account_days_since_allocation, ")
                 + "t2.account_observation_day, t1.line_number, t1.order_id, "
-                "t1.line_total AS line_total, "
-                + (
-                    "t2.account_days_since_allocation AS account_days_since_allocation, "
-                    if filtered
-                    else ""
-                )
-                + "t1.quantity AS quantity"
+                "t1.line_total, "
+                + ("t2.account_days_since_allocation, " if filtered else "")
+                + "t1.quantity"
             )
         assert_sql_equal(
             gg["sql"],
@@ -4149,8 +4199,8 @@ class TestNonDecomposableMetrics:
               t1.status,
               t1.line_number,
               t1.order_id,
-              t1.line_total line_total,
-              t1.product_id product_id
+              t1.line_total,
+              t1.product_id
             FROM v3_order_details t1
             """,
         )
