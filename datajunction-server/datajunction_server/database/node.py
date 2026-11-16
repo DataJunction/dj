@@ -1103,7 +1103,12 @@ class Node(Base):
         """
         filters = [is_(Node.deactivated_at, None)]
         if prefix:
-            filters.append(Node.name.like(f"{prefix}%"))  # type: ignore
+            escaped_prefix = (
+                prefix.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+            )
+            filters.append(  # type: ignore
+                Node.name.like(f"{escaped_prefix}%", escape="!"),
+            )
         if node_type:
             filters.append(Node.type == node_type)
         return filters

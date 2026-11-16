@@ -83,6 +83,20 @@ async def test_read_node(client_with_roads: AsyncClient) -> None:
         "default.hard_hat_2",
     }
 
+    response = await client_with_roads.get("/nodes/?prefix=default.hard_hat")
+    assert response.status_code == 200
+    assert set(response.json()) == {
+        "default.hard_hats",
+        "default.hard_hat_state",
+        "default.hard_hat_to_delete",
+        "default.hard_hat",
+        "default.hard_hat_2",
+    }
+
+    response = await client_with_roads.get("/nodes/?prefix=default.ha_")
+    assert response.status_code == 200
+    assert response.json() == []
+
 
 @pytest.mark.asyncio
 async def test_read_nodes(

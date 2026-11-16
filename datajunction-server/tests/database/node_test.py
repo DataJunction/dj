@@ -1,5 +1,6 @@
 import pytest
 import pytest_asyncio
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datajunction_server.database.node import Node, NodeType
@@ -9,6 +10,46 @@ from datajunction_server.database.user import OAuthProvider, User
 # `Node.name.in_(names)` expands to one bind parameter per name, so this needs
 # to comfortably clear that limit to prove the fix.
 _OVER_PARAM_LIMIT = 70_000
+
+
+def test_find_filters_treat_like_metacharacters_literally():
+    """
+    LIKE metacharacters in a prefix must match literal node-name characters.
+    """
+    names = [
+        "test.hard_hat",
+        "test.hardXhat",
+        "test.percent%literal",
+        "test.percentXliteral",
+        "test.bang!literal",
+        "test.bangXliteral",
+        "test.combo!%literal",
+        "test.combo!Xliteral",
+        "test.combo!_literal",
+        "test.combo!xliteral",
+    ]
+    engine = create_engine("sqlite://")
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text("CREATE TABLE node (name TEXT, deactivated_at TIMESTAMP)"),
+            )
+            connection.execute(
+                text("INSERT INTO node (name) VALUES (:name)"),
+                [{"name": name} for name in names],
+            )
+
+            for prefix, expected in [
+                ("test.hard_hat", ["test.hard_hat"]),
+                ("test.percent%", ["test.percent%literal"]),
+                ("test.bang!", ["test.bang!literal"]),
+                ("test.combo!%", ["test.combo!%literal"]),
+                ("test.combo!_", ["test.combo!_literal"]),
+            ]:
+                statement = select(Node.name).where(*Node._find_filters(prefix))
+                assert connection.execute(statement).scalars().all() == expected
+    finally:
+        engine.dispose()
 
 
 @pytest_asyncio.fixture
