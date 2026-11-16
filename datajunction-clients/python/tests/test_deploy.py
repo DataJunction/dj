@@ -872,7 +872,7 @@ def test_push_threads_allow_empty(tmp_path):
 
     captured = {}
 
-    def fake_deploy(spec):
+    def fake_deploy(spec, semantic_fingerprints=True):
         captured["spec"] = spec
         # Short-circuit before the poll/print machinery -- we only care that
         # the spec handed to the server carries the flag.
@@ -892,7 +892,7 @@ def test_push_omits_allow_empty_by_default(tmp_path):
 
     captured = {}
 
-    def fake_deploy(spec):
+    def fake_deploy(spec, semantic_fingerprints=True):
         captured["spec"] = spec
         raise DJClientException("stop")
 
@@ -1019,6 +1019,39 @@ def test_push_force_sets_flag_in_spec(monkeypatch, tmp_path):
 
     spec_sent = client.deploy.call_args[0][0]
     assert spec_sent.get("force") is True
+    assert client.deploy.call_args.kwargs == {"semantic_fingerprints": True}
+
+
+def test_push_semantic_fingerprints_off(tmp_path, monkeypatch):
+    """push(semantic_fingerprints=False) forwards False to client.deploy."""
+    (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
+    client = MagicMock()
+    client.deploy.return_value = {
+        "uuid": "abc",
+        "status": "success",
+        "results": [],
+        "namespace": "foo",
+    }
+    svc = DeploymentService(client, console=Console(file=io.StringIO()))
+    monkeypatch.setattr(time, "sleep", lambda _: None)
+
+    svc.push(tmp_path, semantic_fingerprints=False)
+
+    assert client.deploy.call_args.kwargs == {"semantic_fingerprints": False}
+
+
+def test_get_impact_semantic_fingerprints_off(tmp_path):
+    """get_impact(semantic_fingerprints=False) forwards False to the client."""
+    (tmp_path / "dj.yaml").write_text(yaml.safe_dump({"namespace": "foo"}))
+    client = MagicMock()
+    client.get_deployment_impact.return_value = {"namespace": "foo"}
+    svc = DeploymentService(client, console=Console(file=io.StringIO()))
+
+    svc.get_impact(tmp_path, display=False, semantic_fingerprints=False)
+
+    assert client.get_deployment_impact.call_args.kwargs == {
+        "semantic_fingerprints": False,
+    }
 
 
 def test_push_without_force_does_not_set_flag(monkeypatch, tmp_path):

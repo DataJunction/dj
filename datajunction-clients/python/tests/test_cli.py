@@ -1553,6 +1553,58 @@ class TestImpactAnalysis:
         assert kwargs.get("force_nodes") == ["ns.first", "ns.second"]
         assert kwargs.get("force") is False
 
+    @pytest.mark.parametrize("command", ["push", "deploy"])
+    @pytest.mark.parametrize(
+        "extra_args, expected",
+        [([], True), (["--no-semantic-fingerprints"], False)],
+    )
+    def test_semantic_fingerprints_flag_passed_to_service(
+        self,
+        tmp_path,
+        command,
+        extra_args,
+        expected,
+    ):
+        """--no-semantic-fingerprints reaches the service as False."""
+        from datajunction.cli import DJCLI
+
+        cli = DJCLI(builder_client=mock.MagicMock())
+        with patch.object(cli.deployment_service, "push") as mock_push:
+            mock_push.return_value = None
+            with patch.object(
+                sys,
+                "argv",
+                ["dj", command, str(tmp_path), *extra_args],
+            ):
+                cli.run()
+
+        _, kwargs = mock_push.call_args
+        assert kwargs["semantic_fingerprints"] is expected
+
+    @pytest.mark.parametrize("command", ["push", "deploy"])
+    def test_semantic_fingerprints_flag_passed_to_dryrun(self, tmp_path, command):
+        """--no-semantic-fingerprints with --dryrun reaches get_impact."""
+        from datajunction.cli import DJCLI
+
+        cli = DJCLI(builder_client=mock.MagicMock())
+        with patch.object(cli.deployment_service, "get_impact") as mock_impact:
+            mock_impact.return_value = {}
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "dj",
+                    command,
+                    str(tmp_path),
+                    "--dryrun",
+                    "--no-semantic-fingerprints",
+                ],
+            ):
+                cli.run()
+
+        _, kwargs = mock_impact.call_args
+        assert kwargs["semantic_fingerprints"] is False
+
     def test_push_without_force_node_flag_defaults_none(self, tmp_path):
         """Omitting --force-node on `dj push` must pass force_nodes=None."""
         from datajunction.cli import DJCLI

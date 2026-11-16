@@ -49,6 +49,7 @@ class DJCLI:
         force_nodes: list[str] | None = None,
         allow_empty: bool = False,
         format: str = "text",
+        semantic_fingerprints: bool = True,
     ):
         """
         Alias for deploy without dryrun.
@@ -61,6 +62,7 @@ class DJCLI:
             force_nodes=force_nodes,
             allow_empty=allow_empty,
             format=format,
+            semantic_fingerprints=semantic_fingerprints,
         )
 
     def dryrun(
@@ -68,6 +70,7 @@ class DJCLI:
         directory: str,
         namespace: str | None = None,
         format: str = "text",
+        semantic_fingerprints: bool = True,
     ):
         """
         Perform a dry run of deployment, showing impact analysis.
@@ -80,6 +83,7 @@ class DJCLI:
                 namespace=namespace,
                 console=console,
                 display=(format != "json"),
+                semantic_fingerprints=semantic_fingerprints,
             )
 
             if format == "json":
@@ -875,6 +879,11 @@ class DJCLI:
             action="store_true",
             help="Force update all nodes even if they are unchanged",
         )
+        deploy_parser.add_argument(
+            "--no-semantic-fingerprints",
+            action="store_true",
+            help="Skip semantic fingerprints on the server (faster)",
+        )
 
         # `dj push <directory>` - primary deployment command
         push_parser = subparsers.add_parser(
@@ -931,6 +940,11 @@ class DJCLI:
             default="text",
             choices=["text", "json"],
             help="Output format for the deployment result (default: text)",
+        )
+        push_parser.add_argument(
+            "--no-semantic-fingerprints",
+            action="store_true",
+            help="Skip semantic fingerprints on the server (faster)",
         )
         # Deployment source tracking flags
         push_parser.add_argument(
@@ -1504,10 +1518,19 @@ class DJCLI:
         if args.command == "deploy":
             # deploy is similar to push but supports --dryrun
             if args.dryrun:
-                self.dryrun(args.directory, format=args.format)
+                self.dryrun(
+                    args.directory,
+                    format=args.format,
+                    semantic_fingerprints=not args.no_semantic_fingerprints,
+                )
                 return
             try:
-                self.push(args.directory, verbose=args.verbose, force=args.force)
+                self.push(
+                    args.directory,
+                    verbose=args.verbose,
+                    force=args.force,
+                    semantic_fingerprints=not args.no_semantic_fingerprints,
+                )
             except DJDeploymentFailure:
                 raise SystemExit(1)
         elif args.command == "push":
@@ -1517,6 +1540,7 @@ class DJCLI:
                     args.directory,
                     namespace=args.namespace,
                     format=args.format,
+                    semantic_fingerprints=not args.no_semantic_fingerprints,
                 )
                 return
             # CLI flags override env vars for deployment source tracking
@@ -1539,6 +1563,7 @@ class DJCLI:
                     force_nodes=args.force_nodes,
                     allow_empty=args.allow_empty,
                     format=args.format,
+                    semantic_fingerprints=not args.no_semantic_fingerprints,
                 )
             except DJDeploymentFailure:
                 # Errors already displayed in the deployment panel (or, in

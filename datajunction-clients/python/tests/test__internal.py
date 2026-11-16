@@ -38,6 +38,51 @@ class TestDJClient:  # pylint: disable=too-many-public-methods, protected-access
             json={"email": "foo", "username": "bar", "password": "baz"},
         )
 
+    def test_deploy_fingerprint_params(self, client):
+        """
+        `deploy()` sends `semantic_fingerprints=false` only when disabled.
+        """
+        client._session.post = MagicMock(
+            return_value=MagicMock(json=MagicMock(return_value={"uuid": "abc"})),
+        )
+        spec = {"namespace": "test.ns", "nodes": []}
+
+        assert client.deploy(spec) == {"uuid": "abc"}
+        assert client._session.post.call_args == call(
+            "/deployments",
+            json=spec,
+            timeout=client._timeout,
+        )
+
+        client.deploy(spec, semantic_fingerprints=False)
+        assert client._session.post.call_args == call(
+            "/deployments",
+            json=spec,
+            timeout=client._timeout,
+            params={"semantic_fingerprints": "false"},
+        )
+
+    def test_get_deployment_impact_fingerprint_params(self, client):
+        """
+        `get_deployment_impact()` sends `semantic_fingerprints=false`
+        only when disabled.
+        """
+        client._session.post = MagicMock(
+            return_value=MagicMock(
+                json=MagicMock(return_value={"uuid": "abc", "status": "success"}),
+            ),
+        )
+        spec = {"namespace": "test.ns", "nodes": []}
+
+        client.get_deployment_impact(spec, semantic_fingerprints=False)
+        assert client._session.post.call_args == call(
+            "/deployments/impact",
+            json=spec,
+            headers={"Prefer": "respond-async"},
+            timeout=client._timeout,
+            params={"semantic_fingerprints": "false"},
+        )
+
     def test_get_deployment_impact_polls_until_terminal(self, client):
         """
         `get_deployment_impact()` submits the dry-run with the required

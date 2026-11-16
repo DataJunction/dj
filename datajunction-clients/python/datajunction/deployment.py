@@ -142,6 +142,7 @@ class DeploymentService:
         force_nodes: list[str] | None = None,
         allow_empty: bool = False,
         format: str = "text",
+        semantic_fingerprints: bool = True,
     ):
         """
         Push a local project to a namespace.
@@ -201,7 +202,10 @@ class DeploymentService:
             deployment_spec["force_nodes"] = list(force_nodes)
         if allow_empty:
             deployment_spec["allow_empty"] = True
-        deployment_data = self.client.deploy(deployment_spec)
+        deployment_data = self.client.deploy(
+            deployment_spec,
+            semantic_fingerprints=semantic_fingerprints,
+        )
         deployment_uuid = deployment_data["uuid"]
 
         # console.print(f"[bold]Deployment initiated:[/bold] UUID {deployment_uuid}\n")
@@ -269,6 +273,7 @@ class DeploymentService:
         console: Console | None = None,
         verbose: bool = False,
         display: bool = True,
+        semantic_fingerprints: bool = True,
     ) -> dict[str, Any]:
         """
         Get impact analysis for a deployment without deploying.
@@ -298,7 +303,10 @@ class DeploymentService:
                 branch=source.get("branch") or branch,
             )
         with Status("Analyzing impact...", console=console):
-            data = self.client.get_deployment_impact(deployment_spec)
+            data = self.client.get_deployment_impact(
+                deployment_spec,
+                semantic_fingerprints=semantic_fingerprints,
+            )
         deployment = DeploymentInfo.from_dict(data)
         if display:
             print_results(
