@@ -1777,22 +1777,82 @@ describe('<NamespaceHeader />', () => {
       ).not.toBeInTheDocument();
     });
 
-    it('shows read-only Git menu for flat namespace even when git_only is false', async () => {
-      // detectShape returns 'flat' when github_repo_path + git_branch present.
-      // isReadOnly is true → isGitManaged is true → read-only toolbar (GitMenu, no strip).
+    it('locks a flat repo owner even when git_only is false', async () => {
+      // The server auto-locks the namespace that owns the repo path, so the UI
+      // does too.
       renderHeader({
         namespace: 'flat.ns',
         gitConfig: {
           github_repo_path: 'corp/some-repo',
           git_branch: 'main',
           git_only: false,
+          git_root_namespace: 'flat.ns',
+        },
+      });
+      await waitFor(() => {
+        expect(screen.getByText('Read-only')).toBeInTheDocument();
+      });
+      expect(screen.getByTestId('git-menu')).toBeInTheDocument();
+    });
+
+    it('leaves a child of a flat repo owner editable when git_only is false', async () => {
+      renderHeader({
+        namespace: 'flat.ns.child',
+        gitConfig: {
+          github_repo_path: 'corp/some-repo',
+          git_branch: 'main',
+          git_only: false,
+          git_root_namespace: 'flat.ns',
         },
       });
       await waitFor(() => {
         expect(screen.getByTestId('git-menu')).toBeInTheDocument();
       });
-      // Status strip is removed.
+      expect(screen.queryByText('Read-only')).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: /new branch/i }),
+      ).not.toBeInTheDocument();
       expect(document.querySelector('.git-status-strip')).toBeNull();
+    });
+
+    it('locks a child of a flat repo owner when git_only is true', async () => {
+      renderHeader({
+        namespace: 'flat.ns.child',
+        gitConfig: {
+          github_repo_path: 'corp/some-repo',
+          git_branch: 'main',
+          git_only: true,
+          git_root_namespace: 'flat.ns',
+        },
+      });
+      await waitFor(() => {
+        expect(screen.getByText('Read-only')).toBeInTheDocument();
+      });
+      expect(screen.getByTestId('git-menu')).toBeInTheDocument();
+    });
+
+    it('keeps a git-deployed child of a flat repo owner editable when git_only is false', async () => {
+      renderHeaderState({
+        namespace: 'flat.ns.child',
+        gitConfig: {
+          github_repo_path: 'corp/some-repo',
+          git_branch: 'main',
+          git_only: false,
+          git_root_namespace: 'flat.ns',
+        },
+        sources: {
+          total_deployments: 3,
+          primary_source: {
+            type: 'git',
+            repository: 'corp/some-repo',
+            branch: 'main',
+          },
+        },
+      });
+      await waitFor(() => {
+        expect(screen.getByTestId('git-menu')).toBeInTheDocument();
+      });
+      expect(screen.queryByText('Read-only')).not.toBeInTheDocument();
     });
   });
 

@@ -293,9 +293,16 @@ export default function NamespaceHeader({
   // (parentGitConfig), which has finished loading by the time the verdict fires
   // below — setGitConfigLoading(false) runs after that fetch.
   const onSubBranch = !!branchNamespace && branchNamespace !== gitRootNamespace;
+  // A flat namespace inside a flat repo owner inherits its repo and branch.
+  // The server locks the owner itself; its children follow `git_only`.
+  const isFlatChild =
+    !onSubBranch &&
+    gitShape === 'flat' &&
+    !!gitConfig?.git_root_namespace &&
+    gitConfig.git_root_namespace !== namespace;
   const isDefaultBranch = onSubBranch
     ? gitConfig?.git_branch === rootDefaultBranch
-    : gitShape === 'root' || gitShape === 'flat';
+    : gitShape === 'root' || (gitShape === 'flat' && !isFlatChild);
   const isReadOnly = !!gitConfig?.git_only || isDefaultBranch;
   const isGitDeployed =
     !!sources &&
@@ -307,7 +314,8 @@ export default function NamespaceHeader({
   // root, or an unrecognized-but-git-deployed shape), which `isReadOnly`
   // already covers for the recognized cases.
   const isFeatureBranch = onSubBranch && !isDefaultBranch;
-  const isGitManaged = isReadOnly || (isGitDeployed && !isFeatureBranch);
+  const isGitManaged =
+    isReadOnly || (isGitDeployed && !isFeatureBranch && !isFlatChild);
   // Repo config is owned by the git root. On a branch, edits target the root
   // (its config is parentGitConfig — branches sit one level below the root); a
   // flat or plain namespace owns its own config. This keeps flat namespaces
@@ -1219,6 +1227,18 @@ export default function NamespaceHeader({
                       onDelete={() => setShowDeleteBranch(true)}
                     />
                   </>
+                );
+              }
+
+              // Editable flat child: repo info and settings only.
+              if (isFlatChild) {
+                return (
+                  <GitMenu
+                    repoPath={gitConfig?.github_repo_path}
+                    branch={repoBranch}
+                    viewInGitUrl={gitUrl}
+                    onOpenSettings={() => setShowGitSettings(true)}
+                  />
                 );
               }
 
