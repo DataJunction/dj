@@ -1122,8 +1122,9 @@ class Node(Base):
         session's identity map is left untouched.
         """
         statement = select(Node.name).where(*cls._find_filters(prefix, node_type))
-        result = await session.execute(statement)
-        return list(result.scalars().all())
+        connection = await session.connection()
+        result = await connection.execute(statement)
+        return [name for (name,) in result.tuples()]
 
     @classmethod
     async def main_branch_names(

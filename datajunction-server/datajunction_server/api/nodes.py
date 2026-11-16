@@ -4,6 +4,7 @@ Node related APIs.
 
 import logging
 import os
+import time
 from collections.abc import Callable
 from http import HTTPStatus
 from typing import cast
@@ -301,10 +302,23 @@ async def list_nodes(
     List the available nodes.
     """
     # Only the names are needed, here and for the access check.
+    start = time.perf_counter()
     node_names = await Node.find_names(session, prefix, node_type)
-    for node_name in node_names:
-        access_checker.add_request_by_node_name(node_name, access.ResourceAction.READ)
-    return await access_checker.approved_resource_names()
+    queried = time.perf_counter()
+    approved = await access_checker.approved_node_names(
+        node_names,
+        access.ResourceAction.READ,
+    )
+    done = time.perf_counter()
+    _logger.info(
+        "list_nodes user=%s names=%d approved=%d query_ms=%.0f authorize_ms=%.0f",
+        access_checker.auth_context.username,
+        len(node_names),
+        len(approved),
+        (queried - start) * 1000,
+        (done - queried) * 1000,
+    )
+    return approved
 
 
 @router.get("/nodes/details/", response_model=list[NodeIndexItem])

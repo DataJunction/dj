@@ -185,6 +185,18 @@ class AccessChecker:
             for decision in await self.check(on_denied=AccessDenialMode.FILTER)
         ]
 
+    async def approved_node_names(
+        self,
+        names: list[str],
+        action: ResourceAction,
+    ) -> list[str]:
+        """Approved names among the given nodes; ignores queued requests."""
+        return get_authorization_service().approved_node_names(
+            self.auth_context,
+            names,
+            action,
+        )
+
     async def approved_resource_keys(self) -> set[tuple[ResourceType, str]]:
         """Get approved resources while preserving their types."""
         return {

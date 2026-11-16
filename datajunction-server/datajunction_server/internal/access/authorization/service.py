@@ -18,6 +18,7 @@ from datajunction_server.internal.access.authorization.context import (
 )
 from datajunction_server.models.access import (
     AccessDecision,
+    Resource,
     ResourceAction,
     ResourceRequest,
     ResourceType,
@@ -93,6 +94,25 @@ class AuthorizationService(ABC):
         Returns:
             The same list of requests with approved=True/False set on each
         """
+
+    def approved_node_names(
+        self,
+        auth_context: AuthContext,
+        names: list[str],
+        verb: ResourceAction,
+    ) -> list[str]:
+        """Return the node names the caller may access, in input order."""
+        decisions = self.authorize(
+            auth_context,
+            [
+                ResourceRequest(
+                    verb=verb,
+                    access_object=Resource(name=name, resource_type=ResourceType.NODE),
+                )
+                for name in names
+            ],
+        )
+        return [d.request.access_object.name for d in decisions if d.approved]
 
     def authorize_explicit_grants(
         self,
@@ -170,16 +190,7 @@ class RBACAuthorizationService(AuthorizationService):
             Same list of requests with approved=True/False set
         """
         if auth_context.is_admin:
-            logged_requests = requests[:20]
-            audit_logger.warning(
-                "event=rbac_admin_bypass reason=admin_bypass actor=%s actor_id=%s "
-                "request_count=%d requests=%s truncated=%s",
-                auth_context.username,
-                auth_context.user_id,
-                len(requests),
-                ",".join(str(request) for request in logged_requests),
-                len(requests) > len(logged_requests),
-            )
+            self._log_admin_bypass(auth_context, requests[:20], len(requests))
             return [
                 AccessDecision(
                     request=request,
@@ -199,6 +210,83 @@ class RBACAuthorizationService(AuthorizationService):
             )
             for request in requests
         ]
+
+    @staticmethod
+    def _log_admin_bypass(
+        auth_context: AuthContext,
+        logged_requests: list[ResourceRequest],
+        request_count: int,
+    ) -> None:
+        """Audit-log an admin bypass."""
+        audit_logger.warning(
+            "event=rbac_admin_bypass reason=admin_bypass actor=%s actor_id=%s "
+            "request_count=%d requests=%s truncated=%s",
+            auth_context.username,
+            auth_context.user_id,
+            request_count,
+            ",".join(str(request) for request in logged_requests),
+            request_count > len(logged_requests),
+        )
+
+    def approved_node_names(
+        self,
+        auth_context: AuthContext,
+        names: list[str],
+        verb: ResourceAction,
+    ) -> list[str]:
+        """
+        Return the node names the caller may access, in input order.
+
+        Same decisions as authorize(), without a request object per name. Only
+        scopes and rules that cover the verb can change a decision.
+        """
+        if auth_context.is_admin:
+            self._log_admin_bypass(
+                auth_context,
+                [
+                    ResourceRequest(
+                        verb=verb,
+                        access_object=Resource(
+                            name=name,
+                            resource_type=ResourceType.NODE,
+                        ),
+                    )
+                    for name in names[:20]
+                ],
+                len(names),
+            )
+            return list(names)
+
+        def covers_verb(scope: "RoleScope") -> bool:
+            granted = self.PERMISSION_HIERARCHY.get(scope.action, {scope.action})
+            return verb in granted
+
+        explicit = [s for s in self.explicit_scopes(auth_context) if covers_verb(s)]
+        defaults = [s for s in auth_context.default_scopes if covers_verb(s)]
+        rules = [rule for rule in self.restrictive_rules() if rule.action == verb]
+        fallback_approved = settings.default_access_policy == "permissive"
+        if not (explicit or defaults or rules):
+            return list(names) if fallback_approved else []
+
+        def in_any_scope(scopes: list, name: str) -> bool:
+            return any(
+                self._resource_in_scope(
+                    scope.scope_type,
+                    scope.scope_value,
+                    ResourceType.NODE,
+                    name,
+                )
+                for scope in scopes
+            )
+
+        def is_approved(name: str) -> bool:
+            if in_any_scope(explicit, name):
+                return True
+            if in_any_scope(rules, name):
+                return False
+            return in_any_scope(defaults, name) or fallback_approved
+
+        return [name for name in names if is_approved(name)]
 
     @classmethod
     def explicit_scopes(cls, auth_context: AuthContext) -> list["RoleScope"]:
@@ -555,6 +643,15 @@ class PassthroughAuthorizationService(AuthorizationService):
     ) -> list[AccessDecision]:
         """Approve all requests without checks (sync)."""
         return [AccessDecision(request=request, approved=True) for request in requests]
+
+    def approved_node_names(
+        self,
+        auth_context: AuthContext,
+        names: list[str],
+        verb: ResourceAction,
+    ) -> list[str]:
+        """Approve every name."""
+        return list(names)
 
     def authorize_explicit_grants(
         self,
