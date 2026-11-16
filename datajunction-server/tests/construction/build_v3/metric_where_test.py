@@ -464,6 +464,17 @@ async def test_where_is_rejected_with_window_metrics(client_with_build_v3):
             "A metric WHERE can only use parent columns, not v3.product.",
         ),
         (
+            "SELECT SUM(line_total) FROM v3.order_details "
+            "WHERE order_id IN (SELECT order_id FROM v3.order_details)",
+            400,
+            "A metric WHERE cannot contain a subquery.",
+        ),
+        (
+            "SELECT SUM(line_total) FROM v3.order_details WHERE SUM(line_total) > 0",
+            400,
+            "A metric WHERE cannot contain an aggregate function.",
+        ),
+        (
             "SELECT SUM(line_total) FROM v3.order_details WHERE nope = 'x'",
             422,
             "Metric definition references missing columns: nope",
@@ -475,7 +486,14 @@ async def test_where_is_rejected_with_window_metrics(client_with_build_v3):
             "A metric WHERE is not supported with this aggregate.",
         ),
     ],
-    ids=["derived", "dimension-attribute", "missing-column", "not-decomposable"],
+    ids=[
+        "derived",
+        "dimension-attribute",
+        "subquery",
+        "aggregate",
+        "missing-column",
+        "not-decomposable",
+    ],
 )
 async def test_invalid_where_is_rejected_on_create(
     client_with_build_v3,
@@ -1053,3 +1071,11 @@ async def test_combined_measures_keep_columns_a_later_group_needs(
         FROM gg1 FULL OUTER JOIN gg2 ON gg1.category = gg2.category
         """,
     )
+
+
+@pytest.mark.asyncio
+async def test_openapi_keeps_component_fields(client_with_build_v3):
+    """The omit-empty-where serializer must not flatten the response schema."""
+    response = await client_with_build_v3.get("/openapi.json")
+    schema = response.json()["components"]["schemas"]["MetricComponent"]
+    assert {"name", "expression", "rule", "where"} <= set(schema["properties"])

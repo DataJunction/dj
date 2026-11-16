@@ -1422,6 +1422,17 @@ def _validate_metric_where(query_ast: ast.Query) -> None:
         raise DJInvalidMetricQueryException(
             "A WHERE clause is only supported on base metrics.",
         )
+    if any(True for _ in select.where.find_all(ast.Select)):  # type: ignore
+        raise DJInvalidMetricQueryException(
+            "A metric WHERE cannot contain a subquery.",
+        )
+    if any(
+        func.is_aggregation()
+        for func in select.where.find_all(ast.Function)  # type: ignore
+    ):
+        raise DJInvalidMetricQueryException(
+            "A metric WHERE cannot contain an aggregate function.",
+        )
     own_names: set[str] = set()
     for table in select.from_.find_all(ast.Table):
         own_names.add(table.name.identifier())

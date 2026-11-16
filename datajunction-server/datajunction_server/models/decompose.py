@@ -147,8 +147,8 @@ class MetricComponent(BaseModel):
     serialize_type: str | None = None
 
     @model_serializer(mode="wrap")
-    def _omit_empty_where(self, handler: Any) -> dict[str, Any]:
-        """Omit `where` when unset."""
+    def _omit_empty_where(self, handler: Any):  # type: ignore[no-untyped-def]
+        """Omit `where` when unset. Unannotated so the JSON schema keeps its fields."""
         data = handler(self)
         if data.get("where") is None:
             data.pop("where", None)
