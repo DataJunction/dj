@@ -263,7 +263,11 @@ class RBACAuthorizationService(AuthorizationService):
 
         explicit = [s for s in self.explicit_scopes(auth_context) if covers_verb(s)]
         defaults = [s for s in auth_context.default_scopes if covers_verb(s)]
-        rules = [rule for rule in self.restrictive_rules() if rule.action == verb]
+        rules = [
+            rule
+            for rule in self.restrictive_rules(auth_context.governed_boundaries)
+            if rule.action == verb
+        ]
         fallback_approved = settings.default_access_policy == "permissive"
         if not (explicit or defaults or rules):
             return list(names) if fallback_approved else []

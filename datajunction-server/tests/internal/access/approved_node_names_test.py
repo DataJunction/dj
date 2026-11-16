@@ -36,6 +36,7 @@ NAMES = [
     "top",
     "",
 ]
+BOUNDARIES = ["a", "a.b", "c"]
 SCOPE_VALUES = ["*", "a.*", "a.b.*", "a.b.x", "a.x", "c.*", "c.d.x", ".*", "top"]
 
 
@@ -82,6 +83,7 @@ def _context(rng: random.Random, is_admin: bool = False) -> AuthContext:
         role_assignments=cast(list[RoleAssignment], assignments),
         is_admin=is_admin,
         default_scopes=[_scope(rng) for _ in range(rng.randint(0, 2))],
+        governed_boundaries=tuple(rng.sample(BOUNDARIES, k=rng.randint(0, 2))),
     )
 
 
