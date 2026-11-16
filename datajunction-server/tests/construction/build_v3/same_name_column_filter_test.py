@@ -663,3 +663,199 @@ async def test_filter_is_not_bound_through_renamed_columns(renamed_status_client
     )
     rows = conn.execute(sql.replace("default.v3.", '"default".v3.')).fetchall()
     assert rows == [(5.0,)]
+
+
+async def build_window_nodes(client, own_column):
+    """`meta` reads the `window` dimension. With `own_column`, `meta` also
+    has a computed column of the same name as the dimension's attribute."""
+    await create_source(
+        client,
+        "v3.mr_window_src",
+        "mr_window",
+        [("observation_window", "string"), ("window_end", "int")],
+    )
+    await create_source(
+        client,
+        "v3.mr_plans_src",
+        "mr_plans",
+        [("test_id", "int"), ("end_date", "int")],
+    )
+    await create_source(
+        client,
+        "v3.mr_facts_src",
+        "mr_facts",
+        [("test_id", "int"), ("amount", "double")],
+    )
+    await post(
+        client,
+        "/nodes/dimension/",
+        {
+            "name": "v3.mr_window",
+            "query": "SELECT observation_window, window_end FROM v3.mr_window_src",
+            "mode": "published",
+            "primary_key": ["observation_window"],
+        },
+    )
+    extra = ", MAX(w.window_end) AS observation_window" if own_column else ""
+    await post(
+        client,
+        "/nodes/dimension/",
+        {
+            "name": "v3.mr_meta",
+            "query": (
+                "SELECT p.test_id, MAX(p.end_date + w.window_end) AS end_dt"
+                f"{extra} FROM v3.mr_plans_src p CROSS JOIN "
+                "(SELECT observation_window AS obs_window, window_end "
+                "FROM v3.mr_window) w GROUP BY p.test_id"
+            ),
+            "mode": "published",
+            "primary_key": ["test_id"],
+        },
+    )
+    await post(
+        client,
+        "/nodes/transform/",
+        {
+            "name": "v3.mr_facts",
+            "query": (
+                "SELECT f.test_id, f.amount, w.observation_window "
+                "FROM v3.mr_facts_src f CROSS JOIN "
+                "(SELECT observation_window FROM v3.mr_window) w "
+                "INNER JOIN v3.mr_meta m ON f.test_id = m.test_id"
+            ),
+            "mode": "published",
+            "primary_key": ["test_id", "observation_window"],
+        },
+    )
+    await post(
+        client,
+        "/nodes/v3.mr_facts/link",
+        {
+            "dimension_node": "v3.mr_window",
+            "join_type": "left",
+            "join_cardinality": "many_to_one",
+            "join_on": "v3.mr_facts.observation_window = v3.mr_window.observation_window",
+        },
+    )
+    await post(
+        client,
+        "/nodes/metric/",
+        {
+            "name": "v3.mr_amount",
+            "query": "SELECT SUM(amount) FROM v3.mr_facts",
+            "mode": "published",
+        },
+    )
+    response = await client.get(
+        "/sql/measures/v3/",
+        params={
+            "metrics": ["v3.mr_amount"],
+            "dimensions": ["v3.mr_window.observation_window"],
+            "filters": ["v3.mr_window.observation_window IN ('1-35')"],
+        },
+    )
+    assert response.status_code == 200, response.text
+    return get_first_grain_group(response.json())["sql"]
+
+
+def window_rows(sql):
+    conn = duckdb.connect(":memory:")
+    conn.execute("""ATTACH ':memory:' AS "default" """)
+    conn.execute("""USE "default" """)
+    conn.execute("CREATE SCHEMA v3")
+    conn.execute(
+        """
+        CREATE TABLE v3.mr_window (observation_window TEXT, window_end INT);
+        INSERT INTO v3.mr_window VALUES ('1-35', 35), ('1-70', 70);
+        CREATE TABLE v3.mr_plans (test_id INT, end_date INT);
+        INSERT INTO v3.mr_plans VALUES (1, 100);
+        CREATE TABLE v3.mr_facts (test_id INT, amount DOUBLE);
+        INSERT INTO v3.mr_facts VALUES (1, 5);
+        """,
+    )
+    return conn.execute(sql.replace("default.v3.", '"default".v3.')).fetchall()
+
+
+@pytest.mark.asyncio
+async def test_dimension_reading_the_filtered_dimension_is_filtered(
+    client_with_build_v3,
+):
+    sql = await build_window_nodes(client_with_build_v3, own_column=False)
+    assert_sql_equal(
+        sql,
+        """
+        WITH v3_mr_window AS (
+          SELECT observation_window, window_end
+          FROM default.v3.mr_window
+          WHERE observation_window IN ('1-35')
+        ),
+        v3_mr_meta AS (
+          SELECT p.test_id
+          FROM default.v3.mr_plans p
+          CROSS JOIN (
+            SELECT observation_window AS obs_window, window_end
+            FROM v3_mr_window
+            WHERE v3_mr_window.observation_window IN ('1-35')
+          ) w
+          GROUP BY p.test_id
+        ),
+        v3_mr_facts AS (
+          SELECT f.amount, w.observation_window
+          FROM default.v3.mr_facts f
+          CROSS JOIN (
+            SELECT observation_window
+            FROM v3_mr_window
+            WHERE v3_mr_window.observation_window IN ('1-35')
+          ) w
+          INNER JOIN v3_mr_meta m ON f.test_id = m.test_id
+          WHERE w.observation_window IN ('1-35')
+        )
+        SELECT t1.observation_window, SUM(t1.amount) amount_sum_HASH
+        FROM v3_mr_facts t1
+        GROUP BY t1.observation_window
+        """,
+        normalize_aliases=True,
+    )
+    assert window_rows(sql) == [("1-35", 5.0)]
+
+
+@pytest.mark.asyncio
+async def test_dimension_with_its_own_column_of_that_name_is_not_filtered(
+    client_with_build_v3,
+):
+    sql = await build_window_nodes(client_with_build_v3, own_column=True)
+    assert_sql_equal(
+        sql,
+        """
+        WITH v3_mr_window AS (
+          SELECT observation_window, window_end
+          FROM default.v3.mr_window
+          WHERE observation_window IN ('1-35')
+        ),
+        v3_mr_meta AS (
+          SELECT p.test_id, MAX(w.window_end) AS observation_window
+          FROM default.v3.mr_plans p
+          CROSS JOIN (
+            SELECT observation_window AS obs_window, window_end
+            FROM v3_mr_window
+          ) w
+          GROUP BY p.test_id
+        ),
+        v3_mr_facts AS (
+          SELECT f.amount, w.observation_window
+          FROM default.v3.mr_facts f
+          CROSS JOIN (
+            SELECT observation_window
+            FROM v3_mr_window
+            WHERE v3_mr_window.observation_window IN ('1-35')
+          ) w
+          INNER JOIN v3_mr_meta m ON f.test_id = m.test_id
+          WHERE w.observation_window IN ('1-35')
+        )
+        SELECT t1.observation_window, SUM(t1.amount) amount_sum_HASH
+        FROM v3_mr_facts t1
+        GROUP BY t1.observation_window
+        """,
+        normalize_aliases=True,
+    )
+    assert window_rows(sql) == [("1-35", 5.0)]

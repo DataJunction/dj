@@ -1489,6 +1489,34 @@ def _passes_column_through(
     return isinstance(inner, ast.Column) and inner.name.name == column
 
 
+def _traces_to(child: Node, ancestor: str, column: str, ctx: BuildContext) -> bool:
+    """Whether the child's column is the ancestor's, selected unchanged."""
+    pending = [child]
+    while pending:
+        current = pending.pop()
+        for parent_name in ctx.parent_map.get(current.name, []):
+            parent = ctx.nodes[parent_name]
+            if not _passes_column_through(current, parent, column, ctx):
+                continue
+            if parent_name == ancestor:
+                return True
+            pending.append(parent)
+    return False
+
+
+def _reads_from(child: Node, ancestor: str, ctx: BuildContext) -> bool:
+    """Whether the child reads the ancestor, directly or through other nodes."""
+    pending, seen = [child.name], {child.name}
+    while pending:
+        for parent_name in ctx.parent_map.get(pending.pop(), []):
+            if parent_name == ancestor:
+                return True
+            if parent_name not in seen:
+                seen.add(parent_name)
+                pending.append(parent_name)
+    return False
+
+
 def _may_bind_column(
     ref: str,
     bare_col: str | None,
@@ -1498,9 +1526,11 @@ def _may_bind_column(
     """Whether another node's column may filter this node's CTE.
 
     True when the owner is this node, when the owner reads this node's
-    column under the same name (through any number of nodes), when the
-    column is the join key of a link to this node, when a dimension's
-    attribute maps to a fact or transform, or when the owner is unknown.
+    column under the same name (through any number of nodes), when this
+    node reads the owner and has no column of that name of its own (or
+    selects the owner's column unchanged), when the column is the join key
+    of a link to this node, when a dimension's attribute maps to a fact or
+    transform, or when the owner is unknown.
     """
     from datajunction_server.construction.build_v3.utils import get_short_name
 
@@ -1511,16 +1541,16 @@ def _may_bind_column(
         return True
     if owner.type == NodeType.DIMENSION and node.type != NodeType.DIMENSION:
         return True
-    pending = [owner]
-    while pending:
-        child = pending.pop()
-        for parent_name in ctx.parent_map.get(child.name, []):
-            parent = ctx.nodes[parent_name]
-            if not _passes_column_through(child, parent, bare_col, ctx):
-                continue
-            if parent_name == node.name:
-                return True
-            pending.append(parent)
+    if _traces_to(owner, node.name, bare_col, ctx):
+        return True
+    if _reads_from(node, owner.name, ctx):
+        own_columns = {col.name for col in node.current.columns}  # type: ignore[union-attr]
+        return bare_col not in own_columns or _traces_to(
+            node,
+            owner.name,
+            bare_col,
+            ctx,
+        )
     return any(
         get_short_name(dim_key) == bare_col and get_short_name(owner_key) == bare_col
         for link in owner.current.dimension_links or []
