@@ -3,9 +3,11 @@
 import os
 import pickle
 import subprocess
+import threading
 import time
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
+from contextvars import ContextVar
 from unittest.mock import patch
 
 import pytest
@@ -86,7 +88,7 @@ async def test_results_match_a_fresh_parse_in_real_workers():
 
 @pytest.mark.asyncio
 async def test_cached_queries_are_not_sent_to_the_pool(thread_pool):
-    cache.store("SELECT a FROM t", cache.dump(parse("SELECT a FROM t"), False), False)
+    cache.store("SELECT a FROM t", cache.dump(parse("SELECT a FROM t")), False)
     queries = {"ns.a": "SELECT a FROM t", "ns.c": "SELECT 1"}
     with patch.object(process_pool, "_parse_batch", wraps=_parse_batch) as batch:
         results = await parse_in_pool(queries, 2)
@@ -128,10 +130,61 @@ async def test_queries_are_sent_in_batches(thread_pool):
 @pytest.mark.asyncio
 async def test_fast_mode_is_passed_to_the_workers(thread_pool):
     with ast.fast_parse_mode():
-        results = await parse_in_pool({"ns.a": "SELECT a FROM t"}, 2)
-        assert results["ns.a"].select.parent is None
+        with patch.object(process_pool, "_parse_batch", wraps=_parse_batch) as batch:
+            results = await parse_in_pool({"ns.a": "SELECT a FROM t"}, 2)
+        with ast.fast_parse_mode():
+            expected = parse("SELECT a FROM t")
+    assert batch.call_args_list == [((["SELECT a FROM t"], True),)]
+    assert str(results["ns.a"]) == str(expected)
+    assert results["ns.a"].select.parent is None
     assert set(cache._cache) == {("SELECT a FROM t", True)}
-    ast._fast_parse = False
+    assert ast._fast_parse.get() is False
+
+
+@pytest.mark.asyncio
+async def test_fast_mode_in_another_thread_is_not_passed(thread_pool):
+    entered = threading.Event()
+    release = threading.Event()
+
+    def hold_fast_mode():
+        with ast.fast_parse_mode():
+            entered.set()
+            release.wait(10)
+
+    holder = threading.Thread(target=hold_fast_mode)
+    holder.start()
+    try:
+        entered.wait(10)
+        with patch.object(process_pool, "_parse_batch", wraps=_parse_batch) as batch:
+            results = await parse_in_pool({"ns.a": "SELECT a FROM t"}, 2)
+    finally:
+        release.set()
+        holder.join()
+    tree = results["ns.a"]
+    assert batch.call_args_list == [((["SELECT a FROM t"], False),)]
+    assert str(tree) == str(parse("SELECT a FROM t"))
+    assert tree.select.parent is tree
+    assert tree.select.projection[0].parent is tree.select
+    assert set(cache._cache) == {("SELECT a FROM t", False)}
+
+
+@pytest.mark.parametrize("fast", [True, False])
+def test_worker_keeps_the_flag_a_context_variable(fast):
+    assert isinstance(ast._fast_parse, ContextVar)
+    [(blob,)] = _parse_batch(["SELECT a FROM t"], fast)
+    assert isinstance(ast._fast_parse, ContextVar)
+    assert ast._fast_parse.get() is False
+    tree = pickle.loads(blob)
+    assert str(tree) == str(parse("SELECT a FROM t"))
+    assert (tree.select.parent is None) is fast
+
+
+def test_worker_restores_the_flag_after_errors():
+    with ast.fast_parse_mode():
+        outcomes = _parse_batch(["SELEC FROM", "SELECT 1"], False)
+        assert ast._fast_parse.get() is True
+    assert [o[0] is None for o in outcomes] == [True, False]
+    assert ast._fast_parse.get() is False
 
 
 @pytest.mark.asyncio
@@ -161,20 +214,10 @@ def test_pool_is_reused_and_resized():
 
 def test_worker_returns_trees_and_errors_as_values():
     outcomes = _parse_batch(["SELECT a FROM t", "SELEC FROM"], False)
-    tree_blob, cacheable = outcomes[0]
-    assert (pickle.loads(tree_blob).__class__, cacheable) == (ast.Query, True)
+    assert pickle.loads(outcomes[0][0]).__class__ is ast.Query
     assert outcomes[1][0] is None
     assert type(pickle.loads(outcomes[1][1])) is type(
         fresh_parse({"x": "SELEC FROM"})["x"],
-    )
-
-
-def test_worker_marks_unlinked_trees_as_not_cacheable():
-    with patch.object(process_pool.cache, "dump", return_value=None):
-        [(blob, cacheable)] = _parse_batch(["SELECT a FROM t"], False)
-    assert (str(pickle.loads(blob)), cacheable) == (
-        str(parse("SELECT a FROM t")),
-        False,
     )
 
 
@@ -195,9 +238,7 @@ def test_worker_handles_errors_that_cannot_be_pickled():
 def test_decode_cases():
     tree = parse("SELECT 1")
     blob = pickle.dumps(tree)
-    assert str(_decode("SELECT 1", (blob, False), False)) == str(tree)
-    assert cache._cache == {}
-    assert str(_decode("SELECT 1", (blob, True), False)) == str(tree)
+    assert str(_decode("SELECT 1", (blob,), False)) == str(tree)
     assert set(cache._cache) == {("SELECT 1", False)}
     error = _decode("q", (None, pickle.dumps(ValueError("bad")), "bad"), False)
     assert (type(error), str(error)) == (ValueError, "bad")
@@ -250,3 +291,10 @@ def test_gone_tells_live_and_missing_processes_apart():
     child = subprocess.Popen(["true"])
     child.wait()
     assert process_pool._gone(child.pid) is True
+
+
+def test_store_drops_the_oldest_entries():
+    with patch.object(cache, "PARSE_CACHE_SIZE", 2):
+        for query in ("SELECT 1", "SELECT 2", "SELECT 3"):
+            cache.store(query, cache.dump(parse(query)), False)
+    assert list(cache._cache) == [("SELECT 2", False), ("SELECT 3", False)]
