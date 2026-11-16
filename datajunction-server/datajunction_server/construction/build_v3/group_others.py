@@ -12,6 +12,10 @@ from datajunction_server.construction.build_v3.decomposition import (
 from datajunction_server.construction.build_v3.filters import (
     dimension_ref_of_expression,
 )
+from datajunction_server.construction.build_v3.projection import (
+    column_inputs,
+    input_reference,
+)
 from datajunction_server.construction.build_v3.ranked_groups import (
     ranked_tuple_join,
 )
@@ -159,22 +163,21 @@ def _preserve_raw_group_input(
     return raw_alias
 
 
-def _non_decomposable_input_names(
+def _non_decomposable_input_aliases(
     group: GrainGroupSQL,
     measures: GeneratedMeasuresSQL,
 ) -> set[str]:
-    """Find raw columns read by non-decomposable metrics in this grain group."""
-    names: set[str] = set()
+    """Find emitted aliases read by non-decomposable metrics in this grain group."""
+    aliases: set[str] = set()
     for metric_name in group.metrics:
         decomposed = measures.decomposed_metrics.get(metric_name)
         if decomposed is None or decomposed.components:
             continue
-        names.update(
-            col.name.name
-            for col in decomposed.combiner_ast.find_all(ast.Column)
-            if col.name and not col._table
+        aliases.update(
+            group.input_column_aliases[input_reference(expression, group.parent_name)]
+            for expression in column_inputs(decomposed.combiner_ast)
         )
-    return names
+    return aliases
 
 
 def validate_group_others_window_order(
@@ -201,7 +204,7 @@ def _bucket_grain_group(
     group: GrainGroupSQL,
     ranked: GeneratedSQL,
     dimensions: tuple[str, ...],
-    raw_metric_input_names: set[str],
+    raw_metric_input_aliases: set[str],
 ) -> None:
     select = group.query.select
     if (
@@ -274,7 +277,7 @@ def _bucket_grain_group(
             for component in group.components
             if group.component_aliases.get(component.name) == alias
         ]
-        if components_using_alias or alias in raw_metric_input_names:
+        if components_using_alias or alias in raw_metric_input_aliases:
             raw_alias = _preserve_raw_group_input(
                 group,
                 select,
@@ -285,7 +288,7 @@ def _bucket_grain_group(
             )
             for component in components_using_alias:
                 group.component_aliases[component.name] = raw_alias
-            if alias in raw_metric_input_names:
+            if alias in raw_metric_input_aliases:
                 group.raw_metric_input_aliases[alias] = raw_alias
 
         bucketed = ast.Alias(
@@ -338,7 +341,7 @@ def apply_group_others(
             group,
             group_others.ranked,
             group_others.dimensions,
-            _non_decomposable_input_names(group, measures),
+            _non_decomposable_input_aliases(group, measures),
         )
 
     # The measures layer has already applied WHERE predicates to its source rows.
