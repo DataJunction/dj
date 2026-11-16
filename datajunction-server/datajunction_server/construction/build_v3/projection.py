@@ -36,8 +36,7 @@ def column_inputs(expression: ast.Node) -> Iterator[ast.Expression]:
         yield expression
         return
     for child in expression.children:
-        if child is not None:
-            yield from column_inputs(child)
+        yield from column_inputs(child)
 
 
 @dataclass
