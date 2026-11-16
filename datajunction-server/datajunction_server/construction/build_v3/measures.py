@@ -1361,7 +1361,10 @@ def build_select_ast(
     for gc_expr, gc_alias in grain_col_specs:
         if isinstance(gc_expr, ast.Column):
             col_name = gc_expr.name.name
-            col_ref = make_column_ref(col_name, main_alias)
+            # Keep namespaced raw inputs intact so the dimension rewrite below
+            # can resolve them to their joined table instead of the parent.
+            col_ref = gc_expr
+            _rewrite_col_refs(col_ref, main_alias)
             grain_col_refs.append(col_ref)
             if col_name not in projected_dim_aliases:
                 projection.append(col_ref)
@@ -2371,6 +2374,7 @@ def build_grain_group_sql(
     # Handle non-decomposable metrics (like MAX_BY)
     # Extract column references from the metric expression and pass them through
     non_decomposable_columns: list[tuple[str, ast.Expression]] = []
+    non_decomposable_column_metadata: dict[str, ColumnMetadata] = {}
 
     # In the merged-with-non-decomposable case, components emit raw column
     # refs (because downstream applies the aggregation after the join).  If a
@@ -2406,8 +2410,21 @@ def build_grain_group_sql(
                 and col_name not in grain_col_names
             ):  # pragma: no branch
                 seen_components.add(col_name)
-                col_ast = make_column_ref(col_name)
+                col_ast = ast.Column(name=deepcopy(col.name))
                 non_decomposable_columns.append((col_name, col_ast))
+                input_node = (
+                    ctx.nodes.get(
+                        col.name.namespace.identifier(quotes=False), parent_node
+                    )
+                    if col.name.namespace
+                    else parent_node
+                )
+                non_decomposable_column_metadata[col_name] = ColumnMetadata(
+                    name=col_name,
+                    semantic_name=f"{input_node.name}{SEPARATOR}{col_name}",
+                    type=get_column_type(input_node, col_name),
+                    semantic_type="dimension",
+                )
 
     # Determine grain columns for this group
     if grain_group.is_merged:
@@ -2472,6 +2489,8 @@ def build_grain_group_sql(
             resolved_dimensions=effective_resolved_dimensions,
             parent_node=parent_node,
             grain_columns=pass_through_columns,
+            grain_col_specs=grain_col_specs
+            + [(expr, col_name) for col_name, expr in non_decomposable_columns],
             output_dimension_refs=output_dimension_refs,
             internal_dimension_aliases=internal_dimension_aliases,
             filters=ctx.dimension_filters,  # Use dimension_filters only (not metric_filters)
@@ -2479,7 +2498,28 @@ def build_grain_group_sql(
         )
     else:
         # Normal case: combine component expressions with non-decomposable columns
-        all_metric_expressions = component_expressions + non_decomposable_columns
+        projected_dimension_aliases = {
+            ctx.alias_registry.register(dim.original_ref)
+            for dim in effective_resolved_dimensions
+            if dim.original_ref not in ctx.filter_dimensions
+            and (
+                output_dimension_refs is None
+                or dim.original_ref in output_dimension_refs
+                or dim.original_ref in internal_dimension_aliases
+            )
+        }
+        all_metric_expressions = list(component_expressions)
+        for name, expr in non_decomposable_columns:
+            if name in projected_dimension_aliases:
+                continue
+            # Reuse the dimension's registered alias, including when it is
+            # filter-only, rather than allocating a second alias for its input.
+            semantic_name = (
+                non_decomposable_column_metadata[name].semantic_name
+                if isinstance(expr, ast.Column) and expr.name.namespace
+                else name
+            )
+            all_metric_expressions.append((semantic_name, expr))
         # When a merged grain group has non-decomposable metrics, the
         # worst-case aggregability is NONE and components carry raw column
         # refs (not pre-aggregations).  A GROUP BY here would be redundant
@@ -2625,15 +2665,8 @@ def build_grain_group_sql(
 
     # Add columns for non-decomposable metrics (raw columns passed through)
     for col_name, _ in non_decomposable_columns:
-        col_type = get_column_type(parent_node, col_name)
-        columns_metadata.append(
-            ColumnMetadata(
-                name=col_name,
-                semantic_name=f"{parent_node.name}{SEPARATOR}{col_name}",
-                type=col_type,
-                semantic_type="dimension",  # Treated as dimension (raw value for aggregation)
-            ),
-        )
+        if col_name not in projected_dim_aliases_meta:
+            columns_metadata.append(non_decomposable_column_metadata[col_name])
 
     # Build the full grain list (GROUP BY columns or unique row identity)
     # For NONE aggregability, grain is just the native grain (no dimensions)
