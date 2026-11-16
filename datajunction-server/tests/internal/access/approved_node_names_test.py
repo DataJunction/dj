@@ -3,9 +3,11 @@
 import random
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
+from datajunction_server.database.rbac import RoleAssignment, RoleScope
 from datajunction_server.internal.access.authorization import (
     AuthContext,
     AuthorizationService,
@@ -37,11 +39,14 @@ NAMES = [
 SCOPE_VALUES = ["*", "a.*", "a.b.*", "a.b.x", "a.x", "c.*", "c.d.x", ".*", "top"]
 
 
-def _scope(rng: random.Random) -> SimpleNamespace:
-    return SimpleNamespace(
-        action=rng.choice(list(ResourceAction)),
-        scope_type=rng.choice(list(ResourceType)),
-        scope_value=rng.choice(SCOPE_VALUES),
+def _scope(rng: random.Random) -> RoleScope:
+    return cast(
+        RoleScope,
+        SimpleNamespace(
+            action=rng.choice(list(ResourceAction)),
+            scope_type=rng.choice(list(ResourceType)),
+            scope_value=rng.choice(SCOPE_VALUES),
+        ),
     )
 
 
@@ -53,7 +58,7 @@ def _rule(rng: random.Random) -> str:
 
 
 def _context(rng: random.Random, is_admin: bool = False) -> AuthContext:
-    assignments = [
+    assignments: list[Any] = [
         SimpleNamespace(
             expires_at=rng.choice(
                 [None, datetime.now(UTC) + timedelta(days=1)],
@@ -74,7 +79,7 @@ def _context(rng: random.Random, is_admin: bool = False) -> AuthContext:
         user_id=1,
         username="test-user",
         oauth_provider="basic",
-        role_assignments=assignments,
+        role_assignments=cast(list[RoleAssignment], assignments),
         is_admin=is_admin,
         default_scopes=[_scope(rng) for _ in range(rng.randint(0, 2))],
     )
@@ -137,11 +142,14 @@ def test_rbac_without_matching_scopes_uses_default_policy(mocker, policy, expect
         oauth_provider="basic",
         role_assignments=[],
     )
-    assert RBACAuthorizationService().approved_node_names(
-        context,
-        ["a.x", "b.y"],
-        ResourceAction.READ,
-    ) == expected
+    assert (
+        RBACAuthorizationService().approved_node_names(
+            context,
+            ["a.x", "b.y"],
+            ResourceAction.READ,
+        )
+        == expected
+    )
 
 
 def test_rbac_admin_approves_all_and_audits(mocker, caplog):
@@ -177,11 +185,14 @@ def test_passthrough_approves_all():
         role_assignments=[],
     )
     names = ["a.x", "b.y"]
-    assert PassthroughAuthorizationService().approved_node_names(
-        context,
-        names,
-        ResourceAction.READ,
-    ) == names
+    assert (
+        PassthroughAuthorizationService().approved_node_names(
+            context,
+            names,
+            ResourceAction.READ,
+        )
+        == names
+    )
 
 
 def test_default_builds_requests_and_filters():
