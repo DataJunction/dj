@@ -5,7 +5,7 @@ CTE building and AST transformation utilities
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Optional, cast
+from typing import cast
 
 from datajunction_server.construction.build_v3.filters import (
     dimension_ref_of_expression,
@@ -897,7 +897,7 @@ def _set_op_arms(select: ast.SelectExpression) -> list[ast.SelectExpression]:
     return arms
 
 
-def _projected_name(item: ast.Node) -> Optional[str]:
+def _projected_name(item: ast.Node) -> str | None:
     """The name a projected expression is selected as; None when it has none."""
     named = getattr(item, "alias_or_name", None)
     return named.name if named is not None else None
