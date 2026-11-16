@@ -707,7 +707,7 @@ def test_build_select_ast_skips_non_output_dimensions():
         ),
     ]
 
-    query, _, dimension_positions = build_select_ast(
+    result = build_select_ast(
         ctx,
         metric_expressions=[],
         resolved_dimensions=resolved_dimensions,
@@ -715,13 +715,210 @@ def test_build_select_ast_skips_non_output_dimensions():
         output_dimension_refs={"test.parent.region"},
     )
 
-    rendered = str(query)
+    rendered = str(result.query)
     assert "t1.region" in rendered
     assert "t1.date_id AS date_id" not in rendered
-    assert dimension_positions == {
+    assert result.dimension_positions == {
         "test.parent.region": 0,
         "test.parent.date_id": 1,
     }
+
+
+@pytest.mark.parametrize(
+    "reference",
+    ["test.missing.value", "test.parent.value[missing]"],
+)
+def test_build_select_ast_rejects_unresolved_input_namespace(reference):
+    """A named source or role must never fall back to the parent's same-named column."""
+    ctx = BuildContext(session=SimpleNamespace(), metrics=[], dimensions=[])
+    expression = parse(f"SELECT {reference}").select.projection[0]
+    with pytest.raises(DJInvalidInputException, match="Unresolved metric input"):
+        build_select_ast(
+            ctx,
+            metric_expressions=[],
+            resolved_dimensions=[],
+            parent_node=_source_node(),
+            raw_inputs=[expression],
+            skip_aggregation=True,
+        )
+
+
+@pytest.mark.parametrize("already_projected", [False, True])
+def test_build_select_ast_preserves_input_when_grain_alias_is_occupied(
+    already_projected,
+):
+    """A grain must read its own source when another dimension owns its name."""
+    ctx = BuildContext(session=SimpleNamespace(), metrics=[], dimensions=[])
+    dimensions = [
+        ResolvedDimension(
+            original_ref="test.dimension.value",
+            node_name="test.parent",
+            column_name="id",
+            role=None,
+            join_path=None,
+            is_local=True,
+        ),
+    ]
+    if already_projected:
+        dimensions.append(
+            ResolvedDimension(
+                original_ref="test.dimension.measure",
+                node_name="test.parent",
+                column_name="value",
+                role=None,
+                join_path=None,
+                is_local=True,
+            ),
+        )
+
+    result = build_select_ast(
+        ctx,
+        metric_expressions=[],
+        resolved_dimensions=dimensions,
+        parent_node=_source_node(),
+        grain_columns=["value"],
+    )
+
+    input_alias = "measure" if already_projected else "parent_value"
+    assert result.grain_aliases == [input_alias]
+    assert result.projection.input_aliases["test.parent.value"] == input_alias
+    assert [column.name for column in result.projection.metadata] == [
+        "value",
+        input_alias,
+    ]
+    assert [column.type for column in result.projection.metadata] == [
+        "bigint",
+        "double",
+    ]
+    assert [str(column) for column in result.projection.expressions] == [
+        "t1.id value",
+        f"t1.value {input_alias}",
+    ]
+
+
+def test_build_select_ast_rejects_metric_without_metadata():
+    """A component with no schema metadata must fail instead of inventing a type."""
+    ctx = BuildContext(session=SimpleNamespace(), metrics=[], dimensions=[])
+    expression = parse("SELECT SUM(value)").select.projection[0]
+    with pytest.raises(
+        DJInvalidInputException,
+        match="Missing metadata for metric component: total",
+    ):
+        build_select_ast(
+            ctx,
+            metric_expressions=[("total", expression)],
+            resolved_dimensions=[],
+            parent_node=_source_node(),
+        )
+
+
+@pytest.mark.parametrize("projected", [False, True])
+def test_process_base_metrics_requires_binding_for_root_input(projected):
+    """A root input uses its emitted alias or reports the missing source binding."""
+    query = "SELECT value FROM test.parent"
+    group = GrainGroupSQL(
+        query=parse("SELECT value AS metric_input FROM test.parent"),
+        columns=[
+            ColumnMetadata(
+                "metric_input",
+                "test.parent.value",
+                "double",
+                "metric_input",
+            ),
+        ],
+        input_column_aliases={"test.parent.value": "metric_input"} if projected else {},
+        grain=[],
+        aggregability=Aggregability.NONE,
+        metrics=["test.metric"],
+        parent_name="test.parent",
+    )
+    metric = DecomposedMetricInfo(
+        metric_node=_metric_node("test.metric", query),
+        components=[],
+        aggregability=Aggregability.NONE,
+        combiner="value",
+        derived_ast=parse(query),
+    )
+    if not projected:
+        with pytest.raises(
+            DJInvalidInputException,
+            match="Metric input test.parent.value was not projected by test.parent",
+        ) as exc_info:
+            metrics_module.process_base_metrics(
+                [group],
+                ["measures"],
+                {"test.metric": metric},
+                {},
+            )
+        assert isinstance(exc_info.value.__cause__, KeyError)
+        return
+
+    result = metrics_module.process_base_metrics(
+        [group],
+        ["measures"],
+        {"test.metric": metric},
+        {},
+    )
+    assert str(result.metric_exprs["test.metric"].expr_ast) == "measures.metric_input"
+    assert str(metric.combiner_ast) == "value"
+
+
+def test_non_decomposable_inputs_keep_dimension_roles():
+    """Binding a role consumes the whole reference, including during metric rewriting."""
+    from datajunction_server.construction.build_v3.projection import column_inputs
+
+    ctx = BuildContext(session=SimpleNamespace(), metrics=[], dimensions=[])
+    query = parse("SELECT MAX_BY(test.dimension.key[from], test.dimension.key[to])")
+    expression = query.select.projection[0]
+    dimensions = [
+        ResolvedDimension(
+            original_ref=f"test.dimension.key[{role}]",
+            node_name="test.parent",
+            column_name=column,
+            role=role,
+            join_path=None,
+            is_local=True,
+        )
+        for role, column in [("from", "value"), ("to", "id")]
+    ]
+    result = build_select_ast(
+        ctx,
+        metric_expressions=[],
+        resolved_dimensions=dimensions,
+        parent_node=_source_node(),
+        raw_inputs=list(column_inputs(expression)),
+        skip_aggregation=True,
+    )
+    assert [str(column) for column in result.projection.expressions] == [
+        "t1.value key_from",
+        "t1.id key_to",
+    ]
+    group = GrainGroupSQL(
+        query=result.query,
+        columns=result.projection.metadata,
+        input_column_aliases=result.projection.input_aliases,
+        grain=[],
+        aggregability=Aggregability.NONE,
+        metrics=["test.metric"],
+        parent_name="test.parent",
+    )
+    metric = DecomposedMetricInfo(
+        metric_node=_metric_node("test.metric"),
+        components=[],
+        aggregability=Aggregability.NONE,
+        combiner=str(expression),
+        derived_ast=query,
+    )
+    metrics = metrics_module.process_base_metrics(
+        [group],
+        ["measures"],
+        {"test.metric": metric},
+        {},
+    )
+    assert (
+        str(metrics.metric_exprs["test.metric"].expr_ast)
+        == "MAX_BY(measures.key_from, measures.key_to)"
+    )
 
 
 def test_group_by_positions_include_coalesced_sibling_dimension():

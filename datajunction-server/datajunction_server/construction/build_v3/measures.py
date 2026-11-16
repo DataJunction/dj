@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import re
 from copy import deepcopy
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
@@ -53,6 +54,13 @@ from datajunction_server.construction.build_v3.preagg_matcher import (
     find_matching_preagg,
     get_preagg_dimension_column,
     get_preagg_measure_column,
+)
+from datajunction_server.construction.build_v3.projection import (
+    MeasuresProjection,
+    MeasuresSelect,
+    ProjectedColumn,
+    column_inputs,
+    input_reference,
 )
 from datajunction_server.construction.build_v3.types import (
     BuildContext,
@@ -1250,6 +1258,81 @@ def build_dimension_joins(
     return dim_aliases, joins
 
 
+def _project_dimension(
+    ctx: BuildContext,
+    dimension: ResolvedDimension,
+    parent_node: Node,
+    main_alias: str,
+    dim_aliases: dict[tuple[str, str | None], str],
+    resolved_dimensions: list[ResolvedDimension],
+    output_alias: str | None = None,
+) -> ProjectedColumn:
+    """Bind a dimension's SQL, output name, and metadata in one place."""
+    alias = output_alias or ctx.alias_registry.register(dimension.original_ref)
+    node = parent_node if dimension.is_local else ctx.nodes[dimension.node_name]
+    source_refs: tuple[str, ...] = (dimension.original_ref,)
+    if dimension.is_local:
+        # Resolution may substitute a dimension key with the parent's FK.
+        # Both references then use the resolved projection, including COALESCE.
+        source_refs += (f"{parent_node.name}{SEPARATOR}{dimension.column_name}",)
+    return ProjectedColumn(
+        expression=build_dimension_col_expr(
+            dimension,
+            main_alias,
+            dim_aliases,
+            alias,
+            ctx=ctx,
+            resolved_dimensions=resolved_dimensions,
+            parent_node_name=parent_node.name,
+        ),
+        metadata=ColumnMetadata(
+            name=alias,
+            semantic_name=dimension.original_ref,
+            type=get_column_type(node, dimension.column_name),
+            semantic_type="dimension",
+        ),
+        source_refs=source_refs,
+    )
+
+
+def _bind_input_column(
+    ctx: BuildContext,
+    expression: ast.Expression,
+    parent_node: Node,
+    main_alias: str,
+    dim_aliases: dict[tuple[str, str | None], str],
+    resolved_dimensions: list[ResolvedDimension],
+    output_alias: str | None = None,
+) -> ProjectedColumn:
+    """Resolve a full source reference; an explicit namespace never defaults locally."""
+    reference = input_reference(expression, parent_node.name)
+    dimension = next(
+        (dim for dim in resolved_dimensions if dim.original_ref == reference),
+        None,
+    )
+    if dimension is None:
+        ref = parse_dimension_ref(reference)
+        if ref.node_name != parent_node.name or ref.role:
+            raise DJInvalidInputException(f"Unresolved metric input: {reference}")
+        dimension = ResolvedDimension(
+            original_ref=reference,
+            node_name=parent_node.name,
+            column_name=ref.column_name,
+            role=None,
+            join_path=None,
+            is_local=True,
+        )
+    return _project_dimension(
+        ctx,
+        dimension,
+        parent_node,
+        main_alias,
+        dim_aliases,
+        resolved_dimensions,
+        output_alias,
+    )
+
+
 def build_select_ast(
     ctx: BuildContext,
     metric_expressions: list[tuple[str, ast.Expression]],
@@ -1262,7 +1345,9 @@ def build_select_ast(
     internal_dimension_aliases: dict[str, str] | None = None,
     filters: list[str] | None = None,
     skip_aggregation: bool = False,
-) -> tuple[ast.Query, list[str], dict[str, int]]:
+    raw_inputs: list[ast.Expression] | None = None,
+    metric_metadata: dict[str, ColumnMetadata] | None = None,
+) -> MeasuresSelect:
     """
     Build a SELECT AST for measures SQL with JOIN support.
 
@@ -1286,15 +1371,13 @@ def build_select_ast(
                  or local columns (e.g., "status = 'active'").
         skip_aggregation: If True, skip adding GROUP BY clause. Used for non-decomposable
                           metrics where raw rows need to be passed through.
+        raw_inputs: Source column references to pass through for downstream aggregation.
+        metric_metadata: Metadata for each metric expression, keyed by its input alias.
 
     Returns:
-        Tuple of (query, scanned_sources, dimension_group_by_positions):
-        - query: AST Query node
-        - scanned_sources: List of source node names accessed during SQL generation
+        The query, emitted columns and bindings, grain aliases, and scanned sources.
     """
-    # Build projection (SELECT clause)
-    # Use Any type to satisfy ast.Select.projection which accepts Union[Aliasable, Expression, Column]
-    projection: list[Any] = []
+    projection = MeasuresProjection()
     grain_columns = grain_columns or []
 
     # Generate alias for the main table
@@ -1309,6 +1392,37 @@ def build_select_ast(
     effective_filter_dimensions = ctx.filter_dimensions - set(
         internal_dimension_aliases,
     )
+
+    def emit_input(
+        expression: ast.Expression,
+        metadata: ColumnMetadata | None = None,
+        output_alias: str | None = None,
+    ) -> str:
+        reference = input_reference(expression, parent_node.name)
+        existing_alias = projection.input_aliases.get(reference)
+        if existing_alias and (output_alias is None or output_alias == existing_alias):
+            return existing_alias
+        if any(column.metadata.name == output_alias for column in projection.columns):
+            output_alias = None
+            if existing_alias:
+                return existing_alias
+        column = _bind_input_column(
+            ctx,
+            expression,
+            parent_node,
+            main_alias,
+            dim_aliases,
+            resolved_dimensions,
+            output_alias,
+        )
+        if metadata is not None:
+            column.metadata = replace(
+                metadata,
+                name=column.metadata.name,
+                type=column.metadata.type,
+            )
+        return projection.add(column)
+
     for resolved_dim in resolved_dimensions:
         clean_alias = ctx.alias_registry.register(resolved_dim.original_ref)
         if resolved_dim.original_ref in effective_filter_dimensions:
@@ -1323,16 +1437,17 @@ def build_select_ast(
             resolved_dim.original_ref,
             clean_alias,
         )
-        col_expr = build_dimension_col_expr(
-            resolved_dim,
-            main_alias,
-            dim_aliases,
-            output_alias,
-            ctx=ctx,
-            resolved_dimensions=resolved_dimensions,
-            parent_node_name=parent_node.name,
+        projection.add(
+            _project_dimension(
+                ctx,
+                resolved_dim,
+                parent_node,
+                main_alias,
+                dim_aliases,
+                resolved_dimensions,
+                output_alias,
+            ),
         )
-        projection.append(col_expr)
 
     # Callers that already parsed the grain columns (to discover dimension
     # references) can pass ``grain_col_specs`` to avoid re-parsing them here.
@@ -1344,31 +1459,38 @@ def build_select_ast(
     # When the grain column is a complex expression (e.g., IF(...)), rewrite
     # column references to use the table alias, and select it with a clean alias.
     #
-    # Skip adding to projection if the column was already projected as a dimension
-    # (e.g., order_id requested as both a dimension and a COUNT DISTINCT level).
-    # Two dedup sets: the projection emits a grain column bare, so it collides on
-    # output aliases, while GROUP BY groups dimensions by their source column.
-    # Using source names for the projection drops the grain column whenever its
-    # dimension is aliased differently (e.g. a role-qualified ref to the same
-    # column), leaving a LIMITED wrapper referencing a column the CTE never emitted.
+    # Simple inputs share bindings with dimensions and raw metric inputs.
+    # GROUP BY retains its dimension/source-column deduplication below.
     projected_dim_col_names: set[str] = set()
-    projected_dim_aliases: set[str] = set()
     for rd in resolved_dimensions:
         if rd.original_ref not in effective_filter_dimensions:
             projected_dim_col_names.add(rd.column_name)
-            projected_dim_aliases.add(ctx.alias_registry.register(rd.original_ref))
-    grain_col_refs: list[ast.Column] = []
+    grain_aliases: list[str] = []
     for gc_expr, gc_alias in grain_col_specs:
         if isinstance(gc_expr, ast.Column):
-            col_name = gc_expr.name.name
-            col_ref = make_column_ref(col_name, main_alias)
-            grain_col_refs.append(col_ref)
-            if col_name not in projected_dim_aliases:
-                projection.append(col_ref)
+            # LIMITED combiners use the declared grain column name. Preserve
+            # it even when an equivalent dimension has a different output name.
+            grain_output_alias = (
+                gc_alias
+                if not skip_aggregation and not gc_expr.name.namespace
+                else None
+            )
+            grain_aliases.append(emit_input(gc_expr, output_alias=grain_output_alias))
         else:
             _rewrite_col_refs(gc_expr, main_alias)
-            projection.append(ast.Alias(child=gc_expr, alias=ast.Name(gc_alias)))
-            grain_col_refs.append(ast.Column(name=ast.Name(gc_alias)))
+            grain_aliases.append(
+                projection.add(
+                    ProjectedColumn(
+                        expression=ast.Alias(child=gc_expr, alias=ast.Name(gc_alias)),
+                        metadata=ColumnMetadata(
+                            name=gc_alias,
+                            semantic_name=f"{parent_node.name}{SEPARATOR}{gc_alias}",
+                            type=get_column_type(parent_node, gc_alias),
+                            semantic_type="dimension",
+                        ),
+                    ),
+                ),
+            )
 
     # Resolve dim-namespaced refs in metric expressions (e.g. ``v3.customer.tier``)
     # to the dim's joined table alias. Done up-front so the rewrite is visible
@@ -1382,7 +1504,11 @@ def build_select_ast(
     # objects already placed in the projection above, so rewriting them here is
     # reflected in the emitted SQL.
     _resolve_dim_namespace_refs(
-        [expr for _, expr in metric_expressions]
+        [
+            expr
+            for _, expr in metric_expressions
+            if not (skip_aggregation and isinstance(expr, ast.Column))
+        ]
         + [expr for expr, _ in grain_col_specs],
         dim_node_to_alias,
         {
@@ -1399,9 +1525,30 @@ def build_select_ast(
     )
 
     # Add metric expressions
+    component_aliases = {
+        declared_alias: output_alias
+        for (_, declared_alias), output_alias in zip(grain_col_specs, grain_aliases)
+    }
     for alias_name, expr in metric_expressions:
+        metadata = (metric_metadata or {}).get(alias_name)
+        if metadata is None:
+            raise DJInvalidInputException(
+                f"Missing metadata for metric component: {alias_name}",
+            )
+        if skip_aggregation and isinstance(expr, ast.Column):
+            # Preserve the source identity until the input has been bound.
+            component_aliases[alias_name] = emit_input(expr, metadata)
+            continue
         clean_alias = ctx.alias_registry.register(alias_name)
-        projection.append(_build_metric_col_expr(expr, clean_alias, main_alias))
+        component_aliases[alias_name] = projection.add(
+            ProjectedColumn(
+                expression=_build_metric_col_expr(expr, clean_alias, main_alias),
+                metadata=replace(metadata, name=clean_alias),
+            ),
+        )
+
+    for expression in raw_inputs or []:
+        emit_input(expression)
 
     group_by, dimension_group_by_positions = _build_group_by(
         resolved_dimensions,
@@ -1522,7 +1669,7 @@ def build_select_ast(
     # For non-decomposable metrics, skip GROUP BY to pass through raw rows.
     effective_group_by = [] if skip_aggregation else (group_by if group_by else [])
     select = ast.Select(
-        projection=projection,
+        projection=projection.expressions,
         from_=from_clause,
         group_by=effective_group_by,
         hints=spark_hints if spark_hints else None,
@@ -1605,10 +1752,13 @@ def build_select_ast(
     # Now that every reader exists, each CTE can be trimmed to what they read.
     prune_cte_projections(query)
 
-    return (
-        query,
-        scanned_sources,
-        {} if skip_aggregation else dimension_group_by_positions,
+    return MeasuresSelect(
+        query=query,
+        scanned_sources=scanned_sources,
+        dimension_positions={} if skip_aggregation else dimension_group_by_positions,
+        projection=projection,
+        grain_aliases=grain_aliases,
+        component_aliases=component_aliases,
     )
 
 
@@ -2368,46 +2518,12 @@ def build_grain_group_sql(
         # This is needed for metrics SQL to correctly reference component columns
         component_aliases[component.name] = component_alias
 
-    # Handle non-decomposable metrics (like MAX_BY)
-    # Extract column references from the metric expression and pass them through
-    non_decomposable_columns: list[tuple[str, ast.Expression]] = []
-
-    # In the merged-with-non-decomposable case, components emit raw column
-    # refs (because downstream applies the aggregation after the join).  If a
-    # non-decomposable expression references one of those same columns
-    # (e.g. ``MAX_BY(product_id, line_total)`` shares ``line_total`` with a
-    # ``SUM(line_total)`` component), projecting it again here produces a
-    # duplicate column in the SELECT — track which column names the
-    # components already cover and skip them.
-    component_col_names: set[str] = set()
-    for _, expr in component_expressions:
-        for c in expr.find_all(ast.Column):
-            if c.name:  # pragma: no branch
-                component_col_names.add(c.name.name)
-
-    # A column that is already a grain column is projected there; selecting it
-    # again for a non-decomposable argument (``MAX_BY(x, <grain column>)``) would
-    # emit a duplicate name that downstream consumers reject.
-    grain_col_names = set(grain_group.grain_columns) | set(
-        grain_group.grain_col_aliases.values(),
-    )
-
+    # Raw inputs retain their source identity. Projection construction binds and
+    # deduplicates them against dimensions, grain columns, and raw components.
+    raw_inputs: list[ast.Expression] = []
     for decomposed in grain_group.non_decomposable_metrics:
         metrics_covered.add(decomposed.metric_node.name)
-
-        # Extract column references from the metric's derived AST
-        # These are the columns needed for the aggregation function
-        for col in decomposed.derived_ast.find_all(ast.Column):
-            col_name = col.name.name if col.name else None
-            if (
-                col_name
-                and col_name not in seen_components
-                and col_name not in component_col_names
-                and col_name not in grain_col_names
-            ):  # pragma: no branch
-                seen_components.add(col_name)
-                col_ast = make_column_ref(col_name)
-                non_decomposable_columns.append((col_name, col_ast))
+        raw_inputs.extend(column_inputs(decomposed.derived_ast))
 
     # Determine grain columns for this group
     if grain_group.is_merged:
@@ -2440,7 +2556,7 @@ def build_grain_group_sql(
         ctx,
         parent_node,
         [expr for _, expr in component_expressions]
-        + [expr for _, expr in non_decomposable_columns]
+        + raw_inputs
         + [expr for expr, _ in grain_col_specs],
         resolved_dimensions,
     )
@@ -2456,184 +2572,47 @@ def build_grain_group_sql(
         ),
     )
 
-    # Build AST
-    # For non-decomposable metrics (NONE aggregability with no components),
-    # we pass through raw rows without aggregation
-    if grain_group.non_decomposable_metrics and not component_expressions:
-        # Pure non-decomposable case: pass through raw rows (no GROUP BY)
-        # Add non-decomposable columns to grain_columns so they appear as plain columns
-        # (not aliased expressions) since we're just selecting them for pass-through
-        pass_through_columns = effective_grain_columns + [
-            col_name for col_name, _ in non_decomposable_columns
-        ]
-        query_ast, scanned_sources, dimension_group_by_positions = build_select_ast(
-            ctx,
-            metric_expressions=[],  # No aggregated expressions
-            resolved_dimensions=effective_resolved_dimensions,
-            parent_node=parent_node,
-            grain_columns=pass_through_columns,
-            output_dimension_refs=output_dimension_refs,
-            internal_dimension_aliases=internal_dimension_aliases,
-            filters=ctx.dimension_filters,  # Use dimension_filters only (not metric_filters)
-            skip_aggregation=True,  # Don't add GROUP BY
-        )
-    else:
-        # Normal case: combine component expressions with non-decomposable columns
-        all_metric_expressions = component_expressions + non_decomposable_columns
-        # When a merged grain group has non-decomposable metrics, the
-        # worst-case aggregability is NONE and components carry raw column
-        # refs (not pre-aggregations).  A GROUP BY here would be redundant
-        # — every projected column is part of the full grain — and the
-        # real aggregation happens downstream after the join.
-        skip_agg = bool(
-            grain_group.non_decomposable_metrics
-            and grain_group.aggregability == Aggregability.NONE,
-        )
-        query_ast, scanned_sources, dimension_group_by_positions = build_select_ast(
-            ctx,
-            metric_expressions=all_metric_expressions,
-            resolved_dimensions=effective_resolved_dimensions,
-            parent_node=parent_node,
-            grain_columns=effective_grain_columns,
-            grain_col_aliases=grain_group.grain_col_aliases or None,
-            grain_col_specs=grain_col_specs,  # already parsed above
-            output_dimension_refs=output_dimension_refs,
-            internal_dimension_aliases=internal_dimension_aliases,
-            filters=ctx.dimension_filters,  # Use dimension_filters only (not metric_filters)
-            skip_aggregation=skip_agg,
-        )
-
-    # Build column metadata
-    columns_metadata = []
-
-    # Add dimension columns (skip filter-only dimensions as they're not in projection)
-    effective_output_dimension_refs = output_dimension_refs or {
-        resolved_dim.original_ref for resolved_dim in resolved_dimensions
-    }
-    for resolved_dim in resolved_dimensions:
-        if resolved_dim.original_ref not in effective_output_dimension_refs:
-            continue
-        # Skip filter-only dimensions from column metadata
-        if resolved_dim.original_ref in ctx.filter_dimensions:
-            continue
-
-        alias = (
-            ctx.alias_registry.get_alias(resolved_dim.original_ref)
-            or resolved_dim.column_name
-        )
-        if resolved_dim.is_local:
-            col_type = get_column_type(parent_node, resolved_dim.column_name)
-        else:
-            dim_node = ctx.nodes.get(resolved_dim.node_name)
-            col_type = (
-                get_column_type(dim_node, resolved_dim.column_name)
-                if dim_node
-                else "string"
-            )
-        columns_metadata.append(
-            ColumnMetadata(
-                name=alias,
-                semantic_name=resolved_dim.original_ref,
-                type=col_type,
-                semantic_type="dimension",
-            ),
-        )
-
-    # Add grain columns (for LIMITED and NONE).
-    # The alias comes directly from grain_col_aliases; no AST parsing needed here
-    # since column metadata only uses the alias string, not the expression.
-    # Skip plain grain columns that are already represented as a requested dimension
-    # to avoid duplicate entries (e.g., order_id requested as both a dimension and
-    # the COUNT DISTINCT level column).
-    # Compare output names, matching the projection's dedup.
-    projected_dim_aliases_meta = {
-        ctx.alias_registry.register(rd.original_ref)
-        for rd in resolved_dimensions
-        if rd.original_ref not in ctx.filter_dimensions
-    }
-    _eff_alias_map = grain_group.grain_col_aliases
-    effective_grain_aliases = [
-        _eff_alias_map.get(gc) or gc for gc in effective_grain_columns
-    ]
-
-    for gc, gc_alias in zip(effective_grain_columns, effective_grain_aliases):
-        if gc_alias in projected_dim_aliases_meta:
-            continue
-        col_type = get_column_type(parent_node, gc_alias)
-        columns_metadata.append(
-            ColumnMetadata(
-                name=gc_alias,
-                semantic_name=f"{parent_node.name}{SEPARATOR}{gc_alias}",
-                type=col_type,
-                semantic_type="dimension",  # Added for aggregability (e.g., customer_id for COUNT DISTINCT)
-            ),
-        )
-
-    for dimension_ref, dimension_alias in internal_dimension_aliases.items():
-        internal_resolved_dim = next(
-            (dim for dim in resolved_dimensions if dim.original_ref == dimension_ref),
-            None,
-        )
-        if not internal_resolved_dim:
-            continue  # pragma: no cover
-        dim_node = ctx.nodes.get(internal_resolved_dim.node_name)
-        col_type = (
-            get_column_type(parent_node, internal_resolved_dim.column_name)
-            if internal_resolved_dim.is_local
-            else get_column_type(dim_node, internal_resolved_dim.column_name)
-            if dim_node
-            else "string"
-        )
-        columns_metadata.append(
-            ColumnMetadata(
-                name=dimension_alias,
-                semantic_name=dimension_ref,
-                type=col_type,
-                semantic_type="dimension",
-            ),
-        )
-
-    # Add metric component columns
-    # All decomposed metrics are now treated as components - no special case for single-component
-    for comp_alias, component, metric_node in component_metadata:
-        # Get metric output type (metrics have exactly one output column)
+    metric_metadata = {}
+    for alias, component, metric_node in component_metadata:
         metric_type = str(metric_node.current.columns[0].type)
-        if grain_group.aggregability == Aggregability.NONE:
-            # NONE: raw column, will be aggregated in metrics SQL
-            columns_metadata.append(  # pragma: no cover
-                ColumnMetadata(
-                    name=comp_alias,
-                    semantic_name=f"{metric_node.name}:{component.expression}",
-                    type=metric_type,
-                    semantic_type="metric_input",  # Raw input for non-aggregatable metric
-                ),
-            )
-        else:
-            columns_metadata.append(
-                ColumnMetadata(
-                    name=ctx.alias_registry.get_alias(comp_alias) or comp_alias,
-                    semantic_name=f"{metric_node.name}:{component.name}",
-                    type=infer_component_type(
-                        component,
-                        metric_type,
-                        parent_node,
-                        ctx.materialization_target,
-                    ),
-                    semantic_type="metric_component",
-                ),
-            )
-
-    # Add columns for non-decomposable metrics (raw columns passed through)
-    for col_name, _ in non_decomposable_columns:
-        col_type = get_column_type(parent_node, col_name)
-        columns_metadata.append(
-            ColumnMetadata(
-                name=col_name,
-                semantic_name=f"{parent_node.name}{SEPARATOR}{col_name}",
-                type=col_type,
-                semantic_type="dimension",  # Treated as dimension (raw value for aggregation)
+        is_raw = grain_group.aggregability == Aggregability.NONE
+        metric_metadata[alias] = ColumnMetadata(
+            name=alias,
+            semantic_name=f"{metric_node.name}:{component.expression if is_raw else component.name}",
+            type=metric_type
+            if is_raw
+            else infer_component_type(
+                component,
+                metric_type,
+                parent_node,
+                ctx.materialization_target,
             ),
+            semantic_type="metric_input" if is_raw else "metric_component",
         )
+
+    select = build_select_ast(
+        ctx,
+        metric_expressions=component_expressions,
+        metric_metadata=metric_metadata,
+        raw_inputs=raw_inputs,
+        resolved_dimensions=effective_resolved_dimensions,
+        parent_node=parent_node,
+        grain_columns=effective_grain_columns,
+        grain_col_aliases=grain_group.grain_col_aliases or None,
+        grain_col_specs=grain_col_specs,
+        output_dimension_refs=output_dimension_refs,
+        internal_dimension_aliases=internal_dimension_aliases,
+        filters=ctx.dimension_filters,
+        skip_aggregation=bool(grain_group.non_decomposable_metrics),
+    )
+    component_aliases = {
+        name: select.component_aliases.get(alias, alias)
+        for name, alias in component_aliases.items()
+    }
+    effective_grain_aliases = select.grain_aliases
+    effective_output_dimension_refs = output_dimension_refs or {
+        dimension.original_ref for dimension in resolved_dimensions
+    }
 
     # Build the full grain list (GROUP BY columns or unique row identity)
     # For NONE aggregability, grain is just the native grain (no dimensions)
@@ -2667,13 +2646,14 @@ def build_grain_group_sql(
     full_grain.sort()
 
     return GrainGroupSQL(
-        query=query_ast,
-        columns=columns_metadata,
+        query=select.query,
+        columns=select.projection.metadata,
         grain=full_grain,
         aggregability=grain_group.aggregability,
         metrics=list(metrics_covered),
         parent_name=grain_group.parent_node.name,
-        dimension_group_by_positions=dimension_group_by_positions,
+        dimension_group_by_positions=select.dimension_positions,
+        input_column_aliases=select.projection.input_aliases,
         component_aliases=component_aliases,
         fixed_grain_partition_aliases=fixed_grain_partition_aliases,
         reaggregate_dimension_aliases=reaggregate_dimension_aliases,
@@ -2681,7 +2661,7 @@ def build_grain_group_sql(
         component_aggregabilities=grain_group.component_aggregabilities,
         components=unique_components,
         dialect=ctx.dialect,
-        scan_estimate=calculate_scan_estimate(scanned_sources, ctx),
+        scan_estimate=calculate_scan_estimate(select.scanned_sources, ctx),
     )
 
 

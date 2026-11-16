@@ -1,5 +1,6 @@
 import time
 
+import duckdb
 import pytest
 
 from datajunction_server.construction.build_v3.builder import build_metrics_sql
@@ -3541,6 +3542,63 @@ class TestNonDecomposableMetrics:
     """Tests for metrics that cannot be decomposed (Aggregability.NONE)."""
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("aggregation", ["MAX_BY", "MIN_BY"])
+    @pytest.mark.parametrize("merged", [False, True])
+    async def test_group_others_preserves_renamed_metric_input(
+        self,
+        client_with_build_v3,
+        session,
+        aggregation,
+        merged,
+    ):
+        """Date bucketing must preserve the numeric date used to select a product."""
+        metric_name = f"v3.grouped_product_{aggregation.lower()}"
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": metric_name,
+                "query": (
+                    f"SELECT {aggregation}(product_id, order_date) "
+                    "FROM v3.order_details"
+                ),
+                "mode": "published",
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+
+        dimension = "v3.date.date_id[order]"
+        ranked = GeneratedSQL(
+            query=parse("SELECT 1 AS date_id_order"),
+            columns=[ColumnMetadata("date_id_order", dimension, "int", "dimension")],
+            dialect=Dialect.DUCKDB,
+        )
+        result = await build_metrics_sql(
+            session,
+            metrics=[metric_name] + (["v3.total_revenue"] if merged else []),
+            dimensions=[dimension],
+            dialect=Dialect.DUCKDB,
+            use_materialized=False,
+            group_others=GroupOthers((dimension,), ranked),
+        )
+
+        with duckdb.connect(":memory:") as connection:
+            connection.execute(
+                "ATTACH ':memory:' AS \"default\"; "
+                'USE "default"; CREATE SCHEMA v3; '
+                "CREATE TABLE v3.orders (order_id INT, order_date INT); "
+                "INSERT INTO v3.orders VALUES (1, 1), (2, 2), (3, 10); "
+                "CREATE TABLE v3.order_items (order_id INT, line_number INT, "
+                "product_id INT, quantity INT, unit_price DOUBLE); "
+                "INSERT INTO v3.order_items VALUES "
+                "(1, 1, 101, 1, 10), (2, 1, 202, 1, 20), (3, 1, 303, 1, 30);",
+            )
+            rows = connection.execute(result.sql).fetchall()
+        expected = [("1", 101), ("Others", 303 if aggregation == "MAX_BY" else 202)]
+        if merged:
+            expected = [(*row, revenue) for row, revenue in zip(expected, [10, 50])]
+        assert sorted(rows) == expected, result.sql
+
+    @pytest.mark.asyncio
     async def test_group_others_preserves_max_by_input_in_metrics_builder(
         self,
         session,
@@ -3896,8 +3954,8 @@ class TestNonDecomposableMetrics:
                 t1.status,
                 t1.line_number,
                 t1.order_id,
-                t1.line_total line_total,
-                t1.product_id product_id
+                t1.line_total,
+                t1.product_id
               FROM v3_order_details t1
             )
             SELECT

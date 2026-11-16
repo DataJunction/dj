@@ -1,3 +1,4 @@
+import duckdb
 import pytest
 
 from datajunction_server.construction.build_v3.builder import build_measures_sql
@@ -3797,6 +3798,183 @@ class TestNonDecomposableMetrics:
     """Tests for metrics that cannot be decomposed (Aggregability.NONE)."""
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("aggregation", ["MAX_BY", "MIN_BY"])
+    @pytest.mark.parametrize("filtered", [False, True])
+    @pytest.mark.parametrize("merged", [False, True])
+    @pytest.mark.parametrize("collision", [False, True])
+    async def test_non_decomposable_metric_references_dimension_columns(
+        self,
+        client_with_build_v3,
+        aggregation,
+        filtered,
+        merged,
+        collision,
+    ):
+        """Filtering a dimension input must not make it resolve on the fact table."""
+        dimension_input_name = (
+            "quantity" if collision else "account_days_since_allocation"
+        )
+        response = await client_with_build_v3.post(
+            "/nodes/dimension/",
+            json={
+                "name": "v3.allocation_day",
+                "mode": "published",
+                "primary_key": ["date_id"],
+                "query": (
+                    "SELECT date_id, "
+                    f"day_of_week AS {dimension_input_name}, "
+                    "month AS account_observation_day, year FROM v3.src_dates"
+                ),
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+        response = await client_with_build_v3.post(
+            "/nodes/v3.order_details/link",
+            json={
+                "dimension_node": "v3.allocation_day",
+                "join_type": "left",
+                "join_on": "v3.order_details.order_date = v3.allocation_day.date_id",
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+
+        response = await client_with_build_v3.post(
+            "/nodes/metric/",
+            json={
+                "name": "v3.conditional_line_total",
+                "mode": "published",
+                "query": (
+                    f"SELECT CASE WHEN MAX(v3.allocation_day.{dimension_input_name}) + 1 "
+                    ">= MAX(v3.allocation_day.account_observation_day) "
+                    f"THEN {aggregation}(line_total, quantity) END "
+                    "FROM v3.order_details"
+                ),
+            },
+        )
+        assert response.status_code in (200, 201), response.text
+
+        response = await client_with_build_v3.get(
+            "/sql/measures/v3/",
+            params={
+                "metrics": ["v3.conditional_line_total"]
+                + (["v3.total_revenue"] if merged else []),
+                "dimensions": ["v3.allocation_day.year"],
+                "filters": (
+                    [f"v3.allocation_day.{dimension_input_name} >= 0"]
+                    if filtered
+                    else []
+                ),
+            },
+        )
+        assert response.status_code == 200, response.text
+        assert len(response.json()["grain_groups"]) == 1
+        gg = response.json()["grain_groups"][0]
+        assert gg["aggregability"] == "none"
+        assert set(gg["grain"]) == {"order_id", "line_number"}
+        column_names = [column["name"] for column in gg["columns"]]
+        assert len(column_names) == len(set(column_names))
+        dimension_input = next(
+            column
+            for column in gg["columns"]
+            if column["semantic_entity"] == f"v3.allocation_day.{dimension_input_name}"
+        )
+        assert dimension_input["type"] == "int"
+        assert dimension_input["semantic_entity"] == (
+            f"v3.allocation_day.{dimension_input_name}"
+        )
+
+        metrics_response = await client_with_build_v3.get(
+            "/sql/metrics/v3/",
+            params={
+                "metrics": ["v3.conditional_line_total"]
+                + (["v3.total_revenue"] if merged else []),
+                "dimensions": ["v3.allocation_day.year"],
+                "filters": [
+                    f"v3.allocation_day.{dimension_input_name} >= 0",
+                    "v3.allocation_day.account_observation_day >= 0",
+                ],
+            },
+        )
+        assert metrics_response.status_code == 200, metrics_response.text
+        # Dimension quantity ranks the rows in the opposite order to fact quantity.
+        # Executing both queries catches missing inputs and silent alias substitution.
+        with duckdb.connect(":memory:") as connection:
+            connection.execute("ATTACH ':memory:' AS \"default\"")
+            connection.execute('USE "default"')
+            connection.execute("CREATE SCHEMA v3")
+            connection.execute(
+                "CREATE TABLE v3.dates (date_id INT, day_of_week INT, month INT, year INT)",
+            )
+            connection.execute(
+                "INSERT INTO v3.dates VALUES (1, 100, 1, 2026), (2, 1, 1, 2026)",
+            )
+            connection.execute("CREATE TABLE v3.orders (order_id INT, order_date INT)")
+            connection.execute("INSERT INTO v3.orders VALUES (1, 1), (2, 2)")
+            connection.execute(
+                "CREATE TABLE v3.order_items (order_id INT, line_number INT, quantity INT, unit_price DOUBLE)",
+            )
+            connection.execute(
+                "INSERT INTO v3.order_items VALUES (1, 1, 1, 100), (2, 1, 2, 10)",
+            )
+            measures_sql = gg["sql"].replace("default.v3.", '"default".v3.')
+            cursor = connection.execute(measures_sql)
+            assert [
+                description[0] for description in cursor.description
+            ] == column_names
+            assert len(cursor.fetchall()) == 2
+            sql = metrics_response.json()["sql"].replace("default.v3.", '"default".v3.')
+            expected = (2026, 20 if aggregation == "MAX_BY" else 100)
+            if merged:
+                expected += (120,)
+            assert connection.execute(sql).fetchall() == [expected]
+
+        if collision:
+            return
+
+        # The MAX terms cannot be pre-aggregated separately from MAX_BY/MIN_BY.
+        # Without the filter, auto-added dimensions already project both inputs
+        # correctly. With the filter, account_days_since_allocation is hidden as
+        # a filter-only dimension, so the non-decomposable pass-through path must
+        # still read it from t2 rather than treating it as a column on t1.
+        projection = (
+            "t2.year, t2.account_observation_day, t1.order_id, t1.line_number, "
+            "t2.account_days_since_allocation, t1.line_total, t1.quantity"
+            if filtered
+            else "t2.year, t2.account_days_since_allocation, t2.account_observation_day, "
+            "t1.order_id, t1.line_number, t1.line_total, t1.quantity"
+        )
+        if merged:
+            projection = (
+                "t2.year, "
+                + ("" if filtered else "t2.account_days_since_allocation, ")
+                + "t2.account_observation_day, t1.line_number, t1.order_id, "
+                "t1.line_total, "
+                + ("t2.account_days_since_allocation, " if filtered else "")
+                + "t1.quantity"
+            )
+        assert_sql_equal(
+            gg["sql"],
+            f"""
+            WITH v3_allocation_day AS (
+                SELECT date_id, day_of_week AS account_days_since_allocation,
+                    month AS account_observation_day, year
+                FROM default.v3.dates
+                {"WHERE day_of_week >= 0" if filtered else ""}
+            ),
+            v3_order_details AS (
+                SELECT o.order_id, oi.line_number, o.order_date,
+                    oi.quantity, oi.quantity * oi.unit_price AS line_total
+                FROM default.v3.orders o
+                JOIN default.v3.order_items oi ON o.order_id = oi.order_id
+            )
+            SELECT {projection}
+            FROM v3_order_details t1
+            LEFT OUTER JOIN v3_allocation_day t2 ON t1.order_date = t2.date_id
+            {"WHERE t2.account_days_since_allocation >= 0" if filtered else ""}
+            """,
+        )
+
+    @pytest.mark.asyncio
     async def test_non_decomposable_metric_max_by(
         self,
         session,
@@ -4021,8 +4199,8 @@ class TestNonDecomposableMetrics:
               t1.status,
               t1.line_number,
               t1.order_id,
-              t1.line_total line_total,
-              t1.product_id product_id
+              t1.line_total,
+              t1.product_id
             FROM v3_order_details t1
             """,
         )

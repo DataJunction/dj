@@ -1775,6 +1775,10 @@ def test_group_others_preserves_non_decomposable_metric_input():
         aggregability=Aggregability.NONE,
         metrics=["sem.top_product"],
         parent_name="sem.sales",
+        input_column_aliases={
+            "sem.sales.product_id": "product_id",
+            "sem.sales.line_total": "line_total",
+        },
         dialect=Dialect.DUCKDB,
     )
     ranked = V3GeneratedSQL(
