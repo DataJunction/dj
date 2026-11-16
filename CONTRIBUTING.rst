@@ -371,6 +371,10 @@ a tracking issue when a run fails. It runs only in ``DataJunction/dj``, using Py
 manual runs do not cancel scheduled runs. The API-backed properties need the same Postgres test setup as the server suite;
 locally, the test fixtures start it through Docker.
 
+Nightly runs distribute individual test cases across workers so a large parametrized module does not serialize
+on one worker. The search has a 75-minute limit within the 90-minute job limit, leaving time to save examples and
+upload failure artifacts. A search timeout fails the run and triggers the same failure reporting as a test failure.
+
 .. code-block:: sh
 
     cd datajunction-server

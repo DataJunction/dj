@@ -63,7 +63,13 @@ jobs:
           uv run python tests/helpers/populate_template.py "$PGX/template_dimension_links" COMPLEX_DIMENSION_LINK
       - name: Search and shrink
         id: search
-        run: uv run python -m pytest tests/property -n 4 --dist=loadscope --no-cov --junitxml=property-results.xml
+        # Spread parametrized cases across workers instead of serializing an
+        # entire module. Stop the search before the job deadline so examples
+        # and failure artifacts can still be saved, even after a slow shrink.
+        run: >-
+          timeout --signal=INT --kill-after=2m 75m
+          uv run python -m pytest tests/property -n 4 --dist=worksteal
+          --no-cov --junitxml=property-results.xml
       - uses: actions/cache/save@v4
         if: ${{ always() && steps.search.outcome != 'skipped' && steps.search.outcome != '' }}
         with:
