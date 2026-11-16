@@ -419,8 +419,8 @@ async def test_filter_and_group_by_the_same_reference(ref_client):
 
 @pytest.mark.asyncio
 async def test_filter_with_a_role_still_joins(ref_client):
-    """A role-qualified filter goes through the link, filtering the plan
-    rows as well as the events. Pro still sums to 50."""
+    """A role-qualified filter goes through the link and filters the plan
+    rows, not the events' own plan_label. Pro still sums to 50."""
     sql = await metrics_sql(ref_client, filters=[f"{ALT_LABEL} = 'Pro'"])
     assert_sql_equal(
         sql,
@@ -428,7 +428,6 @@ async def test_filter_with_a_role_still_joins(ref_client):
         WITH v3_rl_events AS (
           SELECT plan_key, amount
           FROM default.v3.rl_events
-          WHERE plan_label = 'Pro'
         ),
         v3_rl_plan AS (
           SELECT plan_key, plan_label

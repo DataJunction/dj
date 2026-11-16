@@ -26,7 +26,6 @@ from datajunction_server.construction.build_v3.builder import (
     substitute_query_params,
 )
 from datajunction_server.construction.build_v3.cte import (
-    _fk_key_column_names,
     collect_node_ctes,
 )
 from datajunction_server.construction.build_v3.dimensions import (
@@ -589,7 +588,6 @@ def _build_with_dimensions(
             filters=filter_list,
             column_aliases=filter_column_aliases,
             outer_only_refs=pushdown_outer_only_refs,
-            fk_collision_cols=_fk_key_column_names(starting),
         )
         if filter_list
         else None,
