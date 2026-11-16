@@ -1506,14 +1506,12 @@ def _traces_to(child: Node, ancestor: str, column: str, ctx: BuildContext) -> bo
 
 def _reads_from(child: Node, ancestor: str, ctx: BuildContext) -> bool:
     """Whether the child reads the ancestor, directly or through other nodes."""
-    pending, seen = [child.name], {child.name}
+    pending = [child.name]
     while pending:
         for parent_name in ctx.parent_map.get(pending.pop(), []):
             if parent_name == ancestor:
                 return True
-            if parent_name not in seen:
-                seen.add(parent_name)
-                pending.append(parent_name)
+            pending.append(parent_name)
     return False
 
 
