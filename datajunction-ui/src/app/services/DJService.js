@@ -1888,6 +1888,7 @@ export const DataJunctionAPI = {
     joinCardinality = null,
     role = null,
     defaultValue = null,
+    defaultValues = null,
   ) {
     const response = await fetch(`${DJ_URL}/nodes/${nodeName}/link`, {
       method: 'POST',
@@ -1901,6 +1902,9 @@ export const DataJunctionAPI = {
         join_cardinality: joinCardinality,
         role: role,
         default_value: defaultValue,
+        // Per-type defaults aren't editable here; pass them through so an edit
+        // doesn't clear them.
+        ...(defaultValues ? { default_values: defaultValues } : {}),
       }),
       credentials: 'include',
     });

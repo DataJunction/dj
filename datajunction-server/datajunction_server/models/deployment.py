@@ -24,6 +24,7 @@ from datajunction_server.models.dimensionlink import (
     JoinCardinality,
     default_value_key,
     default_values_key,
+    normalize_default_values,
     validate_default_values,
     JoinType,
     LinkType,
@@ -547,6 +548,11 @@ class DimensionJoinLinkSpec(DimensionLinkSpec):
     default_value: DimensionLinkDefault | None = None
     default_values: dict[str, DimensionLinkDefault] | None = None
     spark_hints: SparkJoinStrategy | None = None
+
+    @field_validator("default_values", mode="before")
+    @classmethod
+    def normalize_default_values_input(cls, values):
+        return normalize_default_values(values)
 
     @model_validator(mode="after")
     def check_default_values(self):

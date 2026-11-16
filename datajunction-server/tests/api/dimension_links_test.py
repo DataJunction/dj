@@ -10,6 +10,8 @@ import subprocess
 import sys
 from collections.abc import Generator
 
+from typing import Any
+
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
@@ -1951,12 +1953,12 @@ async def test_dimension_link_default_values_validation(
     dimensions_link_client: AsyncClient,
 ):
     """Invalid default_values, or combining it with default_value, is rejected."""
-    base = {
+    base: dict[str, Any] = {
         "dimension_node": "default.users",
         "join_type": "left",
         "join_on": "default.events.user_id = default.users.user_id",
     }
-    for extra, message in [
+    cases: list[tuple[dict[str, Any], str]] = [
         ({"default_values": {"integer": "abc"}}, "'integer'"),
         ({"default_values": {"date": "tomorrow"}}, "'date'"),
         ({"default_values": {"bigint": 1}}, "Unknown default_values type"),
@@ -1964,7 +1966,8 @@ async def test_dimension_link_default_values_validation(
             {"default_value": "Unknown", "default_values": {"string": "Unknown"}},
             "cannot both be set",
         ),
-    ]:
+    ]
+    for extra, message in cases:
         response = await dimensions_link_client.post(
             "/nodes/default.events/link",
             json={**base, **extra},

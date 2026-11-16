@@ -1,6 +1,7 @@
 """Models for dimension links"""
 
 import datetime
+import math
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, model_validator
@@ -36,7 +37,12 @@ DEFAULT_VALUE_CATEGORIES = (
 
 
 def _is_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    # Non-finite floats (.inf, .nan) can't be stored as JSON or fingerprinted.
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+    )
 
 
 def _is_date(value: Any) -> bool:
@@ -63,6 +69,16 @@ _CATEGORY_CHECKS = {
     "date": _is_date,
     "timestamp": _is_timestamp,
 }
+
+
+def normalize_default_values(values: Any) -> Any:
+    """Turn YAML-parsed date/datetime defaults into ISO strings."""
+    if not isinstance(values, dict):
+        return values
+    return {
+        key: value.isoformat() if isinstance(value, datetime.date) else value
+        for key, value in values.items()
+    }
 
 
 def validate_default_values(

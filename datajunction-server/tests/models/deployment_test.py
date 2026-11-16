@@ -2754,3 +2754,27 @@ def test_join_link_input_default_values_validation():
             join_on="x = y",
             default_values={"integer": "abc"},
         )
+
+
+def test_dimension_join_link_spec_default_values_rejects_non_finite():
+    """Infinite and NaN floats can't be stored or fingerprinted."""
+    for bad in (float("inf"), float("-inf"), float("nan")):
+        with pytest.raises(ValidationError, match="'decimal'"):
+            DimensionJoinLinkSpec(**LINK_KWARGS, default_values={"decimal": bad})
+
+
+def test_dimension_join_link_spec_default_values_accepts_yaml_dates():
+    """Unquoted YAML dates and timestamps load as date objects; keep them usable."""
+    import datetime
+
+    link = DimensionJoinLinkSpec(
+        **LINK_KWARGS,
+        default_values={
+            "date": datetime.date(1970, 1, 1),
+            "timestamp": datetime.datetime(1970, 1, 1, 0, 0, 0),
+        },
+    )
+    assert link.default_values == {
+        "date": "1970-01-01",
+        "timestamp": "1970-01-01T00:00:00",
+    }
