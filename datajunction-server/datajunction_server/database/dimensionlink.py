@@ -91,6 +91,13 @@ class DimensionLink(Base):
         default=None,
     )
 
+    # Optional per-type defaults, keyed by type category (string, integer, ...).
+    # Mutually exclusive with default_value.
+    default_values: Mapped[dict[str, DimensionLinkDefault] | None] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"),
+        default=None,
+    )
+
     # Optional Spark join strategy hint (e.g., broadcast, merge)
     spark_hints: Mapped[SparkJoinStrategy | None] = mapped_column(
         Enum(SparkJoinStrategy),
@@ -107,6 +114,7 @@ class DimensionLink(Base):
             join_type=self.join_type if self.join_type else JoinType.LEFT,
             join_cardinality=self.join_cardinality,
             default_value=self.default_value,
+            default_values=self.default_values,
             spark_hints=self.spark_hints,
         )
 

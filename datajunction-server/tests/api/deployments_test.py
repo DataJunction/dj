@@ -2122,6 +2122,76 @@ class TestDeployments:
         assert link["default_value"] is True
 
     @pytest.mark.asyncio
+    async def test_redeploy_join_link_default_values(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """
+        default_values survives a redeploy as a noop, a change to it is an
+        update, and the stored map is exported back into the spec.
+        """
+        namespace = "join_link_default_values"
+
+        def nodes_for(default_values):
+            dim_spec = DimensionSpec(
+                name="default.hard_hat",
+                description="Hard hat dimension",
+                query="""
+                SELECT
+                    hard_hat_id,
+                    state
+                FROM ${prefix}default.hard_hats
+                """,
+                primary_key=["hard_hat_id"],
+                owners=["dj"],
+                dimension_links=[
+                    DimensionJoinLinkSpec(
+                        dimension_node="${prefix}default.us_state",
+                        join_type="left",
+                        join_on=(
+                            "${prefix}default.hard_hat.state = "
+                            "${prefix}default.us_state.state_short"
+                        ),
+                        default_values=default_values,
+                    ),
+                ],
+            )
+            return [dim_spec, default_hard_hats, default_us_states, default_us_state]
+
+        link_name = f"{namespace}.default.hard_hat -> {namespace}.default.us_state"
+
+        async def deploy(default_values):
+            data = await deploy_and_wait(
+                client,
+                DeploymentSpec(namespace=namespace, nodes=nodes_for(default_values)),
+            )
+            assert data["status"] == "success", data
+            return {
+                result["name"]: result["operation"]
+                for result in data["results"]
+                if result["name"] in (link_name, f"{namespace}.default.hard_hat")
+            }
+
+        async def stored():
+            response = await client.get(f"/nodes/{namespace}.default.hard_hat")
+            return response.json()["dimension_links"][0]
+
+        values = {"string": "Unknown", "integer": -1, "date": "1970-01-01"}
+        assert (await deploy(values))[link_name] == "create"
+        assert (await stored())["default_values"] == values
+
+        assert await deploy(values) == {f"{namespace}.default.hard_hat": "noop"}
+
+        assert (await deploy({**values, "integer": 0}))[link_name] == "update"
+        assert (await stored())["default_values"] == {**values, "integer": 0}
+
+        assert (await deploy(None))[link_name] == "update"
+        assert (await stored())["default_values"] is None
+
+    @pytest.mark.asyncio
     async def test_required_dimension_from_linked_dimension_roundtrips(
         self,
         client,

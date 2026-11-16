@@ -162,6 +162,7 @@ from datajunction_server.models.dimensionlink import (
     JoinLinkInput,
     LinkType,
     default_value_key,
+    default_values_key,
     misplaced_node_column_message,
     missing_join_on_message,
 )
@@ -3138,6 +3139,7 @@ class DeploymentOrchestrator:
                 join_on=join_link.rendered_join_on or "",
                 role=join_link.role,
                 default_value=join_link.default_value,
+                default_values=join_link.default_values,
                 spark_hints=join_link.spark_hints,
             )
             (
@@ -6233,6 +6235,7 @@ class DeploymentOrchestrator:
                         materialization_conf=link.materialization_conf,
                         role=link.role,
                         default_value=link.default_value,
+                        default_values=link.default_values,
                         spark_hints=link.spark_hints,
                     ),
                 )
@@ -6548,6 +6551,8 @@ class DeploymentOrchestrator:
             and link.join_cardinality == link_input.join_cardinality
             and default_value_key(link.default_value)
             == default_value_key(link_input.default_value)
+            and default_values_key(link.default_values)
+            == default_values_key(link_input.default_values)
             and link.spark_hints == link_input.spark_hints
         ]
         if exact_match:
@@ -6562,9 +6567,11 @@ class DeploymentOrchestrator:
             dimension_link.join_type = join_type
             dimension_link.join_cardinality = link_input.join_cardinality
             dimension_link.default_value = link_input.default_value
+            dimension_link.default_values = link_input.default_values
             # SQLAlchemy compares old and new with ==, which counts 1 and True
             # as the same value and skips the column in the UPDATE.
             flag_modified(dimension_link, "default_value")
+            flag_modified(dimension_link, "default_values")
             dimension_link.spark_hints = link_input.spark_hints
         else:
             # No single candidate to update — create a new dimension link object
@@ -6577,6 +6584,7 @@ class DeploymentOrchestrator:
                 join_cardinality=link_input.join_cardinality,
                 role=link_input.role,
                 default_value=link_input.default_value,
+                default_values=link_input.default_values,
                 spark_hints=link_input.spark_hints,
             )
             node_revision.dimension_links.append(dimension_link)  # type: ignore

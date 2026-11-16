@@ -382,6 +382,7 @@ async def test_link_complex_dimension_without_role(
             },
             "role": None,
             "default_value": None,
+            "default_values": None,
             "spark_hints": None,
         },
     ]
@@ -524,6 +525,7 @@ async def test_link_complex_dimension_with_role(
                 "default.events.user_id": "default.users.user_id",
             },
             "default_value": None,
+            "default_values": None,
             "spark_hints": None,
         },
     ]
@@ -560,6 +562,7 @@ async def test_link_complex_dimension_with_role(
                     "default.events.user_id": "default.users.user_id",
                 },
                 "default_value": None,
+                "default_values": None,
                 "spark_hints": None,
             },
             {
@@ -577,6 +580,7 @@ async def test_link_complex_dimension_with_role(
                     "default.events.user_id": "default.users.user_id",
                 },
                 "default_value": None,
+                "default_values": None,
                 "spark_hints": None,
             },
         ],
@@ -1864,3 +1868,106 @@ async def test_dimension_link_with_spark_hints(
     response = await dimensions_link_client.get("/nodes/default.events")
     link = response.json()["dimension_links"][0]
     assert link["spark_hints"] is None
+
+
+@pytest.mark.asyncio
+async def test_dimension_link_with_default_values(
+    dimensions_link_client: AsyncClient,
+):
+    """default_values round trips through create and update, and is validated."""
+    join_on = (
+        "default.events.user_id = default.users.user_id "
+        "AND default.events.event_start_date = default.users.snapshot_date"
+    )
+
+    async def link_with(**extra):
+        return await dimensions_link_client.post(
+            "/nodes/default.events/link",
+            json={
+                "dimension_node": "default.users",
+                "join_type": "left",
+                "join_on": join_on,
+                "join_cardinality": "one_to_one",
+                **extra,
+            },
+        )
+
+    async def stored_link():
+        response = await dimensions_link_client.get("/nodes/default.events")
+        return response.json()["dimension_links"][0]
+
+    response = await link_with(
+        default_values={"string": "Unknown", "integer": -1, "date": "1970-01-01"},
+    )
+    assert response.status_code == 201
+    link = await stored_link()
+    assert link["default_values"] == {
+        "string": "Unknown",
+        "integer": -1,
+        "date": "1970-01-01",
+    }
+    assert link["default_value"] is None
+
+    # Updating replaces the whole map.
+    response = await link_with(default_values={"boolean": False})
+    assert response.status_code == 201
+    assert (await stored_link())["default_values"] == {"boolean": False}
+
+    # GraphQL carries it too.
+    gql = await dimensions_link_client.post(
+        "/graphql",
+        json={
+            "query": """
+            { findNodes(names: ["default.events"]) {
+                current { dimensionLinks { defaultValue defaultValues } }
+            } }
+            """,
+        },
+    )
+    assert gql.json()["data"]["findNodes"][0]["current"]["dimensionLinks"] == [
+        {"defaultValue": None, "defaultValues": {"boolean": False}},
+    ]
+
+    # Switching to default_value clears default_values.
+    response = await link_with(default_value="N/A")
+    assert response.status_code == 201
+    link = await stored_link()
+    assert link["default_value"] == "N/A"
+    assert link["default_values"] is None
+
+    # A new node revision keeps the setting.
+    response = await link_with(default_values={"integer": 0})
+    assert response.status_code == 201
+    response = await dimensions_link_client.patch(
+        "/nodes/default.events",
+        json={"description": "changed description"},
+    )
+    assert response.status_code == 200
+    assert (await stored_link())["default_values"] == {"integer": 0}
+
+
+@pytest.mark.asyncio
+async def test_dimension_link_default_values_validation(
+    dimensions_link_client: AsyncClient,
+):
+    """Invalid default_values, or combining it with default_value, is rejected."""
+    base = {
+        "dimension_node": "default.users",
+        "join_type": "left",
+        "join_on": "default.events.user_id = default.users.user_id",
+    }
+    for extra, message in [
+        ({"default_values": {"integer": "abc"}}, "'integer'"),
+        ({"default_values": {"date": "tomorrow"}}, "'date'"),
+        ({"default_values": {"bigint": 1}}, "Unknown default_values type"),
+        (
+            {"default_value": "Unknown", "default_values": {"string": "Unknown"}},
+            "cannot both be set",
+        ),
+    ]:
+        response = await dimensions_link_client.post(
+            "/nodes/default.events/link",
+            json={**base, **extra},
+        )
+        assert response.status_code == 422
+        assert message in response.text

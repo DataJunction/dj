@@ -220,6 +220,7 @@ class DimensionLink:
     role: str | None
     foreign_keys: JSON
     default_value: JSON | None
+    default_values: JSON | None
 
 
 @strawberry.type

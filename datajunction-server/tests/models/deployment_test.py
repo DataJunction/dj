@@ -2641,3 +2641,116 @@ def test_normalize_fixed_grain_matches_the_canonical_sequence_form(grain, expect
         normalize_value(grain),
         preserve_order=False,
     )
+
+
+LINK_KWARGS = {
+    "dimension_node": "some.dimension.users",
+    "join_type": "left",
+    "join_on": "events.user_id = some.dimension.users.id",
+}
+
+
+def test_dimension_join_link_spec_default_values():
+    """default_values keeps its types, and compares and hashes on its content."""
+    values = {"string": "Unknown", "integer": -1, "date": "1970-01-01"}
+    link = DimensionJoinLinkSpec(**LINK_KWARGS, default_values=values)
+    assert link.default_values == values
+    assert type(link.default_values["integer"]) is int
+
+    same = DimensionJoinLinkSpec(
+        **LINK_KWARGS,
+        default_values=dict(reversed(list(values.items()))),
+    )
+    assert link == same
+    assert hash(link) == hash(same)
+
+    for other in (
+        None,
+        {**values, "integer": 5},
+        {**values, "boolean": True},
+        {"string": "Unknown"},
+    ):
+        changed = DimensionJoinLinkSpec(**LINK_KWARGS, default_values=other)
+        assert link != changed
+        assert hash(link) != hash(changed)
+
+
+def test_dimension_join_link_spec_default_values_type_change():
+    """`1` and `1.0` are equal in Python but are different defaults."""
+    as_int = DimensionJoinLinkSpec(**LINK_KWARGS, default_values={"decimal": 1})
+    as_float = DimensionJoinLinkSpec(**LINK_KWARGS, default_values={"decimal": 1.0})
+    assert as_int != as_float
+
+
+def test_dimension_join_link_spec_without_default_values_is_unchanged():
+    """An unset default_values adds nothing to the comparison key."""
+    link = DimensionJoinLinkSpec(**LINK_KWARGS)
+    assert link.default_values is None
+    assert link._comparison_key()[-1] == ("NoneType", None)
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"string": "x", "integer": 1, "decimal": 1.5, "boolean": False},
+        {"decimal": 2},
+        {"date": "2024-02-29", "timestamp": "2024-02-29T10:30:00"},
+        {"timestamp": "2024-02-29 10:30:00"},
+    ],
+)
+def test_dimension_join_link_spec_default_values_accepts_valid(values):
+    assert DimensionJoinLinkSpec(**LINK_KWARGS, default_values=values)
+
+
+@pytest.mark.parametrize(
+    "values, message",
+    [
+        ({"integer": "abc"}, "'integer'"),
+        ({"integer": 1.5}, "'integer'"),
+        ({"integer": True}, "'integer'"),
+        ({"decimal": "1.5"}, "'decimal'"),
+        ({"boolean": "true"}, "'boolean'"),
+        ({"string": 5}, "'string'"),
+        ({"date": "not a date"}, "'date'"),
+        ({"date": "2024-13-01"}, "'date'"),
+        ({"date": 20240101}, "'date'"),
+        ({"timestamp": "yesterday"}, "'timestamp'"),
+        ({"bigint": 1}, "Unknown default_values type 'bigint'"),
+    ],
+)
+def test_dimension_join_link_spec_default_values_rejects_invalid(values, message):
+    with pytest.raises(ValidationError, match=message):
+        DimensionJoinLinkSpec(**LINK_KWARGS, default_values=values)
+
+
+def test_dimension_join_link_spec_rejects_both_default_options():
+    with pytest.raises(ValidationError, match="cannot both be set"):
+        DimensionJoinLinkSpec(
+            **LINK_KWARGS,
+            default_value="Unknown",
+            default_values={"string": "Unknown"},
+        )
+
+
+def test_join_link_input_default_values_validation():
+    from datajunction_server.models.dimensionlink import JoinLinkInput
+
+    link = JoinLinkInput(
+        dimension_node="a.b",
+        join_on="x = y",
+        default_values={"integer": -1},
+    )
+    assert link.default_values == {"integer": -1}
+    with pytest.raises(ValidationError, match="cannot both be set"):
+        JoinLinkInput(
+            dimension_node="a.b",
+            join_on="x = y",
+            default_value=0,
+            default_values={"integer": -1},
+        )
+    with pytest.raises(ValidationError, match="'integer'"):
+        JoinLinkInput(
+            dimension_node="a.b",
+            join_on="x = y",
+            default_values={"integer": "abc"},
+        )

@@ -1267,6 +1267,7 @@ async def copy_to_new_node(
                 role=link.role,
                 materialization_conf=link.materialization_conf,
                 default_value=link.default_value,
+                default_values=link.default_values,
                 spark_hints=link.spark_hints,
             ),
         )
@@ -2665,6 +2666,7 @@ def copy_existing_node_revision(old_revision: NodeRevision, current_user: User):
                 role=link.role,
                 materialization_conf=link.materialization_conf,
                 default_value=link.default_value,
+                default_values=link.default_values,
                 spark_hints=link.spark_hints,
             )
             for link in old_revision.dimension_links
@@ -2991,6 +2993,7 @@ async def create_new_revision_from_existing(
                 role=link.role,
                 materialization_conf=link.materialization_conf,
                 default_value=link.default_value,
+                default_values=link.default_values,
                 spark_hints=link.spark_hints,
             )
             for link in old_revision.dimension_links
@@ -3573,9 +3576,11 @@ async def upsert_complex_dimension_link(
         )
         dimension_link.join_cardinality = link_input.join_cardinality
         dimension_link.default_value = link_input.default_value
+        dimension_link.default_values = link_input.default_values
         # SQLAlchemy compares old and new with ==, which counts 1 and True
         # as the same value and skips the column in the UPDATE.
         flag_modified(dimension_link, "default_value")
+        flag_modified(dimension_link, "default_values")
         dimension_link.spark_hints = link_input.spark_hints
     else:
         # If there is no existing link, create new dimension link object
@@ -3587,6 +3592,7 @@ async def upsert_complex_dimension_link(
             join_cardinality=link_input.join_cardinality,
             role=link_input.role,
             default_value=link_input.default_value,
+            default_values=link_input.default_values,
             spark_hints=link_input.spark_hints,
         )
         new_revision.dimension_links.append(dimension_link)  # type: ignore
@@ -4947,6 +4953,7 @@ async def refresh_source(
                 role=link.role,
                 materialization_conf=link.materialization_conf,
                 default_value=link.default_value,
+                default_values=link.default_values,
                 spark_hints=link.spark_hints,
             )
             for link in current_revision.dimension_links

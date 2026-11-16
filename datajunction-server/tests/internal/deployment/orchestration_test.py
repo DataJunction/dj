@@ -3702,6 +3702,7 @@ class TestCreateOrUpdateDimensionJoinLink:
         existing_link.join_type = JoinType.LEFT
         existing_link.join_cardinality = JoinCardinality.MANY_TO_ONE
         existing_link.default_value = None
+        existing_link.default_values = None
         existing_link.spark_hints = None
 
         node_revision = MagicMock()
@@ -3751,6 +3752,7 @@ class TestCreateOrUpdateDimensionJoinLink:
         link_epoch.join_type = JoinType.INNER
         link_epoch.join_cardinality = JoinCardinality.MANY_TO_ONE
         link_epoch.default_value = None
+        link_epoch.default_values = None
         link_epoch.spark_hints = None
 
         link_region = MagicMock()
@@ -3760,6 +3762,7 @@ class TestCreateOrUpdateDimensionJoinLink:
         link_region.join_type = JoinType.INNER
         link_region.join_cardinality = JoinCardinality.MANY_TO_ONE
         link_region.default_value = None
+        link_region.default_values = None
         link_region.spark_hints = None
 
         node_revision = MagicMock()
@@ -3822,6 +3825,7 @@ class TestCreateOrUpdateDimensionJoinLink:
         existing_link.join_type = JoinType.LEFT
         existing_link.join_cardinality = JoinCardinality.MANY_TO_ONE
         existing_link.default_value = None
+        existing_link.default_values = None
         existing_link.spark_hints = None
 
         node_revision = MagicMock()
