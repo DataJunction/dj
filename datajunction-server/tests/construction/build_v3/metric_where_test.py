@@ -854,6 +854,13 @@ def test_shared_union_cte_gets_each_arms_own_expression():
     )
 
 
+def test_shared_cte_with_unnamed_expression_merges():
+    """An unnamed expression is kept in every copy, so merging skips it."""
+    kept = parse("SELECT a, 1 FROM t")
+    merge_cte_columns(kept, parse("SELECT a, 1, b FROM t"))
+    assert str(kept) == str(parse("SELECT a, 1, b FROM t"))
+
+
 @pytest.mark.asyncio
 async def test_union_parent_keeps_columns_a_later_group_needs(client_with_build_v3):
     """An unfiltered group first must not drop the column a filtered one reads."""

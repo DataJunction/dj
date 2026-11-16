@@ -5,7 +5,7 @@ CTE building and AST transformation utilities
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import cast
+from typing import Optional, cast
 
 from datajunction_server.construction.build_v3.filters import (
     dimension_ref_of_expression,
@@ -897,15 +897,23 @@ def _set_op_arms(select: ast.SelectExpression) -> list[ast.SelectExpression]:
     return arms
 
 
+def _projected_name(item: ast.Node) -> Optional[str]:
+    """The name a projected expression is selected as; None when it has none."""
+    named = getattr(item, "alias_or_name", None)
+    return named.name if named is not None else None
+
+
 def merge_cte_columns(target: ast.Query, other: ast.Query) -> None:
     """Add columns the other copy kept, in every arm."""
     target_arms = _set_op_arms(target.select)
     other_arms = _set_op_arms(other.select)
     if len(target_arms) != len(other_arms):  # pragma: no cover
         return
-    have = {item.alias_or_name.name for item in target.select.projection}  # type: ignore[union-attr]
+    have = {_projected_name(item) for item in target.select.projection}
     for index, item in enumerate(other.select.projection):
-        if item.alias_or_name.name in have:  # type: ignore[union-attr]
+        name = _projected_name(item)
+        # Pruning keeps unnamed expressions (e.g. a literal) in every copy.
+        if name is None or name in have:
             continue
         for target_arm, other_arm in zip(target_arms, other_arms):
             arm_item = other_arm.projection[index]
