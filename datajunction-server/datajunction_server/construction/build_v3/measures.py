@@ -2414,7 +2414,8 @@ def build_grain_group_sql(
                 non_decomposable_columns.append((col_name, col_ast))
                 input_node = (
                     ctx.nodes.get(
-                        col.name.namespace.identifier(quotes=False), parent_node
+                        col.name.namespace.identifier(quotes=False),
+                        parent_node,
                     )
                     if col.name.namespace
                     else parent_node
