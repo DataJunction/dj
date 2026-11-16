@@ -190,7 +190,20 @@ class DJClient:
         )
         return response
 
-    def deploy(self, deployment_spec: dict[str, Any]):
+    @staticmethod
+    def _fingerprint_params(semantic_fingerprints: bool) -> dict[str, Any]:
+        """
+        Query params for skipping semantic fingerprints.
+        """
+        if semantic_fingerprints:
+            return {}
+        return {"params": {"semantic_fingerprints": "false"}}
+
+    def deploy(
+        self,
+        deployment_spec: dict[str, Any],
+        semantic_fingerprints: bool = True,
+    ):
         """
         Deploy a deployment spec to the target namespace.
         """
@@ -198,6 +211,7 @@ class DJClient:
             "/deployments",
             json=deployment_spec,
             timeout=self._timeout,
+            **self._fingerprint_params(semantic_fingerprints),
         )
         return response.json()
 
@@ -233,7 +247,11 @@ class DJClient:
         )
         return response.json()
 
-    def get_deployment_impact(self, deployment_spec: dict[str, Any]):
+    def get_deployment_impact(
+        self,
+        deployment_spec: dict[str, Any],
+        semantic_fingerprints: bool = True,
+    ):
         """
         Get impact analysis for a deployment spec without deploying.
 
@@ -246,6 +264,7 @@ class DJClient:
             json=deployment_spec,
             headers={"Prefer": "respond-async"},
             timeout=self._timeout,
+            **self._fingerprint_params(semantic_fingerprints),
         )
         deployment_data = response.json()
         deployment_uuid = deployment_data["uuid"]
