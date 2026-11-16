@@ -2,6 +2,7 @@
 Utilities used around construction
 """
 
+import datetime
 import decimal
 import time
 from typing import TYPE_CHECKING
@@ -36,6 +37,30 @@ NUMERIC_COLUMN_TYPES = {
 }
 BOOLEAN_COLUMN_TYPES = {"bool", "boolean"}
 STRING_COLUMN_TYPES = {"char", "string", "text", "varchar"}
+INTEGER_COLUMN_TYPES = {"bigint", "int", "integer", "long", "smallint", "tinyint"}
+DECIMAL_COLUMN_TYPES = {"decimal", "double", "float", "number", "numeric", "real"}
+DATE_COLUMN_TYPES = {"date"}
+TIMESTAMP_COLUMN_TYPES = {"timestamp", "timestamp_ltz", "timestamp_ntz", "timestamptz"}
+
+
+def column_type_category(column_type: str | None) -> str | None:
+    """
+    Map a column type to a default_values category, or None if it has none.
+    Parameters and time zone suffixes are ignored, e.g. ``decimal(10,2)``.
+    """
+    base_type = (column_type or "").lower().split("(", maxsplit=1)[0].strip()
+    if base_type.split(" ", maxsplit=1)[0] in TIMESTAMP_COLUMN_TYPES:
+        return "timestamp"
+    for category, types in (
+        ("integer", INTEGER_COLUMN_TYPES),
+        ("decimal", DECIMAL_COLUMN_TYPES),
+        ("boolean", BOOLEAN_COLUMN_TYPES),
+        ("string", STRING_COLUMN_TYPES),
+        ("date", DATE_COLUMN_TYPES),
+    ):
+        if base_type in types:
+            return category
+    return None
 
 
 def _string_literal(value: DimensionLinkDefault) -> "Value":
@@ -100,6 +125,49 @@ def dimension_link_default_literal(
             else None
         )
     return literal if literal is not None else _string_literal(default_value)
+
+
+def dimension_link_typed_default_literal(
+    default_values: dict[str, DimensionLinkDefault],
+    column_type: str | None,
+) -> "Value | None":
+    """
+    Build the SQL literal for a link's ``default_values`` entry matching the
+    column's type category, or None when the type is unknown or has no entry.
+    """
+    from datajunction_server.sql.parsing import ast
+
+    category = column_type_category(column_type)
+    if category is None or category not in default_values:
+        return None
+    value = default_values[category]
+    if category == "string":
+        return _string_literal(value)
+    if category == "boolean":
+        return _boolean_literal(value)
+    if category in ("integer", "decimal"):
+        return _number_literal(value)
+    if category == "date":
+        parsed_date = datetime.datetime.strptime(str(value), "%Y-%m-%d").date()
+        return ast.String(f"DATE '{parsed_date.isoformat()}'")
+    parsed_ts = datetime.datetime.fromisoformat(str(value))
+    return ast.String(f"TIMESTAMP '{parsed_ts.isoformat(sep=' ')}'")
+
+
+def dimension_link_default_for_column(
+    default_value: DimensionLinkDefault | None,
+    default_values: dict[str, DimensionLinkDefault] | None,
+    column_type: str | None,
+) -> "Value | None":
+    """
+    The literal a link's defaults give for a column of ``column_type``, or None
+    when the column should not be wrapped in COALESCE.
+    """
+    if default_value is not None:
+        return dimension_link_default_literal(default_value, column_type)
+    if default_values:
+        return dimension_link_typed_default_literal(default_values, column_type)
+    return None
 
 
 async def get_dj_node(

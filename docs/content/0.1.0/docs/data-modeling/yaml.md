@@ -154,7 +154,9 @@ dimension_links:
   - type: join
     dimension_node: ${prefix}roads.us_state
     join_on: ${prefix}roads.local_hard_hats.state_id = ${prefix}roads.us_state.state_id
-    default_value: Unknown  # Optional: fallback for NULL values from LEFT JOIN
+    default_values:  # Optional: per-type fallbacks for NULL values from LEFT JOIN
+      string: Unknown
+      integer: -1
   - type: reference
     node_column: birth_date
     dimension: ${prefix}roads.date_dim.dateint
@@ -168,8 +170,8 @@ dimension_links:
 | `join_on` | Yes, unless `join_type` is `cross` | The join condition, equating this node's foreign key column(s) to the dimension's primary key. There is no inference: a spec says nothing about which column is the foreign key, so the clause must be written out. |
 | `join_type` | No | The type of join (one of `left`, `right`, `inner`, `full`, `cross`). Defaults to `left`. |
 | `role` | No | The role this dimension represents |
-| `default_value` | No | A string, number, or boolean fallback for NULL results from LEFT/RIGHT joins. When set, dimension columns are wrapped in `COALESCE(column, default_value)`, with the literal rendered to match the column's type. |
-| `default_values` | No | A map from column type category (`string`, `integer`, `decimal`, `boolean`, `date`, `timestamp`) to a fallback value of that type, e.g. `{string: Unknown, integer: -1, date: "1970-01-01"}`. Mutually exclusive with `default_value`. Currently stored but not yet applied to generated SQL. |
+| `default_value` | No | **Deprecated**, use `default_values`. A string, number, or boolean fallback for NULL results from LEFT/RIGHT joins. It is applied to every column of the dimension as `COALESCE(column, default_value)`, and setting it produces a deployment warning. |
+| `default_values` | No | A map from column type category (`string`, `integer`, `decimal`, `boolean`, `date`, `timestamp`) to a fallback value of that type, e.g. `{string: Unknown, integer: -1, date: "1970-01-01"}`. Each dimension column is wrapped in `COALESCE` with the entry for its type; columns whose type has no entry are left as-is. Mutually exclusive with `default_value`. |
 | `spark_hints` | No | Spark join strategy hint for this dimension join. One of `broadcast`, `merge`, `shuffle_hash`, `shuffle_replicate_nl`. Emitted as a hint comment in the generated SELECT. Has no effect on non-Spark engines. |
 
 | Reference Link Fields | Required?  | Description |

@@ -3131,6 +3131,19 @@ class DeploymentOrchestrator:
         activity_type = ActivityType.CREATE
         if link_spec.type == LinkType.JOIN:
             join_link = cast(DimensionJoinLinkSpec, link_spec)
+            if join_link.default_value is not None:
+                self.warnings.append(
+                    DJError(
+                        code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                        message=(
+                            f"Dimension link from `{new_revision.name}` to "
+                            f"`{join_link.rendered_dimension_node}`: `default_value` "
+                            "is deprecated and applies to every column of the "
+                            "dimension. Use `default_values` (e.g. "
+                            "`default_values: {string: ...}`) instead."
+                        ),
+                    ),
+                )
             link_input = JoinLinkInput(
                 dimension_node=join_link.rendered_dimension_node,
                 join_type=join_link.join_type,

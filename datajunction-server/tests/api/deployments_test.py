@@ -2192,6 +2192,66 @@ class TestDeployments:
         assert (await stored())["default_values"] is None
 
     @pytest.mark.asyncio
+    async def test_default_value_on_join_link_warns_deprecated(
+        self,
+        client,
+        default_hard_hats,
+        default_us_states,
+        default_us_state,
+    ):
+        """A join link with default_value warns; default_values does not."""
+        namespace = "join_link_default_value_deprecated"
+
+        def nodes_for(**defaults):
+            dim_spec = DimensionSpec(
+                name="default.hard_hat",
+                description="Hard hat dimension",
+                query="""
+                SELECT
+                    hard_hat_id,
+                    state
+                FROM ${prefix}default.hard_hats
+                """,
+                primary_key=["hard_hat_id"],
+                owners=["dj"],
+                dimension_links=[
+                    DimensionJoinLinkSpec(
+                        dimension_node="${prefix}default.us_state",
+                        join_type="left",
+                        join_on=(
+                            "${prefix}default.hard_hat.state = "
+                            "${prefix}default.us_state.state_short"
+                        ),
+                        **defaults,
+                    ),
+                ],
+            )
+            return [dim_spec, default_hard_hats, default_us_states, default_us_state]
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=nodes_for(default_value="Unknown"),
+            ),
+        )
+        assert data["status"] == "success", data
+        messages = [item["message"] for item in data["warnings"]]
+        assert len(messages) == 1
+        assert "`default_value` is deprecated" in messages[0]
+        assert "default_values" in messages[0]
+
+        data = await deploy_and_wait(
+            client,
+            DeploymentSpec(
+                namespace=namespace,
+                nodes=nodes_for(default_values={"string": "Unknown"}),
+            ),
+        )
+        assert data["status"] == "success", data
+        assert data["warnings"] == []
+
+    @pytest.mark.asyncio
     async def test_required_dimension_from_linked_dimension_roundtrips(
         self,
         client,
