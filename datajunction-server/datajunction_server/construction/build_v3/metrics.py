@@ -30,6 +30,10 @@ from datajunction_server.construction.build_v3.filters import (
     parse_and_resolve_filters,
     parse_filter,
 )
+from datajunction_server.construction.build_v3.projection import (
+    column_inputs,
+    input_reference,
+)
 from datajunction_server.construction.build_v3.types import (
     BaseMetricsResult,
     BuildContext,
@@ -828,12 +832,26 @@ def process_base_metrics(
                 # Rewrite column references in the expression to use the CTE alias
                 # _table must be an ast.Table (not ast.Name) for proper stringification
                 cte_table = ast.Table(name=ast.Name(alias))
-                for col in expr_ast.find_all(ast.Column):  # type: ignore
-                    if col.name and not col._table:  # type: ignore  # pragma: no branch
-                        raw_alias = gg.raw_metric_input_aliases.get(col.name.name)
-                        if raw_alias:
-                            col.name = ast.Name(raw_alias)
-                        col._table = cte_table  # type: ignore
+                for expression in list(column_inputs(expr_ast)):
+                    reference = input_reference(expression, gg.parent_name)
+                    try:
+                        input_alias = gg.input_column_aliases[reference]
+                    except KeyError as exc:
+                        raise DJInvalidInputException(
+                            f"Metric input {reference} was not projected by {gg.parent_name}",
+                        ) from exc
+                    input_alias = gg.raw_metric_input_aliases.get(
+                        input_alias,
+                        input_alias,
+                    )
+                    replacement = ast.Column(
+                        name=ast.Name(input_alias),
+                        _table=cte_table,
+                    )
+                    if expression is expr_ast:
+                        expr_ast = replacement
+                    else:
+                        expression.swap(replacement)
 
                 metric_exprs[metric_name] = MetricExprInfo(
                     expr_ast=expr_ast,

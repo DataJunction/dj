@@ -3896,8 +3896,8 @@ class TestNonDecomposableMetrics:
                 t1.status,
                 t1.line_number,
                 t1.order_id,
-                t1.line_total line_total,
-                t1.product_id product_id
+                t1.line_total,
+                t1.product_id
               FROM v3_order_details t1
             )
             SELECT

@@ -325,6 +325,8 @@ class GrainGroupSQL:
     # Mapping from component name (hashed) to actual SQL alias in the output
     # Used by metrics SQL to correctly reference component columns
     component_aliases: dict[str, str] = field(default_factory=dict)
+    # Full source reference (node.column, including role) -> emitted output alias.
+    input_column_aliases: dict[str, str] = field(default_factory=dict)
     # Raw input name -> private output name when GROUP_OTHERS buckets an input
     # still needed by a non-decomposable metric such as MAX_BY.
     raw_metric_input_aliases: dict[str, str] = field(default_factory=dict)
