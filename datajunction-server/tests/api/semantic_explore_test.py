@@ -426,6 +426,68 @@ async def test_explore_execution_targets(
     prepare.assert_not_called()
 
 
+@pytest.mark.parametrize("has_catalog", [False, True])
+def test_explore_execution_target_without_engine(has_catalog):
+    catalog = Catalog(name="unconfigured", engines=[]) if has_catalog else None
+    assert api._explore_execution_target(catalog) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rank_groups", [False, True])
+async def test_explore_filter_requires_column(client: AsyncClient, rank_groups: bool):
+    """Incomplete filters are rejected even when inherited by group ranking."""
+    await _setup_cube(client)
+    query = {
+        "metrics": ["sem.total_amount"],
+        "dimensions": ["sem.region.region_name"],
+        "filters": [{"operator": "=", "value": "North"}],
+        **(
+            {
+                "group_limit": {
+                    "dimensions": ["sem.region.region_name"],
+                    "top": 2,
+                },
+            }
+            if rank_groups
+            else {}
+        ),
+    }
+    response = await client.post(
+        "/semantic/views/@explore:sem/sql",
+        json={"query": query},
+    )
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"] == "Filter with operator = requires a column"
+
+
+@pytest.mark.asyncio
+async def test_explore_values_rejects_having_filters(client: AsyncClient, monkeypatch):
+    await _setup_cube(client)
+    service = SimpleNamespace(submit_query=AsyncMock())
+    monkeypatch.setitem(
+        client.app.dependency_overrides,
+        get_query_service_client,
+        lambda: service,
+    )
+    response = await client.post(
+        "/semantic/views/@explore:sem/values",
+        json={
+            "dimension": "sem.region.region_name",
+            "filters": [
+                {
+                    "type": "HAVING",
+                    "column": "sem.total_amount",
+                    "operator": ">",
+                    "value": 1,
+                },
+            ],
+        },
+    )
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"] == "Values filters must use WHERE dimensions."
+    service.submit_query.assert_not_called()
+
+
 @pytest.mark.asyncio
 async def test_explore_selection_and_execution(client: AsyncClient, monkeypatch):
     await _setup_cube(client)
