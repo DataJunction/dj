@@ -169,6 +169,83 @@ class TestDimensionReachabilityInMemory:
 class TestReferenceDimensions:
     """A reference-linked column makes its dimension reachable without a join."""
 
+    def test_reference_columns_match_exact_attribute_and_role(self):
+        reachability = DimensionReachability(
+            {},
+            reference_columns={
+                10: {("dim.customer", "label", "")},
+                20: {("dim.date", "dateint", "ordered")},
+            },
+        )
+        assert reachability.is_reachable(10, "dim.customer")
+        assert reachability.is_column_reachable_under_role(
+            10,
+            "dim.customer",
+            "label",
+            None,
+        )
+        assert not reachability.is_column_reachable_under_role(
+            10,
+            "dim.customer",
+            "id",
+            None,
+        )
+        assert reachability.is_column_reachable_under_role(
+            20,
+            "dim.date",
+            "dateint",
+            "ordered",
+        )
+        assert not reachability.is_column_reachable_under_role(
+            20,
+            "dim.date",
+            "dateint",
+            None,
+        )
+        assert not reachability.is_column_reachable_under_role(
+            20,
+            "dim.date",
+            "month",
+            "ordered",
+        )
+        assert not reachability.is_column_reachable_under_role(
+            30,
+            "dim.date",
+            "dateint",
+            "ordered",
+        )
+
+    def test_join_paths_and_local_nodes_expose_all_columns(self):
+        reachability = DimensionReachability(
+            {(10, "dim.customer", "joined"): [100]},
+            local_names={10: "fact.orders"},
+            reference_columns={10: {("dim.customer", "label", "")}},
+        )
+        assert reachability.is_column_reachable_under_role(
+            10,
+            "dim.customer",
+            "id",
+            "joined",
+        )
+        assert not reachability.is_column_reachable_under_role(
+            10,
+            "dim.customer",
+            "id",
+            None,
+        )
+        assert reachability.is_column_reachable_under_role(
+            10,
+            "fact.orders",
+            "amount",
+            None,
+        )
+        assert not reachability.is_column_reachable_under_role(
+            10,
+            "fact.orders",
+            "amount",
+            "joined",
+        )
+
     def test_reference_dimension_is_reachable(self):
         r = DimensionReachability(
             {},
@@ -210,9 +287,9 @@ class TestReferenceDimensions:
         session.execute.return_value = MagicMock(
             all=MagicMock(
                 return_value=[
-                    (10, "dim.customer", "customer_id"),
-                    (10, "dim.date", "dateint[ordered]"),
-                    (20, "dim.product", None),
+                    (10, "dim.customer", "customer", "customer_id"),
+                    (10, "dim.date", "order_date", "dateint[ordered]"),
+                    (20, "dim.product", "product_id", None),
                 ],
             ),
         )
@@ -222,8 +299,11 @@ class TestReferenceDimensions:
             {"dim.customer", "dim.date", "dim.product"},
         )
         assert reference_dims == {
-            10: {("dim.customer", ""), ("dim.date", "ordered")},
-            20: {("dim.product", "")},
+            10: {
+                ("dim.customer", "customer_id", ""),
+                ("dim.date", "dateint", "ordered"),
+            },
+            20: {("dim.product", "product_id", "")},
         }
 
 
@@ -255,7 +335,7 @@ class TestDimensionReachabilityBuild:
                 "datajunction_server.internal.deployment.dimension_reachability."
                 "find_reference_dimensions_batch",
                 new_callable=AsyncMock,
-                return_value={20: {("dim.customer", "")}},
+                return_value={20: {("dim.customer", "customer_id", "")}},
             ) as mock_refs,
         ):
             r = await DimensionReachability.build(
@@ -271,6 +351,8 @@ class TestDimensionReachabilityBuild:
         assert r.is_reachable(10, "node.fact")  # local
         assert r.is_reachable(20, "dim.country")
         assert r.is_reachable(20, "dim.customer")  # reference link
+        assert r.is_column_reachable_under_role(20, "dim.customer", "customer_id", None)
+        assert not r.is_column_reachable_under_role(20, "dim.customer", "label", None)
         assert not r.is_reachable(10, "dim.customer")
 
     @pytest.mark.asyncio

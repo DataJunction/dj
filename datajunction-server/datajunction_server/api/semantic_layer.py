@@ -1794,6 +1794,13 @@ async def _load_explore_view(
         refs = set()
         for dimension_name, role in reachability.reachable_roles_from(revision_id):
             for revision, column in dimension_columns.get(dimension_name, []):
+                if not reachability.is_column_reachable_under_role(
+                    revision_id,
+                    dimension_name,
+                    column.name,
+                    role,
+                ):
+                    continue
                 base = f"{dimension_name}.{column.name}"
                 # Local fact attributes need an explicit dimension/PK tag.
                 if dimension_name == parent_name and base not in dimensions:

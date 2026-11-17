@@ -131,6 +131,139 @@ async def test_malformed_explore_names_return_not_found(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("reference_role", [None, "shipping"])
+async def test_explore_reference_dimensions_require_column_or_join(
+    client: AsyncClient,
+    session: AsyncSession,
+    reference_role: str | None,
+):
+    """A denormalized attribute does not grant access to other dimension columns."""
+    await _setup_cube(client)
+    await _expect(
+        await client.post(
+            "/nodes/source/",
+            json={
+                "name": "sem.region_events",
+                "mode": "published",
+                "catalog": "semcat",
+                "schema_": "sem",
+                "table": "region_events",
+                "columns": [
+                    {"name": "region_label", "type": "string"},
+                    {"name": "amount", "type": "double"},
+                ],
+            },
+        ),
+        200,
+        201,
+    )
+    await _expect(
+        await client.post(
+            "/nodes/sem.region_events/columns/region_label/link",
+            params={
+                "dimension_node": "sem.region",
+                "dimension_column": "region_name",
+                **({"role": reference_role} if reference_role else {}),
+            },
+        ),
+        200,
+        201,
+    )
+    metric = "sem.reference_amount"
+    await _expect(
+        await client.post(
+            "/nodes/metric/",
+            json={
+                "name": metric,
+                "query": "SELECT SUM(amount) FROM sem.region_events",
+                "mode": "published",
+            },
+        ),
+        200,
+        201,
+    )
+    view = "/semantic/views/@explore:sem"
+    suffix = f"[{reference_role}]" if reference_role else ""
+    label = f"sem.region.region_name{suffix}"
+    key = f"sem.region.region_id{suffix}"
+
+    async def compatible_dimensions():
+        response = await client.post(
+            f"{view}/compatible-dimensions",
+            json={"selected_metrics": [metric]},
+        )
+        assert response.status_code == 200, response.text
+        return {item["id"] for item in response.json()}
+
+    assert await compatible_dimensions() == {label}
+    for dimension, expected in ((label, True), ("sem.region.region_id", False)):
+        response = await client.post(
+            f"{view}/compatible-metrics",
+            json={"selected_dimensions": [dimension]},
+        )
+        assert response.status_code == 200, response.text
+        assert (metric in {item["id"] for item in response.json()}) is expected
+    sql = await client.post(
+        f"{view}/sql",
+        json={"query": {"metrics": [metric], "dimensions": [label]}},
+    )
+    assert sql.status_code == 200, sql.text
+    assert "JOIN" not in sql.json()["sql"]
+    for extra in (
+        {"dimensions": ["sem.region.region_id"]},
+        {"filters": [{"column": "sem.region.region_id", "value": 1}]},
+        {"order": [{"by": "sem.region.region_id"}]},
+    ):
+        response = await client.post(
+            f"{view}/sql",
+            json={"query": {"metrics": [metric], **extra}},
+        )
+        assert response.status_code == 400, response.text
+        assert response.json()["code"] == "INCOMPATIBLE_SELECTION"
+
+    async def add_join(role):
+        # API requests share a session in tests; discard the partially loaded
+        # objects from Explore before the link update copies the revision.
+        session.expunge_all()
+        await _expect(
+            await client.post(
+                "/nodes/sem.region_events/link/",
+                json={
+                    "dimension_node": "sem.region",
+                    "join_type": "left",
+                    "join_on": (
+                        "sem.region_events.region_label = sem.region.region_name"
+                    ),
+                    **({"role": role} if role else {}),
+                },
+            ),
+            200,
+            201,
+        )
+        session.expunge_all()
+
+    await add_join("joined")
+    assert await compatible_dimensions() == {
+        label,
+        "sem.region.region_id[joined]",
+        "sem.region.region_name[joined]",
+    }
+    await add_join(reference_role)
+    assert await compatible_dimensions() == {
+        label,
+        key,
+        "sem.region.region_id[joined]",
+        "sem.region.region_name[joined]",
+    }
+    sql = await client.post(
+        f"{view}/sql",
+        json={"query": {"metrics": [metric], "dimensions": [key]}},
+    )
+    assert sql.status_code == 200, sql.text
+    assert "JOIN" in sql.json()["sql"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "target_case",
     ["different_engines", "postgres_catalogs", "engine_versions", "trino_federation"],
