@@ -1511,7 +1511,9 @@ ExecutionTarget: TypeAlias = tuple[str, str, str | None]
 
 def _explore_execution_target(catalog: Catalog | None) -> ExecutionTarget | None:
     """Identify an execution target without exposing connection details."""
-    engine = preferred_live_engine(catalog.engines) if catalog else None
+    if catalog is None:
+        return None
+    engine = preferred_live_engine(catalog.engines)
     if engine is None:
         return None
     # PostgreSQL cannot reference another database, even through the same engine.

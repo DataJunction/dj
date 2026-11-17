@@ -144,6 +144,7 @@ async def test_explore_execution_targets(
     """Compatibility follows engine identity, including hidden query operands."""
     await _setup_cube(client)
     catalog = await Catalog.get_by_name(session, "semcat")
+    assert catalog is not None
     if target_case == "trino_federation":
         engines = list(catalog.engines)
         # Both catalogs must resolve to Trino, even when another engine is first.
@@ -273,7 +274,7 @@ async def test_explore_execution_targets(
                 "dimensions": [dimension],
                 "filters": [having],
                 "top": 2,
-            }
+            },
         },
     ):
         for endpoint in ("sql", "query", "row-count"):
@@ -284,7 +285,7 @@ async def test_explore_execution_targets(
                         "metrics": selected,
                         "dimensions": [dimension],
                         **extra,
-                    }
+                    },
                 },
             )
             assert response.status_code == 400, response.text
@@ -492,8 +493,8 @@ async def test_explore_selection_and_execution(client: AsyncClient, monkeypatch)
                     "column": "sem.region_count",
                     "operator": ">",
                     "value": 1,
-                }
-            ]
+                },
+            ],
         },
         {"order": [{"by": "sem.region_count"}]},
     ):
@@ -510,7 +511,7 @@ async def test_explore_selection_and_execution(client: AsyncClient, monkeypatch)
             "query": {
                 "metrics": cross_fact,
                 "dimensions": ["sem.region.region_name"],
-            }
+            },
         },
     )
     assert joined.status_code == 200, joined.text
