@@ -14,7 +14,6 @@ from sqlalchemy import (
     and_,
     bindparam,
     func,
-    join,
     literal,
     or_,
     select,
@@ -1235,6 +1234,34 @@ async def get_shared_dimensions(
     )
 
 
+async def _get_current_parents(
+    session: AsyncSession,
+    node_names: list[str],
+    parent_node_options: list[ExecutableOption],
+) -> list[tuple[str, Node]]:
+    """
+    Return (child name, parent Node) rows for each named node's current revision.
+    Starts from node.name, which has a btree index; noderevision.name does not.
+    """
+    child = aliased(Node)
+    statement = (
+        select(child.name, Node)
+        .select_from(child)
+        .join(
+            NodeRevision,
+            and_(
+                NodeRevision.node_id == child.id,
+                NodeRevision.version == child.current_version,
+            ),
+        )
+        .join(NodeRelationship, NodeRelationship.child_id == NodeRevision.id)
+        .join(Node, NodeRelationship.parent_id == Node.id)
+        .where(child.name.in_(node_names))
+        .options(*parent_node_options)
+    )
+    return [(row[0], row[1]) for row in (await session.execute(statement)).all()]
+
+
 async def get_metric_parents_map(
     session: AsyncSession,
     metric_nodes: list[Node],
@@ -1264,31 +1291,11 @@ async def get_metric_parents_map(
         noload(Node.tags),
     ]
 
-    # Get all immediate parents for the input metrics WITH the child metric name
-    find_latest_node_revisions = [
-        and_(
-            NodeRevision.name == metric_node.name,
-            NodeRevision.version == metric_node.current_version,
-        )
-        for metric_node in metric_nodes
-    ]
-    statement = (
-        select(NodeRevision.name.label("metric_name"), Node)
-        .where(or_(*find_latest_node_revisions))
-        .select_from(
-            join(
-                join(
-                    NodeRevision,
-                    NodeRelationship,
-                    NodeRevision.id == NodeRelationship.child_id,
-                ),
-                Node,
-                NodeRelationship.parent_id == Node.id,
-            ),
-        )
-        .options(*parent_node_options)
+    rows = await _get_current_parents(
+        session,
+        [metric_node.name for metric_node in metric_nodes],
+        parent_node_options,
     )
-    rows = (await session.execute(statement)).all()
 
     # Per metric: its non-metric parents and its metric parents
     direct_parents: dict[str, tuple[list[Node], list[str]]] = {}
@@ -1332,30 +1339,11 @@ async def get_metric_parents_map(
         if not base_metrics:
             break  # pragma: no cover
 
-        find_base_metric_revisions = [
-            and_(
-                NodeRevision.name == m.name,
-                NodeRevision.version == m.current_version,
-            )
-            for m in base_metrics
-        ]
-        statement = (
-            select(NodeRevision.name.label("base_metric_name"), Node)
-            .where(or_(*find_base_metric_revisions))
-            .select_from(
-                join(
-                    join(
-                        NodeRevision,
-                        NodeRelationship,
-                        NodeRevision.id == NodeRelationship.child_id,
-                    ),
-                    Node,
-                    NodeRelationship.parent_id == Node.id,
-                ),
-            )
-            .options(*parent_node_options)
+        base_rows = await _get_current_parents(
+            session,
+            [m.name for m in base_metrics],
+            parent_node_options,
         )
-        base_rows = (await session.execute(statement)).all()
         to_fetch = [n for n in record_parents(base_rows) if n not in direct_parents]
 
     def leaf_parents(name: str, seen: set[str]) -> list[Node]:
