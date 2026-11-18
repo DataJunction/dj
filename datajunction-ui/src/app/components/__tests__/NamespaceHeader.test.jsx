@@ -795,6 +795,24 @@ describe('<NamespaceHeader />', () => {
         });
       },
     );
+
+    // Regression: same `flat`-shape trap on the git action button. A feature
+    // branch sub-namespace is editable, so it must show the "Sync to Git"
+    // control — not the not-git "Connect to Git" button.
+    it('shows Sync to Git (not Connect to Git) for a feature branch sub-namespace', async () => {
+      renderReadOnlyVerdict({
+        namespace: 'test.feature.metrics',
+        configByNamespace: {
+          'test.feature.metrics': branchCfg('feature', 'test.feature.metrics'),
+          'test.feature': branchCfg('feature', 'test.feature'),
+          test: GIT_ROOT,
+        },
+      });
+      await waitFor(() =>
+        expect(screen.getByText('Sync to Git')).toBeInTheDocument(),
+      );
+      expect(screen.queryByText('Connect to Git')).not.toBeInTheDocument();
+    });
   });
 
   it('should open Create Branch modal when button is clicked', async () => {
