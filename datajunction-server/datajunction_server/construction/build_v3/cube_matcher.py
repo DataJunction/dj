@@ -41,6 +41,7 @@ from datajunction_server.construction.build_v3.types import (
 from datajunction_server.construction.build_v3.utils import (
     extract_filter_dimension_refs,
 )
+from datajunction_server.construction.utils import missing_to_parent
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
@@ -119,6 +120,7 @@ def _missing_reaggregate_requirements(
 async def _metric_graph_has_reaggregate(
     session: AsyncSession,
     metrics: list[str],
+    inherit: bool = False,
 ) -> bool:
     """
     Cheaply test whether requested metrics or metric ancestors use reaggregate.
@@ -127,11 +129,7 @@ async def _metric_graph_has_reaggregate(
     pending = set(metrics)
     ParentNode = aliased(Node)
 
-    while pending:
-        batch = sorted(pending - seen)
-        if not batch:
-            break
-        seen.update(batch)
+    async def fetch(names: list[str]) -> list:
         result = await session.execute(
             select(
                 Node.name,
@@ -154,10 +152,25 @@ async def _metric_graph_has_reaggregate(
                     ParentNode.type == NodeType.METRIC,
                 ),
             )
-            .where(Node.name.in_(batch))
+            .where(Node.name.in_(names))
             .where(Node.type == NodeType.METRIC),
         )
-        for _, reaggregate, parent_name in result.all():
+        return list(result.all())
+
+    while pending:
+        batch = sorted(pending - seen)
+        if not batch:
+            break
+        seen.update(batch)
+        rows = await fetch(batch)
+        parents = (
+            await missing_to_parent(session, batch, [row[0] for row in rows])
+            if inherit
+            else {}
+        )
+        if parents:
+            rows += await fetch(sorted(set(parents.values())))
+        for _, reaggregate, parent_name in rows:
             if reaggregate:
                 return True
             if parent_name and parent_name not in seen:
@@ -170,13 +183,19 @@ async def _reaggregate_requirements_for_metrics_if_needed(
     session: AsyncSession,
     metrics: list[str],
     dimensions: list[str],
+    inherit: bool = False,
 ) -> list[ReaggregateRequirement]:
     """
     Run full metric decomposition only when reaggregate is possible.
     """
-    if not await _metric_graph_has_reaggregate(session, metrics):
+    if not await _metric_graph_has_reaggregate(session, metrics, inherit):
         return []
-    return await _reaggregate_requirements_for_metrics(session, metrics, dimensions)
+    return await _reaggregate_requirements_for_metrics(
+        session,
+        metrics,
+        dimensions,
+        inherit,
+    )
 
 
 # (metric name, dimension the cube must retain)
@@ -258,6 +277,7 @@ async def _reaggregate_requirements_for_metrics(
     session: AsyncSession,
     metrics: list[str],
     requested_dimensions: list[str],
+    inherit: bool = False,
 ) -> list[ReaggregateRequirement]:
     """
     Reaggregation requirements from full metric decomposition.
@@ -270,6 +290,7 @@ async def _reaggregate_requirements_for_metrics(
         extractor = await MetricComponentExtractor.from_node_name(
             metric_name,
             session,
+            inherit,
         )
         components, _ = await extractor.extract(session)
         for component in components:

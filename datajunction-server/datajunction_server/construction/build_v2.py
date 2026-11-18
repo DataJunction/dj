@@ -490,6 +490,7 @@ class QueryBuilder:
                 self.session,
                 self.node_revision,
                 dependencies_cache=self.dependencies_cache,
+                inherit=True,
             )
             if not self.physical_table
             else self.create_query_from_physical_table(self.physical_table)
@@ -517,6 +518,7 @@ class QueryBuilder:
                 self.session,
                 DJException(),
                 dependencies_cache=self.dependencies_cache,
+                inherit=True,
             )
             await node_ast.compile(ctx)
             self.final_ast = self.initialize_final_query_ast(node_ast, node_alias)
@@ -649,6 +651,7 @@ class QueryBuilder:
             self.session,
             DJException(),
             dependencies_cache=self.dependencies_cache,
+            inherit=True,
         )
         await node_ast.compile(ctx)
         self.errors.extend(ctx.exception.errors)
@@ -1489,6 +1492,7 @@ class CubeQueryBuilder:
                 self.session,
                 DJException(),
                 dependencies_cache=self.dependencies_cache,
+                inherit=True,
             )
             await parent_ast.compile(ctx)
             measures_queries[parent_node.name] = parent_ast
@@ -1785,6 +1789,7 @@ async def build_dimension_node_query(
             session,
             current_revision,
             dependencies_cache=dependencies_cache,
+            inherit=True,
         )
         if not physical_table
         else ast.Query(
@@ -1867,6 +1872,7 @@ async def compile_node_ast(
     session,
     node_revision: NodeRevision,
     dependencies_cache: dict | None = None,
+    inherit: bool = False,
 ) -> ast.Query:
     """
     Parses the node's query into an AST and compiles it.
@@ -1877,12 +1883,14 @@ async def compile_node_ast(
         dependencies_cache: Optional shared cache for DJ node lookups.
                            If provided, node lookups will be cached and reused
                            across multiple compile_node_ast calls.
+        inherit: Resolve missing branch nodes through the default branch.
     """
     node_ast = parse(node_revision.query)
     ctx = CompileContext(
         session,
         DJException(),
         dependencies_cache=dependencies_cache or {},
+        inherit=inherit,
     )
     await node_ast.compile(ctx)
 
@@ -2082,6 +2090,7 @@ async def build_ast(
         session=session,
         exception=DJException(),
         dependencies_cache=dependencies_cache or {},
+        inherit=True,
     )
 
     await query.compile(context)
