@@ -49,10 +49,12 @@ from datajunction_server.models.node import NodeStatus
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.dag import get_metric_parents_map
 from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.process_pool import parse_in_pool
 from datajunction_server.sql.parsing.types import ColumnType
-from datajunction_server.utils import SEPARATOR
+from datajunction_server.utils import SEPARATOR, get_settings
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 
 @dataclass(frozen=True)
@@ -495,7 +497,7 @@ async def _revalidate_and_apply(
     # - ANTLR parsing is CPU-bound (threadpool)
     all_names = [impact.name for impact in impacts]
 
-    async def _parse_all_queries() -> dict[str, ast.Query | Exception]:
+    async def _parse_in_threads() -> dict[str, ast.Query | Exception]:
         """Parse all queries in a threadpool."""
         loop = asyncio.get_running_loop()
         parsed: dict[str, ast.Query | Exception] = {}
@@ -510,6 +512,21 @@ async def _revalidate_and_apply(
                 except Exception as exc:
                     parsed[name] = exc
         return parsed
+
+    async def _parse_all_queries() -> dict[str, ast.Query | Exception]:
+        """Parse in worker processes if enabled, else in threads."""
+        if settings.parse_process_pool_size > 0:
+            try:
+                return await parse_in_pool(
+                    queries_to_parse,
+                    settings.parse_process_pool_size,
+                )
+            except Exception:
+                logger.warning(
+                    "Process pool parsing failed, parsing in threads",
+                    exc_info=True,
+                )
+        return await _parse_in_threads()
 
     # Run DB load and ANTLR parsing concurrently
     loaded_nodes, pre_parsed = await asyncio.gather(

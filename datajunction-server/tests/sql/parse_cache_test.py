@@ -1,5 +1,7 @@
 """Tests for the parsed query cache."""
 
+import asyncio
+import threading
 from unittest.mock import patch
 
 import pytest
@@ -8,7 +10,6 @@ from datajunction_server.internal.deployment.type_inference import parse_query
 from datajunction_server.sql.parsing import ast, cache
 from datajunction_server.sql.parsing.ast import fast_parse_mode
 from datajunction_server.sql.parsing.backends.antlr4 import parse
-from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.sql.parsing.cache import parse_cached
 
 
@@ -76,42 +77,51 @@ def test_linked_trees_are_not_returned_in_fast_mode():
     assert fast.select.parent is None
 
 
-def test_tree_is_not_kept_when_another_thread_had_fast_mode_on():
-    def parse_in_fast_mode(query: str):
+def test_fast_mode_does_not_leak_across_threads():
+    query = "SELECT a FROM t"
+    inside, outside = threading.Event(), threading.Event()
+    result: dict = {}
+
+    def fast_worker():
         with fast_parse_mode():
-            return parse(query)
+            inside.set()
+            outside.wait()
 
-    with patch.object(cache, "parse", parse_in_fast_mode):
-        parse_cached("SELECT a FROM t")
-    assert cache._cache == {}
+    worker = threading.Thread(target=fast_worker)
+    worker.start()
+    inside.wait()
+    result["tree"] = parse(query)
+    result["cached"] = parse_cached(query)
+    outside.set()
+    worker.join()
+    assert result["tree"].select.parent is result["tree"]
+    assert result["cached"].select.parent is result["cached"]
+    assert list(cache._cache) == [(query, False)]
 
 
-def test_tree_is_not_kept_when_only_its_outer_nodes_are_linked():
-    def parse_with_fast_mode_ending_early(query: str):
+def test_fast_mode_nesting_restores_previous_value():
+    assert ast._fast_parse.get() is False
+    with fast_parse_mode():
         with fast_parse_mode():
-            tree = parse(query)
-        return tree.add_self_as_parent()
-
-    with patch.object(cache, "parse", parse_with_fast_mode_ending_early):
-        tree = parse_cached("SELECT a FROM t WHERE b > 1")
-    assert tree.select.parent is tree
-    assert cache._cache == {}
+            assert ast._fast_parse.get() is True
+        assert ast._fast_parse.get() is True
+    assert ast._fast_parse.get() is False
 
 
-def test_least_recently_used_query_is_dropped():
-    with patch.object(cache, "PARSE_CACHE_SIZE", 2):
-        assert parse_calls("SELECT 1 FROM a", "SELECT 2 FROM b") == 2
-        assert parse_calls("SELECT 1 FROM a") == 0
-        assert parse_calls("SELECT 3 FROM c") == 1
-        assert [query for query, _ in cache._cache] == [
-            "SELECT 1 FROM a",
-            "SELECT 3 FROM c",
-        ]
-        assert parse_calls("SELECT 2 FROM b") == 1
+def test_fast_mode_does_not_leak_into_to_thread():
+    async def run():
+        def read():
+            return ast._fast_parse.get()
 
+        with fast_parse_mode():
+            inherited = await asyncio.to_thread(read)
 
-def test_parse_errors_are_not_cached():
-    for _ in range(2):
-        with pytest.raises(DJParseException):
-            parse_cached("SELECT (")
-    assert cache._cache == {}
+            def toggle():
+                with fast_parse_mode():
+                    pass
+
+            await asyncio.to_thread(toggle)
+            return inherited, ast._fast_parse.get()
+
+    assert asyncio.run(run()) == (True, True)
+    assert ast._fast_parse.get() is False

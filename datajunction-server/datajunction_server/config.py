@@ -327,6 +327,9 @@ class Settings(BaseSettings):  # pragma: no cover
     # within one request, not across them.
     request_parse_cache_size: int = 64
 
+    # Worker processes for parsing impact queries; 0 uses threads.
+    parse_process_pool_size: int = 0
+
     # Maximum amount of nodes to return for requests to list all nodes
     node_list_max: int = 10000
 
