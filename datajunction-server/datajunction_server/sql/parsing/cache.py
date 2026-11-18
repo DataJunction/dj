@@ -13,11 +13,6 @@ _cache: OrderedDict[tuple[str, bool], bytes] = OrderedDict()
 _lock = threading.Lock()
 
 
-def _fully_linked(tree: ast.Query) -> bool:
-    """Whether every node below the root has a parent link."""
-    return all(node.parent is not None for node in tree.flatten() if node is not tree)
-
-
 def parse_cached(query: str) -> ast.Query:
     """
     Parse a SQL query. Thread-safe, suitable for a threadpool.
@@ -25,7 +20,7 @@ def parse_cached(query: str) -> ast.Query:
     Repeated text is loaded from the cache, so every caller gets its own tree.
     Trees built in fast mode, which have no parent links, are kept apart.
     """
-    fast = ast._fast_parse
+    fast = ast._fast_parse.get()
     key = (query, fast)
     with _lock:
         cached = _cache.get(key)
@@ -34,12 +29,9 @@ def parse_cached(query: str) -> ast.Query:
     if cached is not None:
         return pickle.loads(cached)
     tree = parse(query)
-    # Another thread can switch fast mode while this parse runs, so the tree
-    # is checked instead of the flag.
-    if fast or _fully_linked(tree):
-        blob = pickle.dumps(tree, protocol=pickle.HIGHEST_PROTOCOL)
-        with _lock:
-            _cache[key] = blob
-            while len(_cache) > PARSE_CACHE_SIZE:
-                _cache.popitem(last=False)
+    blob = pickle.dumps(tree, protocol=pickle.HIGHEST_PROTOCOL)
+    with _lock:
+        _cache[key] = blob
+        while len(_cache) > PARSE_CACHE_SIZE:
+            _cache.popitem(last=False)
     return tree

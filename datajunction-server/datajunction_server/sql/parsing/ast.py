@@ -292,9 +292,10 @@ def to_sql(query: Query, dialect: Dialect | None = None) -> str:
 
 
 # When True, skip parent-pointer wiring in __post_init__ and __setattr__.
-# Set via fast_parse_mode() context manager for bulk parsing where parent
-# pointers aren't needed (graph extraction, type inference).
-_fast_parse = False
+# Set via fast_parse_mode() for bulk parsing where parent pointers aren't
+# needed (graph extraction, type inference). Per-context, so threads and
+# tasks never see each other's mode.
+_fast_parse: ContextVar[bool] = ContextVar("fast_parse", default=False)
 
 
 @contextmanager
@@ -306,12 +307,11 @@ def fast_parse_mode():
     or resolving column types. Skipping the wiring avoids O(n) fields() walks
     and flatten() calls per node, giving ~2-3x speedup on parse-heavy paths.
     """
-    global _fast_parse
-    _fast_parse = True
+    token = _fast_parse.set(True)
     try:
         yield
     finally:
-        _fast_parse = False
+        _fast_parse.reset(token)
 
 
 def flatten(maybe_iterables: Any) -> Iterator:
@@ -374,7 +374,7 @@ class Node(ABC):
     _is_compiled: bool = False
 
     def __post_init__(self):
-        if not _fast_parse:
+        if not _fast_parse.get():
             self.add_self_as_parent()
 
     @property
@@ -416,7 +416,7 @@ class Node(ABC):
         """
         Facilitates setting children using `.` syntax ensuring parent is attributed
         """
-        if _fast_parse or key == "parent":
+        if _fast_parse.get() or key == "parent":
             object.__setattr__(self, key, value)
             return
 
