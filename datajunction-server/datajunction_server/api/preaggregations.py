@@ -315,9 +315,10 @@ async def list_preaggregations(
             session,
             node_name,
             options=[
-                load_only(Node.id),
+                load_only(Node.id, Node.name),
                 joinedload(Node.current).load_only(NodeRevision.id),
             ],
+            inherit=True,
         )
         if not node:
             raise DJDoesNotExistException(f"Node '{node_name}' not found")

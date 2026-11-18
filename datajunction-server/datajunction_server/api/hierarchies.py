@@ -98,8 +98,9 @@ async def get_dimension_hierarchies(
         await Node.get_by_name(
             session,
             dimension,
-            options=[load_only(Node.id, Node.type)],
+            options=[load_only(Node.id, Node.name, Node.type)],
             raise_if_not_exists=True,
+            inherit=True,
         ),
     )
 

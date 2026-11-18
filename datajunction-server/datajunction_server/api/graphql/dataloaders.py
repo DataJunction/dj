@@ -13,7 +13,7 @@ from starlette.requests import Request
 from strawberry.dataloader import DataLoader
 
 from datajunction_server.api.graphql.resolvers.nodes import load_node_options
-from datajunction_server.api.graphql.utils import _merge_fields
+from datajunction_server.api.graphql.utils import _merge_fields, add_inherited
 from datajunction_server.construction.build_v3.filter_requirements import (
     load_revision_filters,
 )
@@ -128,6 +128,12 @@ async def batch_load_nodes(
         # Create a lookup map
         node_map = {node.name: node for node in nodes}
 
+        async def load_parents(parents: list[str]) -> dict[str, DBNode]:
+            found = await DBNode.find_by(session, names=parents, options=options)
+            return {node.name: node for node in found}
+
+        node_map = await add_inherited(session, node_names, node_map, load_parents)
+
         # Return nodes in the same order as requested keys
         return [node_map.get(name) for name in node_names]
 
@@ -151,14 +157,17 @@ async def batch_load_nodes_by_name_only(
     """
     # Create independent session for this dataloader batch
     async with session_context(request) as session:
-        nodes = await DBNode.find_by(
-            session,
-            names=names,
-            options=load_node_options({"name": None, "current": {"name": None}}),
-        )
+        options = load_node_options({"name": None, "current": {"name": None}})
+        nodes = await DBNode.find_by(session, names=names, options=options)
 
         # Create a lookup map
         node_map = {node.name: node for node in nodes}
+
+        async def load_parents(parents: list[str]) -> dict[str, DBNode]:
+            found = await DBNode.find_by(session, names=parents, options=options)
+            return {node.name: node for node in found}
+
+        node_map = await add_inherited(session, names, node_map, load_parents)
 
         # Return nodes in the same order as requested
         return [node_map.get(name) for name in names]
@@ -201,14 +210,18 @@ async def batch_load_nodes_with_fields(
 
     async with session_context(request) as session:
         # Reload nodes already in the session, which may lack requested fields.
-        statement = (
-            select(DBNode)
-            .where(DBNode.name.in_(names), DBNode.deactivated_at.is_(None))
-            .options(*load_node_options(all_fields))
-            .execution_options(populate_existing=True)
-        )
-        nodes = (await session.execute(statement)).unique().scalars().all()
-        node_map = {node.name: node for node in nodes}
+        async def load_by_names(wanted: list[str]) -> dict[str, DBNode]:
+            statement = (
+                select(DBNode)
+                .where(DBNode.name.in_(wanted), DBNode.deactivated_at.is_(None))
+                .options(*load_node_options(all_fields))
+                .execution_options(populate_existing=True)
+            )
+            nodes = (await session.execute(statement)).unique().scalars().all()
+            return {node.name: node for node in nodes}
+
+        node_map = await load_by_names(names)
+        node_map = await add_inherited(session, names, node_map, load_by_names)
         return [node_map.get(name) for name in names]
 
 

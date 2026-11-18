@@ -10,7 +10,11 @@ from strawberry.types import Info
 
 from datajunction_server.api.graphql.resolvers.nodes import load_node_options
 from datajunction_server.api.graphql.scalars.node import DimensionAttribute
-from datajunction_server.api.graphql.utils import extract_fields, resolver_session
+from datajunction_server.api.graphql.utils import (
+    add_inherited,
+    extract_fields,
+    resolver_session,
+)
 from datajunction_server.database.node import Node
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.dag import (
@@ -41,6 +45,23 @@ async def common_dimensions(
             names=nodes,
             options=[joinedload(Node.current)],
         )
+        if nodes:
+
+            async def load_parents(parents: list[str]) -> dict[str, Node]:
+                found = await Node.find_by(
+                    dims_session,
+                    names=parents,
+                    options=[joinedload(Node.current)],
+                )
+                return {node.name: node for node in found}
+
+            by_name = await add_inherited(
+                dims_session,
+                nodes,
+                {node.name: node for node in dims_nodes},
+                load_parents,
+            )
+            dims_nodes = list(by_name.values())
         dimensions = await get_common_dimensions(dims_session, dims_nodes)  # type: ignore
 
         result = [

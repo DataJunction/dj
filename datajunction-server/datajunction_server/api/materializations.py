@@ -330,6 +330,7 @@ async def list_node_materializations(
         if include_all_revisions
         else [],
         raise_if_not_exists=True,
+        inherit=True,
     )
 
     return get_materialization_info(
@@ -598,6 +599,7 @@ async def list_node_availability_states(
             ),
         ],
         raise_if_not_exists=True,
+        inherit=True,
     )
 
     # Collect availability states from all revisions

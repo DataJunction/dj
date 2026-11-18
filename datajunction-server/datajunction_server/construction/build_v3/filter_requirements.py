@@ -10,6 +10,7 @@ from datajunction_server.construction.build_v3.loaders import find_upstream_node
 from datajunction_server.construction.build_v3.utils import (
     extract_filter_dimension_refs,
 )
+from datajunction_server.construction.utils import missing_to_parent
 from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
 from datajunction_server.errors import (
     DJError,
@@ -171,9 +172,30 @@ def apply_requirements(
 async def load_declared_entries(
     session: AsyncSession,
     names: set[str],
+    inherit: bool = False,
 ) -> dict[str, list[RequirementEntry]]:
     """
     Entries each metric among the named nodes declares itself.
+    """
+    rows = await _declared_rows(session, sorted(names))
+    parents = await missing_to_parent(session, names, rows) if inherit else {}
+    if parents:
+        parent_rows = await _declared_rows(session, sorted(set(parents.values())))
+        for name, parent in parents.items():
+            if parent in parent_rows:
+                rows[name] = parent_rows[parent]
+    return {
+        name: _revision_entries(name, required, recommended)
+        for name, (required, recommended) in sorted(rows.items())
+    }
+
+
+async def _declared_rows(
+    session: AsyncSession,
+    names: list[str],
+) -> dict[str, tuple[list[dict] | None, list[dict] | None]]:
+    """
+    The (required, recommended) filters of each active metric named.
     """
     rows = await session.execute(
         select(
@@ -188,15 +210,12 @@ async def load_declared_entries(
                 NodeRevision.version == Node.current_version,
             ),
         )
-        .where(Node.name.in_(sorted(names)))
+        .where(Node.name.in_(names))
         .where(Node.type == NodeType.METRIC)
         .where(Node.deactivated_at.is_(None))
         .order_by(Node.name),
     )
-    return {
-        name: _revision_entries(name, required, recommended)
-        for name, required, recommended in rows
-    }
+    return {name: (required, recommended) for name, required, recommended in rows}
 
 
 def _revision_entries(
@@ -222,14 +241,15 @@ def _revision_entries(
 async def load_requirement_entries(
     session: AsyncSession,
     metrics: list[str],
+    inherit: bool = False,
 ) -> list[RequirementEntry]:
     """
     Entries declared on the requested metrics and on every metric upstream.
     """
     if not metrics:
         return []
-    names, _ = await find_upstream_node_names(session, metrics)
-    declared = await load_declared_entries(session, names)
+    names, _ = await find_upstream_node_names(session, metrics, inherit)
+    declared = await load_declared_entries(session, names, inherit)
     return [entry for entries in declared.values() for entry in entries]
 
 
@@ -313,6 +333,7 @@ async def apply_metric_filter_requirements(
     session: AsyncSession,
     metrics: list[str],
     filters: list[str] | None,
+    inherit: bool = False,
 ) -> tuple[list[str], list[DJWarning]]:
     """
     Check the filters against the metrics' requirements.
@@ -320,7 +341,7 @@ async def apply_metric_filter_requirements(
     Returns the filters with defaults added, and warnings. Raises a 422 when
     a required filter is missing.
     """
-    entries = await load_requirement_entries(session, metrics)
+    entries = await load_requirement_entries(session, metrics, inherit)
     return apply_requirements(entries, list(filters or []))
 
 
@@ -342,6 +363,7 @@ async def check_filter_requirements(
     session: AsyncSession,
     metrics: list[str],
     filters: list[str] | None,
+    inherit: bool = False,
 ) -> CheckedFilters:
     """
     apply_metric_filter_requirements, returned as CheckedFilters.
@@ -350,6 +372,7 @@ async def check_filter_requirements(
         session,
         metrics,
         filters,
+        inherit,
     )
     return CheckedFilters(effective, warnings)
 
@@ -363,6 +386,7 @@ async def apply_node_filter_requirements(
     session: AsyncSession,
     node_name: str,
     filters: list[str],
+    inherit: bool = False,
 ) -> tuple[list[str], list[DJWarning]]:
     """
     Check the requirements of a metric or cube node.
@@ -378,16 +402,36 @@ async def apply_node_filter_requirements(
             .where(Node.deactivated_at.is_(None)),
         )
     ).scalar_one_or_none()
+    if node_type is None and inherit:
+        parent = (await missing_to_parent(session, [node_name], [])).get(node_name)
+        if parent:
+            node_type = (
+                await session.execute(
+                    select(Node.type)
+                    .where(Node.name == parent)
+                    .where(Node.deactivated_at.is_(None)),
+                )
+            ).scalar_one_or_none()
     if node_type == NodeType.METRIC:
-        return await apply_metric_filter_requirements(session, [node_name], filters)
+        return await apply_metric_filter_requirements(
+            session,
+            [node_name],
+            filters,
+            inherit,
+        )
     if node_type == NodeType.CUBE:
-        cube = await Node.get_cube_by_name(session, node_name)
+        cube = await Node.get_cube_by_name(
+            session,
+            node_name,
+            inherit=inherit,
+        )
         revision = cube.current  # type: ignore[union-attr]
         stored = list(revision.cube_filters or [])
         effective, warnings = await apply_metric_filter_requirements(
             session,
             list(revision.cube_node_metrics),
             stored + list(filters),
+            inherit,
         )
         return effective[len(stored) :], warnings
     return list(filters), []
