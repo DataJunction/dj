@@ -154,3 +154,29 @@ async def test_client_disconnect_handler_logs_warning() -> None:
     mock_logger.warning.assert_called_once()
     mock_logger.error.assert_not_called()
     mock_logger.exception.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_large_responses_are_gzipped_only_when_requested() -> None:
+    """Big bodies compress for clients that ask; others get plain JSON."""
+    from datajunction_server.api.main import configure_app
+
+    app = FastAPI()
+    configure_app(app)
+    names = [f"ns.metric_{i}" for i in range(5000)]
+
+    @app.get("/names")
+    async def names_route() -> list[str]:
+        return names
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        plain = await client.get("/names", headers={"Accept-Encoding": "identity"})
+        zipped = await client.get("/names", headers={"Accept-Encoding": "gzip"})
+
+    assert "content-encoding" not in plain.headers
+    assert plain.json() == names
+    assert zipped.headers["content-encoding"] == "gzip"
+    assert zipped.json() == names

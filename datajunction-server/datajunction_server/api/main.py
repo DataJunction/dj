@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.inmemory import InMemoryBackend
 from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.requests import ClientDisconnect
 from starlette.responses import Response
 
@@ -108,6 +109,7 @@ def create_app(lifespan):
 
 def configure_app(app: FastAPI) -> None:
     app.add_middleware(DJInstrumentationMiddleware)
+    app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=1)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_whitelist,
