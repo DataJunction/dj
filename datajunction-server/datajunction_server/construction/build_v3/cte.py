@@ -28,6 +28,7 @@ from datajunction_server.database.node import Node
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.sql.decompose import wrap_divisions_in_nullif
 from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.utils import SEPARATOR
 
 
@@ -894,6 +895,31 @@ def _set_op_arms(select: ast.SelectExpression) -> list[ast.SelectExpression]:
         arms.append(arm)
         arm = arm.set_op.right if arm.set_op else None
     return arms
+
+
+def _projected_name(item: ast.Node) -> str | None:
+    """The name a projected expression is selected as; None when it has none."""
+    named = getattr(item, "alias_or_name", None)
+    return named.name if named is not None else None
+
+
+def merge_cte_columns(target: ast.Query, other: ast.Query) -> None:
+    """Add columns the other copy kept, in every arm."""
+    target_arms = _set_op_arms(target.select)
+    other_arms = _set_op_arms(other.select)
+    if len(target_arms) != len(other_arms):  # pragma: no cover
+        return
+    have = {_projected_name(item) for item in target.select.projection}
+    for index, item in enumerate(other.select.projection):
+        name = _projected_name(item)
+        # Pruning keeps unnamed expressions (e.g. a literal) in every copy.
+        if name is None or name in have:
+            continue
+        for target_arm, other_arm in zip(target_arms, other_arms):
+            arm_item = other_arm.projection[index]
+            target_arm.projection.append(
+                parse(f"SELECT {arm_item}").select.projection[0],
+            )
 
 
 def _compares_whole_rows(select: ast.SelectExpression) -> bool:

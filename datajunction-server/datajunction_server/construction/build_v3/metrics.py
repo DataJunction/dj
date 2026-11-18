@@ -20,6 +20,7 @@ from datajunction_server.construction.build_v3.cte import (
     get_column_full_name,
     has_window_function,
     inject_partition_by_into_windows,
+    merge_cte_columns,
     references_filter_only_dimension,
     replace_component_refs_in_ast,
     replace_dimension_refs_in_ast,
@@ -544,6 +545,8 @@ def collect_and_build_ctes(
                 if cte_name not in shared_ctes:
                     # First time seeing this CTE - add it
                     shared_ctes[cte_name] = deepcopy(inner_cte)
+                else:
+                    merge_cte_columns(shared_ctes[cte_name], inner_cte)
 
     # Build grain group aliases and CTEs
     all_cte_asts: list[ast.Query] = []

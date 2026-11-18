@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 
 from datajunction_server.construction.build_v3.builder import build_measures_sql
 from datajunction_server.construction.build_v3.cte import (
+    merge_cte_columns,
     process_metric_combiner_expression,
 )
 from datajunction_server.construction.build_v3.decomposition import (
@@ -295,6 +296,9 @@ def _create_ctes(
                 if cte_name and cte_name not in seen_cte_names:
                     seen_cte_names.add(cte_name)
                     nested_ctes.append(deepcopy(nested_cte))
+                elif cte_name:  # pragma: no branch
+                    kept = next(c for c in nested_ctes if c.alias.name == cte_name)  # type: ignore[union-attr]
+                    merge_cte_columns(kept, nested_cte)
 
     # Then create the grain group CTEs
     grain_group_ctes = []
@@ -609,6 +613,7 @@ async def build_combiner_sql_from_preaggs(
                 compute_expression_hash(m.expression),
                 m.aggregation,
                 m.params,
+                m.where,
             )
             for m in gg.components
             if m.expression

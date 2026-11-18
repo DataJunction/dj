@@ -845,6 +845,37 @@ async def test_validate_node_data_v2_flags_bad_filter_requirements(
 
 
 @pytest.mark.asyncio
+async def test_validate_node_data_v2_flags_missing_where_column(
+    session: AsyncSession,
+    user: User,
+    v2_parent_source: Node,
+):
+    """A metric WHERE column absent from the parent is reported."""
+    from datajunction_server.errors import ErrorCode
+    from datajunction_server.internal.validation import validate_node_data_v2
+
+    data = NodeRevision(
+        name="test.v2_where_metric",
+        display_name="v2 where metric",
+        type=NodeType.METRIC,
+        query="SELECT COUNT(*) FROM test.v2_parent WHERE nope = 1",
+    )
+    validator = await validate_node_data_v2(data, session)
+
+    assert validator.status == NodeStatus.INVALID
+    assert [
+        (e.code, e.message)
+        for e in validator.errors
+        if e.code == ErrorCode.MISSING_COLUMNS
+    ] == [
+        (
+            ErrorCode.MISSING_COLUMNS,
+            "Metric definition references missing columns: nope",
+        ),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_validate_node_data_v2_flags_missing_parent(
     session: AsyncSession,
     user: User,
