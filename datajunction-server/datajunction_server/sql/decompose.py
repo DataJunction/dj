@@ -203,8 +203,15 @@ class AggDecomposition(ABC):
     2. Merge: How to combine pre-aggregated components (via `components`)
     3. Combiner: How to produce the final metric value from merged components
 
-    Subclasses must define `components` and implement `combine()`.
+    Subclasses must define `components` and implement `combine()`. They may
+    validate authored calls with `validate()`. Declared families can advertise
+    output engines through `supported_dialects` for compatibility metadata.
     """
+
+    # Output engines a declared family can serve through its combiner. Empty
+    # preserves the authored function's compatibility metadata for existing
+    # implementations. This does not describe the engine executing serialize.
+    supported_dialects: tuple[Dialect, ...] = ()
 
     @property
     @abstractmethod
@@ -219,6 +226,14 @@ class AggDecomposition(ABC):
                 none; a sketch family reads its accuracy setting from here.
         """
         self.params = params or {}
+
+    def validate(self, func: ast.Function) -> None:
+        """Validate an authored call before any decomposition shortcuts.
+
+        Raise DJInvalidInputException for unsupported shapes. In particular,
+        families can reject DISTINCT before its generic raw-column path skips
+        combine(). Validation must not mutate the authored AST.
+        """
 
     @abstractmethod
     def combine(
@@ -905,6 +920,46 @@ def get_decomposition(
     if decomp_class is None:
         return None
     return decomp_class()
+
+
+def incompatible_functions(
+    query_ast: ast.Query,
+    dialect: Dialect,
+    reaggregate: ReaggregateSpec | dict | None = None,
+) -> list[str]:
+    """Functions incompatible with an engine, accounting for declared families.
+
+    A family can replace only its registered aggregates, after validating the
+    authored call and parameters. Continue walking nested calls: replacing an
+    aggregate cannot make an incompatible scalar input expression executable.
+    """
+    spec = parse_reaggregate_spec(reaggregate)
+    family = (
+        FAMILY_DECOMPOSITION_REGISTRY.get(spec.fn)
+        if spec is not None and spec.fn is not None
+        else None
+    )
+    incompatible = []
+    for func in query_ast.find_all(ast.Function):
+        function = func.function()
+        compatible = dialect in function.dialects
+        if (
+            family
+            and spec is not None
+            and function in family.aggregate_functions
+            and family.decomposition.supported_dialects
+        ):
+            try:
+                decomposition = family.decomposition(params=spec.params)
+                decomposition.validate(func)
+                compatible = dialect in decomposition.supported_dialects
+            except DJInvalidInputException:
+                # Metadata should still describe a persisted invalid metric;
+                # extraction reports the detailed validation error.
+                compatible = False
+        if not compatible:
+            incompatible.append(function.__name__.upper())
+    return incompatible
 
 
 def component_params_match(
@@ -1736,6 +1791,16 @@ class MetricComponentExtractor:
                     "aggregation in this metric",
                 )
 
+            # Validate every selected implementation before either the
+            # non-decomposable fallback or the DISTINCT shortcut can bypass it.
+            decompositions = [
+                (func, get_decomposition(dj_function, reaggregate))
+                for func, dj_function in agg_funcs
+            ]
+            for func, decomposition in decompositions:
+                if decomposition is not None:
+                    decomposition.validate(func)
+
             # If any aggregation is non-decomposable, abort decomposition
             # entirely — the metric is non-decomposable as a whole.
             #
@@ -1744,9 +1809,7 @@ class MetricComponentExtractor:
             # family, and its aggregation function has no entry of its own. Ask
             # without the spec and every such metric aborts at this gate and
             # never reaches the family registry at all.
-            if any(
-                get_decomposition(dj_fn, reaggregate) is None for _, dj_fn in agg_funcs
-            ):
+            if any(decomposition is None for _, decomposition in decompositions):
                 if dimension_reaggregate_rules(reaggregate):
                     self._raise_unsupported_reaggregate_shape(
                         "dimension-specific reaggregation requires a "
@@ -1978,6 +2041,8 @@ class MetricComponentExtractor:
             # unreachable in practice.  Kept so direct callers (if any)
             # still get a sensible None return.
             return None
+
+        decomposition.validate(func)
 
         # Build components from decomposition
         components = [

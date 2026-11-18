@@ -53,7 +53,8 @@ from datajunction_server.models.node import NodeStatus as NodeStatus_
 from datajunction_server.models.node import NodeType as NodeType_
 from datajunction_server.models.reaggregate import parse_reaggregate_spec
 from datajunction_server.naming import SEPARATOR
-from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
+from datajunction_server.sql.decompose import incompatible_functions
+from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 NodeType = strawberry.enum(NodeType_)
 NodeStatus = strawberry.enum(NodeStatus_)
@@ -610,13 +611,10 @@ class NodeRevision:
         incompatible: set[str] = set()
         if needs_ast:
             query_ast = parse(root.query)
-            functions = [func.function() for func in query_ast.find_all(ast.Function)]
             expression = str(query_ast.select.projection[0])
-            incompatible = {
-                func.__name__.upper()
-                for func in functions
-                if Dialect.DRUID not in func.dialects
-            }
+            incompatible = set(
+                incompatible_functions(query_ast, Dialect.DRUID, root.reaggregate),
+            )
         return MetricMetadata(  # type: ignore
             direction=root.metric_metadata.direction if root.metric_metadata else None,
             unit=root.metric_metadata.unit.value

@@ -16,18 +16,21 @@ from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.errors import DJWarning
 from datajunction_server.models.cube_materialization import MetricComponent
 from datajunction_server.models.engine import Dialect
+from datajunction_server.models.filter_requirements import FilterRequirement
 from datajunction_server.models.node import (
     DimensionAttributeOutput,
     MetricMetadataOutput,
 )
 from datajunction_server.models.query import ColumnMetadata, V3ColumnMetadata
-from datajunction_server.models.filter_requirements import FilterRequirement
 from datajunction_server.models.reaggregate import ReaggregateSpec
 from datajunction_server.models.sql import ScanEstimate, TranspiledSQL
 from datajunction_server.models.unit import unit_to_dict
 from datajunction_server.naming import SEPARATOR
-from datajunction_server.sql.decompose import MetricComponentExtractor
-from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
+from datajunction_server.sql.decompose import (
+    MetricComponentExtractor,
+    incompatible_functions,
+)
+from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.transpilation import transpile_sql
 from datajunction_server.typing import UTCDatetime
 
@@ -133,12 +136,11 @@ class Metric(BaseModel):
         Parses a node into a metric.
         """
         query_ast = parse(node.current.query)
-        functions = [func.function() for func in query_ast.find_all(ast.Function)]
-        incompatible_druid_functions = [
-            func.__name__.upper()
-            for func in functions
-            if Dialect.DRUID not in func.dialects
-        ]
+        incompatible_druid_functions = incompatible_functions(
+            query_ast,
+            Dialect.DRUID,
+            node.current.reaggregate,
+        )
         upstream_node = (
             node.current.non_metric_parents[0].name
             if node.current.non_metric_parents

@@ -28,17 +28,18 @@ from datajunction_server.models.reaggregate import (
 from datajunction_server.sql import functions as dj_functions
 from datajunction_server.sql.decompose import (
     DECOMPOSITION_REGISTRY,
-    FAMILY_DECOMPOSITION_REGISTRY,
     DUPLICATION_INVARIANT_AGGREGATIONS,
+    FAMILY_DECOMPOSITION_REGISTRY,
     AggDecomposition,
     ComponentDef,
     MetricComponentExtractor,
     decomposes_family,
     get_decomposition,
-    make_func,
-    parenthesize_if_needed,
+    incompatible_functions,
     is_duplication_invariant,
     is_metric_duplication_sensitive,
+    make_func,
+    parenthesize_if_needed,
     safe_denominator,
     wrap_divisions_in_nullif,
 )
@@ -3394,3 +3395,112 @@ def test_parenthesize_if_needed(outer: str, inner: str, expected: str):
     )
 
     assert str(query.select.projection[0]) == expected
+
+
+@pytest.mark.parametrize("extra", ["", " + MIN_BY(price, quantity)"])
+def test_family_validation_precedes_distinct_and_nondecomposable_fallback(
+    registered_family,
+    monkeypatch,
+    extra,
+):
+    def validate(self, func):
+        if func.quantifier == ast.SetQuantifier.Distinct:
+            raise DJInvalidInputException("family does not support DISTINCT")
+
+    monkeypatch.setattr(registered_family, "validate", validate)
+    with pytest.raises(DJInvalidInputException, match="does not support DISTINCT"):
+        MetricComponentExtractor(0)._extract_base(
+            parse(f"SELECT APPROX_PERCENTILE(DISTINCT price, 0.5){extra} FROM t"),
+            ReaggregateSpec(fn=ReaggregationFunction.TDIGEST),
+        )
+
+
+def test_direct_decomposition_validates_before_building_distinct_components(
+    registered_family,
+    monkeypatch,
+):
+    def validate(self, func):
+        raise DJInvalidInputException("invalid family call")
+
+    monkeypatch.setattr(registered_family, "validate", validate)
+    query = parse("SELECT APPROX_PERCENTILE(DISTINCT price, 0.5) FROM t")
+    with pytest.raises(DJInvalidInputException, match="invalid family call"):
+        MetricComponentExtractor(0)._decompose(
+            query.select.projection[0],
+            dj_functions.ApproxPercentile,
+            query,
+            ReaggregateSpec(fn=ReaggregationFunction.TDIGEST),
+        )
+
+
+@pytest.mark.parametrize("declared", [False, True])
+def test_compatibility_uses_valid_opted_in_family(
+    registered_family,
+    monkeypatch,
+    declared,
+):
+    monkeypatch.setattr(registered_family, "supported_dialects", (Dialect.DRUID,))
+    query = parse("SELECT APPROX_PERCENTILE(price, 0.5) FROM t")
+    spec = ReaggregateSpec(fn=ReaggregationFunction.TDIGEST) if declared else None
+    assert incompatible_functions(query, Dialect.DRUID, spec) == (
+        [] if declared else ["APPROXPERCENTILE"]
+    )
+
+
+def test_compatibility_keeps_nested_incompatible_functions(
+    registered_family,
+    monkeypatch,
+):
+    monkeypatch.setattr(registered_family, "supported_dialects", (Dialect.DRUID,))
+    assert incompatible_functions(
+        parse("SELECT APPROX_PERCENTILE(IF(price > 0, price, 0), 0.5) FROM t"),
+        Dialect.DRUID,
+        {"fn": "tdigest"},
+    ) == ["IF"]
+
+
+def test_compatibility_requires_valid_family_calls(registered_family, monkeypatch):
+    def validate(self, func):
+        raise DJInvalidInputException("invalid family call")
+
+    monkeypatch.setattr(registered_family, "validate", validate)
+    monkeypatch.setattr(registered_family, "supported_dialects", (Dialect.DRUID,))
+    assert incompatible_functions(
+        parse("SELECT APPROX_PERCENTILE(price, 0.5) FROM t"),
+        Dialect.DRUID,
+        {"fn": "tdigest"},
+    ) == ["APPROXPERCENTILE"]
+
+
+def test_compatibility_requires_valid_family_params(registered_family, monkeypatch):
+    def invalid_params(self, params=None):
+        raise DJInvalidInputException("invalid family params")
+
+    monkeypatch.setattr(registered_family, "__init__", invalid_params)
+    monkeypatch.setattr(registered_family, "supported_dialects", (Dialect.DRUID,))
+    assert incompatible_functions(
+        parse("SELECT APPROX_PERCENTILE(price, 0.5) FROM t"),
+        Dialect.DRUID,
+        {"fn": "tdigest", "params": {"compression": -1}},
+    ) == ["APPROXPERCENTILE"]
+
+
+def test_compatibility_without_family_capabilities_is_unchanged(registered_family):
+    assert incompatible_functions(
+        parse("SELECT APPROX_PERCENTILE(price, 0.5) FROM t"),
+        Dialect.DRUID,
+        {"fn": "tdigest"},
+    ) == ["APPROXPERCENTILE"]
+
+
+def test_compatibility_without_registered_family_is_unchanged(monkeypatch):
+    monkeypatch.delitem(
+        FAMILY_DECOMPOSITION_REGISTRY,
+        ReaggregationFunction.TDIGEST,
+        raising=False,
+    )
+    assert incompatible_functions(
+        parse("SELECT APPROX_PERCENTILE(price, 0.5) FROM t"),
+        Dialect.DRUID,
+        {"fn": "tdigest"},
+    ) == ["APPROXPERCENTILE"]

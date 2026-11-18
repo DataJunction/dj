@@ -153,6 +153,8 @@ def digest_family():
         aggregate_functions=(ApproxPercentile,),
     )
     class _DigestDecomposition(AggDecomposition):
+        supported_dialects = (Dialect.SPARK, Dialect.TRINO, Dialect.DRUID)
+
         @property
         def compression(self) -> int:
             return int(self.params.get("compression", 100))
@@ -487,3 +489,44 @@ async def test_metrics_layer_recomputes_from_source(percentile_metric):
         FROM v3_DOT_order_details_metrics
         """,
     )
+
+
+@pytest.mark.asyncio
+async def test_family_compatibility_agrees_in_rest_and_graphql(percentile_metric):
+    client = percentile_metric
+    plain = "v3.plain_p95_line_total"
+    response = await client.post(
+        "/nodes/metric/",
+        json={
+            "name": plain,
+            "query": "SELECT APPROX_PERCENTILE(line_total, 0.95) FROM v3.order_details",
+            "mode": "published",
+        },
+    )
+    assert response.status_code in (200, 201), response.json()
+    for name, expected in ((METRIC, []), (plain, ["APPROXPERCENTILE"])):
+        response = await client.get(f"/metrics/{name}")
+        assert response.status_code == 200, response.json()
+        assert response.json()["incompatible_druid_functions"] == expected
+        response = await client.post(
+            "/graphql",
+            json={
+                "query": """
+                query($names: [String!]!) {
+                    findNodes(names: $names) {
+                        current { metricMetadata { incompatibleDruidFunctions } }
+                    }
+                }
+            """,
+                "variables": {"names": [name]},
+            },
+        )
+        assert response.status_code == 200, response.json()
+        payload = response.json()
+        assert not payload.get("errors"), payload
+        assert (
+            payload["data"]["findNodes"][0]["current"]["metricMetadata"][
+                "incompatibleDruidFunctions"
+            ]
+            == expected
+        )
