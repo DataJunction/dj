@@ -273,7 +273,7 @@ class TestSetOperationTransforms:
                 FROM default.v3.orders_eu
                 UNION ALL
                 SELECT order_id, status
-                FROM default.v3.orders_us
+                FROM default.v3.orders_us AS src_orders_us
                 WHERE src_orders_us.order_date >= 20260101
             )
             SELECT t1.status, t1.order_id

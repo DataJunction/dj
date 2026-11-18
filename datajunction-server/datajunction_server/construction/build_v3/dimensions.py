@@ -499,9 +499,9 @@ def _resolve_pushdown_targets(
                 continue
             if tbl_name != linked_node.name:
                 continue
-            alias = (
-                tbl.alias.name if tbl.alias else linked_node.name.split(SEPARATOR)[-1]
-            )
+            if not tbl.alias:
+                tbl.alias = ast.Name(linked_node.name.split(SEPARATOR)[-1])
+            alias = tbl.alias.name
             containing_select = _enclosing_select(tbl)
             if containing_select is None:
                 continue  # pragma: no cover

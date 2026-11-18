@@ -7565,8 +7565,8 @@ class TestFilterPushdownScope:
     @pytest.mark.asyncio
     async def test_source_without_alias(self, client_with_build_v3):
         """Source referenced without an explicit ``AS`` alias.  The
-        rewritten filter falls back to the source's last name segment
-        (``src_audit_log_noalias``) as its qualifier.
+        source is given its last name segment (``src_audit_log_noalias``)
+        as an alias, and the rewritten filter uses it as its qualifier.
         """
         client = client_with_build_v3
         await _setup_audit_dim(client)
@@ -7605,7 +7605,7 @@ class TestFilterPushdownScope:
             """
             WITH v3_events_no_alias AS (
               SELECT account_id, event_type
-              FROM default.v3.audit_log_noalias
+              FROM default.v3.audit_log_noalias AS src_audit_log_noalias
               WHERE src_audit_log_noalias.audit_date >= 20260101
             )
             SELECT t1.event_type, t1.account_id
