@@ -802,6 +802,31 @@ class TestGetGitInfoForNamespace:
         assert result["is_default_branch"] is True
 
     @pytest.mark.asyncio
+    async def test_is_default_branch_false_for_plain_child_of_git_root(
+        self,
+        session: AsyncSession,
+    ):
+        """A plain child namespace (no git_branch of its own) under a git root is
+        NOT the default branch — only the git root itself gets that treatment when
+        no git_branch is found anywhere in the ancestor chain."""
+        session.add(
+            NodeNamespace(
+                namespace="proj",
+                github_repo_path="org/repo",
+                default_branch="main",
+            ),
+        )
+        session.add(NodeNamespace(namespace="proj.stale_child"))
+        await session.commit()
+
+        result = await get_git_info_for_namespace(session, "proj.stale_child")
+
+        assert result is not None
+        assert result["branch"] is None
+        assert result["git_root_namespace"] == "proj"
+        assert result["is_default_branch"] is False
+
+    @pytest.mark.asyncio
     async def test_is_default_branch_false_when_no_default_branch(
         self,
         session: AsyncSession,
