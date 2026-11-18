@@ -134,7 +134,7 @@ def infer_type(
 
 
 @pytest.fixture
-def digest_family():
+def digest_family(request):
     """
     Register the family and its functions, then put the registries back.
 
@@ -153,7 +153,11 @@ def digest_family():
         aggregate_functions=(ApproxPercentile,),
     )
     class _DigestDecomposition(AggDecomposition):
-        supported_dialects = (Dialect.SPARK, Dialect.TRINO, Dialect.DRUID)
+        supported_dialects = getattr(
+            request,
+            "param",
+            (Dialect.SPARK, Dialect.TRINO, Dialect.DRUID),
+        )
 
         @property
         def compression(self) -> int:
@@ -180,6 +184,8 @@ def digest_family():
             ]
 
         def combine(self, components, func, dialect=Dialect.SPARK):
+            if self.supported_dialects:
+                assert dialect in self.supported_dialects
             column, fraction = components[0].name, func.args[1]
             if dialect == Dialect.DRUID:
                 return make_func("DIGEST_QUANTILE", column, fraction)
@@ -238,6 +244,55 @@ async def _measures(client: AsyncClient, dialect: str = "spark") -> dict:
     )
     assert response.status_code == 200, response.json()
     return response.json()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "digest_family",
+    [(Dialect.TRINO,), (Dialect.DRUID,), (Dialect.TRINO, Dialect.DRUID)],
+    indirect=True,
+)
+async def test_non_spark_family_metadata_and_explicit_planning(
+    percentile_metric,
+    digest_family,
+):
+    """Metadata needs no Spark support; an explicit Spark target is rejected."""
+    client = percentile_metric
+    response = await client.get(f"/metrics/{METRIC}")
+    assert response.status_code == 200, response.json()
+    assert len(response.json()["measures"]) == 1
+    response = await client.post(
+        "/graphql",
+        json={
+            "query": """
+                query($names: [String!]!) {
+                    findNodes(names: $names) {
+                        current {
+                            extractedMeasures {
+                                components { name }
+                                derivedExpression
+                            }
+                        }
+                    }
+                }
+            """,
+            "variables": {"names": [METRIC]},
+        },
+    )
+    assert response.status_code == 200, response.json()
+    payload = response.json()
+    assert not payload.get("errors"), payload
+    extracted = payload["data"]["findNodes"][0]["current"]["extractedMeasures"]
+    assert len(extracted["components"]) == 1
+    assert extracted["derivedExpression"]
+    for dialect in digest_family.supported_dialects:
+        await _measures(client, dialect=dialect.value)
+    response = await client.get(
+        "/sql/measures/v3/",
+        params={"metrics": [METRIC], "dimensions": DIMENSIONS, "dialect": "spark"},
+    )
+    assert response.status_code == 422, response.json()
+    assert "does not support dialect" in response.text
 
 
 async def _publish_preagg(client: AsyncClient) -> None:

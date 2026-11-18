@@ -210,9 +210,10 @@ class AggDecomposition(ABC):
     """
 
     # Output engines a decomposition can serve through its combiner. Nonempty
-    # declarations are enforced during extraction and used in family metadata.
-    # Empty preserves existing behavior. This does not describe the engine
-    # executing serialize.
+    # declarations are enforced for explicit query targets and used in family
+    # metadata. Engine-unspecified extraction prefers Spark, then the first
+    # declared dialect. Empty preserves existing behavior. This does not
+    # describe the engine executing serialize.
     supported_dialects: tuple[Dialect, ...] = ()
 
     @property
@@ -1298,7 +1299,7 @@ def validate_fixed_grain_shape(query: str, fixed_grain: list[str]) -> None:
 
 
 MetricExtractionCache = dict[
-    tuple[int, Dialect, bool],
+    tuple[int, Dialect | None, bool],
     tuple[list[MetricComponent], ast.Query],
 ]
 
@@ -1315,24 +1316,18 @@ class MetricComponentExtractor:
     def __init__(
         self,
         node_revision_id: int,
-        dialect: Dialect = Dialect.SPARK,
+        dialect: Dialect | None = None,
     ):
         """
         Extract metric components from a specific metric revision.
 
         Args:
             node_revision_id: ID of the metric node revision
-            dialect: Dialect the combiner will be rendered for. Every dialect
-                gets a combiner -- whether one exists at all is a property of
-                the aggregation function, not the engine -- but its shape can
-                differ: a sketch family whose engines expose different function
-                shapes needs the target, as Druid fuses a t-digest's merge and
-                combine where Spark and Trino keep them separate.
-
-                Defaults to Spark, which is right for the callers that render
-                for display or for frozen measures. Only the build_v3 path,
-                which knows the cube's actual target engine, passes anything
-                else.
+            dialect: Target engine for query planning. Explicit targets must be
+                supported by the decomposition. Omit for metadata or frozen
+                measures, which have no execution engine: their representative
+                combiner uses Spark when supported, otherwise the first declared
+                dialect. Query builders must pass their actual target dialect.
         """
         self._node_revision_id = node_revision_id
         self._dialect = dialect
@@ -2102,7 +2097,8 @@ class MetricComponentExtractor:
     ) -> DecompositionResult:
         """Build components and a combiner from an already validated call."""
         if (
-            decomposition.supported_dialects
+            self._dialect is not None
+            and decomposition.supported_dialects
             and self._dialect not in decomposition.supported_dialects
         ):
             raise DJInvalidInputException(
@@ -2146,7 +2142,15 @@ class MetricComponentExtractor:
                 quantifier=ast.SetQuantifier.Distinct,
             )
         else:
-            combiner_ast = decomposition.combine(components, func, self._dialect)
+            combiner_dialect = self._dialect
+            if combiner_dialect is None:
+                supported = decomposition.supported_dialects
+                combiner_dialect = (
+                    supported[0]
+                    if supported and Dialect.SPARK not in supported
+                    else Dialect.SPARK
+                )
+            combiner_ast = decomposition.combine(components, func, combiner_dialect)
             # Decomposed AVG / variance / stddev / covariance all build
             # SUM(...) / SUM(count)-style combiners where the denominator
             # can legitimately be 0.  Wrap to produce NULL rather than

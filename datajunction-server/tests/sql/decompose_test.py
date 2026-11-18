@@ -3025,9 +3025,41 @@ def test_combine_receives_the_originating_call():
     assert str(seen_func.args[1]) == "0.5"
 
 
-def test_extractor_defaults_to_spark_dialect():
-    """An extractor built without a dialect renders for Spark."""
-    assert MetricComponentExtractor(1)._dialect == Dialect.SPARK
+def test_extractor_defaults_to_no_execution_dialect():
+    """Metadata extraction does not request an execution engine."""
+    assert MetricComponentExtractor(1)._dialect is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("derived", [False, True])
+async def test_metadata_cache_cannot_bypass_explicit_dialect_validation(
+    session,
+    create_metric,
+    dialect_aware_sum,
+    monkeypatch,
+    derived,
+):
+    """Unspecified targets propagate to parents and have separate cache entries."""
+    monkeypatch.setattr(dialect_aware_sum, "supported_dialects", (Dialect.DRUID,))
+    metric = await create_metric("SELECT SUM(price) FROM parent_node")
+    if derived:
+        await session.refresh(metric, ["node"])
+        metric = await create_metric(
+            f"SELECT {metric.name} * 2",
+            parent=metric.node,
+        )
+    cache = {}
+    components, sql = await MetricComponentExtractor(metric.id).extract(
+        session,
+        extraction_cache=cache,
+    )
+    assert len(components) == 1
+    assert "druid_combiner" in str(sql)
+    with pytest.raises(DJInvalidInputException, match="does not support dialect"):
+        await MetricComponentExtractor(metric.id, dialect=Dialect.SPARK).extract(
+            session,
+            extraction_cache=cache,
+        )
 
 
 @pytest.mark.asyncio
