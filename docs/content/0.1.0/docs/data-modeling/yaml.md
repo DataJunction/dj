@@ -169,6 +169,7 @@ dimension_links:
 | `join_type` | No | The type of join (one of `left`, `right`, `inner`, `full`, `cross`). Defaults to `left`. |
 | `role` | No | The role this dimension represents |
 | `default_value` | No | A string, number, or boolean fallback for NULL results from LEFT/RIGHT joins. When set, dimension columns are wrapped in `COALESCE(column, default_value)`, with the literal rendered to match the column's type. |
+| `default_values` | No | A map from column type category (`string`, `integer`, `decimal`, `boolean`, `date`, `timestamp`) to a fallback value of that type, e.g. `{string: Unknown, integer: -1, date: "1970-01-01"}`. Mutually exclusive with `default_value`. Currently stored but not yet applied to generated SQL. |
 | `spark_hints` | No | Spark join strategy hint for this dimension join. One of `broadcast`, `merge`, `shuffle_hash`, `shuffle_replicate_nl`. Emitted as a hint comment in the generated SELECT. Has no effect on non-Spark engines. |
 
 | Reference Link Fields | Required?  | Description |

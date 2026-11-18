@@ -449,4 +449,54 @@ describe('<AddComplexDimensionLinkPopover />', () => {
 
     // Test that setTimeout would call window.location.reload (line 79)
   });
+
+  it('keeps per-type default values and disables the default value field in edit mode', async () => {
+    mockDjClient.DataJunctionAPI.removeComplexDimensionLink.mockResolvedValue({
+      status: 200,
+    });
+    mockDjClient.DataJunctionAPI.addComplexDimensionLink.mockResolvedValue({
+      status: 200,
+    });
+    const defaultValues = { string: 'Unknown', integer: -1 };
+
+    const { getByText, getByLabelText, container } = render(
+      <DJClientContext.Provider value={mockDjClient}>
+        <AddComplexDimensionLinkPopover
+          {...defaultProps}
+          isEditMode={true}
+          existingLink={{
+            dimension: { name: 'default.dim1' },
+            join_type: 'left',
+            join_sql: 'a.id = b.id',
+            join_cardinality: 'many_to_one',
+            default_values: defaultValues,
+          }}
+        />
+      </DJClientContext.Provider>,
+    );
+
+    fireEvent.click(getByText('Edit'));
+
+    await waitFor(() => {
+      expect(container.querySelector('#defaultValue')).toBeDisabled();
+    });
+    expect(getByText(/can only be edited in YAML/)).toBeInTheDocument();
+
+    fireEvent.click(getByLabelText('SaveComplexDimensionLink'));
+
+    await waitFor(() => {
+      expect(
+        mockDjClient.DataJunctionAPI.addComplexDimensionLink,
+      ).toHaveBeenCalledWith(
+        'default.node1',
+        'default.dim1',
+        'a.id = b.id',
+        'left',
+        'many_to_one',
+        null,
+        null,
+        defaultValues,
+      );
+    });
+  });
 });

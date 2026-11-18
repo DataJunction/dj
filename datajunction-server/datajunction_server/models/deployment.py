@@ -23,6 +23,9 @@ from datajunction_server.models.dimensionlink import (
     DimensionLinkDefault,
     JoinCardinality,
     default_value_key,
+    default_values_key,
+    normalize_default_values,
+    validate_default_values,
     JoinType,
     LinkType,
     SparkJoinStrategy,
@@ -543,7 +546,18 @@ class DimensionJoinLinkSpec(DimensionLinkSpec):
     join_cardinality: JoinCardinality = JoinCardinality.MANY_TO_ONE
     join_on: str | None = None
     default_value: DimensionLinkDefault | None = None
+    default_values: dict[str, DimensionLinkDefault] | None = None
     spark_hints: SparkJoinStrategy | None = None
+
+    @field_validator("default_values", mode="before")
+    @classmethod
+    def normalize_default_values_input(cls, values):
+        return normalize_default_values(values)
+
+    @model_validator(mode="after")
+    def check_default_values(self):
+        validate_default_values(self.default_value, self.default_values)
+        return self
 
     @property
     def rendered_dimension_node(self) -> str:
@@ -573,6 +587,12 @@ class DimensionJoinLinkSpec(DimensionLinkSpec):
             self.rendered_join_on,
             self.node_column,
             default_value_key(self.default_value),
+            # Appended only when set so existing fingerprints stay valid.
+            *(
+                (default_values_key(self.default_values),)
+                if self.default_values is not None
+                else ()
+            ),
         )
 
 

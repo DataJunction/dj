@@ -48,6 +48,11 @@ export default function AddComplexDimensionLinkPopover({
     { value: 'many_to_many', label: 'MANY TO MANY' },
   ];
 
+  // Per-type defaults can only be edited in YAML, so the UI preserves them.
+  const hasDefaultValues =
+    !!existingLink?.default_values &&
+    Object.keys(existingLink.default_values).length > 0;
+
   const handleSubmit = async (values, { setSubmitting, setStatus }) => {
     try {
       // If editing, remove the old link first
@@ -68,6 +73,7 @@ export default function AddComplexDimensionLinkPopover({
         values.joinCardinality || 'many_to_one',
         values.role?.trim() || null,
         values.defaultValue?.trim() || null,
+        hasDefaultValues ? existingLink.default_values : null,
       );
 
       if (response.status === 200 || response.status === 201) {
@@ -350,6 +356,7 @@ export default function AddComplexDimensionLinkPopover({
                             type="text"
                             name="defaultValue"
                             id="defaultValue"
+                            disabled={hasDefaultValues}
                             placeholder="e.g., Unknown, N/A"
                             style={{
                               width: '100%',
@@ -361,6 +368,8 @@ export default function AddComplexDimensionLinkPopover({
                           >
                             Value to use when LEFT or RIGHT JOIN produces NULL
                             (wraps dimension column in COALESCE)
+                            {hasDefaultValues &&
+                              '. This link has per-type default values, which can only be edited in YAML.'}
                           </small>
                         </div>
 

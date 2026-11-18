@@ -924,3 +924,28 @@ def test_fingerprinting_reuses_parsed_query_across_rendered_copies():
 
     assert first == second
     assert parse_query.call_count == 1
+
+
+def test_default_values_change_the_node_fingerprint():
+    def fingerprint(**link_options):
+        node = TransformSpec(
+            namespace="ns",
+            name="child",
+            query="SELECT id FROM ${prefix}parent",
+            dimension_links=[
+                DimensionJoinLinkSpec(
+                    dimension_node="ns.dim",
+                    join_on="ns.child.id = ns.dim.id",
+                    **link_options,
+                ),
+            ],
+        )
+        return compose_node_fingerprint(node, parent_fingerprints=[])
+
+    base = fingerprint()
+    assert base == fingerprint()
+    with_values = fingerprint(default_values={"integer": -1})
+    assert with_values != base
+    assert with_values == fingerprint(default_values={"integer": -1})
+    assert with_values != fingerprint(default_values={"integer": 0})
+    assert with_values != fingerprint(default_values={"decimal": -1})

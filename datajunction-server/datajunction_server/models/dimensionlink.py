@@ -1,8 +1,10 @@
 """Models for dimension links"""
 
+import datetime
+import math
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from datajunction_server.enum import StrEnum
 from datajunction_server.models.node_type import NodeNameOutput
@@ -21,6 +23,103 @@ def default_value_key(value: DimensionLinkDefault | None) -> tuple[str, Any]:
     change and leave a stale default in place.
     """
     return (type(value).__name__, value)
+
+
+# Type categories a link can set a default for; each covers several column types.
+DEFAULT_VALUE_CATEGORIES = (
+    "string",
+    "integer",
+    "decimal",
+    "boolean",
+    "date",
+    "timestamp",
+)
+
+
+def _is_number(value: Any) -> bool:
+    # Non-finite floats (.inf, .nan) can't be stored as JSON or fingerprinted.
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+    )
+
+
+def _is_date(value: Any) -> bool:
+    try:
+        datetime.datetime.strptime(value, "%Y-%m-%d")
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def _is_timestamp(value: Any) -> bool:
+    try:
+        datetime.datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+_CATEGORY_CHECKS = {
+    "string": lambda v: isinstance(v, str),
+    "integer": lambda v: isinstance(v, int) and not isinstance(v, bool),
+    "decimal": _is_number,
+    "boolean": lambda v: isinstance(v, bool),
+    "date": _is_date,
+    "timestamp": _is_timestamp,
+}
+
+
+def normalize_default_values(values: Any) -> Any:
+    """Turn YAML-parsed date/datetime defaults into ISO strings."""
+    if not isinstance(values, dict):
+        return values
+    return {
+        key: value.isoformat() if isinstance(value, datetime.date) else value
+        for key, value in values.items()
+    }
+
+
+def validate_default_values(
+    default_value: DimensionLinkDefault | None,
+    default_values: dict[str, DimensionLinkDefault] | None,
+) -> None:
+    """
+    Check a link's defaults: the two options are exclusive, keys must be known
+    type categories, and each value must fit its category.
+    """
+    if default_values is None:
+        return
+    if default_value is not None:
+        raise ValueError(
+            "default_value and default_values cannot both be set on a dimension "
+            "link. Use default_values to set a default per column type.",
+        )
+    for category, value in default_values.items():
+        if category not in _CATEGORY_CHECKS:
+            raise ValueError(
+                f"Unknown default_values type '{category}'. Must be one of: "
+                f"{', '.join(DEFAULT_VALUE_CATEGORIES)}.",
+            )
+        if not _CATEGORY_CHECKS[category](value):
+            raise ValueError(
+                f"Invalid default_values entry for '{category}': {value!r} "
+                f"is not a valid {category} value.",
+            )
+
+
+def default_values_key(
+    values: dict[str, DimensionLinkDefault] | None,
+) -> tuple[Any, ...] | None:
+    """Order-independent comparison key for default_values, keeping value types."""
+    if values is None:
+        return None
+    return tuple(
+        sorted(
+            (category, default_value_key(value)) for category, value in values.items()
+        ),
+    )
 
 
 class JoinCardinality(StrEnum):
@@ -103,7 +202,13 @@ class JoinLinkInput(BaseModel):
     join_cardinality: JoinCardinality | None = JoinCardinality.MANY_TO_ONE
     role: str | None = None
     default_value: DimensionLinkDefault | None = None
+    default_values: dict[str, DimensionLinkDefault] | None = None
     spark_hints: SparkJoinStrategy | None = None
+
+    @model_validator(mode="after")
+    def check_default_values(self):
+        validate_default_values(self.default_value, self.default_values)
+        return self
 
 
 class LinkDimensionOutput(BaseModel):
@@ -118,6 +223,7 @@ class LinkDimensionOutput(BaseModel):
     role: str | None = None
     foreign_keys: dict[str, str | None]
     default_value: DimensionLinkDefault | None = None
+    default_values: dict[str, DimensionLinkDefault] | None = None
     spark_hints: SparkJoinStrategy | None = None
 
     model_config = ConfigDict(from_attributes=True)

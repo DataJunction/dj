@@ -543,6 +543,7 @@ class TestNodeCRUD:
                 "join_type": "left",
                 "role": None,
                 "default_value": None,
+                "default_values": None,
                 "spark_hints": None,
             },
         ]
@@ -2134,6 +2135,7 @@ class TestNodeCRUD:
                 "join_type": "inner",
                 "role": None,
                 "default_value": None,
+                "default_values": None,
                 "spark_hints": None,
             },
             {
@@ -2147,6 +2149,7 @@ class TestNodeCRUD:
                 "join_type": "inner",
                 "role": None,
                 "default_value": None,
+                "default_values": None,
                 "spark_hints": None,
             },
         ]
@@ -8208,6 +8211,7 @@ class TestCopyNode:
                 "join_type": "inner",
                 "role": None,
                 "default_value": None,
+                "default_values": None,
                 "spark_hints": None,
             },
             {
@@ -8220,6 +8224,7 @@ class TestCopyNode:
                 "join_type": "inner",
                 "role": None,
                 "default_value": None,
+                "default_values": None,
                 "spark_hints": None,
             },
             {
@@ -8235,6 +8240,7 @@ class TestCopyNode:
                 "join_type": "left",
                 "role": None,
                 "default_value": None,
+                "default_values": None,
                 "spark_hints": None,
             },
             {
@@ -8250,6 +8256,7 @@ class TestCopyNode:
                 "join_type": "inner",
                 "role": None,
                 "default_value": None,
+                "default_values": None,
                 "spark_hints": None,
             },
         ]
@@ -8279,6 +8286,7 @@ class TestCopyNode:
                     "join_type": "inner",
                     "role": None,
                     "default_value": None,
+                    "default_values": None,
                     "spark_hints": None,
                 },
                 {
@@ -8294,6 +8302,7 @@ class TestCopyNode:
                     "join_type": "inner",
                     "role": None,
                     "default_value": None,
+                    "default_values": None,
                     "spark_hints": None,
                 },
             ],
@@ -8311,6 +8320,7 @@ class TestCopyNode:
                         ),
                     },
                     "default_value": None,
+                    "default_values": None,
                     "spark_hints": None,
                 },
             ],
@@ -8328,6 +8338,7 @@ class TestCopyNode:
                         ),
                     },
                     "default_value": None,
+                    "default_values": None,
                     "spark_hints": None,
                 },
             ],
@@ -8345,6 +8356,7 @@ class TestCopyNode:
                         ),
                     },
                     "default_value": None,
+                    "default_values": None,
                     "spark_hints": None,
                 },
                 {
@@ -8360,6 +8372,7 @@ class TestCopyNode:
                         ),
                     },
                     "default_value": None,
+                    "default_values": None,
                     "spark_hints": None,
                 },
                 {
@@ -8375,6 +8388,7 @@ class TestCopyNode:
                         ),
                     },
                     "default_value": None,
+                    "default_values": None,
                     "spark_hints": None,
                 },
                 {
@@ -8390,6 +8404,7 @@ class TestCopyNode:
                         ),
                     },
                     "default_value": None,
+                    "default_values": None,
                     "spark_hints": None,
                 },
             ],
@@ -8404,6 +8419,7 @@ class TestCopyNode:
                         "default.hard_hat_copy.state": "default.us_state.state_short",
                     },
                     "default_value": None,
+                    "default_values": None,
                     "spark_hints": None,
                 },
             ],
@@ -8421,6 +8437,7 @@ class TestCopyNode:
                         ),
                     },
                     "default_value": None,
+                    "default_values": None,
                     "spark_hints": None,
                 },
                 {
@@ -8436,6 +8453,7 @@ class TestCopyNode:
                         ),
                     },
                     "default_value": None,
+                    "default_values": None,
                     "spark_hints": None,
                 },
                 {
@@ -8451,6 +8469,7 @@ class TestCopyNode:
                         ),
                     },
                     "default_value": None,
+                    "default_values": None,
                     "spark_hints": None,
                 },
                 {
@@ -8466,6 +8485,7 @@ class TestCopyNode:
                         ),
                     },
                     "default_value": None,
+                    "default_values": None,
                     "spark_hints": None,
                 },
             ],
