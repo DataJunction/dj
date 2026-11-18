@@ -1,6 +1,7 @@
 """Pure graph and component hashing for semantic fingerprints."""
 
 import hashlib
+from collections.abc import Callable
 
 from datajunction_server.models.semantic_fingerprint import SemanticFingerprint
 from datajunction_server.semantic_fingerprints.normalization import canonical_json
@@ -61,6 +62,7 @@ def cycle_component_fingerprint(
     local_fingerprints: dict[str, SemanticFingerprint],
     internal_edges: list[tuple[str, str]],
     external_edges: list[tuple[str, str, SemanticFingerprint]],
+    rename: Callable[[str], str] = lambda name: name,
 ) -> SemanticFingerprint:
     """Hash the members and edge structure of one cyclic component."""
     version = local_fingerprints[members[0]].version
@@ -69,24 +71,26 @@ def cycle_component_fingerprint(
         "version": version,
         "members": [
             {
-                "name": name,
+                "name": rename(name),
                 "fingerprint": local_fingerprints[name].model_dump(mode="json"),
             }
-            for name in members
+            for name in sorted(members, key=rename)
         ],
         "internal_edges": [
             {"child": child, "parent": parent}
-            for child, parent in sorted(internal_edges)
+            for child, parent in sorted(
+                (rename(child), rename(parent)) for child, parent in internal_edges
+            )
         ],
         "external_edges": [
             {
-                "child": child,
-                "parent": parent,
+                "child": rename(child),
+                "parent": rename(parent),
                 "fingerprint": fingerprint.model_dump(mode="json"),
             }
             for child, parent, fingerprint in sorted(
                 external_edges,
-                key=lambda edge: (edge[0], edge[1]),
+                key=lambda edge: (rename(edge[0]), rename(edge[1])),
             )
         ],
     }
