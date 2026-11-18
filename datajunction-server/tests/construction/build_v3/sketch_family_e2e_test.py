@@ -530,3 +530,64 @@ async def test_family_compatibility_agrees_in_rest_and_graphql(percentile_metric
             ]
             == expected
         )
+
+
+@pytest.mark.asyncio
+async def test_malformed_stored_declaration_returns_actionable_rest_error_and_native_graphql_metadata(
+    percentile_metric,
+    session,
+):
+    from sqlalchemy import select
+    from datajunction_server.database.node import NodeRevision
+
+    client = percentile_metric
+    revision = await session.scalar(
+        select(NodeRevision).where(NodeRevision.name == METRIC),
+    )
+    revision.reaggregate = {"fn": "unknown_family"}
+    await session.commit()
+    response = await client.get(f"/metrics/{METRIC}")
+    assert response.status_code == 422, response.json()
+    assert "invalid stored reaggregate declaration" in response.text
+    response = await client.post(
+        "/graphql",
+        json={
+            "query": """
+            query($names: [String!]!) {
+                findNodes(names: $names) {
+                    current { metricMetadata { incompatibleDruidFunctions } }
+                }
+            }
+        """,
+            "variables": {"names": [METRIC]},
+        },
+    )
+    assert response.status_code == 200, response.json()
+    payload = response.json()
+    assert not payload.get("errors"), payload
+    assert payload["data"]["findNodes"][0]["current"]["metricMetadata"][
+        "incompatibleDruidFunctions"
+    ] == ["APPROXPERCENTILE"]
+
+
+@pytest.mark.asyncio
+async def test_mixed_nondecomposable_metric_does_not_gain_druid_compatibility(
+    percentile_metric,
+):
+    client = percentile_metric
+    name = "v3.mixed_percentile_min_by"
+    response = await client.post(
+        "/nodes/metric/",
+        json={
+            "name": name,
+            "query": "SELECT APPROX_PERCENTILE(line_total, 0.5) + MIN_BY(line_total, quantity) FROM v3.order_details",
+            "mode": "published",
+            "reaggregate": {"fn": "tdigest"},
+        },
+    )
+    assert response.status_code in (200, 201), response.json()
+    response = await client.get(f"/metrics/{name}")
+    assert response.status_code == 200, response.json()
+    payload = response.json()
+    assert payload["measures"] == []
+    assert "APPROXPERCENTILE" in payload["incompatible_druid_functions"]

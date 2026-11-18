@@ -4,7 +4,7 @@ Models for metrics.
 
 from __future__ import annotations
 
-from pydantic.main import BaseModel
+from pydantic import BaseModel, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,7 +13,7 @@ from datajunction_server.construction.build_v3.dimension_refs import (
 )
 from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
-from datajunction_server.errors import DJWarning
+from datajunction_server.errors import DJInvalidInputException, DJWarning
 from datajunction_server.models.cube_materialization import MetricComponent
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.filter_requirements import FilterRequirement
@@ -22,7 +22,10 @@ from datajunction_server.models.node import (
     MetricMetadataOutput,
 )
 from datajunction_server.models.query import ColumnMetadata, V3ColumnMetadata
-from datajunction_server.models.reaggregate import ReaggregateSpec
+from datajunction_server.models.reaggregate import (
+    ReaggregateSpec,
+    parse_reaggregate_spec,
+)
 from datajunction_server.models.sql import ScanEstimate, TranspiledSQL
 from datajunction_server.models.unit import unit_to_dict
 from datajunction_server.naming import SEPARATOR
@@ -136,6 +139,12 @@ class Metric(BaseModel):
         Parses a node into a metric.
         """
         query_ast = parse(node.current.query)
+        try:
+            reaggregate = parse_reaggregate_spec(node.current.reaggregate)
+        except ValidationError as exc:
+            raise DJInvalidInputException(
+                f"Metric `{node.name}` has an invalid stored reaggregate declaration",
+            ) from exc
         incompatible_druid_functions = incompatible_functions(
             query_ast,
             Dialect.DRUID,
@@ -173,7 +182,7 @@ class Metric(BaseModel):
                     required_refs,
                 ),
             ),
-            reaggregate=node.current.reaggregate,
+            reaggregate=reaggregate,
             fixed_grain=node.current.fixed_grain,
             required_filters=node.current.required_filters,
             recommended_filters=node.current.recommended_filters,

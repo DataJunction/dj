@@ -35,6 +35,7 @@ from datajunction_server.sql.decompose import (
     MetricComponentExtractor,
     decomposes_family,
     get_decomposition,
+    component_params_match,
     incompatible_functions,
     is_duplication_invariant,
     is_metric_duplication_sensitive,
@@ -3504,3 +3505,121 @@ def test_compatibility_without_registered_family_is_unchanged(monkeypatch):
         Dialect.DRUID,
         {"fn": "tdigest"},
     ) == ["APPROXPERCENTILE"]
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "SELECT APPROX_PERCENTILE(price, 0.5) + MIN_BY(price, quantity) FROM t",
+        "SELECT MIN_BY(price, quantity) + APPROX_PERCENTILE(price, 0.5) FROM t",
+    ],
+)
+def test_compatibility_requires_the_whole_metric_to_decompose(
+    registered_family,
+    monkeypatch,
+    query,
+):
+    monkeypatch.setattr(registered_family, "supported_dialects", (Dialect.DRUID,))
+    # Even if the other aggregate can execute natively in Druid, its missing
+    # decomposition aborts sketch construction for the entire expression.
+    monkeypatch.setattr(dj_functions.MinBy, "dialects", [Dialect.DRUID])
+    spec = ReaggregateSpec(fn=ReaggregationFunction.TDIGEST)
+    components, _ = MetricComponentExtractor(0)._extract_base(parse(query), spec)
+    assert components == []
+    assert incompatible_functions(parse(query), Dialect.DRUID, spec) == [
+        "APPROXPERCENTILE",
+    ]
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [
+        {"fn": "unknown"},
+        {"fn": "tdigest", "params": []},
+        {"fn": "tdigest", "unexpected": True},
+    ],
+)
+def test_malformed_stored_reaggregate_does_not_grant_compatibility(
+    registered_family,
+    monkeypatch,
+    stored,
+):
+    monkeypatch.setattr(registered_family, "supported_dialects", (Dialect.DRUID,))
+    assert incompatible_functions(
+        parse("SELECT APPROX_PERCENTILE(price, 0.5) FROM t"),
+        Dialect.DRUID,
+        stored,
+    ) == ["APPROXPERCENTILE"]
+
+
+def test_distinct_raw_value_path_cannot_advertise_a_family_combiner(
+    registered_family,
+    monkeypatch,
+):
+    monkeypatch.setattr(registered_family, "supported_dialects", (Dialect.DRUID,))
+    assert incompatible_functions(
+        parse("SELECT APPROX_PERCENTILE(DISTINCT price, 0.5) FROM t"),
+        Dialect.DRUID,
+        {"fn": "tdigest"},
+    ) == ["APPROXPERCENTILE"]
+
+
+def test_supported_family_dialects_are_enforced_during_extraction(
+    registered_family,
+    monkeypatch,
+):
+    monkeypatch.setattr(registered_family, "supported_dialects", (Dialect.SPARK,))
+    with pytest.raises(DJInvalidInputException, match="does not support dialect"):
+        MetricComponentExtractor(0, dialect=Dialect.DRUID)._extract_base(
+            parse("SELECT APPROX_PERCENTILE(price, 0.5) FROM t"),
+            ReaggregateSpec(fn=ReaggregationFunction.TDIGEST),
+        )
+
+
+def test_each_aggregate_is_validated_once_during_extraction(
+    registered_family,
+    monkeypatch,
+):
+    calls = []
+    monkeypatch.setattr(
+        registered_family,
+        "validate",
+        lambda self, func: calls.append(str(func)),
+    )
+    MetricComponentExtractor(0)._extract_base(
+        parse(
+            "SELECT APPROX_PERCENTILE(price, 0.5) + APPROX_PERCENTILE(price, 0.95) FROM t",
+        ),
+        ReaggregateSpec(fn=ReaggregationFunction.TDIGEST),
+    )
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize(
+    "stored, expected",
+    [
+        (None, True),
+        ({"compression": 200}, True),
+        ({"compression": 100}, False),
+        ({"compression": 500}, False),
+    ],
+)
+def test_invalid_stored_component_params_are_not_reused(
+    registered_family,
+    monkeypatch,
+    stored,
+    expected,
+):
+    original_init = registered_family.__init__
+
+    def bounded_init(self, params=None):
+        if (params or {}).get("compression", 200) > 200:
+            raise DJInvalidInputException("compression exceeds deployment limit")
+        original_init(self, params)
+
+    monkeypatch.setattr(registered_family, "__init__", bounded_init)
+    components, _ = MetricComponentExtractor(0)._extract_base(
+        parse("SELECT APPROX_PERCENTILE(price, 0.5) FROM t"),
+        ReaggregateSpec(fn=ReaggregationFunction.TDIGEST),
+    )
+    assert component_params_match(components[0], stored) is expected
