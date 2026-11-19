@@ -791,6 +791,8 @@ class DruidCubeV3Config(BaseModel):
         description="Config version discriminator",
     )
 
+    druid_spec: dict[str, Any] | None = None
+
     # Druid target
     druid_datasource: str = Field(
         description="Target Druid datasource name",
