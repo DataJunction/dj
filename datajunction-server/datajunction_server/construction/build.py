@@ -372,6 +372,7 @@ def build_materialized_cube_node(
 async def extract_components_and_parent_columns(
     metric_nodes: list[Node],
     session: "AsyncSession",
+    dialect: Dialect = Dialect.SPARK,
 ) -> tuple[
     collections.defaultdict[str, set[str]],
     dict[str, tuple[list[MetricComponent], ast.Query]],
@@ -398,7 +399,7 @@ async def extract_components_and_parent_columns(
     parent_columns = collections.defaultdict(set)
 
     async def extract_components_and_columns(metric_node: Node):
-        extractor = MetricComponentExtractor(metric_node.current.id)
+        extractor = MetricComponentExtractor(metric_node.current.id, dialect=dialect)
         measures, derived_sql = await extractor.extract(session)
         metric_ast = parse(metric_node.current.query)
         return measures, derived_sql, list(metric_ast.find_all(ast.Column))
