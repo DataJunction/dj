@@ -26,6 +26,7 @@ from datajunction_server.models.deployment import (
     SourceSpec,
     TransformSpec,
 )
+from datajunction_server.models.filter_requirements import FilterRequirement
 from datajunction_server.models.semantic_fingerprint import (
     UNKNOWN_SEMANTIC_FINGERPRINT,
     SemanticFingerprint,
@@ -780,6 +781,127 @@ async def test_build_deployment_fingerprints_loads_external_ancestors(session):
     )
     assert current["default.hard_hat"] != UNKNOWN_SEMANTIC_FINGERPRINT
     assert proposed["default.hard_hat"] != UNKNOWN_SEMANTIC_FINGERPRINT
+
+
+@pytest.mark.asyncio
+async def test_v2_deployment_fingerprints_load_external_metric_context():
+    fact = source_spec(
+        "fact",
+        columns=[ColumnSpec(name="amount", type="double")],
+    )
+    metric = MetricSpec(
+        namespace="ns",
+        name="metric",
+        query="SELECT SUM(amount) FROM ${prefix}fact",
+        required_filters=[
+            FilterRequirement(
+                dimension=["external.dimension.value"],
+                default="external.dimension.value = 'active'",
+            ),
+        ],
+    )
+    external_dimension = DimensionSpec(
+        namespace="external",
+        name="dimension",
+        query="SELECT 'active' AS value",
+        columns=[ColumnSpec(name="value", type="string")],
+    )
+    external_node = MagicMock()
+    external_node.to_spec = AsyncMock(return_value=external_dimension)
+    requested_names = []
+
+    async def get_by_names(_session, names, **_kwargs):
+        requested_names.extend(names)
+        return [external_node] if external_dimension.rendered_name in names else []
+
+    with patch(
+        "datajunction_server.internal.deployment.fingerprints.Node.get_by_names",
+        AsyncMock(side_effect=get_by_names),
+    ):
+        _, proposed = await build_deployment_fingerprints(
+            MagicMock(),
+            {},
+            [fact, metric],
+            [],
+            version=2,
+        )
+
+    assert "external.dimension" in requested_names
+    external_node.to_spec.assert_awaited_once()
+    assert proposed[metric.rendered_name] == UNKNOWN_SEMANTIC_FINGERPRINT
+
+
+@pytest.mark.asyncio
+async def test_v2_deployment_context_loading_is_target_scoped():
+    fact = source_spec(
+        "fact",
+        columns=[ColumnSpec(name="amount", type="double")],
+    )
+    unrelated_metric = MetricSpec(
+        namespace="ns",
+        name="unrelated_metric",
+        query="SELECT SUM(amount) FROM ${prefix}fact",
+        required_filters=[
+            FilterRequirement(
+                dimension=["external.dimension.value"],
+                default="external.dimension.value = 'active'",
+            ),
+        ],
+    )
+    target = transform_spec("target", "SELECT amount FROM ${prefix}fact")
+    get_by_names = AsyncMock(return_value=[])
+
+    with patch(
+        "datajunction_server.internal.deployment.fingerprints.Node.get_by_names",
+        get_by_names,
+    ):
+        current, proposed = await build_deployment_fingerprints(
+            MagicMock(),
+            spec_map(fact, unrelated_metric),
+            [target],
+            [],
+            only_proposed_names={target.rendered_name},
+            version=2,
+        )
+
+    get_by_names.assert_not_awaited()
+    assert current == {}
+    assert set(proposed) == {target.rendered_name}
+
+
+@pytest.mark.asyncio
+async def test_v2_deployment_malformed_default_filter_fails_closed_without_mutation():
+    fact = source_spec(
+        "fact",
+        columns=[ColumnSpec(name="amount", type="double")],
+    )
+    metric = MetricSpec(
+        namespace="ns",
+        name="metric",
+        query="SELECT SUM(amount) FROM ${prefix}fact",
+        required_filters=[
+            FilterRequirement(
+                dimension=["ns.dimension.value"],
+                default="(",
+            ),
+        ],
+    )
+    original_metric = metric.model_dump()
+
+    with patch(
+        "datajunction_server.internal.deployment.fingerprints.Node.get_by_names",
+        AsyncMock(return_value=[]),
+    ):
+        _, proposed = await build_deployment_fingerprints(
+            MagicMock(),
+            {},
+            [fact, metric],
+            [],
+            version=2,
+        )
+
+    assert proposed[metric.rendered_name] == UNKNOWN_SEMANTIC_FINGERPRINT
+    assert metric.model_dump() == original_metric
 
 
 def test_seed_parent_cache_entry_is_idempotent():

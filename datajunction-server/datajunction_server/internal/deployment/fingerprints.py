@@ -194,6 +194,18 @@ def _parent_candidates(
     }
 
 
+def _v2_context_candidates(spec: NodeSpec) -> set[str]:
+    from datajunction_server.semantic_fingerprints.v2_dependencies import (
+        _metric_context_references,
+    )
+
+    return {
+        candidate
+        for options in _dimension_parent_references(_metric_context_references(spec))
+        for candidate in options
+    }
+
+
 def _is_derived_metric(spec: NodeSpec) -> bool:
     return (
         isinstance(spec, MetricSpec)
@@ -288,6 +300,8 @@ async def _load_external_specs(
     known_names: set[str],
     ignored_parse_errors: set[str],
     parent_cache: ParentCandidateCache,
+    *,
+    include_v2_context: bool = False,
 ) -> dict[str, NodeSpec]:
     """Transitively load names unresolved within the deployment's own specs."""
     started = time.perf_counter()
@@ -322,6 +336,8 @@ async def _load_external_specs(
         for spec in pending:
             try:
                 candidates.update(_parent_candidates(spec, parent_cache))
+                if include_v2_context:
+                    candidates.update(_v2_context_candidates(spec))
             except (DJParseException, TypeError, ValueError) as exc:
                 if spec.rendered_name not in ignored_parse_errors:
                     logger.warning(
@@ -741,17 +757,62 @@ async def build_deployment_fingerprints(
     )
     timings["ancestor_closure"] = time.perf_counter() - step_started
     step_started = time.perf_counter()
+    unresolved = current_unresolved | proposed_unresolved
+    if version == 2:
+        for specs, closure_names in (
+            (current_seed_specs, _current_closure_names),
+            (proposed, _proposed_closure_names),
+        ):
+            for name in closure_names:
+                spec = specs.get(name)
+                if spec is None:
+                    continue
+                try:
+                    unresolved.update(_v2_context_candidates(spec))
+                except (DJParseException, TypeError, ValueError) as exc:
+                    if name not in deleted_names:
+                        logger.warning(
+                            "Semantic context extraction failed for %s: %s",
+                            name,
+                            exc,
+                        )
     external = await _load_external_specs(
         session,
-        current_unresolved | proposed_unresolved,
+        unresolved,
         current_seed_specs.keys() | proposed.keys(),
         ignored_parse_errors=deleted_names,
         parent_cache=parent_cache,
+        include_v2_context=version == 2,
     )
     timings["external_load"] = time.perf_counter() - step_started
     step_started = time.perf_counter()
     current_external = {**external, **target_specs}
     proposed_external = {**external, **target_specs}
+    if version == 2:
+        from datajunction_server.semantic_fingerprints.v2 import SemanticGraphSnapshot
+        from datajunction_server.semantic_fingerprints.v2_configured import (
+            compute_configured_v2_fingerprints,
+        )
+
+        current_targets = deleted_names | additional_target_names | unchanged_names
+        current_v2 = (
+            await compute_configured_v2_fingerprints(
+                SemanticGraphSnapshot({**current_external, **existing_specs}),
+                targets=current_targets,
+            )
+            if current_targets
+            else None
+        )
+        proposed_v2 = await compute_configured_v2_fingerprints(
+            SemanticGraphSnapshot({**proposed_external, **proposed}),
+            targets=proposed_target_names,
+        )
+        return (
+            {name: node.full.fingerprint for name, node in current_v2.nodes.items()}
+            if current_v2
+            else {},
+            {name: node.full.fingerprint for name, node in proposed_v2.nodes.items()},
+        )
     shared_fingerprints: dict[int, SemanticFingerprintValue] = {}
     current_graph = SemanticFingerprintGraph(
         {**current_external, **existing_specs},
