@@ -36,6 +36,7 @@ from datajunction_server.internal.access.authorization import (
 )
 from datajunction_server.internal.materializations import (
     build_cube_materialization,
+    capture_materialization_fingerprint,
     stop_cube_materialization_workflows,
 )
 from datajunction_server.internal.nodes import (
@@ -386,6 +387,11 @@ async def cube_materialization_info(
     )
     return DruidCubeMaterializationInput(
         name="",
+        fingerprint_v2=await capture_materialization_fingerprint(
+            session,
+            node.current,
+            cube_config,
+        ),
         cube=cube_config.cube,
         dimensions=cube_config.dimensions,
         metrics=cube_config.metrics,
@@ -781,6 +787,51 @@ async def materialize_cube(
         else None
     )
 
+    # Build metrics list with combiner expressions
+    metrics_list = []
+    for metric_name in cube_revision.cube_node_metrics:
+        metric_expression = combined_result.metric_combiners.get(metric_name)
+        short_name = metric_name.split(".")[-1]
+        metrics_list.append(
+            {
+                "node": metric_name,
+                "name": short_name,
+                "metric_expression": metric_expression,
+                "metric": {
+                    "name": metric_name,
+                    "display_name": short_name.replace("_", " ").title(),
+                },
+            },
+        )
+
+    # Build V3 config using the proper Pydantic model
+    mat_config = DruidCubeV3Config(
+        druid_datasource=druid_datasource,
+        druid_spec=druid_spec,
+        preagg_tables=preagg_tables,
+        combined_sql=combined_result.sql,
+        combined_columns=output_columns,
+        combined_grain=combined_result.shared_dimensions,
+        measure_components=combined_result.measure_components,
+        component_aliases=combined_result.component_aliases,
+        cube_metrics=cube_revision.cube_node_metrics,
+        metrics=metrics_list,
+        timestamp_column=timestamp_column,
+        timestamp_format=timestamp_format,
+        platform=data.platform,
+        planned_node_versions=(
+            combined_result.planned_node_versions
+            if isinstance(combined_result.planned_node_versions, dict)
+            else {}
+        ),
+    )
+
+    mat_config.fingerprint_v2 = await capture_materialization_fingerprint(
+        session,
+        cube_revision,
+        mat_config,
+    )
+
     # Build the v2 input for the query service
     v2_input = CubeMaterializationV2Input(
         cube_name=node.name,
@@ -797,6 +848,7 @@ async def materialize_cube(
         schedule=data.schedule,
         lookback_window=effective_lookback,
         platform=data.platform,
+        fingerprint_v2=mat_config.fingerprint_v2,
     )
 
     # Call the query service to create the workflow.
@@ -825,40 +877,8 @@ async def materialize_cube(
         [materialization_name],
     )
 
-    # Build metrics list with combiner expressions
-    metrics_list = []
-    for metric_name in cube_revision.cube_node_metrics:
-        metric_expression = combined_result.metric_combiners.get(metric_name)
-        short_name = metric_name.split(".")[-1]
-        metrics_list.append(
-            {
-                "node": metric_name,
-                "name": short_name,
-                "metric_expression": metric_expression,
-                "metric": {
-                    "name": metric_name,
-                    "display_name": short_name.replace("_", " ").title(),
-                },
-            },
-        )
-
-    # Build V3 config using the proper Pydantic model
-    mat_config = DruidCubeV3Config(
-        druid_datasource=druid_datasource,
-        preagg_tables=preagg_tables,
-        combined_sql=combined_result.sql,
-        combined_columns=output_columns,
-        combined_grain=combined_result.shared_dimensions,
-        measure_components=combined_result.measure_components,
-        component_aliases=combined_result.component_aliases,
-        cube_metrics=cube_revision.cube_node_metrics,
-        metrics=metrics_list,
-        timestamp_column=timestamp_column,
-        timestamp_format=timestamp_format,
-        workflow_urls=workflow_urls,
-        workflow_names=workflow_names,
-        platform=data.platform,
-    )
+    mat_config.workflow_urls = list(workflow_urls)
+    mat_config.workflow_names = list(workflow_names)
 
     if existing_mats:
         # Update existing materialization

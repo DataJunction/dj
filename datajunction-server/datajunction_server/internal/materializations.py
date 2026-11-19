@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.construction.build import get_default_criteria
 from datajunction_server.construction.build_v2 import QueryBuilder
 from datajunction_server.database.backfill import Backfill
+from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.column import Column
 from datajunction_server.database.history import (
     ActivityType,
@@ -35,8 +36,16 @@ from datajunction_server.internal.sql import (
 )
 from datajunction_server.materialization.jobs import MaterializationJob
 from datajunction_server.models.column import SemanticType
-from datajunction_server.models.cube_materialization import UpsertCubeMaterialization
-from datajunction_server.models.deployment import MaterializationSpec
+from datajunction_server.models.cube_materialization import (
+    DruidCubeConfig,
+    DruidCubeV3Config,
+    UpsertCubeMaterialization,
+)
+from datajunction_server.models.deployment import (
+    ColumnSpec,
+    CubeSpec,
+    MaterializationSpec,
+)
 from datajunction_server.models.materialization import (
     DEFAULT_CUBE_RETENTION,
     DruidCubeConfigInput,
@@ -57,8 +66,15 @@ from datajunction_server.models.partition import (
 )
 from datajunction_server.models.preaggregation import CubeBackfillInput
 from datajunction_server.models.query import ColumnMetadata
+from datajunction_server.models.semantic_fingerprint import SemanticFingerprint
 from datajunction_server.naming import amenable_name
 from datajunction_server.service_clients import QueryServiceClient
+from datajunction_server.semantic_fingerprints.materialization import (
+    MaterializationFingerprint,
+    MaterializationReuseDecision,
+    decide_materialization_reuse,
+    materialization_contract,
+)
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import parse
@@ -67,7 +83,98 @@ from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import SEPARATOR, session_context
 
 MAX_COLUMN_NAME_LENGTH = 128
+MATERIALIZATION_FINGERPRINT_KEY = "fingerprint_v2"
 _logger = logging.getLogger(__name__)
+
+
+async def capture_materialization_fingerprint(
+    session: AsyncSession,
+    revision: NodeRevision,
+    config: DruidCubeConfig | DruidCubeV3Config,
+) -> dict[str, Any] | None:
+    """Capture the semantic result and the layout emitted for this build."""
+    planned_versions = config.planned_node_versions
+    if not isinstance(planned_versions, dict) or not planned_versions:
+        return None
+    if any(
+        not isinstance(name, str)
+        or not name
+        or not isinstance(version, str)
+        or not version
+        for name, version in planned_versions.items()
+    ):
+        return None
+
+    from datajunction_server.internal.deployment.fingerprints import (
+        build_deployment_fingerprints,
+    )
+
+    cube = CubeSpec(
+        name=revision.name,
+        metrics=revision.cube_node_metrics,
+        dimensions=revision.cube_node_dimensions,
+        filters=revision.cube_filters or [],
+        columns=[
+            ColumnSpec(
+                name=column.cube_element_name,
+                partition=column.partition.to_spec(),
+            )
+            for column in revision.columns
+            if column.partition
+        ],
+    )
+    _, fingerprints = await build_deployment_fingerprints(
+        session,
+        {},
+        [cube],
+        [],
+        version=2,
+    )
+    semantic = fingerprints.get(revision.name, "unknown")
+    storage = materialization_contract(config)
+    if not isinstance(semantic, SemanticFingerprint) or storage is None:
+        return None
+    current_versions = dict(
+        (
+            await session.execute(
+                select(Node.name, Node.current_version).where(
+                    Node.name.in_(planned_versions),
+                ),
+            )
+        ).all(),
+    )
+    if current_versions != planned_versions:
+        return None
+    return MaterializationFingerprint(semantic, storage).to_dict()
+
+
+def materialization_reuse_decision(
+    produced: AvailabilityState | None,
+    expected: dict[str, Any],
+    *,
+    fresh: bool,
+    execution_compatible: bool,
+) -> MaterializationReuseDecision:
+    """Compare a producer's receipt with a newly planned materialization.
+
+    Producers echo the planned fingerprint in availability links after writing
+    data, with node_version identifying the revision they built. A desired config
+    alone is never evidence about the data in an existing table.
+    """
+    receipt = (
+        (produced.links or {}).get(MATERIALIZATION_FINGERPRINT_KEY)
+        if produced
+        else None
+    )
+    return decide_materialization_reuse(
+        MaterializationFingerprint.from_value(receipt),
+        MaterializationFingerprint.from_value(
+            expected.get(MATERIALIZATION_FINGERPRINT_KEY)
+        ),
+        available=produced is not None,
+        fresh=fresh,
+        execution_compatible=execution_compatible,
+    )
 
 
 async def rewrite_metrics_expressions(
@@ -322,10 +429,19 @@ async def create_new_materialization(
         temporal_partition,
         categorical_partitions,
     )
+    config = generic_config.model_dump()  # type: ignore
+    if isinstance(generic_config, DruidCubeConfig):
+        config[
+            MATERIALIZATION_FINGERPRINT_KEY
+        ] = await capture_materialization_fingerprint(
+            session,
+            current_revision,
+            generic_config,
+        )
     return Materialization(
         name=materialization_name,
         node_revision=current_revision,
-        config=generic_config.model_dump(),  # type: ignore
+        config=config,
         schedule=upsert.schedule or "@daily",
         strategy=upsert.strategy,
         job=upsert.job.value.job_class,  # type: ignore

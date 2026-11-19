@@ -31,7 +31,10 @@ from datajunction_server.construction.build_v3.preagg_matcher import (
     get_temporal_partitions,
     preagg_covers_components,
 )
-from datajunction_server.construction.build_v3.types import GrainGroupSQL
+from datajunction_server.construction.build_v3.types import (
+    GrainGroupSQL,
+    snapshot_node_versions,
+)
 from datajunction_server.construction.build_v3.utils import build_join_from_clause
 from datajunction_server.database.preaggregation import (
     PreAggregation,
@@ -82,6 +85,8 @@ class CombinedGrainGroupResult:
     # Build warnings (e.g. fan-out risk), set from the ctx sink so the pre-agg/cube
     # endpoints (which hold only this result, not the ctx) can surface them.
     warnings: list[DJWarning] = field(default_factory=list)
+    # Node revisions that were used to produce this plan. Kept in memory only.
+    planned_node_versions: dict[str, str] = field(default_factory=dict)
 
     @property
     def sql(self) -> str:
@@ -732,6 +737,8 @@ async def build_combiner_sql_from_preaggs(
             temporal_partition_info.column_name,
         )
 
+    combined_result.planned_node_versions = snapshot_node_versions(ctx.nodes)
+
     return combined_result, preagg_sources, temporal_partition_info
 
 
@@ -832,6 +839,7 @@ def _reorder_partition_column_last(
             metric_combiners=result.metric_combiners,
             dialect=result.dialect,
             warnings=result.warnings,
+            planned_node_versions=result.planned_node_versions,
         )
 
     return result

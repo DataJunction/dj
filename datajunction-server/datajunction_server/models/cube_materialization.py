@@ -490,6 +490,9 @@ class DruidCubeConfig(BaseModel):
 
     cube: NodeNameVersion
 
+    fingerprint_v2: dict[str, Any] | None = None
+    planned_node_versions: dict[str, str] = Field(default_factory=dict, exclude=True)
+
     dimensions: list[str]
     metrics: list[CubeMetric]
 
@@ -549,6 +552,11 @@ class DruidCubeMaterializationInput(BaseModel):
     """
 
     name: str
+
+    fingerprint_v2: dict[str, Any] | None = Field(
+        default=None,
+        description="Echo in availability links after producing data, with node_version set to the built revision.",
+    )
 
     # Frozen cube info at the time of materialization
     cube: NodeNameVersion
@@ -710,6 +718,10 @@ class CubeMaterializationV2Input(BaseModel):
     # Cube identity
     cube_name: str = Field(description="Full cube name (e.g., 'default.my_cube')")
     cube_version: str = Field(description="Cube version")
+    fingerprint_v2: dict[str, Any] | None = Field(
+        default=None,
+        description="Echo in availability links after producing data, with node_version set to the built revision.",
+    )
 
     # Pre-agg table dependencies
     preagg_tables: list[PreAggTableInfo] = Field(
@@ -790,7 +802,8 @@ class DruidCubeV3Config(BaseModel):
         default="v3",
         description="Config version discriminator",
     )
-
+    fingerprint_v2: dict[str, Any] | None = None
+    planned_node_versions: dict[str, str] = Field(default_factory=dict, exclude=True)
     druid_spec: dict[str, Any] | None = None
 
     # Druid target

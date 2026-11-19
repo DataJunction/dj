@@ -11,6 +11,7 @@ from datajunction_server.construction.build_v3.types import (
     BuildContext,
     DecomposedMetricInfo,
     GrainGroupSQL,
+    snapshot_node_versions,
 )
 from datajunction_server.database.node import Column, Node, NodeRevision
 from datajunction_server.errors import DJInvalidInputException
@@ -561,5 +562,6 @@ async def build_cube_materialization(
         druid=upsert_input.druid,
         spark=upsert_input.spark,
         platform=upsert_input.platform,
+        planned_node_versions=snapshot_node_versions(result.ctx.nodes),
     )
     return config

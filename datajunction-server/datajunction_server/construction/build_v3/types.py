@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -27,6 +28,26 @@ if TYPE_CHECKING:
     from datajunction_server.models.sql import ScanEstimate
 
 logger = logging.getLogger(__name__)
+
+
+def snapshot_node_versions(nodes: Mapping[str, Node]) -> dict[str, str]:
+    """Read planned versions without triggering ORM loads.
+
+    The loaded ``current`` relationship is joined through ``current_version``,
+    which remains usable when the revision's own version column was deferred.
+    """
+    versions = {}
+    for name, node in nodes.items():
+        revision = node.__dict__.get("current")
+        version = node.__dict__.get("current_version")
+        if not revision or not isinstance(version, str) or not version:
+            return {}
+        if "version" in revision.__dict__:
+            revision_version = revision.__dict__["version"]
+            if revision_version != version:
+                return {}
+        versions[name] = version
+    return versions
 
 
 @dataclass

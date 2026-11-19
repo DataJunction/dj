@@ -4996,6 +4996,7 @@ def _create_mock_combined_result(
     mock_result.component_aliases = component_aliases or {}
     mock_result.metric_combiners = metric_combiners or {}
     mock_result.warnings = []
+    mock_result.planned_node_versions = {}
     return mock_result
 
 

@@ -155,6 +155,7 @@ class DruidCubeMaterializationJob(DruidMaterializationJob, MaterializationJob):
         return query_service_client.materialize_cube(
             materialization_input=DruidCubeMaterializationInput(
                 name=materialization.name,
+                fingerprint_v2=cube_config.fingerprint_v2,
                 cube=cube_config.cube,
                 dimensions=cube_config.dimensions,
                 metrics=cube_config.metrics,

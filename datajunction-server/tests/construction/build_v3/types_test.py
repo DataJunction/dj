@@ -8,8 +8,52 @@ from datajunction_server.construction.build_v3.types import (
     DecomposedMetricInfo,
     GrainGroup,
     MetricGroup,
+    snapshot_node_versions,
 )
+from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.models.decompose import Aggregability
+from datajunction_server.models.node_type import NodeType
+
+
+def _versioned_node() -> tuple[Node, NodeRevision]:
+    node = Node(
+        name="ns.fact",
+        type=NodeType.TRANSFORM,
+        created_by_id=1,
+        current_version="v1.0",
+    )
+    revision = NodeRevision(
+        name="ns.fact",
+        type=NodeType.TRANSFORM,
+        created_by_id=1,
+        version="v1.0",
+        node_id=1,
+    )
+    node.current = revision
+    return node, revision
+
+
+def test_snapshot_node_versions_reads_loaded_revisions():
+    node, _ = _versioned_node()
+
+    assert snapshot_node_versions({node.name: node}) == {"ns.fact": "v1.0"}
+
+
+def test_snapshot_node_versions_returns_unknown_for_unloaded_attributes():
+    node, revision = _versioned_node()
+    node.__dict__.pop("current")
+    assert snapshot_node_versions({node.name: node}) == {}
+
+    node.current = revision
+    revision.__dict__.pop("version")
+    assert snapshot_node_versions({node.name: node}) == {"ns.fact": "v1.0"}
+
+    revision.__dict__["version"] = "v2.0"
+    assert snapshot_node_versions({node.name: node}) == {}
+
+    node.__dict__.pop("current_version")
+    revision.__dict__.pop("version")
+    assert snapshot_node_versions({node.name: node}) == {}
 
 
 class TestDecomposedMetricInfo:

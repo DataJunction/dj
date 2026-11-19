@@ -24,6 +24,7 @@ from datajunction_server.construction.build_v3.prepare import prepare_metrics_qu
 from datajunction_server.construction.build_v3.types import GeneratedSQL
 from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.history import History
+from datajunction_server.database.materialization import Materialization
 from datajunction_server.database.node import Node, NodeRevision
 from datajunction_server.database.user import User
 from datajunction_server.errors import (
@@ -53,6 +54,10 @@ from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.node import AvailabilityStateBase
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.query import QueryCreate, QueryWithResults
+from datajunction_server.semantic_fingerprints.materialization import (
+    MaterializationFingerprint,
+    materialization_artifact_matches,
+)
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import (
     get_current_user,
@@ -171,13 +176,38 @@ async def add_availability_state(
                 ),
             )
 
-    # Merge the new availability state with the current availability state if one exists
+    receipt = (data.links or {}).get("fingerprint_v2")
+    if receipt is not None:
+        expected = await session.scalars(
+            select(Materialization.config).where(
+                Materialization.node_revision_id == node_revision.id,
+                Materialization.deactivated_at.is_(None),
+            ),
+        )
+        fingerprint = MaterializationFingerprint.from_value(receipt)
+        if (
+            not data.node_version
+            or fingerprint is None
+            or not any(
+                MaterializationFingerprint.from_value(config.get("fingerprint_v2"))
+                == fingerprint
+                and materialization_artifact_matches(config, data.table)
+                for config in expected
+                if isinstance(config, dict)
+            )
+        ):
+            raise DJInvalidInputException(
+                message="Availability fingerprint must match a planned materialization on the explicit node_version.",
+            )
+
+    # Partition coverage belongs to the generation that produced it.
     old_availability = node_revision.availability
     if (
         old_availability
         and old_availability.catalog == data.catalog
         and old_availability.schema_ == data.schema_
         and old_availability.table == data.table
+        and (old_availability.links or {}).get("fingerprint_v2") == receipt
     ):
         data.merge(node_revision.availability)
 
