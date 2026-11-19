@@ -3466,6 +3466,27 @@ def test_direct_decomposition_validates_before_building_distinct_components(
         )
 
 
+def test_direct_decomposition_builds_family_components_and_combiner(registered_family):
+    """Direct callers receive the selected family's sketch and finalizer."""
+    query = parse("SELECT APPROX_PERCENTILE(price, 0.5) FROM t")
+    result = MetricComponentExtractor(0)._decompose(
+        query.select.projection[0],
+        dj_functions.ApproxPercentile,
+        query,
+        ReaggregateSpec(
+            fn=ReaggregationFunction.TDIGEST,
+            params={"compression": 100},
+        ),
+    )
+    assert result is not None
+    (component,) = result.components
+    assert component.expression == "price"
+    assert component.aggregation == "build_sketch(price, 100)"
+    assert component.reaggregation_family == ReaggregationFunction.TDIGEST
+    assert component.params == {"compression": 100}
+    assert str(result.combiner) == f"read_sketch({component.name})"
+
+
 @pytest.mark.parametrize("declared", [False, True])
 def test_compatibility_uses_valid_opted_in_family(
     registered_family,
@@ -3655,3 +3676,18 @@ def test_invalid_stored_component_params_are_not_reused(
         ReaggregateSpec(fn=ReaggregationFunction.TDIGEST),
     )
     assert component_params_match(components[0], stored) is expected
+
+
+def test_stored_component_params_are_not_normalized_without_registered_family(
+    registered_family,
+    monkeypatch,
+):
+    """A removed family cannot establish that different stored params match."""
+    (component,), _ = MetricComponentExtractor(0)._extract_base(
+        parse("SELECT APPROX_PERCENTILE(price, 0.5) FROM t"),
+        ReaggregateSpec(fn=ReaggregationFunction.TDIGEST),
+    )
+    stored = {"compression": 200}
+    assert component_params_match(component, stored) is True
+    monkeypatch.delitem(FAMILY_DECOMPOSITION_REGISTRY, ReaggregationFunction.TDIGEST)
+    assert component_params_match(component, stored) is False
