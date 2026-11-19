@@ -1,3 +1,5 @@
+"""Unsupported SQL shapes retain conservative dependencies."""
+
 import asyncio
 
 import pytest
@@ -22,6 +24,7 @@ def _source(table="orders"):
         ],
     )
 
+
 def _evaluate(source, query):
     snapshot = SemanticGraphSnapshot(
         {
@@ -30,6 +33,7 @@ def _evaluate(source, query):
         },
     )
     return asyncio.run(compute_v2_fingerprints(snapshot))
+
 
 @pytest.mark.parametrize(
     "query",
@@ -56,6 +60,7 @@ def test_unsupported_construct_is_conservative_or_unknown(query):
         != "unchanged"
     )
 
+
 def test_invalid_or_missing_source_type_is_unknown():
     invalid = _source()
     invalid.columns[0].type = "not_a_sql_type"
@@ -67,6 +72,7 @@ def test_invalid_or_missing_source_type_is_unknown():
 
     assert invalid_result.nodes["ns.project"].precision == "unknown"
     assert missing_result.nodes["ns.project"].precision == "unknown"
+
 
 def test_duplicate_authored_or_captured_source_columns_are_unknown():
     duplicate = [
@@ -99,6 +105,7 @@ def test_duplicate_authored_or_captured_source_columns_are_unknown():
     assert authored.nodes["ns.project"].precision == "unknown"
     assert captured.nodes["ns.project"].precision == "unknown"
 
+
 def test_duplicate_provider_output_is_unknown():
     result = _evaluate(
         _source(),
@@ -106,6 +113,7 @@ def test_duplicate_provider_output_is_unknown():
     )
 
     assert result.nodes["ns.project"].precision == "unknown"
+
 
 @pytest.mark.parametrize(
     ("query", "changed_query"),
@@ -136,6 +144,7 @@ def test_case_and_cast_remain_precise(query, changed_query):
         == "changed"
     )
 
+
 @pytest.mark.parametrize(
     "query",
     [
@@ -152,6 +161,7 @@ def test_unsupported_select_clauses_are_not_precise(query):
 
     assert result.nodes["ns.project"].precision in {"conservative", "unknown"}
     assert result.nodes["ns.project"].reasons
+
 
 def test_renamed_output_does_not_inherit_declared_type_by_position():
     source = _source()

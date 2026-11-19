@@ -1,7 +1,10 @@
+"""Struct fields bind precisely while TRY_CAST joins retain conservative fallback."""
+
 import asyncio
 
 from datajunction_server.models.deployment import (
     ColumnSpec,
+    DimensionSpec,
     SourceSpec,
     TransformSpec,
 )
@@ -21,11 +24,67 @@ def _source(name, table, columns):
         columns=[ColumnSpec(name=column, type=kind) for column, kind in columns],
     )
 
+
 def _evaluate(*specs):
     snapshot = SemanticGraphSnapshot(
         {spec.rendered_name: spec for spec in specs},
     )
     return asyncio.run(compute_v2_fingerprints(snapshot))
+
+
+def test_alias_qualified_struct_fields_are_bound_to_the_input_schema():
+    profile = _source(
+        "warehouse.raw.profile_sessions",
+        "profile_sessions",
+        [
+            ("profile_session_id", "string"),
+            (
+                "device_data",
+                "struct<device_type_id:int,device_model:string,app_version:string>",
+            ),
+        ],
+    )
+    device_source = _source(
+        "ns.device_model_rows",
+        "device_model_rows",
+        [
+            ("device_type_id", "int"),
+            ("device_model", "string"),
+            ("hw_major_category", "string"),
+        ],
+    )
+    device = DimensionSpec(
+        name="ns.device_model_rollup_d",
+        query=(
+            "SELECT device_type_id, device_model, hw_major_category "
+            "FROM ns.device_model_rows"
+        ),
+        columns=[
+            ColumnSpec(name="device_type_id", type="int"),
+            ColumnSpec(name="device_model", type="string"),
+            ColumnSpec(name="hw_major_category", type="string"),
+        ],
+        primary_key=["device_type_id", "device_model"],
+    )
+    mobile = TransformSpec(
+        name="ns.mobile_app_profile_session",
+        query=(
+            "SELECT s.device_data.device_type_id AS device_type_id, "
+            "s.device_data.device_model AS device_model, "
+            "s.device_data.app_version AS app_version "
+            "FROM warehouse.raw.profile_sessions AS s "
+            "JOIN ns.device_model_rollup_d AS d "
+            "ON s.device_data.device_type_id = d.device_type_id "
+            "AND s.device_data.device_model = d.device_model "
+            "WHERE d.hw_major_category IN ('Mobile', 'Tablet')"
+        ),
+    )
+
+    result = _evaluate(profile, device_source, device, mobile)
+
+    assert result.nodes["ns.mobile_app_profile_session"].precision == "precise"
+    assert result.nodes["ns.mobile_app_profile_session"].full.digest is not None
+
 
 def test_unqualified_struct_paths_are_bound_when_one_input_schema_matches():
     playback = _source(
@@ -53,6 +112,7 @@ def test_unqualified_struct_paths_are_bound_when_one_input_schema_matches():
 
     assert result.nodes["ns.playback_non_supplemental"].precision == "conservative"
     assert result.nodes["ns.playback_non_supplemental"].full.digest is not None
+
 
 def test_try_cast_filter_join_fallback_is_conservative_and_tracks_parents():
     fact = _source(
@@ -87,6 +147,7 @@ def test_try_cast_filter_join_fallback_is_conservative_and_tracks_parents():
         )
         == "changed"
     )
+
 
 def test_try_cast_fallback_stays_unknown_when_a_relation_is_unresolved():
     fact = _source(

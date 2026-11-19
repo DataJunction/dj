@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from functools import lru_cache
 from typing import Any
 
 from datajunction_server.models.deployment import (
@@ -38,6 +39,7 @@ from datajunction_server.sql.parsing.backends.antlr4 import (
 )
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.sql.parsing.structural import serialize_ast
+from datajunction_server.sql.parsing.types import ColumnType, StructType
 
 _AGGREGATE_FUNCTIONS = frozenset(
     {
@@ -116,6 +118,19 @@ _LOSSY_CLAUSES = ("TABLESAMPLE", "TRY_CAST", "FILTER", "NULLS", "TRIM")
 _LOSSY_TOKENS = frozenset(
     getattr(SqlBaseParser, clause) for clause in _LOSSY_CLAUSES if clause != "TRIM"
 )
+_DimensionLink = DimensionJoinLinkSpec | DimensionReferenceLinkSpec
+_JoinColumnCache = dict[
+    tuple[str, str, str, str],
+    tuple[frozenset[tuple[str, str]], bool],
+]
+
+
+@lru_cache(maxsize=512)
+def _join_column_type(value: str) -> ColumnType | None:
+    try:
+        return ColumnType.validate(value)
+    except Exception:
+        return None
 
 
 class _Unsupported(ValueError):
@@ -125,12 +140,39 @@ class _Unsupported(ValueError):
 
 
 @dataclass(frozen=True)
+class _BoundInput:
+    provider: str
+    schema: Mapping[str, ColumnSpec]
+    aliases: frozenset[str]
+    is_source: bool
+
+
+@dataclass(frozen=True)
 class _BoundSource:
     provider: str
     schema: Mapping[str, ColumnSpec]
     aliases: frozenset[str]
     is_source: bool
     numeric_literals: Mapping[int, str]
+    inputs: tuple[_BoundInput, ...] = ()
+    joins: tuple[dict[str, object], ...] = ()
+    join_dependencies: tuple[tuple[str, ComponentKey], ...] = ()
+    context_columns: Mapping[str, ComponentKey] | None = None
+
+    @property
+    def providers(self) -> tuple[_BoundInput, ...]:
+        return self.inputs or (
+            _BoundInput(
+                self.provider,
+                self.schema,
+                self.aliases,
+                self.is_source,
+            ),
+        )
+
+    @property
+    def is_joined(self) -> bool:
+        return bool(self.inputs)
 
 
 def _column_contract(column: ColumnSpec) -> dict[str, object]:
@@ -949,6 +991,271 @@ def _fallback_parent_names(
     return parents, unresolved
 
 
+def _opaque_dimension_output_dependencies(
+    references: Iterable[str],
+    specs: Mapping[str, NodeSpec],
+) -> list[tuple[str, ComponentKey]]:
+    dependencies = set()
+    for reference in references:
+        matching_dimensions = [
+            name
+            for name, node_spec in specs.items()
+            if isinstance(node_spec, DimensionSpec)
+            and reference.casefold().startswith(name.casefold() + ".")
+        ]
+        if not matching_dimensions:
+            continue
+        dimension = max(matching_dimensions, key=lambda name: (len(name), name))
+        attribute_path = reference[len(dimension) + 1 :].split(".")
+        if attribute_path:
+            attribute = attribute_path[0]
+            dependencies.add(
+                (
+                    f"opaque_dimension_output:{dimension}:{attribute}",
+                    ComponentKey(dimension, "output", attribute),
+                ),
+            )
+    return sorted(dependencies)
+
+
+def _join_columns(
+    source: str,
+    target: str,
+    link: _DimensionLink,
+    cache: _JoinColumnCache,
+) -> tuple[set[tuple[str, str]], bool]:
+    if isinstance(link, DimensionReferenceLinkSpec):
+        return {(source, link.node_column), (target, link.dimension_attribute)}, True
+    cache_key = (source, target, link.rendered_join_on or "", link.join_type.value)
+    if cache_key in cache:
+        columns, parsed = cache[cache_key]
+        return set(columns), parsed
+    if not link.rendered_join_on:
+        return set(), link.join_type.value == "cross"
+    text = f"SELECT 1 WHERE ({link.rendered_join_on})"
+    try:
+        tree = cached_definition_tree(text, "singleStatement")
+        # The link contract retains TRY_CAST; this pass only collects columns.
+        if any(
+            token.type in _LOSSY_TOKENS and token.type != SqlBaseParser.TRY_CAST
+            for token in tree.parser.getTokenStream().tokens
+        ):
+            raise _Unsupported("unsupported_query_modifier")
+        query = parse(text)
+    except (DJParseException, SqlParsingError, TypeError, ValueError):
+        cache[cache_key] = (frozenset(), False)
+        return set(), False
+    if any(query.find_all(ast.Table)):
+        cache[cache_key] = (frozenset(), False)
+        return set(), False
+    columns = set()
+    for column in query.find_all(ast.Column):
+        namespace = ".".join(part.name for part in column.namespace or ())
+        if namespace not in {source, target}:
+            cache[cache_key] = (frozenset(), False)
+            return set(), False
+        columns.add((namespace, column.name.name))
+    result = (frozenset(columns), bool(columns))
+    cache[cache_key] = result
+    return set(result[0]), result[1]
+
+
+def _implicit_dimension_link_context(
+    query: ast.Query | None,
+    specs: Mapping[str, NodeSpec],
+    references: Iterable[str] = (),
+    relation_references: Iterable[str] = (),
+    relation_cache: dict[str, tuple[frozenset[str], bool]] | None = None,
+    ancestry_cache: dict[str, frozenset[str] | None] | None = None,
+    *,
+    narrow_dependencies: bool = False,
+    join_column_cache: _JoinColumnCache | None = None,
+) -> tuple[list[dict[str, object]], list[tuple[str, ComponentKey]], bool]:
+    if query is None:
+        return [], [], False
+    from datajunction_server.internal.deployment.utils import (
+        extract_dimension_attribute_nodes,
+    )
+
+    table_nodes = {
+        node
+        for table in query.find_all(ast.Table)
+        if (node := _resolve_node_name(table.identifier(quotes=False), specs))
+    }
+    targets = {
+        node
+        for reference in extract_dimension_attribute_nodes(query)
+        if (node := _resolve_node_name(reference, specs))
+        and isinstance(specs.get(node), DimensionSpec)
+        and node not in table_nodes
+    }
+    for reference in references:
+        attribute = reference.split("[", 1)[0]
+        parts = attribute.split(".")
+        if len(parts) < 2:
+            continue
+        node = _resolve_node_name(".".join(parts[:-1]), specs)
+        if (
+            node
+            and isinstance(specs.get(node), DimensionSpec)
+            and node not in table_nodes
+        ):
+            targets.add(node)
+    if not targets:
+        return [], [], False
+
+    relation_cache = relation_cache if relation_cache is not None else {}
+    ancestry_cache = ancestry_cache if ancestry_cache is not None else {}
+    active: set[str] = set()
+
+    def ancestors(node: str) -> frozenset[str] | None:
+        if node in ancestry_cache:
+            return ancestry_cache[node]
+        if node in active:
+            return None
+        spec = specs.get(node)
+        if isinstance(spec, SourceSpec):
+            ancestry_cache[node] = frozenset({node})
+            return ancestry_cache[node]
+        if spec is None:
+            ancestry_cache[node] = None
+            return None
+        if node not in relation_cache:
+            captured_parents, unresolved = _opaque_relation_references(spec)
+            relation_cache[node] = (frozenset(captured_parents), unresolved)
+        parents, unresolved = relation_cache[node]
+        if unresolved:
+            ancestry_cache[node] = None
+            return None
+        active.add(node)
+        result = {node}
+        for reference in sorted(parents):
+            parent = _resolve_node_name(reference, specs)
+            upstream = ancestors(parent) if parent else None
+            if upstream is None:
+                active.remove(node)
+                ancestry_cache[node] = None
+                return None
+            result.update(upstream)
+        active.remove(node)
+        ancestry_cache[node] = frozenset(result)
+        return ancestry_cache[node]
+
+    route_sources: set[str] = set()
+    complete_ancestry = True
+    for reference in sorted(set(relation_references)):
+        node = _resolve_node_name(reference, specs)
+        upstream = ancestors(node) if node else None
+        if upstream is None:
+            complete_ancestry = False
+        else:
+            route_sources.update(upstream)
+    if not complete_ancestry or not route_sources:
+        return [], [], True
+
+    outgoing: dict[str, list[tuple[str, str, _DimensionLink]]] = {}
+    incoming: dict[str, list[str]] = {}
+    for source, source_spec in specs.items():
+        if not isinstance(source_spec, LinkableNodeSpec):
+            continue
+        for link in source_spec.dimension_links:
+            target = _resolve_node_name(link.rendered_dimension_node, specs)
+            if target is None:
+                continue
+            edge = (source, target, link)
+            outgoing.setdefault(source, []).append(edge)
+            incoming.setdefault(target, []).append(source)
+
+    reachable = set(route_sources)
+    queue = list(sorted(route_sources))
+    while queue:
+        source = queue.pop(0)
+        for _, target, _ in outgoing.get(source, ()):
+            if target not in reachable:
+                reachable.add(target)
+                queue.append(target)
+
+    relevant: dict[tuple[str, str, str], tuple[str, str, _DimensionLink]] = {}
+    dependencies: set[tuple[str, ComponentKey]] = set()
+    join_column_cache = join_column_cache if join_column_cache is not None else {}
+    contracts: list[dict[str, object]] = []
+    missing_targets = targets - reachable
+    for target in sorted(missing_targets):
+        contracts.append(
+            {"source_nodes": sorted(route_sources), "unresolved_target": target},
+        )
+        dependencies.add(
+            (f"implicit_dimension:{target}", ComponentKey(target, "calculation")),
+        )
+    for target in sorted(targets & reachable):
+        can_reach = {target}
+        queue = [target]
+        while queue:
+            node = queue.pop(0)
+            for source in incoming.get(node, ()):
+                if source not in can_reach:
+                    can_reach.add(source)
+                    queue.append(source)
+        for source, next_node, link in (
+            edge
+            for parent in reachable
+            for edge in outgoing.get(parent, ())
+            if edge[1] in can_reach
+        ):
+            link_key = canonical_json(normalize_value(_dimension_link_contract(link)))
+            relevant[(source, next_node, link_key)] = (source, next_node, link)
+            columns, parsed = (
+                _join_columns(source, next_node, link, join_column_cache)
+                if narrow_dependencies
+                else (set(), False)
+            )
+            if parsed:
+                dependencies.update(
+                    (f"implicit_link_rows:{node}", ComponentKey(node, "rows"))
+                    for node in (source, next_node)
+                )
+                dependencies.update(
+                    (
+                        f"implicit_join_key:{node}.{column}",
+                        ComponentKey(node, "output", column),
+                    )
+                    for node, column in columns
+                )
+            else:
+                dependencies.update(
+                    (
+                        (
+                            f"implicit_link_source:{source}",
+                            ComponentKey(source, "calculation"),
+                        ),
+                        (
+                            f"implicit_link_target:{next_node}",
+                            ComponentKey(next_node, "calculation"),
+                        ),
+                    ),
+                )
+
+    contracts.extend(
+        {
+            "source": source,
+            "target": target,
+            "link": normalize_value(_dimension_link_contract(link)),
+            **(
+                {
+                    "grains": {
+                        node: sorted(getattr(specs[node], "primary_key", None) or [])
+                        for node in (source, target)
+                    }
+                }
+                if narrow_dependencies
+                else {}
+            ),
+        }
+        for source, target, link in (relevant[key] for key in sorted(relevant))
+    )
+    return contracts, sorted(dependencies), bool(missing_targets)
+
+
 def _metric_context_references(spec: NodeSpec) -> tuple[str, ...]:
     if not isinstance(spec, MetricSpec):
         return ()
@@ -1068,6 +1375,144 @@ def _query_schema(
     return columns
 
 
+def _simple_inner_join_predicate(
+    expression: ast.Node,
+    source: _BoundSource,
+) -> bool:
+    if isinstance(expression, ast.BinaryOp) and expression.op in {
+        ast.BinaryOpKind.And,
+        ast.BinaryOpKind.LogicalAnd,
+    }:
+        return _simple_inner_join_predicate(
+            expression.left,
+            source,
+        ) and _simple_inner_join_predicate(expression.right, source)
+    if (
+        not isinstance(expression, ast.BinaryOp)
+        or expression.op != ast.BinaryOpKind.Eq
+        or not isinstance(expression.left, ast.Column)
+        or not isinstance(expression.right, ast.Column)
+    ):
+        return False
+    try:
+        left = _bound_join_column(expression.left, source)
+        right = _bound_join_column(expression.right, source)
+    except _Unsupported:
+        return False
+    return left.provider != right.provider
+
+
+def _bound_join_column(column: ast.Column, source: _BoundSource) -> _BoundInput:
+    if (
+        not column.namespace
+        or column.role
+        or column.dimension_ref
+        or column.name.quote_style
+        or any(part.quote_style for part in column.namespace)
+    ):
+        raise _Unsupported("unsupported_join_reference")
+    alias = column.namespace[0].name.casefold()
+    matches = [relation for relation in source.providers if alias in relation.aliases]
+    if len(matches) != 1:
+        raise _Unsupported("unresolved_or_ambiguous_column")
+    return matches[0]
+
+
+def _bind_join_source(
+    query: ast.Query,
+    specs: Mapping[str, NodeSpec],
+    snapshot: SemanticGraphSnapshot,
+    schemas: dict[str, tuple[ColumnSpec, ...]],
+    numeric_literals: Mapping[int, str],
+) -> _BoundSource:
+    if query.ctes or not isinstance(query.select, ast.Select):
+        raise _Unsupported("unsupported_query_shape")
+    from_clause = query.select.from_
+    if from_clause is None or len(from_clause.relations) != 1:
+        raise _Unsupported("unsupported_from_expression")
+    relation = from_clause.relations[0]
+    if not isinstance(relation.primary, ast.Table) or len(relation.extensions) != 1:
+        raise _Unsupported("unsupported_join")
+    join = relation.extensions[0]
+    join_type = join.join_type.strip().casefold() or "inner"
+    if (
+        join_type not in {"inner", "left", "left outer", "cross"}
+        or join.lateral
+        or join.natural
+        or not isinstance(join.right, ast.Table)
+        or join.right.alias is None
+        or (
+            join_type != "cross"
+            and (
+                join.criteria is None or join.criteria.on is None or join.criteria.using
+            )
+        )
+        or (join_type == "cross" and join.criteria is not None)
+    ):
+        raise _Unsupported("unsupported_join")
+
+    tables = (relation.primary, join.right)
+    bindings = []
+    for table in tables:
+        if (
+            table.alias is None
+            or table.alias.quote_style
+            or table.column_list
+            or table.path
+            or table.dimension_link
+            or table.name.quote_style
+            or any(part.quote_style for part in table.namespace or ())
+        ):
+            raise _Unsupported("unsupported_table_modifier")
+        reference = table.identifier(quotes=False)
+        provider = _resolve_node_name(reference, specs)
+        if provider is None:
+            raise _Unsupported("unresolved_source")
+        schema = _require_unique_columns(
+            _query_schema(provider, specs[provider], snapshot, specs, schemas),
+            "duplicate_provider_output",
+        )
+        bindings.append(
+            _BoundInput(
+                provider,
+                {column.name: column for column in schema},
+                frozenset({table.alias.name.casefold()}),
+                isinstance(specs[provider], SourceSpec),
+            ),
+        )
+    if (
+        bindings[0].provider == bindings[1].provider
+        or bindings[0].aliases & bindings[1].aliases
+    ):
+        raise _Unsupported("unsupported_self_join")
+
+    source = _BoundSource(
+        bindings[0].provider,
+        bindings[0].schema,
+        frozenset().union(*(item.aliases for item in bindings)),
+        bindings[0].is_source,
+        numeric_literals,
+        tuple(bindings),
+    )
+    on_shape, dependencies = None, []
+    if join_type != "cross":
+        if not _simple_inner_join_predicate(join.criteria.on, source):
+            raise _Unsupported("unsupported_join_predicate")
+        on_shape, dependencies, aggregate = _bind_expression(join.criteria.on, source)
+        if aggregate:
+            raise _Unsupported("unsupported_join_predicate")
+    return _BoundSource(
+        source.provider,
+        source.schema,
+        source.aliases,
+        source.is_source,
+        source.numeric_literals,
+        source.inputs,
+        ({"type": join_type.removesuffix(" outer"), "on": on_shape},),
+        tuple(dependencies),
+    )
+
+
 def _bind_source(
     query: ast.Query,
     specs: Mapping[str, NodeSpec],
@@ -1082,7 +1527,7 @@ def _bind_source(
         raise _Unsupported("unsupported_from_expression")
     relation = from_clause.relations[0]
     if relation.extensions:
-        raise _Unsupported("unsupported_join")
+        return _bind_join_source(query, specs, snapshot, schemas, numeric_literals)
     table = relation.primary
     if not isinstance(table, ast.Table):
         raise _Unsupported("unsupported_from_expression")
@@ -1114,6 +1559,8 @@ def _bind_expression(
     dependencies: dict[str, ComponentKey] = {}
     aggregate = False
     numeric_literals = []
+    bound_columns: dict[str, tuple[str, str]] = {}
+    joined = source.is_joined
     for node in expression.flatten():
         if isinstance(
             node,
@@ -1137,6 +1584,25 @@ def _bind_expression(
         if isinstance(node, ast.Number):
             numeric_literals.append(source.numeric_literals[id(node)])
         if isinstance(node, ast.Column):
+            context_key = (source.context_columns or {}).get(
+                node.identifier(quotes=False).casefold(),
+            )
+            if context_key is not None and not node.role and not node.dimension_ref:
+                dependencies[node.identifier(quotes=False)] = context_key
+                continue
+            if joined:
+                provider, path, has_type = _resolve_join_column(node, source)
+                if provider.is_source and not has_type:
+                    raise _Unsupported("source_column_type_unavailable")
+                column_key = ComponentKey(
+                    provider.provider,
+                    "output",
+                    path[0],
+                )
+                identity = (provider.provider, ".".join(path))
+                dependencies[f"{identity[0]}:{identity[1]}"] = column_key
+                bound_columns[node.identifier(quotes=False).casefold()] = identity
+                continue
             qualifier = ".".join(part.name for part in node.namespace)
             if node.role or node.dimension_ref:
                 raise _Unsupported("unsupported_expression_shape")
@@ -1164,7 +1630,15 @@ def _bind_expression(
             "args_compiled",
         ):
             fields.pop(field, None)
-        if value["type"] in {"Column", "Wildcard"}:
+        if value["type"] == "Column" and joined:
+            parts = _serialized_column_parts(value)
+            identity = bound_columns.get(".".join(parts).casefold())
+            if identity is None:
+                raise _Unsupported("unresolved_or_ambiguous_column")
+            fields["bound_relation"] = identity[0]
+            fields["bound_field"] = identity[1]
+            fields["name"]["fields"]["namespace"] = None
+        elif value["type"] in {"Column", "Wildcard"}:
             fields["name"]["fields"]["namespace"] = None
         if value["type"] == "Name" and not fields.get("quote_style"):
             fields["name"] = fields["name"].lower()
@@ -1183,6 +1657,70 @@ def _bind_expression(
         [(f"column:{name}", key) for name, key in sorted(dependencies.items())],
         aggregate,
     )
+
+
+def _serialized_column_parts(value: dict[str, Any]) -> list[str]:
+    name = value["fields"]["name"]["fields"]
+    namespace = name.get("namespace")
+    parts = []
+    while namespace is not None:
+        parts.append(namespace["fields"]["name"])
+        namespace = namespace["fields"].get("namespace")
+    parts.reverse()
+    parts.append(name["name"])
+    return parts
+
+
+def _resolve_join_column(
+    column: ast.Column,
+    source: _BoundSource,
+) -> tuple[_BoundInput, list[str], bool]:
+    if column.name.quote_style:
+        raise _Unsupported("unsupported_join_reference")
+    parts = [part.name for part in column.namespace or ()] + [column.name.name]
+    if not column.namespace and not column.role and not column.dimension_ref:
+        matches = [
+            relation
+            for relation in source.providers
+            if any(name.casefold() == parts[0].casefold() for name in relation.schema)
+        ]
+        if len(matches) != 1:
+            raise _Unsupported("unresolved_or_ambiguous_column")
+        provider, path = matches[0], parts
+    else:
+        provider = _bound_join_column(column, source)
+        path = parts[1:]
+    if not path:
+        raise _Unsupported("unresolved_or_ambiguous_column")
+    matching_columns = [
+        value
+        for name, value in provider.schema.items()
+        if name.casefold() == path[0].casefold()
+    ]
+    if len(matching_columns) != 1:
+        raise _Unsupported("resolved_column_schema_missing")
+    column_spec = matching_columns[0]
+    nested_fields = path[1:]
+    path = [column_spec.name]
+    current_type = None
+    if nested_fields:
+        current_type = _join_column_type(column_spec.type) if column_spec.type else None
+        if current_type is None:
+            raise _Unsupported("resolved_column_schema_missing")
+    for field_name in nested_fields:
+        if not isinstance(current_type, StructType):
+            raise _Unsupported("unresolved_or_ambiguous_column")
+        matches = [
+            field
+            for field in current_type.fields
+            if field.name.name.casefold() == field_name.casefold()
+        ]
+        if len(matches) != 1:
+            raise _Unsupported("resolved_column_schema_missing")
+        field = matches[0]
+        path.append(field.name.name)
+        current_type = field.type
+    return provider, path, _parsed_type(column_spec.type) is not None
 
 
 def _definition(
@@ -1272,6 +1810,8 @@ def _opaque_definitions(
     reason: str,
     snapshot: SemanticGraphSnapshot,
     schema_cache: Mapping[str, tuple[ColumnSpec, ...]] | None = None,
+    relation_cache: dict[str, tuple[frozenset[str], bool]] | None = None,
+    ancestry_cache: dict[str, frozenset[str] | None] | None = None,
 ) -> list[ComponentDefinition]:
     query = None
     opaque_relations: set[str] = set()
@@ -1291,12 +1831,25 @@ def _opaque_definitions(
                 opaque_dimension_references,
                 opaque_references_unresolved,
             ) = _opaque_sql_references(spec, specs, schema_cache)
+            if relation_cache is not None:
+                relation_cache[name] = (
+                    frozenset(opaque_relations),
+                    opaque_references_unresolved,
+                )
         except (_Unsupported, DJParseException, SqlParsingError, TypeError, ValueError):
             unresolved = True
         if query is None or not isinstance(query, ast.Query):
             unresolved = True
-    unresolved = unresolved or bool(opaque_dimension_references)
-    unresolved = unresolved or bool(_metric_context_references(spec))
+    implicit_links, implicit_link_dependencies, unresolved_implicit_links = (
+        _implicit_dimension_link_context(
+            query,
+            specs,
+            (*_metric_context_references(spec), *opaque_dimension_references),
+            opaque_relations,
+            relation_cache,
+            ancestry_cache,
+        )
+    )
     parents, missing_parent = _fallback_parent_names(
         spec,
         specs,
@@ -1306,7 +1859,7 @@ def _opaque_definitions(
         opaque_dimension_references,
         opaque_references_unresolved,
     )
-    unresolved = unresolved or missing_parent
+    unresolved = unresolved or missing_parent or unresolved_implicit_links
     local_query: object = getattr(spec, "rendered_query", None)
     if query is not None:
         local_query = _opaque_query_tokens(spec.rendered_query or "")
@@ -1336,11 +1889,14 @@ def _opaque_definitions(
                     include_dimension_links=False,
                 ),
                 "query": local_query,
+                "implicit_dimension_links": implicit_links,
             },
             [
                 (f"opaque_parent:{parent}", ComponentKey(parent, "calculation"))
                 for parent in sorted(parents)
-            ],
+            ]
+            + _opaque_dimension_output_dependencies(opaque_dimension_references, specs)
+            + implicit_link_dependencies,
             precision=precision,
             reasons=reasons,
             unavailable=unresolved,
@@ -1398,6 +1954,9 @@ def _query_definitions(
     specs: Mapping[str, NodeSpec],
     output_names: tuple[str, ...],
     schemas: dict[str, tuple[ColumnSpec, ...]],
+    relation_cache: dict[str, tuple[frozenset[str], bool]],
+    ancestry_cache: dict[str, frozenset[str] | None],
+    join_column_cache: _JoinColumnCache,
 ) -> list[ComponentDefinition]:
     if isinstance(spec, MetricSpec) and (
         spec.rendered_required_dimensions
@@ -1436,6 +1995,43 @@ def _query_definitions(
         schemas,
         _numeric_literals(query, spec.rendered_query or ""),
     )
+    implicit_links, implicit_dependencies = [], []
+    if isinstance(spec, MetricSpec):
+        context_columns = {}
+        for column in query.find_all(ast.Column):
+            namespace = ".".join(part.name for part in column.namespace or ())
+            if (
+                namespace not in source.aliases
+                and (
+                    not column.namespace
+                    or column.namespace[0].name not in source.aliases
+                )
+                and isinstance(specs.get(namespace), DimensionSpec)
+            ):
+                context_columns[column.identifier(quotes=False).casefold()] = (
+                    ComponentKey(
+                        namespace,
+                        "output",
+                        column.name.name,
+                    )
+                )
+        if context_columns:
+            source = replace(source, context_columns=context_columns)
+            implicit_links, implicit_dependencies, unresolved = (
+                _implicit_dimension_link_context(
+                    query,
+                    specs,
+                    relation_references=tuple(
+                        item.provider for item in source.providers
+                    ),
+                    relation_cache=relation_cache,
+                    ancestry_cache=ancestry_cache,
+                    narrow_dependencies=True,
+                    join_column_cache=join_column_cache,
+                )
+            )
+            if unresolved:
+                raise _Unsupported("unresolved_dimension_context")
     if not output_names or len(output_names) != len(select.projection):
         raise _Unsupported("duplicate_output_name")
     if any(isinstance(expression, ast.Wildcard) for expression in select.projection):
@@ -1446,13 +2042,25 @@ def _query_definitions(
     outputs = {output: ComponentKey(name, "output", output) for output in output_names}
     where = select.where
     row_dependencies: dict[tuple[str, str, str, str], tuple[str, ComponentKey]] = {}
-    row_dependencies[("source_rows", source.provider, "rows", "")] = (
-        "source_rows",
-        ComponentKey(source.provider, "rows"),
-    )
+    for label, key in implicit_dependencies:
+        row_dependencies[(label, key.node, key.kind, key.field)] = (label, key)
+    for input_relation in source.providers:
+        label = (
+            "source_rows"
+            if not source.is_joined
+            else f"source_rows:{input_relation.provider}"
+        )
+        row_dependencies[(label, input_relation.provider, "rows", "")] = (
+            label,
+            ComponentKey(input_relation.provider, "rows"),
+        )
+    for label, key in source.join_dependencies:
+        row_dependencies[(label, key.node, key.kind, key.field)] = (label, key)
     where_shape = None
     if where is not None:
-        where_shape, dependencies, _ = _bind_expression(where, source)
+        where_shape, dependencies, where_aggregate = _bind_expression(where, source)
+        if source.is_joined and where_aggregate:
+            raise _Unsupported("unsupported_join_aggregate")
         for label, key in dependencies:
             row_dependencies[(label, key.node, key.kind, key.field)] = (label, key)
     input_rows = ComponentKey(name, "rows", "input")
@@ -1461,9 +2069,10 @@ def _query_definitions(
     conservative_projections = []
     opaque = ComponentKey(name, "opaque")
     opaque_dependencies = {
-        f"opaque_parent:{source.provider}": ComponentKey(
-            source.provider, "calculation"
-        ),
+        f"opaque_parent:{provider.provider}": ComponentKey(
+            provider.provider, "calculation"
+        )
+        for provider in source.providers
     }
     for output, projection in zip(output_names, select.projection):
         expression = (
@@ -1511,6 +2120,8 @@ def _query_definitions(
             ),
         )
 
+    if source.is_joined and aggregate_query:
+        raise _Unsupported("unsupported_join_aggregate")
     if conservative_projections and aggregate_query:
         raise _Unsupported("unsupported_function")
     opaque_definitions = []
@@ -1529,17 +2140,34 @@ def _query_definitions(
             ),
         )
 
-    row_payload = {
-        "source": source.provider,
-        "where": where_shape,
-        "grain": "global_aggregate" if aggregate_query else "source_rows",
-    }
+    row_payload = (
+        {
+            "source": source.provider,
+            "where": where_shape,
+            "grain": "global_aggregate" if aggregate_query else "source_rows",
+        }
+        if not source.is_joined
+        else {
+            "sources": [provider.provider for provider in source.providers],
+            "joins": list(source.joins),
+            "where": where_shape,
+            "grain": "joined_rows",
+        }
+    )
+    if implicit_links:
+        row_payload["implicit_dimension_links"] = implicit_links
     definitions = [
         *opaque_definitions,
         _definition(
             input_rows,
             {"where": where_shape},
             row_dependencies.values(),
+            precision="conservative" if implicit_links else "precise",
+            reasons=(
+                ("candidate_dimension_paths_over_approximated",)
+                if implicit_links
+                else ()
+            ),
         ),
         *output_definitions,
         _definition(
@@ -1620,6 +2248,9 @@ def build_component_definitions(
             reasons_by_node[name] = (reason,)
 
     definitions: dict[str, ComponentDefinition] = {}
+    relation_cache: dict[str, tuple[frozenset[str], bool]] = {}
+    ancestry_cache: dict[str, frozenset[str] | None] = {}
+    join_column_cache: _JoinColumnCache = {}
     for name, spec in specs.items():
         names = output_names[name]
         if name in reasons_by_node:
@@ -1631,6 +2262,8 @@ def build_component_definitions(
                 reasons_by_node[name][0],
                 snapshot,
                 schemas,
+                relation_cache,
+                ancestry_cache,
             )
         elif isinstance(spec, SourceSpec):
             node_definitions = _source_definitions(name, spec, snapshot, names)
@@ -1643,6 +2276,8 @@ def build_component_definitions(
                 "cube_dependency_context_unsupported",
                 snapshot,
                 schemas,
+                relation_cache,
+                ancestry_cache,
             )
         else:
             try:
@@ -1653,6 +2288,9 @@ def build_component_definitions(
                     specs,
                     names,
                     schemas,
+                    relation_cache,
+                    ancestry_cache,
+                    join_column_cache,
                 )
             except _Unsupported as exc:
                 reasons_by_node[name] = (exc.reason,)
@@ -1664,6 +2302,8 @@ def build_component_definitions(
                     exc.reason,
                     snapshot,
                     schemas,
+                    relation_cache,
+                    ancestry_cache,
                 )
             except (DJParseException, TypeError, ValueError) as exc:
                 reason = (
@@ -1680,6 +2320,8 @@ def build_component_definitions(
                     reason,
                     snapshot,
                     schemas,
+                    relation_cache,
+                    ancestry_cache,
                 )
         for definition in node_definitions:
             definitions[definition.key.token] = definition

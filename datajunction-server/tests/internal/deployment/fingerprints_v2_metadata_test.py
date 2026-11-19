@@ -155,6 +155,71 @@ def test_resolved_external_column_presentation_metadata_does_not_change_consumer
     assert after_snapshot.resolved_columns["ns.external"][0].display_name == "Amount"
 
 
+def test_fully_resolved_opaque_fallback_ignores_presentation_metadata():
+    source = SourceSpec(
+        name="ns.source",
+        catalog="warehouse",
+        schema_="sales",
+        table="orders",
+        columns=[ColumnSpec(name="amount", type="double")],
+    )
+    opaque = TransformSpec(
+        name="ns.opaque",
+        query="SELECT unsupported_udf(amount) AS value FROM ns.source",
+        columns=[ColumnSpec(name="value", type="double")],
+    )
+    metric = MetricSpec(
+        name="ns.total",
+        query="SELECT SUM(value) AS total FROM ns.opaque",
+    )
+    specs = [source, opaque, metric]
+    before_specs = {
+        spec.rendered_name: _with_presentation(spec, "old") for spec in specs
+    }
+    after_specs = {
+        spec.rendered_name: _with_presentation(spec, "new") for spec in specs
+    }
+    _, before = _evaluate(before_specs)
+    _, after = _evaluate(after_specs)
+
+    assert before.nodes["ns.opaque"].precision == "conservative"
+    assert _unchanged(before, after, "ns.opaque")
+    assert _unchanged(before, after, "ns.total")
+
+
+def test_opaque_fallback_preserves_declared_output_type():
+    source = SourceSpec(
+        name="ns.source",
+        catalog="warehouse",
+        schema_="sales",
+        table="orders",
+        columns=[ColumnSpec(name="amount", type="double")],
+    )
+    before_opaque = TransformSpec(
+        name="ns.opaque",
+        query="SELECT unsupported_udf(amount) AS value FROM ns.source",
+        columns=[ColumnSpec(name="value", type="double")],
+    )
+    after_opaque = before_opaque.model_copy(
+        update={"columns": [ColumnSpec(name="value", type="bigint")]},
+    )
+    _, before = _evaluate(
+        {"ns.source": source, "ns.opaque": before_opaque},
+    )
+    _, after = _evaluate(
+        {"ns.source": source, "ns.opaque": after_opaque},
+    )
+
+    assert before.nodes["ns.opaque"].precision == "conservative"
+    assert (
+        compare_components(
+            before.nodes["ns.opaque"].full,
+            after.nodes["ns.opaque"].full,
+        )
+        == "changed"
+    )
+
+
 def test_standalone_cube_without_configured_context_is_unknown():
     source = SourceSpec(
         name="ns.source",
@@ -187,7 +252,23 @@ def test_standalone_cube_without_configured_context_is_unknown():
 
 
 @pytest.mark.parametrize("default", [None, ""])
-def test_warning_only_recommendation_does_not_change_result_fingerprint(default):
+@pytest.mark.parametrize("field", ["required_filters", "recommended_filters"])
+@pytest.mark.parametrize(
+    ("query", "precision"),
+    [
+        ("SELECT SUM(amount) AS total FROM ns.source", "precise"),
+        (
+            "SELECT unsupported_udf(amount) AS total FROM ns.source",
+            "conservative",
+        ),
+    ],
+)
+def test_filter_eligibility_does_not_change_result_fingerprint(
+    default,
+    field,
+    query,
+    precision,
+):
     source = SourceSpec(
         name="ns.source",
         catalog="warehouse",
@@ -202,10 +283,8 @@ def test_warning_only_recommendation_does_not_change_result_fingerprint(default)
     def metric(attribute):
         return MetricSpec(
             name="ns.total",
-            query="SELECT SUM(amount) AS total FROM ns.source",
-            recommended_filters=[
-                FilterRequirement(dimension=[attribute], default=default),
-            ],
+            query=query,
+            **{field: [FilterRequirement(dimension=[attribute], default=default)]},
         )
 
     _, before = _evaluate(
@@ -215,9 +294,37 @@ def test_warning_only_recommendation_does_not_change_result_fingerprint(default)
         {"ns.source": source, "ns.total": metric("ns.missing.name")},
     )
 
-    assert before.nodes["ns.total"].precision == "precise"
-    assert after.nodes["ns.total"].precision == "precise"
+    assert before.nodes["ns.total"].precision == precision
+    assert after.nodes["ns.total"].precision == precision
     assert _unchanged(before, after, "ns.total")
-    assert after_snapshot.specs["ns.total"].recommended_filters[0].dimension == (
+    assert getattr(after_snapshot.specs["ns.total"], field)[0].dimension == (
         "ns.missing.name",
+    )
+
+
+def test_default_filter_value_changes_result_but_requirement_class_does_not():
+    specs = _presentation_graph("metadata")
+    specs["ns.total"].required_filters = [
+        FilterRequirement(
+            dimension=["ns.project.amount"],
+            default="ns.project.amount > 0",
+        ),
+    ]
+    _, before = _evaluate(specs)
+    changed = deepcopy(specs)
+    changed["ns.total"].recommended_filters = changed["ns.total"].required_filters
+    changed["ns.total"].required_filters = []
+    _, recommended = _evaluate(changed)
+    assert _unchanged(before, recommended, "ns.total")
+
+    changed["ns.total"].recommended_filters = [
+        FilterRequirement(
+            dimension=["ns.project.amount"],
+            default="ns.project.amount > 1",
+        ),
+    ]
+    _, after = _evaluate(changed)
+    assert (
+        compare_components(before.nodes["ns.total"].full, after.nodes["ns.total"].full)
+        == "changed"
     )

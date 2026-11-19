@@ -1,3 +1,5 @@
+"""Reuse of DJ's parsed query ASTs during semantic fingerprinting."""
+
 import asyncio
 
 import pytest
@@ -5,6 +7,7 @@ import pytest
 from datajunction_server.internal.deployment.utils import extract_node_graph
 from datajunction_server.models.deployment import (
     ColumnSpec,
+    DimensionJoinLinkSpec,
     DimensionSpec,
     MetricSpec,
     SourceSpec,
@@ -13,6 +16,7 @@ from datajunction_server.models.deployment import (
 from datajunction_server.semantic_fingerprints import v2_dependencies
 from datajunction_server.semantic_fingerprints.engine import local_node_fingerprint
 from datajunction_server.semantic_fingerprints.v2 import (
+    ComponentKey,
     SemanticGraphSnapshot,
     compare_components,
     compute_v2_fingerprints,
@@ -40,8 +44,10 @@ def source(
         dimension_links=list(dimension_links),
     )
 
+
 def project(query="SELECT amount FROM ns.source"):
     return TransformSpec(name="ns.project", query=query)
+
 
 def metric(
     query="SELECT SUM(amount) FROM ns.project",
@@ -53,12 +59,14 @@ def metric(
         required_dimensions=required_dimensions,
     )
 
+
 def evaluate(*specs):
     return asyncio.run(
         compute_v2_fingerprints(
             SemanticGraphSnapshot({spec.rendered_name: spec for spec in specs}),
         ),
     )
+
 
 def test_fingerprinting_reuses_cached_asts_without_mutating_them(monkeypatch):
     specs = [source(), project(), metric()]
@@ -105,6 +113,7 @@ def test_fingerprinting_reuses_cached_asts_without_mutating_them(monkeypatch):
         if spec.rendered_query
     } == snapshot_asts
 
+
 @pytest.mark.parametrize(
     ("query", "comparison"),
     [
@@ -130,6 +139,7 @@ def test_copied_query_invalidates_stale_ast_without_mutating_caller(query, compa
     )
     assert changed._query_ast is original._query_ast is caller_ast
 
+
 def test_copied_namespace_invalidates_stale_ast_without_mutating_caller():
     original = TransformSpec(
         name="project",
@@ -148,9 +158,10 @@ def test_copied_namespace_invalidates_stale_ast_without_mutating_caller():
     assert after.nodes == evaluate(source("team_b.source"), fresh).nodes
     assert changed._query_ast is original._query_ast is caller_ast
 
+
 @pytest.mark.parametrize(
     ("required_dimensions", "expected_precision"),
-    [([], "precise"), (["ns.project.amount"], "unknown")],
+    [([], "precise"), (["ns.project.amount"], "conservative")],
 )
 def test_authored_metric_alias_is_stable_after_v1_parse_cache(
     required_dimensions,
@@ -172,25 +183,29 @@ def test_authored_metric_alias_is_stable_after_v1_parse_cache(
 
     assert fresh.nodes == after_v1_cache.nodes
     assert after_v1_cache.nodes["ns.total"].precision == expected_precision
-    assert (after_v1_cache.nodes["ns.total"].full.digest is not None) == (
-        expected_precision != "unknown"
-    )
+    assert after_v1_cache.nodes["ns.total"].full.digest is not None
+
 
 def evaluate_projection(query):
     return evaluate(source(), project(query))
 
+
 def evaluate_metric(query, required_dimensions):
     return evaluate(source(), project(), metric(query, required_dimensions))
+
 
 def assert_changed(before, after):
     assert compare_components(before, after) == "changed"
 
+
 def assert_unchanged(before, after):
     assert compare_components(before, after) == "unchanged"
+
 
 def assert_conservative(result, node):
     assert result.nodes[node].precision == "conservative"
     assert result.nodes[node].full.digest is not None
+
 
 def evaluate_opaque_relation(query, hidden_table):
     hidden = source(
@@ -208,17 +223,21 @@ def evaluate_opaque_relation(query, hidden_table):
         ),
     )
 
+
 def test_opaque_query_tokens_ignore_comments_and_whitespace():
-    before = evaluate_projection(
-        "SELECT amount FROM ns.source GROUP BY amount",
+    before = evaluate_metric(
+        "SELECT SUM(amount) FROM ns.project",
+        ["ns.project.amount"],
     )
-    after = evaluate_projection(
-        "SELECT /* explanation */ amount FROM ns.source GROUP BY amount",
+    after = evaluate_metric(
+        "SELECT /* explanation */ SUM ( amount ) FROM ns.project",
+        ["ns.project.amount"],
     )
 
-    assert_conservative(before, "ns.project")
-    assert_conservative(after, "ns.project")
-    assert_unchanged(before.nodes["ns.project"].full, after.nodes["ns.project"].full)
+    assert_conservative(before, "ns.total")
+    assert_conservative(after, "ns.total")
+    assert_unchanged(before.nodes["ns.total"].full, after.nodes["ns.total"].full)
+
 
 def test_tablesample_erased_from_ast_does_not_produce_equal_fingerprint():
     before = evaluate_projection(
@@ -229,6 +248,7 @@ def test_tablesample_erased_from_ast_does_not_produce_equal_fingerprint():
     )
 
     assert_changed(before.nodes["ns.project"].full, after.nodes["ns.project"].full)
+
 
 def test_numeric_literal_lexemes_do_not_collapse_to_the_same_fingerprint():
     cases = [
@@ -246,6 +266,7 @@ def test_numeric_literal_lexemes_do_not_collapse_to_the_same_fingerprint():
             before.nodes["ns.project"].full,
             after.nodes["ns.project"].full,
         ) in {"changed", "indeterminate"}
+
 
 @pytest.mark.parametrize(
     ("supported_query", "unsupported_query"),
@@ -278,6 +299,7 @@ def test_dj_ast_lossy_syntax_is_not_reported_as_equal(
         unsupported.nodes["ns.project"].full,
     ) in {"changed", "indeterminate"}
 
+
 @pytest.mark.parametrize(
     "query",
     [
@@ -296,6 +318,7 @@ def test_lossy_syntax_keywords_in_comments_and_strings_remain_supported(query):
 
     assert result.nodes["ns.project"].precision == "precise"
 
+
 def test_nondefault_trim_characters_are_indeterminate():
     trim_x = evaluate_projection(
         "SELECT TRIM('x' FROM amount) FROM ns.source",
@@ -307,6 +330,7 @@ def test_nondefault_trim_characters_are_indeterminate():
     assert_conservative(trim_x, "ns.project")
     assert_conservative(trim_y, "ns.project")
     assert_changed(trim_x.nodes["ns.project"].full, trim_y.nodes["ns.project"].full)
+
 
 @pytest.mark.parametrize(
     "query",
@@ -331,6 +355,7 @@ def test_nested_relations_in_opaque_sql_modifiers_keep_parent_dependencies(query
 
     assert_conservative(before, "ns.project")
     assert_changed(before.nodes["ns.project"].full, after.nodes["ns.project"].full)
+
 
 def test_inner_cte_names_do_not_shadow_physical_relations_outside_their_scope():
     query = (
@@ -357,6 +382,79 @@ def test_inner_cte_names_do_not_shadow_physical_relations_outside_their_scope():
 
     assert_changed(before.nodes["ns.project"].full, after.nodes["ns.project"].full)
 
+
+def test_abbreviated_dimension_attribute_in_filter_keeps_node_and_role_route():
+    fact = source(
+        "ns.fact",
+        "fact",
+        (("amount", "double"), ("country_id", "bigint")),
+        dimension_links=[
+            DimensionJoinLinkSpec(
+                dimension_node="ns.country",
+                join_on="ns.fact.country_id = ns.country.id",
+                role="launch",
+            ),
+        ],
+    )
+    country_rows = source(
+        "ns.country_rows",
+        "countries",
+        (("id", "bigint"), ("name", "string")),
+    )
+    country = DimensionSpec(
+        name="ns.country",
+        query="SELECT id, name FROM ns.country_rows",
+        columns=country_rows.columns,
+    )
+    query = (
+        "SELECT SUM(amount) FILTER "
+        "(WHERE country.name[launch] = 'US') AS total FROM ns.fact"
+    )
+    transform = TransformSpec(
+        name="ns.total",
+        query=query,
+        columns=[ColumnSpec(name="total", type="double")],
+    )
+    specs = {
+        spec.rendered_name: spec for spec in (fact, country_rows, country, transform)
+    }
+    before = evaluate(*specs.values())
+    changed_country = country.model_copy(
+        update={"query": "SELECT id, UPPER(name) AS name FROM ns.country_rows"},
+    )
+    after_specs = {**specs, "ns.country": changed_country}
+    after = evaluate(*after_specs.values())
+    assert_changed(before.nodes["ns.total"].full, after.nodes["ns.total"].full)
+
+    changed_route = fact.model_copy(
+        update={
+            "dimension_links": [
+                DimensionJoinLinkSpec(
+                    dimension_node="ns.country",
+                    join_on="ns.fact.country_id + 1 = ns.country.id",
+                    role="launch",
+                ),
+            ],
+        },
+        deep=True,
+    )
+    route_before = evaluate(*specs.values())
+    route_after = evaluate(
+        changed_route,
+        country_rows,
+        country,
+        transform,
+    )
+    assert_changed(
+        route_before.nodes["ns.total"].full,
+        route_after.nodes["ns.total"].full,
+    )
+    assert (
+        "opaque_dimension_output:ns.country:name",
+        ComponentKey("ns.country", "output", "name"),
+    ) in before.bindings[ComponentKey("ns.total", "opaque")]
+
+
 def test_dimension_alias_overlap_uses_the_longest_matching_name():
     source_node = source()
     dimension = DimensionSpec(
@@ -381,6 +479,7 @@ def test_dimension_alias_overlap_uses_the_longest_matching_name():
 
     assert references == ({"ns.source"}, {"ns.ns.attr"}, False)
 
+
 @pytest.mark.parametrize(
     "query",
     [
@@ -402,6 +501,7 @@ def test_unbound_or_missing_hidden_dimension_attributes_are_unknown(query):
 
     assert result.nodes["ns.total"].precision == "unknown"
     assert result.nodes["ns.total"].full.digest is None
+
 
 @pytest.mark.parametrize(
     "query",
@@ -429,6 +529,7 @@ def test_opaque_dotted_input_refs_bind_to_alias_schema_or_cte(query):
     assert result.nodes["ns.total"].precision == "conservative"
     assert result.nodes["ns.total"].full.digest is not None
 
+
 def test_lambda_local_dereference_uses_its_lexical_binding():
     source_node = source(
         columns=(("amount", "double"), ("items", "array<struct<foo:int>>")),
@@ -450,6 +551,7 @@ def test_lambda_local_dereference_uses_its_lexical_binding():
     result = evaluate(source_node, transform)
     assert_conservative(result, "ns.total")
 
+
 def test_later_sibling_cte_reference_is_unknown():
     transform = TransformSpec(
         name="ns.total",
@@ -463,6 +565,7 @@ def test_later_sibling_cte_reference_is_unknown():
     _, unresolved = _opaque_relation_references(transform)
 
     assert unresolved
+
 
 @pytest.mark.parametrize(
     "query",
@@ -490,6 +593,7 @@ def test_opaque_dotted_refs_bind_to_derived_and_lateral_outputs(query):
     result = evaluate(source_node, transform)
 
     assert_conservative(result, "ns.total")
+
 
 def test_unqualified_struct_root_from_derived_projection_is_bound():
     source_node = source(

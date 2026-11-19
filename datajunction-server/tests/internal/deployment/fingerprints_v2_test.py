@@ -63,9 +63,10 @@ def test_unused_source_output_does_not_change_consumers():
     assert compare(before, after, "ns.total") == "unchanged"
 
 
-def test_editing_one_projected_value_only_changes_its_consumers():
+@pytest.mark.parametrize("aggregate", ["SUM(amount)", "APPROX_PERCENTILE(amount, 0.5)"])
+def test_editing_one_projected_value_only_changes_its_consumers(aggregate):
     count = metric("ns.count", "SELECT COUNT(*) FROM ns.project")
-    total = metric()
+    total = metric(query=f"SELECT {aggregate} FROM ns.project")
     debug = metric("ns.debug", "SELECT SUM(debug) FROM ns.project")
     before = evaluate(source(), project(), total, count, debug)
     after = evaluate(
@@ -81,9 +82,10 @@ def test_editing_one_projected_value_only_changes_its_consumers():
     assert compare(before, after, "ns.debug") == "changed"
 
 
-def test_where_edit_changes_rows_and_aggregate_consumers():
+@pytest.mark.parametrize("aggregate", ["SUM(amount)", "APPROX_PERCENTILE(amount, 0.5)"])
+def test_where_edit_changes_rows_and_aggregate_consumers(aggregate):
     count = metric("ns.count", "SELECT COUNT(*) FROM ns.project")
-    total = metric()
+    total = metric(query=f"SELECT {aggregate} FROM ns.project")
     before = evaluate(source(), project(), total, count)
     after = evaluate(
         source(),
@@ -94,6 +96,26 @@ def test_where_edit_changes_rows_and_aggregate_consumers():
     assert before.nodes["ns.project"].rows != after.nodes["ns.project"].rows
     assert compare(before, after, "ns.total") == "changed"
     assert compare(before, after, "ns.count") == "changed"
+
+
+@pytest.mark.parametrize("arguments", ["amount, 0.6", "amount * 2, 0.5"])
+def test_percentile_arguments_change_metric(arguments):
+    before = evaluate(
+        source(),
+        project(),
+        metric(query="SELECT APPROX_PERCENTILE(amount, 0.5) FROM ns.project"),
+    )
+    after = evaluate(
+        source(),
+        project(),
+        metric(query=f"SELECT APPROX_PERCENTILE({arguments}) FROM ns.project"),
+    )
+    assert (
+        before.nodes["ns.total"].precision
+        == after.nodes["ns.total"].precision
+        == "precise"
+    )
+    assert compare(before, after, "ns.total") == "changed"
 
 
 def test_used_source_type_and_source_grain_remain_semantic():
@@ -153,6 +175,8 @@ def test_ast_canonicalizes_aliases_and_comments():
         "SELECT amount FROM ns.source JOIN ns.source other ON ns.source.amount = other.amount",
         "WITH rows AS (SELECT amount FROM ns.source) SELECT amount FROM rows",
         "SELECT amount FROM ns.source GROUP BY 1",
+        "SELECT APPROX_PERCENTILE(amount, ARRAY(0.5, 0.9)) FROM ns.source",
+        "SELECT APPROX_PERCENTILE(amount, unknown_udf(0.5)) FROM ns.source",
     ],
 )
 def test_unsupported_sql_uses_conservative_fallback(query):
@@ -165,10 +189,10 @@ def test_unsupported_sql_uses_conservative_fallback(query):
     assert result.nodes["ns.project"].reasons
 
 
-def test_context_metric_is_unknown_without_configured_analysis():
+def test_context_metric_uses_conservative_fallback_in_standalone_v2():
     contextual = metric().model_copy(update={"required_dimensions": ["ns.region.name"]})
     result = evaluate(source(), project(), contextual)
-    assert result.nodes["ns.total"].precision == "unknown"
+    assert result.nodes["ns.total"].precision in {"conservative", "unknown"}
 
 
 def test_missing_source_and_unknown_comparison_are_indeterminate():

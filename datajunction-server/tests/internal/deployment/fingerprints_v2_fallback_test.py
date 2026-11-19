@@ -1,3 +1,5 @@
+"""Conservative version 2 fallback dependencies remain complete."""
+
 import pytest
 
 from datajunction_server.models.deployment import (
@@ -23,12 +25,15 @@ from datajunction_server.semantic_fingerprints.v2_dependencies import (
 def _snapshot(*specs):
     return SemanticGraphSnapshot({spec.rendered_name: spec for spec in specs})
 
+
 def _results(snapshot):
     definitions, _, _ = build_component_definitions(snapshot)
     return _evaluate_definitions(definitions)
 
+
 def _full(results, name):
     return results[ComponentKey(name, "full").token]
+
 
 def _source():
     return SourceSpec(
@@ -38,6 +43,7 @@ def _source():
         table="orders",
         columns=[ColumnSpec(name="amount", type="double")],
     )
+
 
 def test_unsupported_derived_metric_depends_on_its_named_metric():
     source = _source()
@@ -53,6 +59,56 @@ def test_unsupported_derived_metric_depends_on_its_named_metric():
 
     assert _full(before, "ns.derived").precision == "conservative"
     assert _full(before, "ns.derived").digest != _full(after, "ns.derived").digest
+
+
+def test_unsupported_metric_fallback_keeps_required_dimension_dependency():
+    source = _source().model_copy(
+        update={
+            "dimension_links": [
+                DimensionJoinLinkSpec(
+                    dimension_node="ns.region",
+                    join_on="ns.source.amount = ns.region.amount",
+                ),
+            ],
+        },
+    )
+    region_source = SourceSpec(
+        name="ns.region_source",
+        catalog="warehouse",
+        schema_="sales",
+        table="regions",
+        columns=[ColumnSpec(name="amount", type="double")],
+    )
+    dimension = DimensionSpec(
+        name="ns.region",
+        query="SELECT amount, 'US' AS country FROM ns.region_source",
+        columns=[
+            ColumnSpec(name="amount", type="double"),
+            ColumnSpec(name="country", type="string"),
+        ],
+        primary_key=["amount"],
+    )
+    metric = MetricSpec(
+        name="ns.metric",
+        query="SELECT unknown_udf(amount) FROM ns.source",
+        required_dimensions=["ns.region.country"],
+    )
+    before = _results(_snapshot(source, region_source, dimension, metric))
+
+    changed_dimension = DimensionSpec(
+        name="ns.region",
+        query="SELECT amount + 1 AS amount, 'US' AS country FROM ns.region_source",
+        columns=[
+            ColumnSpec(name="amount", type="double"),
+            ColumnSpec(name="country", type="string"),
+        ],
+        primary_key=["amount"],
+    )
+    after = _results(_snapshot(source, region_source, changed_dimension, metric))
+
+    assert _full(before, "ns.metric").precision == "conservative"
+    assert _full(before, "ns.metric").digest != _full(after, "ns.metric").digest
+
 
 @pytest.mark.parametrize(
     "dimension_query",
@@ -82,6 +138,7 @@ def test_unsupported_linkable_fallback_ignores_unused_optional_target(dimension_
 
     assert _full(before, "ns.linked").precision == "conservative"
     assert _full(before, "ns.linked").digest == _full(after, "ns.linked").digest
+
 
 def test_standalone_cube_route_context_without_configured_analysis_is_indeterminate():
     lookup = SourceSpec(
@@ -161,6 +218,7 @@ def test_standalone_cube_route_context_without_configured_analysis_is_indetermin
         compare_components(_full(before, "ns.cube"), _full(after, "ns.cube"))
         == "indeterminate"
     )
+
 
 def test_unparseable_query_and_missing_required_parent_are_unknown():
     broken = TransformSpec(
