@@ -3,7 +3,6 @@
 import asyncio
 
 import pytest
-
 from datajunction_server.models.deployment import (
     ColumnSpec,
     DimensionJoinLinkSpec,
@@ -47,6 +46,10 @@ def _comparison(before, after, node, kind, field=""):
         _component(before, node, kind, field),
         _component(after, node, kind, field),
     )
+
+
+def _assert_comparison(before, after, node, kind, expected):
+    assert _comparison(before, after, node, kind) == expected
 
 
 def _region():
@@ -97,7 +100,8 @@ def _mobile_join_specs(*, query=None):
     )
     joined = TransformSpec(
         name="ns.mobile_sessions",
-        query=query or """
+        query=query
+        or """
             SELECT s.session_id, s.amount AS amount, d.hw_major_category
             FROM ns.profile_sessions AS s
             JOIN ns.device AS d
@@ -116,6 +120,52 @@ def _mobile_join_specs(*, query=None):
         query="SELECT SUM(amount) FROM ns.mobile_sessions",
     )
     return sessions, device_rows, device, joined, count, amount
+
+
+def _join_chain_specs(*, query=None):
+    orders = _source(
+        "ns.orders",
+        "orders",
+        [("id", "bigint"), ("region_id", "bigint"), ("amount", "double")],
+    )
+    regions = _source(
+        "ns.regions",
+        "regions",
+        [
+            ("id", "bigint"),
+            ("zone_id", "bigint"),
+            ("enabled", "boolean"),
+            ("note", "string"),
+        ],
+    )
+    zones = _source(
+        "ns.zones",
+        "zones",
+        [
+            ("id", "bigint"),
+            ("adjustment", "double"),
+            ("enabled", "boolean"),
+            ("label", "string"),
+        ],
+    )
+    joined = TransformSpec(
+        name="ns.joined_orders",
+        query=query
+        or """
+            SELECT o.amount + z.adjustment AS adjusted_amount,
+                   r.note AS region_note
+            FROM ns.orders AS o
+            JOIN ns.regions AS r
+              ON o.region_id = r.id AND r.enabled = true
+            LEFT JOIN ns.zones AS z
+              ON r.zone_id = z.id AND z.enabled = true AND 1 = 1
+        """,
+    )
+    total = MetricSpec(
+        name="ns.total_adjusted_amount",
+        query="SELECT SUM(adjusted_amount) FROM ns.joined_orders",
+    )
+    return orders, regions, zones, joined, total
 
 
 def test_joined_fallback_tracks_all_input_calculations():
@@ -250,6 +300,136 @@ def test_referenced_join_value_changes_only_its_metric():
         )
         == "changed"
     )
+
+
+@pytest.mark.parametrize("provider_index", [0, 1, 2])
+def test_each_join_chain_provider_row_change_propagates(provider_index):
+    specs = _join_chain_specs()
+    before = _evaluate(*specs)
+    changed_specs = list(specs)
+    provider = changed_specs[provider_index]
+    changed_specs[provider_index] = provider.model_copy(
+        update={"table": f"{provider.table}_v2"},
+    )
+    after = _evaluate(*changed_specs)
+
+    assert before.nodes["ns.joined_orders"].precision == "precise"
+    _assert_comparison(before, after, "ns.joined_orders", "rows", "changed")
+    _assert_comparison(before, after, "ns.total_adjusted_amount", "full", "changed")
+
+
+@pytest.mark.parametrize(
+    "old, new",
+    [
+        ("r.enabled = true", "r.enabled = false"),
+        ("z.enabled = true", "z.enabled = false"),
+        ("1 = 1", "1 = 0"),
+        ("LEFT JOIN ns.zones", "JOIN ns.zones"),
+    ],
+)
+def test_each_join_predicate_changes_joined_rows(old, new):
+    specs = _join_chain_specs()
+    before = _evaluate(*specs)
+    orders, regions, zones, joined, total = specs
+    changed = joined.model_copy(update={"query": joined.query.replace(old, new)})
+    after = _evaluate(orders, regions, zones, changed, total)
+
+    assert before.nodes["ns.joined_orders"].precision == "precise"
+    _assert_comparison(before, after, "ns.joined_orders", "rows", "changed")
+
+
+def test_join_chain_rejects_forward_alias_references():
+    specs = _join_chain_specs(
+        query="""
+            SELECT o.amount AS amount
+            FROM ns.orders AS o
+            JOIN ns.regions AS r ON o.region_id = z.id
+            JOIN ns.zones AS z ON r.zone_id = z.id
+        """,
+    )
+    result = _evaluate(*specs)
+
+    assert result.nodes["ns.joined_orders"].precision == "conservative"
+
+
+def test_join_chain_used_and_unused_outputs_have_separate_dependencies():
+    specs = _join_chain_specs()
+    before = _evaluate(*specs)
+    orders, regions, zones, joined, total = specs
+    unused_changed = joined.model_copy(
+        update={"query": joined.query.replace("r.note", "r.enabled")},
+    )
+    unused_result = _evaluate(orders, regions, zones, unused_changed, total)
+    used_changed = joined.model_copy(
+        update={"query": joined.query.replace("z.adjustment", "o.amount")},
+    )
+    used_result = _evaluate(orders, regions, zones, used_changed, total)
+
+    _assert_comparison(
+        before,
+        unused_result,
+        "ns.total_adjusted_amount",
+        "full",
+        "unchanged",
+    )
+    _assert_comparison(
+        before,
+        used_result,
+        "ns.total_adjusted_amount",
+        "full",
+        "changed",
+    )
+
+
+@pytest.mark.parametrize(
+    "old_expression, new_expression",
+    [
+        (
+            "NF_DATEADD('day', 1, start_date)",
+            "NF_DATEADD('day', 2, start_date)",
+        ),
+        (
+            "NF_DATEDIFF('day', start_date, end_date)",
+            "NF_DATEDIFF('day', end_date, start_date)",
+        ),
+    ],
+)
+def test_verified_nflx_date_functions_change_only_their_consumers(
+    old_expression,
+    new_expression,
+):
+    source = _source(
+        "ns.dates",
+        "dates",
+        [
+            ("start_date", "date"),
+            ("end_date", "date"),
+            ("amount", "double"),
+        ],
+    )
+    transform = TransformSpec(
+        name="ns.date_result",
+        query=f"SELECT amount, {old_expression} AS result FROM ns.dates",
+    )
+    amount_metric = MetricSpec(
+        name="ns.amount_total",
+        query="SELECT SUM(amount) FROM ns.date_result",
+    )
+    result_metric = MetricSpec(
+        name="ns.date_result_max",
+        query="SELECT MAX(result) FROM ns.date_result",
+    )
+    before = _evaluate(source, transform, amount_metric, result_metric)
+    changed = transform.model_copy(
+        update={
+            "query": transform.query.replace(old_expression, new_expression),
+        },
+    )
+    after = _evaluate(source, changed, amount_metric, result_metric)
+
+    assert before.nodes["ns.date_result"].precision == "precise"
+    _assert_comparison(before, after, "ns.date_result_max", "full", "changed")
+    _assert_comparison(before, after, "ns.amount_total", "full", "unchanged")
 
 
 def test_same_named_and_nested_join_columns_keep_provider_identity():

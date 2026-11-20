@@ -96,6 +96,8 @@ _SCALAR_FUNCTIONS = frozenset(
         "LTRIM",
         "MOD",
         "MONTH",
+        "NF_DATEADD",
+        "NF_DATEDIFF",
         "NULLIF",
         "POWER",
         "REGEXP_EXTRACT",
@@ -1375,33 +1377,6 @@ def _query_schema(
     return columns
 
 
-def _simple_inner_join_predicate(
-    expression: ast.Node,
-    source: _BoundSource,
-) -> bool:
-    if isinstance(expression, ast.BinaryOp) and expression.op in {
-        ast.BinaryOpKind.And,
-        ast.BinaryOpKind.LogicalAnd,
-    }:
-        return _simple_inner_join_predicate(
-            expression.left,
-            source,
-        ) and _simple_inner_join_predicate(expression.right, source)
-    if (
-        not isinstance(expression, ast.BinaryOp)
-        or expression.op != ast.BinaryOpKind.Eq
-        or not isinstance(expression.left, ast.Column)
-        or not isinstance(expression.right, ast.Column)
-    ):
-        return False
-    try:
-        left = _bound_join_column(expression.left, source)
-        right = _bound_join_column(expression.right, source)
-    except _Unsupported:
-        return False
-    return left.provider != right.provider
-
-
 def _bound_join_column(column: ast.Column, source: _BoundSource) -> _BoundInput:
     if (
         not column.namespace
@@ -1431,28 +1406,33 @@ def _bind_join_source(
     if from_clause is None or len(from_clause.relations) != 1:
         raise _Unsupported("unsupported_from_expression")
     relation = from_clause.relations[0]
-    if not isinstance(relation.primary, ast.Table) or len(relation.extensions) != 1:
+    if not isinstance(relation.primary, ast.Table) or not relation.extensions:
         raise _Unsupported("unsupported_join")
-    join = relation.extensions[0]
-    join_type = join.join_type.strip().casefold() or "inner"
-    if (
-        join_type not in {"inner", "left", "left outer", "cross"}
-        or join.lateral
-        or join.natural
-        or not isinstance(join.right, ast.Table)
-        or join.right.alias is None
-        or (
-            join_type != "cross"
-            and (
-                join.criteria is None or join.criteria.on is None or join.criteria.using
+    tables = [relation.primary]
+    joins: list[tuple[str, ast.Expression | None]] = []
+    for join in relation.extensions:
+        join_type = join.join_type.strip().casefold() or "inner"
+        if (
+            join_type not in {"inner", "left", "left outer", "cross"}
+            or join.lateral
+            or join.natural
+            or not isinstance(join.right, ast.Table)
+            or join.right.alias is None
+            or (
+                join_type != "cross"
+                and (
+                    join.criteria is None
+                    or join.criteria.on is None
+                    or join.criteria.using
+                )
             )
-        )
-        or (join_type == "cross" and join.criteria is not None)
-    ):
-        raise _Unsupported("unsupported_join")
+            or (join_type == "cross" and join.criteria is not None)
+        ):
+            raise _Unsupported("unsupported_join")
+        tables.append(join.right)
+        joins.append((join_type, join.criteria.on if join.criteria else None))
 
-    tables = (relation.primary, join.right)
-    bindings = []
+    bindings: list[_BoundInput] = []
     for table in tables:
         if (
             table.alias is None
@@ -1472,43 +1452,49 @@ def _bind_join_source(
             _query_schema(provider, specs[provider], snapshot, specs, schemas),
             "duplicate_provider_output",
         )
-        bindings.append(
-            _BoundInput(
-                provider,
-                {column.name: column for column in schema},
-                frozenset({table.alias.name.casefold()}),
-                isinstance(specs[provider], SourceSpec),
-            ),
+        binding = _BoundInput(
+            provider,
+            {column.name: column for column in schema},
+            frozenset({table.alias.name.casefold()}),
+            isinstance(specs[provider], SourceSpec),
         )
-    if (
-        bindings[0].provider == bindings[1].provider
-        or bindings[0].aliases & bindings[1].aliases
-    ):
-        raise _Unsupported("unsupported_self_join")
+        if any(
+            binding.provider == existing.provider or binding.aliases & existing.aliases
+            for existing in bindings
+        ):
+            raise _Unsupported("unsupported_self_join")
+        bindings.append(binding)
 
-    source = _BoundSource(
+    join_shapes, dependencies = [], []
+    for index, (join_type, predicate) in enumerate(joins):
+        source = _BoundSource(
+            bindings[0].provider,
+            bindings[0].schema,
+            frozenset().union(*(item.aliases for item in bindings[: index + 2])),
+            bindings[0].is_source,
+            numeric_literals,
+            tuple(bindings[: index + 2]),
+        )
+        on_shape = None
+        if predicate is not None:
+            on_shape, on_dependencies, aggregate = _bind_expression(
+                predicate,
+                source,
+            )
+            if aggregate:
+                raise _Unsupported("unsupported_join_predicate")
+            dependencies.extend(on_dependencies)
+        join_shapes.append(
+            {"type": join_type.removesuffix(" outer"), "on": on_shape},
+        )
+    return _BoundSource(
         bindings[0].provider,
         bindings[0].schema,
         frozenset().union(*(item.aliases for item in bindings)),
         bindings[0].is_source,
         numeric_literals,
         tuple(bindings),
-    )
-    on_shape, dependencies = None, []
-    if join_type != "cross":
-        if not _simple_inner_join_predicate(join.criteria.on, source):
-            raise _Unsupported("unsupported_join_predicate")
-        on_shape, dependencies, aggregate = _bind_expression(join.criteria.on, source)
-        if aggregate:
-            raise _Unsupported("unsupported_join_predicate")
-    return _BoundSource(
-        source.provider,
-        source.schema,
-        source.aliases,
-        source.is_source,
-        source.numeric_literals,
-        source.inputs,
-        ({"type": join_type.removesuffix(" outer"), "on": on_shape},),
+        tuple(join_shapes),
         tuple(dependencies),
     )
 
@@ -1561,6 +1547,7 @@ def _bind_expression(
     numeric_literals = []
     bound_columns: dict[str, tuple[str, str]] = {}
     joined = source.is_joined
+    source_aliases = {alias.casefold() for alias in source.aliases}
     for node in expression.flatten():
         if isinstance(
             node,
@@ -1606,6 +1593,40 @@ def _bind_expression(
             qualifier = ".".join(part.name for part in node.namespace)
             if node.role or node.dimension_ref:
                 raise _Unsupported("unsupported_expression_shape")
+            if (
+                qualifier
+                and qualifier.casefold() not in source_aliases
+                and len(node.namespace) == 1
+                and not node.namespace[0].quote_style
+                and not node.name.quote_style
+            ):
+                roots = [
+                    column
+                    for column in source.schema.values()
+                    if column.name.casefold() == qualifier.casefold()
+                ]
+                if len(roots) != 1:
+                    raise _Unsupported("unresolved_or_ambiguous_column")
+                root = roots[0]
+                root_type = _join_column_type(root.type) if root.type else None
+                if not isinstance(root_type, StructType):
+                    raise _Unsupported("resolved_column_schema_missing")
+                fields = [
+                    field
+                    for field in root_type.fields
+                    if field.name.name.casefold() == node.name.name.casefold()
+                ]
+                if len(fields) != 1:
+                    raise _Unsupported("resolved_column_schema_missing")
+                field = fields[0]
+                identity = (source.provider, f"{root.name}.{field.name.name}")
+                dependencies[f"struct:{identity[1]}"] = ComponentKey(
+                    source.provider,
+                    "output",
+                    root.name,
+                )
+                bound_columns[node.identifier(quotes=False).casefold()] = identity
+                continue
             if qualifier and qualifier not in source.aliases:
                 raise _Unsupported("unresolved_or_ambiguous_column")
             name = node.name.name
@@ -1630,15 +1651,16 @@ def _bind_expression(
             "args_compiled",
         ):
             fields.pop(field, None)
-        if value["type"] == "Column" and joined:
+        if value["type"] == "Column":
             parts = _serialized_column_parts(value)
             identity = bound_columns.get(".".join(parts).casefold())
-            if identity is None:
+            if joined and identity is None:
                 raise _Unsupported("unresolved_or_ambiguous_column")
-            fields["bound_relation"] = identity[0]
-            fields["bound_field"] = identity[1]
+            if identity is not None:
+                fields["bound_relation"] = identity[0]
+                fields["bound_field"] = identity[1]
             fields["name"]["fields"]["namespace"] = None
-        elif value["type"] in {"Column", "Wildcard"}:
+        elif value["type"] == "Wildcard":
             fields["name"]["fields"]["namespace"] = None
         if value["type"] == "Name" and not fields.get("quote_style"):
             fields["name"] = fields["name"].lower()
