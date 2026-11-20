@@ -23,7 +23,6 @@ from datajunction_server.semantic_fingerprints.materialization import (
     MATERIALIZATION_PLANNER_EPOCH,
     MaterializationContract,
     MaterializationFingerprint,
-    decide_materialization_reuse,
     materialization_artifact_matches,
     materialization_contract,
 )
@@ -42,16 +41,6 @@ def _storage(digest: str = "layout") -> MaterializationContract:
         version=MATERIALIZATION_CONTRACT_VERSION,
         planner_epoch=MATERIALIZATION_PLANNER_EPOCH,
         digest=_digest(digest),
-    )
-
-
-def _fingerprint(
-    semantic_digest: str,
-    storage: MaterializationContract | None = None,
-) -> MaterializationFingerprint:
-    return MaterializationFingerprint(
-        semantic=_semantic(semantic_digest),
-        storage=storage or _storage(),
     )
 
 
@@ -313,7 +302,7 @@ def test_unknown_types_and_old_contract_versions_fail_closed():
     config.measures_materializations[0].columns[0].type = "made_up_type"
     assert materialization_contract(config) is None
 
-    old = MaterializationFingerprint.from_value(
+    old_contract = MaterializationFingerprint.from_value(
         {
             "semantic": _semantic("same").model_dump(mode="json"),
             "storage": {
@@ -323,20 +312,14 @@ def test_unknown_types_and_old_contract_versions_fail_closed():
             },
         },
     )
-    decision = decide_materialization_reuse(
-        old,
-        _fingerprint("same"),
-        available=True,
-        fresh=True,
-        execution_compatible=True,
-    )
-    assert not decision.reusable
-    assert decision.reason == "fingerprint_unknown"
+    assert old_contract is None
 
 
-def test_reuse_requires_known_equal_semantics_storage_and_freshness():
+def test_manifest_roundtrip_rejects_unknown_or_malformed_values():
     storage = _storage()
-    fingerprint = _fingerprint("same", storage)
+    fingerprint = MaterializationFingerprint(
+        semantic=_semantic("same"), storage=storage
+    )
     assert MaterializationFingerprint.from_value(fingerprint.to_dict()) == fingerprint
     assert (
         MaterializationFingerprint.from_value(
@@ -360,54 +343,6 @@ def test_reuse_requires_known_equal_semantics_storage_and_freshness():
         is None
     )
 
-    assert decide_materialization_reuse(
-        fingerprint,
-        fingerprint,
-        available=True,
-        fresh=True,
-        execution_compatible=True,
-    ).reusable
-
-    changed_semantic = decide_materialization_reuse(
-        fingerprint,
-        _fingerprint("changed", storage),
-        available=True,
-        fresh=True,
-        execution_compatible=True,
-    )
-    assert not changed_semantic.reusable
-    assert changed_semantic.reason == "semantic_changed"
-
-    changed_storage = decide_materialization_reuse(
-        fingerprint,
-        _fingerprint("same", _storage("new layout")),
-        available=True,
-        fresh=True,
-        execution_compatible=True,
-    )
-    assert not changed_storage.reusable
-    assert changed_storage.reason == "storage_changed"
-
-    decision = decide_materialization_reuse(
-        None,
-        fingerprint,
-        available=True,
-        fresh=True,
-        execution_compatible=True,
-    )
-    assert not decision.reusable
-    assert decision.reason == "fingerprint_unknown"
-
-    decision = decide_materialization_reuse(
-        fingerprint,
-        fingerprint,
-        available=True,
-        fresh=True,
-        execution_compatible=False,
-    )
-    assert not decision.reusable
-    assert decision.reason == "execution_unknown"
-
     old_epoch = MaterializationFingerprint.from_value(
         {
             "semantic": _semantic("same").model_dump(mode="json"),
@@ -418,26 +353,4 @@ def test_reuse_requires_known_equal_semantics_storage_and_freshness():
             },
         },
     )
-    decision = decide_materialization_reuse(
-        old_epoch,
-        fingerprint,
-        available=True,
-        fresh=True,
-        execution_compatible=True,
-    )
-    assert not decision.reusable
-    assert decision.reason == "fingerprint_unknown"
-
-    for available, fresh, reason in (
-        (False, True, "unavailable"),
-        (True, False, "stale"),
-    ):
-        decision = decide_materialization_reuse(
-            fingerprint,
-            fingerprint,
-            available=available,
-            fresh=fresh,
-            execution_compatible=True,
-        )
-        assert not decision.reusable
-        assert decision.reason == reason
+    assert old_epoch is None

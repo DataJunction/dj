@@ -3,6 +3,8 @@
 import asyncio
 
 import pytest
+
+import datajunction_server.database  # noqa: F401
 from datajunction_server.models.deployment import (
     ColumnSpec,
     DimensionJoinLinkSpec,
@@ -745,20 +747,106 @@ def test_joined_fallback_is_independent_of_input_mapping_order():
     assert forward.components == reverse.components
 
 
-def test_cte_fallback_resolves_the_underlying_source_not_the_cte_alias():
+@pytest.mark.parametrize(
+    "query",
+    [
+        "WITH rows AS (SELECT amount FROM ns.source) SELECT amount FROM rows",
+        (
+            "WITH rows AS (SELECT amount AS prepared_value FROM ns.source) "
+            "SELECT SUM(prepared_value) AS total FROM rows"
+        ),
+    ],
+)
+def test_pass_through_cte_resolves_the_underlying_source(query):
     source = _source("ns.source", "orders", [("amount", "double")])
-    transform = TransformSpec(
-        name="ns.cte",
-        query=("WITH rows AS (SELECT amount FROM ns.source) SELECT amount FROM rows"),
-    )
+    transform = TransformSpec(name="ns.cte", query=query)
     before = _evaluate(source, transform)
     after = _evaluate(
         source.model_copy(update={"table": "replacement_orders"}),
         transform,
     )
 
-    assert before.nodes["ns.cte"].precision == "conservative"
+    assert before.nodes["ns.cte"].precision == "precise"
     assert (
         compare_components(before.nodes["ns.cte"].full, after.nodes["ns.cte"].full)
+        == "changed"
+    )
+
+
+def test_joined_cte_fallback_respects_cte_name_shadowing():
+    physical_orders = _source("ns.orders", "orders", [("amount", "double")])
+    source = _source("ns.source", "source", [("amount", "double")])
+    other = _source("ns.other", "other", [("amount", "double")])
+    query = (
+        "WITH orders AS (SELECT amount FROM ns.source) "
+        "SELECT orders.amount FROM orders "
+        "JOIN ns.other AS other ON orders.amount = other.amount"
+    )
+    transform = TransformSpec(name="ns.total", query=query)
+
+    before = _evaluate(physical_orders, source, other, transform)
+    source_changed = _evaluate(
+        physical_orders,
+        source.model_copy(update={"table": "source_v2"}),
+        other,
+        transform,
+    )
+    shadowed_node_changed = _evaluate(
+        physical_orders.model_copy(update={"table": "orders_v2"}),
+        source,
+        other,
+        transform,
+    )
+
+    assert before.nodes["ns.total"].precision == "conservative"
+    assert (
+        compare_components(
+            before.nodes["ns.total"].full, source_changed.nodes["ns.total"].full
+        )
+        == "changed"
+    )
+    assert (
+        compare_components(
+            before.nodes["ns.total"].full,
+            shadowed_node_changed.nodes["ns.total"].full,
+        )
+        == "unchanged"
+    )
+
+
+def test_cte_source_name_shadows_a_matching_graph_node():
+    source = _source("ns.source", "source", [("amount", "double")])
+    backing = _source("ns.backing", "backing", [("amount", "double")])
+    transform = TransformSpec(
+        name="ns.total",
+        query=(
+            "WITH source AS (SELECT amount FROM ns.backing) SELECT amount FROM source"
+        ),
+    )
+
+    before = _evaluate(source, backing, transform)
+    shadowed_node_changed = _evaluate(
+        source.model_copy(update={"table": "source_v2"}),
+        backing,
+        transform,
+    )
+    backing_changed = _evaluate(
+        source,
+        backing.model_copy(update={"table": "backing_v2"}),
+        transform,
+    )
+
+    assert before.nodes["ns.total"].precision == "precise"
+    assert (
+        compare_components(
+            before.nodes["ns.total"].full,
+            shadowed_node_changed.nodes["ns.total"].full,
+        )
+        == "unchanged"
+    )
+    assert (
+        compare_components(
+            before.nodes["ns.total"].full, backing_changed.nodes["ns.total"].full
+        )
         == "changed"
     )

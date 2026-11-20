@@ -2,12 +2,12 @@ import asyncio
 import logging
 import re
 import time
-from functools import cached_property
 from collections import Counter, defaultdict
+from collections.abc import Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from collections.abc import Mapping, Sequence
+from functools import cached_property
 from typing import cast
 
 from sqlalchemy import func, or_, select
@@ -53,9 +53,9 @@ from datajunction_server.internal.access.authorization import (
     AccessDenialMode,
 )
 from datajunction_server.internal.access.authorization.context import AuthContext
+from datajunction_server.internal.checks.context import OwnerKinds, TagTypes
 from datajunction_server.internal.checks.engine import CheckResult
 from datajunction_server.internal.checks.engine import evaluate as evaluate_checks
-from datajunction_server.internal.checks.context import OwnerKinds, TagTypes
 from datajunction_server.internal.checks.manifest import (
     ManifestChecks,
     to_manifest_checks,
@@ -66,12 +66,11 @@ from datajunction_server.internal.checks.validator import (
     load_checks,
 )
 from datajunction_server.internal.custom_metadata import upsert_schema_specs
-from datajunction_server.internal.namespace_locks import advisory_xact_lock
 from datajunction_server.internal.deployment.checks import (
     DeclaredSchemas,
     build_bindings,
-    checks_match_last_deployment,
     build_fixtures,
+    checks_match_last_deployment,
     resolve_declared_schemas,
     resolve_owner_kinds,
     resolve_tag_types,
@@ -117,6 +116,7 @@ from datajunction_server.internal.materializations import (
     stop_materialization_workflows,
     swap_cube_materializations,
 )
+from datajunction_server.internal.namespace_locks import advisory_xact_lock
 from datajunction_server.internal.namespaces import (
     authorize_namespace_deletions,
     get_git_info_for_namespace,
@@ -165,6 +165,7 @@ from datajunction_server.models.dimensionlink import (
     misplaced_node_column_message,
     missing_join_on_message,
 )
+from datajunction_server.models.filter_requirements import dump_filter_requirements
 from datajunction_server.models.hierarchy import HierarchyLevelInput
 from datajunction_server.models.history import ActivityType
 from datajunction_server.models.materialization import MaterializationStrategy
@@ -176,7 +177,6 @@ from datajunction_server.models.node import (
     NodeStatus,
     NodeType,
 )
-from datajunction_server.models.filter_requirements import dump_filter_requirements
 from datajunction_server.models.reaggregate import dump_reaggregate_spec
 from datajunction_server.models.unit import (
     AtomicUnit,
@@ -448,6 +448,7 @@ class DeploymentOrchestrator:
         self._revalidation_only: set[str] = set()
         self._current_semantic_fingerprints: FingerprintMap = {}
         self._proposed_semantic_fingerprints: FingerprintMap = {}
+        self._proposed_inferred_columns: dict[str, list[ColumnSpec]] = {}
 
     @property
     def _history_user(self) -> str:
@@ -1387,19 +1388,39 @@ class DeploymentOrchestrator:
         plan: DeploymentPlan,
         downstream: list,
         reusable_queries: dict[str, ReusableQuery] | None = None,
+        current_columns: Mapping[str, list[ColumnSpec]] | None = None,
+        proposed_columns: Mapping[str, list[ColumnSpec]] | None = None,
+        unknown_proposed_columns: set[str] | None = None,
     ) -> None:
         target_names = {impact.name for impact in downstream} | {
             spec.rendered_name for spec in plan.to_delete
         }
-        current, proposed = await build_deployment_fingerprints(
+        version = self.deployment_spec.semantic_fingerprint_version
+        proposed_inferred_columns = {
+            **(proposed_columns or {}),
+            **self._proposed_inferred_columns,
+        }
+        only_proposed_names = {spec.rendered_name for spec in plan.to_deploy}
+        fingerprint_build = await build_deployment_fingerprints(
             self.session,
             plan.existing_specs,
             self.deployment_spec.nodes,
             plan.deletable_specs,
             additional_target_names=target_names,
-            only_proposed_names={spec.rendered_name for spec in plan.to_deploy},
+            only_proposed_names=only_proposed_names,
+            version=version,
             pre_parsed_queries=reusable_queries,
+            proposed_inferred_columns=proposed_inferred_columns,
+            current_target_columns=current_columns if version == 2 else None,
+            unknown_proposed_columns=(
+                (unknown_proposed_columns or ()) if version == 2 else ()
+            ),
+            comparison_target_names=(
+                {impact.name for impact in downstream} if version == 2 else ()
+            ),
         )
+        current, proposed = fingerprint_build.current, fingerprint_build.proposed
+        comparisons = fingerprint_build.comparisons
         self._current_semantic_fingerprints = current
         self._proposed_semantic_fingerprints = proposed
         self._apply_semantic_fingerprints()
@@ -1407,6 +1428,8 @@ class DeploymentOrchestrator:
             proposed_fingerprint = proposed.get(impact.name)
             if current.get(impact.name) != proposed_fingerprint:
                 impact.semantic_fingerprint = proposed_fingerprint
+            if impact.name in comparisons:
+                impact.semantic_comparison = comparisons[impact.name]
 
     async def _find_namespaces_to_create(self) -> set[str]:
         """
@@ -2694,6 +2717,9 @@ class DeploymentOrchestrator:
                 plan,
                 downstream,
                 propagation_result.reusable_queries,
+                propagation_result.current_columns,
+                propagation_result.proposed_columns,
+                propagation_result.unknown_proposed_columns,
             )
 
         # Hard-delete after impact propagation (cascade-deletes
@@ -3228,6 +3254,7 @@ class DeploymentOrchestrator:
                 ]
             else:
                 validation_results = await self._bulk_validate_cubes(cubes_to_deploy)
+        self._capture_proposed_inferred_columns(validation_results)
 
         # The superseded revision of every cube this deploy updates, captured before
         # `node.current` is repointed below.
@@ -4210,8 +4237,8 @@ class DeploymentOrchestrator:
         cube_specs: list[CubeSpec],
     ) -> tuple[set[str], set[str]]:
         """Collect all unique metrics and dimensions across all cubes"""
-        all_metric_names = set()
-        all_dimension_names = set()
+        all_metric_names: set[str] = set()
+        all_dimension_names: set[str] = set()
 
         for cube_spec in cube_specs:
             all_metric_names.update(cube_spec.rendered_metrics or [])
@@ -5694,6 +5721,7 @@ class DeploymentOrchestrator:
                     deployment_links=self._deployment_links,
                 )
             p.append(f"{len(validation_results)} results")
+        self._capture_proposed_inferred_columns(validation_results)
 
         with timer.phase("    nodes: create ORM objects") as p:
             (
@@ -5754,6 +5782,17 @@ class DeploymentOrchestrator:
             f"Deployed {len(nodes)} nodes in bulk in {time.perf_counter() - start:.2f}s",
         )
         return deployment_results, all_nodes
+
+    def _capture_proposed_inferred_columns(
+        self,
+        validation_results: list[NodeValidationResult],
+    ) -> None:
+        self._proposed_inferred_columns.update(
+            {
+                result.spec.rendered_name: result.inferred_columns
+                for result in validation_results
+            },
+        )
 
     async def get_dependencies(
         self,

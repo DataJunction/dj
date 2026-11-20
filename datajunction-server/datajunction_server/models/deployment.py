@@ -11,6 +11,7 @@ from pydantic import (
     PrivateAttr,
     TypeAdapter,
     field_validator,
+    model_serializer,
     model_validator,
 )
 
@@ -22,10 +23,10 @@ from datajunction_server.errors import (
 from datajunction_server.models.dimensionlink import (
     DimensionLinkDefault,
     JoinCardinality,
-    default_value_key,
     JoinType,
     LinkType,
     SparkJoinStrategy,
+    default_value_key,
 )
 from datajunction_server.models.filter_requirements import (
     FilterRequirement,
@@ -1885,6 +1886,7 @@ class DeploymentSpec(BaseModel):
     """
 
     namespace: str
+    semantic_fingerprint_version: Literal[1, 2] = 1
     nodes: list[NodeUnion] = Field(default_factory=list)
     tags: list[TagSpec] = Field(default_factory=list)
     hierarchies: list[HierarchySpec] = Field(default_factory=list)
@@ -2141,9 +2143,34 @@ class DeploymentInfo(BaseModel):
     check_results: list[NodeCheckResults] = Field(default_factory=list)
     warnings: list[DJError] = Field(default_factory=list)
     downstream_impacts: list[DownstreamImpact] = Field(default_factory=list)
+    semantic_review_recipients: list[str] | None = None
     created_at: str | None = None  # ISO datetime
     created_by: str | None = None  # Username
     source: GitDeploymentSource | LocalDeploymentSource | None = None
+
+    @model_validator(mode="after")
+    def _derive_semantic_review_recipients(self) -> "DeploymentInfo":
+        if self.semantic_review_recipients is not None or not any(
+            impact.semantic_comparison is not None for impact in self.downstream_impacts
+        ):
+            return self
+        self.semantic_review_recipients = sorted(
+            {
+                owner
+                for impact in self.downstream_impacts
+                if impact.semantic_comparison
+                and impact.semantic_comparison.status == "changed"
+                for owner in impact.owners
+            },
+        )
+        return self
+
+    @model_serializer(mode="wrap")
+    def _omit_uncomputed_semantic_review_recipients(self, handler):
+        data = handler(self)
+        if isinstance(data, dict) and self.semantic_review_recipients is None:
+            data.pop("semantic_review_recipients", None)
+        return data
 
 
 def eq_or_fallback(a, b, fallback):

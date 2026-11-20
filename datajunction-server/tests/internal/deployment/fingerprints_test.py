@@ -3,10 +3,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from datajunction_server.database.node import NodeRevision
 from datajunction_server.internal.deployment.fingerprints import (
     SEMANTIC_PARENT_RESOLVERS,
+    DeploymentFingerprintBuildResult,
     SemanticFingerprintGraph,
     _candidate_parts,
+    _compare_v2_components,
     _load_external_specs,
     _parent_candidates,
     _resolved_proposed_specs,
@@ -23,6 +26,7 @@ from datajunction_server.models.deployment import (
     MetricSpec,
     NodeSpec,
     NodeUnion,
+    PartitionSpec,
     SourceSpec,
     TransformSpec,
 )
@@ -31,10 +35,12 @@ from datajunction_server.models.semantic_fingerprint import (
     UNKNOWN_SEMANTIC_FINGERPRINT,
     SemanticFingerprint,
 )
+from datajunction_server.naming import amenable_name
 from datajunction_server.semantic_fingerprints.engine import (
     compose_node_fingerprint,
     local_node_fingerprint,
 )
+from datajunction_server.semantic_fingerprints.v2 import ComponentResult
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 
@@ -68,6 +74,22 @@ def transform_spec(
 
 def spec_map(*specs: NodeSpec) -> dict[str, NodeSpec]:
     return {spec.rendered_name: spec for spec in specs}
+
+
+def test_metric_alias_ast_keeps_preparsed_input_unchanged():
+    query = "SELECT SUM(amount) FROM ns.project"
+    parsed = parse(query)
+    original = str(parsed)
+
+    aliased = NodeRevision.metric_alias_ast(
+        query,
+        "ns.total",
+        pre_parsed=parsed,
+    )
+
+    assert str(parsed) == original
+    assert amenable_name("ns.total") not in original
+    assert amenable_name("ns.total") in str(aliased)
 
 
 def linked_dimension(
@@ -553,6 +575,106 @@ def test_proposed_sources_reuse_resolved_columns_and_remove_deletes():
     assert deleted.rendered_name not in resolved
 
 
+def test_source_column_reuse_preserves_v1_and_guards_v2():
+    source = source_spec(
+        "source",
+        table="before",
+        columns=[ColumnSpec(name="id", type="bigint")],
+    )
+    proposed = source.model_copy(update={"columns": None})
+
+    resolved_v1 = _resolved_proposed_specs(
+        {source.rendered_name: source},
+        [proposed],
+        set(),
+    )
+    resolved_v2 = _resolved_proposed_specs(
+        {source.rendered_name: source},
+        [proposed],
+        set(),
+        version=2,
+    )
+
+    assert resolved_v1[source.rendered_name].columns == source.columns
+    assert resolved_v2[source.rendered_name].columns is None
+
+
+def test_v2_inferred_query_columns_preserve_only_proposed_partition():
+    from datajunction_server.internal.deployment.fingerprints import (
+        _merge_inferred_columns,
+    )
+
+    current = transform_spec("transform", "SELECT id FROM source").model_copy(
+        update={
+            "columns": [
+                ColumnSpec(
+                    name="id",
+                    type="int",
+                    partition=PartitionSpec(type="temporal", format="yyyyMMdd"),
+                ),
+            ],
+        },
+    )
+    proposed_without_partition = transform_spec(
+        "transform",
+        "SELECT id FROM source",
+    )
+    proposed_partition = proposed_without_partition.model_copy(
+        update={
+            "columns": [
+                ColumnSpec(
+                    name="id",
+                    partition=PartitionSpec(type="temporal", format="yyyy-MM-dd"),
+                ),
+            ],
+        },
+    )
+    inferred = [ColumnSpec(name="id", type="bigint")]
+
+    resolved_without_partition = _resolved_proposed_specs(
+        {current.rendered_name: current},
+        [proposed_without_partition],
+        set(),
+        proposed_inferred_columns={current.rendered_name: inferred},
+        version=2,
+    )
+    resolved_with_partition = _resolved_proposed_specs(
+        {current.rendered_name: current},
+        [proposed_partition],
+        set(),
+        proposed_inferred_columns={current.rendered_name: inferred},
+        version=2,
+    )
+    resolved_v1 = _resolved_proposed_specs(
+        {current.rendered_name: current},
+        [proposed_without_partition],
+        set(),
+        proposed_inferred_columns={current.rendered_name: inferred},
+        version=1,
+    )
+    without_partition = resolved_without_partition[current.rendered_name].columns
+    with_partition = resolved_with_partition[current.rendered_name].columns
+
+    assert current.columns[0].partition is not None
+    assert without_partition[0].type == "bigint"
+    assert without_partition[0].partition is None
+    assert with_partition[0].type == "bigint"
+    assert with_partition[0].partition == proposed_partition.columns[0].partition
+    assert resolved_v1[current.rendered_name].columns is None
+
+    source_partition = PartitionSpec(type="temporal", format="yyyyMMdd")
+    proposed_source = source_spec(
+        "source",
+        columns=[ColumnSpec(name="id", partition=source_partition)],
+    )
+    inferred_source = _merge_inferred_columns(
+        proposed_source,
+        [ColumnSpec(name="id", type="bigint")],
+    )
+    assert inferred_source[0].type == "bigint"
+    assert inferred_source[0].partition == source_partition
+
+
 def test_resolved_proposed_specs_reuses_existing_object_for_unchanged_names():
     """Unchanged names reuse the existing object; changed ones don't."""
     unchanged = transform_spec("unchanged", "SELECT * FROM ${prefix}orders")
@@ -578,13 +700,13 @@ async def test_build_deployment_fingerprints_only_proposed_names_reuses_unchange
     unrelated = source_spec("unrelated", table="unrelated")
     downstream = transform_spec("downstream", "SELECT * FROM ${prefix}source")
 
-    _, full = await build_deployment_fingerprints(
+    full_result = await build_deployment_fingerprints(
         MagicMock(),
         {},
         [source, unrelated, downstream],
         [],
     )
-    _, scoped = await build_deployment_fingerprints(
+    scoped_result = await build_deployment_fingerprints(
         MagicMock(),
         {
             source.rendered_name: source,
@@ -596,7 +718,9 @@ async def test_build_deployment_fingerprints_only_proposed_names_reuses_unchange
         only_proposed_names={downstream.rendered_name},
     )
 
-    assert scoped == {downstream.rendered_name: full[downstream.rendered_name]}
+    assert scoped_result.proposed == {
+        downstream.rendered_name: full_result.proposed[downstream.rendered_name],
+    }
 
 
 @pytest.mark.asyncio
@@ -610,7 +734,7 @@ async def test_unchanged_node_fingerprint_includes_external_ancestors():
         "datajunction_server.internal.deployment.fingerprints.Node.get_by_names",
         AsyncMock(return_value=[node]),
     ):
-        current, proposed = await build_deployment_fingerprints(
+        build_result = await build_deployment_fingerprints(
             MagicMock(),
             spec_map(downstream),
             [downstream.model_copy(update={"description": "Updated documentation"})],
@@ -622,8 +746,8 @@ async def test_unchanged_node_fingerprint_includes_external_ancestors():
         downstream.rendered_name,
     )
     assert isinstance(expected, SemanticFingerprint)
-    assert current == {downstream.rendered_name: expected}
-    assert proposed == {}
+    assert build_result.current == {downstream.rendered_name: expected}
+    assert build_result.proposed == {}
 
 
 @pytest.mark.asyncio
@@ -643,7 +767,7 @@ async def test_external_target_is_rehashed_when_its_ancestor_changes():
         "datajunction_server.internal.deployment.fingerprints.Node.get_by_names",
         AsyncMock(return_value=[node]),
     ):
-        current, proposed = await build_deployment_fingerprints(
+        build_result = await build_deployment_fingerprints(
             MagicMock(),
             {current_source.rendered_name: current_source},
             [proposed_source],
@@ -657,8 +781,8 @@ async def test_external_target_is_rehashed_when_its_ancestor_changes():
     expected_proposed = SemanticFingerprintGraph(
         spec_map(proposed_source, downstream),
     ).fingerprint(downstream.rendered_name)
-    assert current[downstream.rendered_name] == expected_current
-    assert proposed[downstream.rendered_name] == expected_proposed
+    assert build_result.current[downstream.rendered_name] == expected_current
+    assert build_result.proposed[downstream.rendered_name] == expected_proposed
     assert expected_current != expected_proposed
 
 
@@ -669,21 +793,186 @@ async def test_build_deployment_fingerprints_without_external_parents():
         "transform",
         "SELECT * FROM ${prefix}source",
     )
-    current, proposed = await build_deployment_fingerprints(
+    build_result = await build_deployment_fingerprints(
         MagicMock(),
         {},
         [source, transform],
         [],
     )
 
-    assert current == {}
+    assert build_result.current == {}
     graph = SemanticFingerprintGraph(spec_map(source, transform))
-    source_fingerprint = proposed[source.rendered_name]
+    source_fingerprint = build_result.proposed[source.rendered_name]
     assert isinstance(source_fingerprint, SemanticFingerprint)
     assert source_fingerprint == graph.fingerprint(source.rendered_name)
-    assert proposed[transform.rendered_name] == graph.fingerprint(
+    assert build_result.proposed[transform.rendered_name] == graph.fingerprint(
         transform.rendered_name,
     )
+
+
+@pytest.mark.asyncio
+async def test_v2_comparison_uses_proposed_validated_schemas_only():
+    source = source_spec(
+        "source",
+        columns=[ColumnSpec(name="id", type="int")],
+    )
+    transform = transform_spec(
+        "transform",
+        "SELECT id FROM ${prefix}source",
+    ).model_copy(update={"columns": [ColumnSpec(name="id", type="int")]})
+    proposed_source = source.model_copy(update={"columns": None})
+    proposed_transform = transform.model_copy(update={"columns": None})
+    inferred_columns = {
+        source.rendered_name: [ColumnSpec(name="id", type="string")],
+        transform.rendered_name: [ColumnSpec(name="id", type="string")],
+    }
+
+    result = await build_deployment_fingerprints(
+        MagicMock(),
+        spec_map(source, transform),
+        [proposed_source, proposed_transform],
+        [],
+        version=2,
+        only_proposed_names={source.rendered_name, transform.rendered_name},
+        proposed_inferred_columns=inferred_columns,
+        comparison_target_names=[transform.rendered_name],
+    )
+
+    assert isinstance(result, DeploymentFingerprintBuildResult)
+    assert (
+        result.current[transform.rendered_name]
+        != result.proposed[transform.rendered_name]
+    )
+    comparison = result.comparisons[transform.rendered_name]
+    assert comparison.status == "changed"
+    assert comparison.precision in {"precise", "conservative"}
+    assert "missing_proposed_fingerprint" not in comparison.reasons
+
+
+@pytest.mark.asyncio
+async def test_v2_metadata_edit_with_same_validated_source_schema_is_unchanged():
+    source = source_spec(
+        "source",
+        columns=[ColumnSpec(name="id", type="int")],
+    )
+    transform = transform_spec(
+        "transform",
+        "SELECT id FROM ${prefix}source",
+    ).model_copy(update={"columns": [ColumnSpec(name="id", type="int")]})
+    proposed_source = source.model_copy(
+        update={"description": "Source table description changed"},
+    )
+
+    result = await build_deployment_fingerprints(
+        MagicMock(),
+        spec_map(source, transform),
+        [proposed_source, transform.model_copy(deep=True)],
+        [],
+        version=2,
+        additional_target_names=[transform.rendered_name],
+        only_proposed_names={source.rendered_name, transform.rendered_name},
+        proposed_inferred_columns={
+            source.rendered_name: [ColumnSpec(name="id", type="int")],
+            transform.rendered_name: [ColumnSpec(name="id", type="int")],
+        },
+        comparison_target_names=[transform.rendered_name],
+    )
+
+    assert isinstance(result, DeploymentFingerprintBuildResult)
+    assert (
+        result.current[transform.rendered_name]
+        == result.proposed[transform.rendered_name]
+    )
+    comparison = result.comparisons[transform.rendered_name]
+    assert comparison.status == "unchanged"
+    assert comparison.precision in {"precise", "conservative"}
+
+
+@pytest.mark.asyncio
+async def test_v2_missing_schema_does_not_prove_downstream_unchanged():
+    source = source_spec(
+        "source",
+        table="before",
+        columns=[ColumnSpec(name="id", type="int")],
+    )
+    transform = transform_spec(
+        "transform",
+        "SELECT id FROM ${prefix}source",
+    ).model_copy(update={"columns": [ColumnSpec(name="id", type="int")]})
+    proposed_source = source.model_copy(update={"table": "after", "columns": None})
+
+    result = await build_deployment_fingerprints(
+        MagicMock(),
+        spec_map(source, transform),
+        [proposed_source, transform.model_copy(deep=True)],
+        [],
+        version=2,
+        additional_target_names=[transform.rendered_name],
+        only_proposed_names={source.rendered_name, transform.rendered_name},
+        comparison_target_names=[transform.rendered_name],
+    )
+
+    assert isinstance(result, DeploymentFingerprintBuildResult)
+    comparison = result.comparisons[transform.rendered_name]
+    assert comparison.status == "indeterminate"
+    assert comparison.precision == "unknown"
+    assert comparison.reasons
+
+
+@pytest.mark.asyncio
+async def test_v2_failed_downstream_schema_has_no_proposed_fingerprint():
+    source = source_spec(
+        "source",
+        columns=[ColumnSpec(name="id", type="int")],
+    )
+    transform = transform_spec(
+        "transform",
+        "SELECT id FROM ${prefix}source",
+    ).model_copy(update={"columns": [ColumnSpec(name="id", type="int")]})
+
+    result = await build_deployment_fingerprints(
+        MagicMock(),
+        spec_map(source, transform),
+        [source.model_copy(deep=True), transform.model_copy(deep=True)],
+        [],
+        version=2,
+        comparison_target_names=[transform.rendered_name],
+        unknown_proposed_columns={transform.rendered_name},
+    )
+
+    assert transform.rendered_name in result.current
+    assert transform.rendered_name not in result.proposed
+    comparison = result.comparisons[transform.rendered_name]
+    assert comparison.status == "indeterminate"
+    assert comparison.reasons == ["proposed_schema_unavailable"]
+
+
+@pytest.mark.asyncio
+async def test_component_comparison_requires_v2():
+    with pytest.raises(ValueError, match="version 2"):
+        await build_deployment_fingerprints(
+            MagicMock(),
+            {},
+            [],
+            [],
+            comparison_target_names={"ns.metric"},
+        )
+
+
+def test_fingerprint_version_mismatch_is_indeterminate():
+    comparison = _compare_v2_components(
+        ComponentResult(
+            SemanticFingerprint(version=1, digest="a" * 64),
+            "precise",
+        ),
+        ComponentResult(
+            SemanticFingerprint(version=2, digest="a" * 64),
+            "precise",
+        ),
+    )
+
+    assert comparison.status == "indeterminate"
+    assert comparison.reasons == ["fingerprint_version_mismatch"]
 
 
 async def test_build_deployment_fingerprints_only_proposed_names():
@@ -695,13 +984,13 @@ async def test_build_deployment_fingerprints_only_proposed_names():
     unrelated = source_spec("unrelated", table="unrelated")
     downstream = transform_spec("downstream", "SELECT * FROM ${prefix}source")
 
-    _, full = await build_deployment_fingerprints(
+    full_result = await build_deployment_fingerprints(
         MagicMock(),
         {},
         [source, unrelated, downstream],
         [],
     )
-    _, scoped = await build_deployment_fingerprints(
+    scoped_result = await build_deployment_fingerprints(
         MagicMock(),
         {},
         [source, unrelated, downstream],
@@ -709,9 +998,11 @@ async def test_build_deployment_fingerprints_only_proposed_names():
         only_proposed_names={downstream.rendered_name},
     )
 
-    assert scoped == {downstream.rendered_name: full[downstream.rendered_name]}
-    assert unrelated.rendered_name not in scoped
-    assert source.rendered_name not in scoped
+    assert scoped_result.proposed == {
+        downstream.rendered_name: full_result.proposed[downstream.rendered_name],
+    }
+    assert unrelated.rendered_name not in scoped_result.proposed
+    assert source.rendered_name not in scoped_result.proposed
 
 
 @pytest.mark.asyncio
@@ -720,27 +1011,31 @@ async def test_build_deployment_fingerprints_loads_external_ancestors(session):
         "external_child",
         "SELECT * FROM default.hard_hat",
     )
-    _, proposed = await build_deployment_fingerprints(
+    build_result = await build_deployment_fingerprints(
         session,
         {},
         [transform],
         [],
     )
 
-    assert proposed[transform.rendered_name] != UNKNOWN_SEMANTIC_FINGERPRINT
-    assert proposed[transform.rendered_name] != local_node_fingerprint(transform)
+    assert (
+        build_result.proposed[transform.rendered_name] != UNKNOWN_SEMANTIC_FINGERPRINT
+    )
+    assert build_result.proposed[transform.rendered_name] != local_node_fingerprint(
+        transform
+    )
 
     unavailable = [
         transform_spec("missing_child", "SELECT * FROM missing.parent"),
         transform_spec("invalid_child", "SELECT ("),
     ]
-    _, proposed = await build_deployment_fingerprints(
+    build_result = await build_deployment_fingerprints(
         session,
         {},
         unavailable,
         [],
     )
-    assert proposed == {
+    assert build_result.proposed == {
         spec.rendered_name: UNKNOWN_SEMANTIC_FINGERPRINT for spec in unavailable
     }
 
@@ -755,32 +1050,32 @@ async def test_build_deployment_fingerprints_loads_external_ancestors(session):
         metrics=["${prefix}external_metric"],
         filters=["default.hard_hat.address.city = 'LA'"],
     )
-    _, proposed = await build_deployment_fingerprints(
+    build_result = await build_deployment_fingerprints(
         session,
         {},
         [metric, cube],
         [],
     )
-    assert proposed[cube.rendered_name] != UNKNOWN_SEMANTIC_FINGERPRINT
+    assert build_result.proposed[cube.rendered_name] != UNKNOWN_SEMANTIC_FINGERPRINT
 
     legacy = transform_spec("legacy", "SELECT (")
-    current, _ = await build_deployment_fingerprints(
+    build_result = await build_deployment_fingerprints(
         session,
         {legacy.rendered_name: legacy},
         [],
         [legacy],
     )
-    assert current == {legacy.rendered_name: UNKNOWN_SEMANTIC_FINGERPRINT}
+    assert build_result.current == {legacy.rendered_name: UNKNOWN_SEMANTIC_FINGERPRINT}
 
-    current, proposed = await build_deployment_fingerprints(
+    build_result = await build_deployment_fingerprints(
         session,
         {},
         [],
         [],
         additional_target_names=["default.hard_hat"],
     )
-    assert current["default.hard_hat"] != UNKNOWN_SEMANTIC_FINGERPRINT
-    assert proposed["default.hard_hat"] != UNKNOWN_SEMANTIC_FINGERPRINT
+    assert build_result.current["default.hard_hat"] != UNKNOWN_SEMANTIC_FINGERPRINT
+    assert build_result.proposed["default.hard_hat"] != UNKNOWN_SEMANTIC_FINGERPRINT
 
 
 @pytest.mark.asyncio
@@ -818,7 +1113,7 @@ async def test_v2_deployment_fingerprints_load_external_metric_context():
         "datajunction_server.internal.deployment.fingerprints.Node.get_by_names",
         AsyncMock(side_effect=get_by_names),
     ):
-        _, proposed = await build_deployment_fingerprints(
+        build_result = await build_deployment_fingerprints(
             MagicMock(),
             {},
             [fact, metric],
@@ -828,7 +1123,7 @@ async def test_v2_deployment_fingerprints_load_external_metric_context():
 
     assert "external.dimension" in requested_names
     external_node.to_spec.assert_awaited_once()
-    assert proposed[metric.rendered_name] == UNKNOWN_SEMANTIC_FINGERPRINT
+    assert build_result.proposed[metric.rendered_name] == UNKNOWN_SEMANTIC_FINGERPRINT
 
 
 @pytest.mark.asyncio
@@ -855,7 +1150,7 @@ async def test_v2_deployment_context_loading_is_target_scoped():
         "datajunction_server.internal.deployment.fingerprints.Node.get_by_names",
         get_by_names,
     ):
-        current, proposed = await build_deployment_fingerprints(
+        build_result = await build_deployment_fingerprints(
             MagicMock(),
             spec_map(fact, unrelated_metric),
             [target],
@@ -865,8 +1160,8 @@ async def test_v2_deployment_context_loading_is_target_scoped():
         )
 
     get_by_names.assert_not_awaited()
-    assert current == {}
-    assert set(proposed) == {target.rendered_name}
+    assert build_result.current == {}
+    assert set(build_result.proposed) == {target.rendered_name}
 
 
 @pytest.mark.asyncio
@@ -892,7 +1187,7 @@ async def test_v2_deployment_malformed_default_filter_fails_closed_without_mutat
         "datajunction_server.internal.deployment.fingerprints.Node.get_by_names",
         AsyncMock(return_value=[]),
     ):
-        _, proposed = await build_deployment_fingerprints(
+        build_result = await build_deployment_fingerprints(
             MagicMock(),
             {},
             [fact, metric],
@@ -900,7 +1195,7 @@ async def test_v2_deployment_malformed_default_filter_fails_closed_without_mutat
             version=2,
         )
 
-    assert proposed[metric.rendered_name] == UNKNOWN_SEMANTIC_FINGERPRINT
+    assert build_result.proposed[metric.rendered_name] == UNKNOWN_SEMANTIC_FINGERPRINT
     assert metric.model_dump() == original_metric
 
 

@@ -375,12 +375,21 @@ def _demand_context(
             continue
         if (
             isinstance(specs.get(node), (SourceSpec, TransformSpec, DimensionSpec))
-            and node in roots
+            and node == parent
             and (not role or any_role)
         ):
             output_dependencies[(node, column)] = (
                 f"context-column:{node}.{column}",
                 ComponentKey(node, "output", column),
+            )
+        elif node in roots and (not role or any_role):
+            return (
+                ComponentResult(
+                    "unknown",
+                    "unknown",
+                    ("planner_dimension_binding_unavailable",),
+                ),
+                (),
             )
         elif isinstance(specs.get(node), MetricSpec):
             output_dependencies[(node, column)] = (

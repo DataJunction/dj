@@ -84,14 +84,14 @@ async def _cube_semantic_digest(session):
         metrics=["v3.fingerprint_every_flag"],
         dimensions=[],
     )
-    _, proposed = await build_deployment_fingerprints(
+    result = await build_deployment_fingerprints(
         session,
         {},
         [cube],
         [],
         version=2,
     )
-    fingerprint = proposed[cube.name]
+    fingerprint = result.proposed[cube.name]
     assert isinstance(fingerprint, SemanticFingerprint)
     return fingerprint.digest
 

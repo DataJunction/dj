@@ -38,7 +38,8 @@ def _evaluate(source, query):
 @pytest.mark.parametrize(
     "query",
     [
-        "WITH rows AS (SELECT amount FROM ns.source) SELECT amount FROM rows",
+        "WITH rows AS (SELECT amount, COUNT(*) AS amount_count "
+        "FROM ns.source GROUP BY amount) SELECT amount FROM rows",
         "SELECT amount FROM ns.source UNION ALL SELECT id FROM ns.source",
         "SELECT a.amount FROM ns.source a JOIN ns.source b ON a.id = b.id",
         "SELECT unsupported_fn(amount) AS amount FROM ns.source",

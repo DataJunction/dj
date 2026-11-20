@@ -17,15 +17,13 @@ from datajunction_server.semantic_fingerprints.v2 import (
 from datajunction_server.semantic_fingerprints.v2_configured import (
     compute_configured_v2_fingerprints,
 )
-from tests.internal.deployment.fingerprints_v2_configured_test import (
-    specs as _configured_specs,
+from tests.internal.deployment.configured_fingerprint_specs import (
+    configured_graph_specs,
 )
 
 
 def _specs():
-    specs = _configured_specs()
-    del specs["ns.region"]
-    return specs
+    return configured_graph_specs(include_region=False)
 
 
 def _clear_query_caches(nodes):

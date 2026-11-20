@@ -1,7 +1,9 @@
 import logging
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass, field
 from heapq import heappop, heappush
+from typing import TYPE_CHECKING, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
@@ -14,6 +16,7 @@ from datajunction_server.internal.deployment.utils import (
 )
 from datajunction_server.internal.impact import ReusableQuery
 from datajunction_server.models.deployment import (
+    ColumnSpec,
     CubeSpec,
     DimensionSpec,
     LinkableNodeSpec,
@@ -27,6 +30,7 @@ from datajunction_server.models.semantic_fingerprint import (
     LATEST_SEMANTIC_FINGERPRINT_VERSION,
     UNKNOWN_SEMANTIC_FINGERPRINT,
     SemanticFingerprint,
+    SemanticFingerprintComparison,
     SemanticFingerprintValue,
 )
 from datajunction_server.semantic_fingerprints.engine import (
@@ -48,6 +52,18 @@ ParentCandidates = tuple[frozenset[str], ParentReferences]
 ParentCandidateCache = dict[int, ParentCandidates]
 ParentResolver = Callable[[NodeSpec], ParentReferences]
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from datajunction_server.semantic_fingerprints.v2 import ComponentResult
+
+
+@dataclass(frozen=True)
+class DeploymentFingerprintBuildResult:
+    """Fingerprints and optional per-node semantic comparisons for a deployment."""
+
+    current: FingerprintMap
+    proposed: FingerprintMap
+    comparisons: dict[str, SemanticFingerprintComparison] = field(default_factory=dict)
 
 
 def _exact_parent_references(names: Iterable[str]) -> ParentReferences:
@@ -368,9 +384,12 @@ def _resolved_proposed_specs(
     proposed_specs: Iterable[NodeSpec],
     deleted_names: set[str],
     unchanged_names: Iterable[str] = (),
+    proposed_inferred_columns: Mapping[str, Iterable[ColumnSpec]] | None = None,
+    version: int = LATEST_SEMANTIC_FINGERPRINT_VERSION,
 ) -> dict[str, NodeSpec]:
-    """Reuses the existing object for names the caller marks unchanged."""
+    """Resolve reusable schemas and validated query outputs for proposed specs."""
     unchanged_names = set(unchanged_names)
+    proposed_inferred_columns = proposed_inferred_columns or {}
     specs = {
         name: spec for name, spec in existing_specs.items() if name not in deleted_names
     }
@@ -384,13 +403,104 @@ def _resolved_proposed_specs(
             isinstance(proposed, SourceSpec)
             and not proposed.columns
             and isinstance(existing, SourceSpec)
+            and version != 2
         ):
             proposed = proposed.model_copy(
                 deep=True,
                 update={"columns": existing.columns},
             )
         specs[name] = proposed
+    if version == 2:
+        for name, inferred_columns in proposed_inferred_columns.items():
+            if name in unchanged_names:
+                continue
+            spec = specs.get(name)
+            if isinstance(spec, (TransformSpec, DimensionSpec, MetricSpec)):
+                specs[name] = spec.model_copy(
+                    deep=True,
+                    update={
+                        "columns": _merge_inferred_columns(spec, inferred_columns),
+                    },
+                )
     return specs
+
+
+def _merge_inferred_columns(
+    spec: NodeSpec,
+    inferred_columns: Iterable[ColumnSpec],
+) -> list[ColumnSpec]:
+    """Use validated names and types while retaining proposed semantic annotations."""
+    authored_columns = {
+        column.name: column for column in getattr(spec, "columns", None) or []
+    }
+    merged = []
+    for inferred in inferred_columns:
+        authored = authored_columns.get(inferred.name)
+        if authored is None:
+            merged.append(inferred)
+            continue
+        updates = {
+            field: getattr(authored, field)
+            for field in ("attributes", "partition", "unit")
+            if field in authored.model_fields_set
+        }
+        merged.append(inferred.model_copy(update=updates) if updates else inferred)
+    return merged
+
+
+def _compare_v2_components(
+    before: "ComponentResult | None",
+    after: "ComponentResult | None",
+) -> SemanticFingerprintComparison:
+    from datajunction_server.semantic_fingerprints.v2 import compare_components
+
+    if before is None or after is None:
+        reason_set = set()
+        if before is None:
+            reason_set.add("missing_current_fingerprint")
+        if after is None:
+            reason_set.add("missing_proposed_fingerprint")
+        return SemanticFingerprintComparison(
+            status="indeterminate",
+            precision="unknown",
+            reasons=sorted(reason_set),
+        )
+
+    before_fp = before.fingerprint
+    after_fp = after.fingerprint
+    if (
+        isinstance(before_fp, SemanticFingerprint)
+        and isinstance(after_fp, SemanticFingerprint)
+        and before_fp.version != after_fp.version
+    ):
+        return SemanticFingerprintComparison(
+            status="indeterminate",
+            precision="unknown",
+            reasons=sorted(
+                set(before.reasons)
+                | set(after.reasons)
+                | {"fingerprint_version_mismatch"}
+            ),
+        )
+
+    status = compare_components(before, after)
+    reasons = sorted(set(before.reasons) | set(after.reasons))
+    if status == "indeterminate":
+        return SemanticFingerprintComparison(
+            status=status,
+            precision="unknown",
+            reasons=reasons or ["unknown_component_fingerprint"],
+        )
+    precision: Literal["precise", "conservative"] = (
+        "conservative"
+        if "conservative" in (before.precision, after.precision)
+        else "precise"
+    )
+    return SemanticFingerprintComparison(
+        status=status,
+        precision=precision,
+        reasons=reasons,
+    )
 
 
 def _ancestor_closure(
@@ -689,12 +799,28 @@ async def build_deployment_fingerprints(
     only_proposed_names: Iterable[str] | None = None,
     version: int = LATEST_SEMANTIC_FINGERPRINT_VERSION,
     pre_parsed_queries: dict[str, ReusableQuery] | None = None,
-) -> tuple[FingerprintMap, FingerprintMap]:
-    """`only_proposed_names` limits which nodes get a fresh proposed hash."""
+    proposed_inferred_columns: Mapping[str, Iterable[ColumnSpec]] | None = None,
+    current_target_columns: Mapping[str, Iterable[ColumnSpec]] | None = None,
+    comparison_target_names: Iterable[str] = (),
+    unknown_proposed_columns: Iterable[str] = (),
+) -> DeploymentFingerprintBuildResult:
+    """Build deployment fingerprints and optional v2 comparisons."""
+    comparison_target_names = set(comparison_target_names)
+    if comparison_target_names and version != 2:
+        raise ValueError("Component comparisons require semantic fingerprint version 2")
     started = time.perf_counter()
     timings: dict[str, float] = {}
     proposed_specs = list(proposed_specs)
     additional_target_names = set(additional_target_names)
+    additional_target_names.update(comparison_target_names)
+    proposed_inferred_columns = {
+        name: tuple(columns)
+        for name, columns in (proposed_inferred_columns or {}).items()
+    }
+    current_target_columns = {
+        name: tuple(columns) for name, columns in (current_target_columns or {}).items()
+    }
+    unknown_proposed_columns = set(unknown_proposed_columns)
     deleted_names = {spec.rendered_name for spec in deleted_specs}
     submitted_names = {spec.rendered_name for spec in proposed_specs}
     proposed_target_names = (
@@ -707,6 +833,8 @@ async def build_deployment_fingerprints(
         proposed_specs,
         deleted_names,
         unchanged_names,
+        proposed_inferred_columns,
+        version,
     )
     timings["setup"] = time.perf_counter() - started
     target_specs: dict[str, NodeSpec] = {}
@@ -734,10 +862,44 @@ async def build_deployment_fingerprints(
         }
         timings["target_to_spec"] = time.perf_counter() - step_started
 
+    current_target_specs = target_specs
+    proposed_target_specs = target_specs
+    if version == 2 and target_specs:
+        current_target_specs = {
+            name: (
+                spec.model_copy(
+                    deep=True,
+                    update={"columns": current_target_columns[name]},
+                )
+                if name in current_target_columns
+                and isinstance(
+                    spec,
+                    (SourceSpec, TransformSpec, DimensionSpec, MetricSpec),
+                )
+                else spec
+            )
+            for name, spec in target_specs.items()
+        }
+        proposed_target_specs = {}
+        for name, spec in target_specs.items():
+            if name in proposed_inferred_columns and isinstance(
+                spec, (TransformSpec, DimensionSpec, MetricSpec)
+            ):
+                spec = spec.model_copy(
+                    deep=True,
+                    update={
+                        "columns": _merge_inferred_columns(
+                            spec,
+                            proposed_inferred_columns[name],
+                        ),
+                    },
+                )
+            proposed_target_specs[name] = spec
+
     step_started = time.perf_counter()
     parent_cache: ParentCandidateCache = {}
     # Reuse ASTs propagate_impact already parsed.
-    current_seed_specs = {**existing_specs, **target_specs}
+    current_seed_specs = {**existing_specs, **current_target_specs}
     _seed_parent_cache_from_pre_parsed(
         current_seed_specs,
         parent_cache,
@@ -750,9 +912,10 @@ async def build_deployment_fingerprints(
         parent_cache,
     )
     _reuse_unchanged_query_asts(proposed, existing_specs, parent_cache)
+    proposed_graph_specs = {**proposed_target_specs, **proposed}
     _proposed_closure_names, proposed_unresolved = _ancestor_closure(
         proposed_target_names,
-        proposed,
+        proposed_graph_specs,
         parent_cache,
     )
     timings["ancestor_closure"] = time.perf_counter() - step_started
@@ -761,14 +924,14 @@ async def build_deployment_fingerprints(
     if version == 2:
         for specs, closure_names in (
             (current_seed_specs, _current_closure_names),
-            (proposed, _proposed_closure_names),
+            (proposed_graph_specs, _proposed_closure_names),
         ):
             for name in closure_names:
-                spec = specs.get(name)
-                if spec is None:
+                candidate_spec = specs.get(name)
+                if candidate_spec is None:
                     continue
                 try:
-                    unresolved.update(_v2_context_candidates(spec))
+                    unresolved.update(_v2_context_candidates(candidate_spec))
                 except (DJParseException, TypeError, ValueError) as exc:
                     if name not in deleted_names:
                         logger.warning(
@@ -779,21 +942,42 @@ async def build_deployment_fingerprints(
     external = await _load_external_specs(
         session,
         unresolved,
-        current_seed_specs.keys() | proposed.keys(),
+        current_seed_specs.keys() | proposed_target_specs.keys() | proposed.keys(),
         ignored_parse_errors=deleted_names,
         parent_cache=parent_cache,
         include_v2_context=version == 2,
     )
     timings["external_load"] = time.perf_counter() - step_started
     step_started = time.perf_counter()
-    current_external = {**external, **target_specs}
-    proposed_external = {**external, **target_specs}
+    current_external = {**external, **current_target_specs}
+    proposed_fingerprint_specs = {
+        name: spec
+        for name, spec in proposed_graph_specs.items()
+        if name not in unknown_proposed_columns
+    }
+    proposed_external = {
+        **external,
+        **{
+            name: spec
+            for name, spec in proposed_target_specs.items()
+            if name not in unknown_proposed_columns
+        },
+    }
     if version == 2:
-        from datajunction_server.semantic_fingerprints.v2 import SemanticGraphSnapshot
+        from datajunction_server.semantic_fingerprints.v2 import (
+            SemanticGraphSnapshot,
+        )
         from datajunction_server.semantic_fingerprints.v2_configured import (
             compute_configured_v2_fingerprints,
         )
 
+        proposed_source_columns = {
+            name: tuple(
+                _merge_inferred_columns(proposed_fingerprint_specs[name], columns),
+            )
+            for name, columns in proposed_inferred_columns.items()
+            if columns and isinstance(proposed_fingerprint_specs.get(name), SourceSpec)
+        }
         current_targets = deleted_names | additional_target_names | unchanged_names
         current_v2 = (
             await compute_configured_v2_fingerprints(
@@ -804,14 +988,39 @@ async def build_deployment_fingerprints(
             else None
         )
         proposed_v2 = await compute_configured_v2_fingerprints(
-            SemanticGraphSnapshot({**proposed_external, **proposed}),
-            targets=proposed_target_names,
+            SemanticGraphSnapshot(
+                {**external, **proposed_fingerprint_specs},
+                resolved_columns=proposed_source_columns,
+            ),
+            targets=proposed_target_names - unknown_proposed_columns,
         )
-        return (
+        current_hashes = (
             {name: node.full.fingerprint for name, node in current_v2.nodes.items()}
             if current_v2
-            else {},
-            {name: node.full.fingerprint for name, node in proposed_v2.nodes.items()},
+            else {}
+        )
+        proposed_hashes = {
+            name: node.full.fingerprint for name, node in proposed_v2.nodes.items()
+        }
+        comparisons = {}
+        for name in sorted(comparison_target_names):
+            current_node = current_v2.nodes.get(name) if current_v2 else None
+            proposed_node = proposed_v2.nodes.get(name)
+            if name in unknown_proposed_columns:
+                comparisons[name] = SemanticFingerprintComparison(
+                    status="indeterminate",
+                    precision="unknown",
+                    reasons=["proposed_schema_unavailable"],
+                )
+            else:
+                comparisons[name] = _compare_v2_components(
+                    current_node.full if current_node else None,
+                    proposed_node.full if proposed_node else None,
+                )
+        return DeploymentFingerprintBuildResult(
+            current=current_hashes,
+            proposed=proposed_hashes,
+            comparisons=comparisons,
         )
     shared_fingerprints: dict[int, SemanticFingerprintValue] = {}
     current_graph = SemanticFingerprintGraph(
@@ -853,4 +1062,8 @@ async def build_deployment_fingerprints(
             f"{name}={elapsed * 1000:.0f}ms" for name, elapsed in timings.items()
         ),
     )
-    return current, proposed_hashes
+    return DeploymentFingerprintBuildResult(
+        current=current,
+        proposed=proposed_hashes,
+        comparisons={},
+    )

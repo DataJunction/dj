@@ -101,7 +101,7 @@ def test_fingerprinting_reuses_cached_asts_without_mutating_them(monkeypatch):
     assert result.nodes["ns.project"].precision == "precise"
     assert result.nodes["ns.total"].precision == "precise"
     assert result.nodes["ns.total"].full.digest == (
-        "2528fbdd47571a3ca1a8e5bba4445ab6107244f2745056723d2747ba1530fb7f"
+        "47181291ab8708c4c9a67af045d50175f324c4ee737e6112754ac4401c7d8617"
     )
     assert {
         spec.rendered_name: structural.serialize_ast(spec.query_ast, version=1)

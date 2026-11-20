@@ -4,10 +4,13 @@ Models for deployment downstream impact analysis.
 
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_serializer
 
 from datajunction_server.models.node import NodeStatus, NodeType
-from datajunction_server.models.semantic_fingerprint import SemanticFingerprintValue
+from datajunction_server.models.semantic_fingerprint import (
+    SemanticFingerprintComparison,
+    SemanticFingerprintValue,
+)
 
 
 class ImpactType(str, Enum):
@@ -36,3 +39,11 @@ class DownstreamImpact(BaseModel):
     # still be rehydrated from JSON.
     owners: list[str] = Field(default_factory=list)
     semantic_fingerprint: SemanticFingerprintValue | None = None
+    semantic_comparison: SemanticFingerprintComparison | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_uncomputed_semantic_comparison(self, handler):
+        data = handler(self)
+        if isinstance(data, dict) and self.semantic_comparison is None:
+            data.pop("semantic_comparison", None)
+        return data

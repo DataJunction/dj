@@ -2,10 +2,12 @@
 Downstream impact propagation for deployments.
 
 Structured in three phases:
-  Phase 1: BFS via SQL parent graph (NodeRelationship) — discovers all downstream nodes
-  Phase 2: BFS via dimension link graph (DimensionLink) — discovers additional affected nodes
+  Phase 1: BFS via SQL parent graph (NodeRelationship) discovers downstream nodes
+  Phase 2: BFS via dimension link graph (DimensionLink) discovers additional affected nodes
   Phase 3: Revalidate all downstream nodes using lightweight type inference
 """
+
+from __future__ import annotations
 
 import asyncio
 import logging
@@ -13,6 +15,7 @@ import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,18 +33,16 @@ from datajunction_server.database.user import User
 from datajunction_server.instrumentation.provider import get_metrics_provider
 from datajunction_server.internal.deployment.dimension_reachability import (
     DimensionReachability,
-)
-from datajunction_server.internal.deployment.dimension_reachability import (
     reachable_dimensions_by_node,
-)
-from datajunction_server.internal.deployment.utils import (
-    extract_dimension_attribute_nodes,
-    extract_upstream_candidates,
 )
 from datajunction_server.internal.deployment.type_inference import (
     columns_signature_changed,
     parse_query,
     validate_node_query,
+)
+from datajunction_server.internal.deployment.utils import (
+    extract_dimension_attribute_nodes,
+    extract_upstream_candidates,
 )
 from datajunction_server.models.impact import DownstreamImpact, ImpactType
 from datajunction_server.models.node import NodeStatus
@@ -52,6 +53,9 @@ from datajunction_server.sql.parsing.types import ColumnType
 from datajunction_server.utils import SEPARATOR
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from datajunction_server.models.deployment import ColumnSpec
 
 
 @dataclass(frozen=True)
@@ -69,6 +73,11 @@ class ImpactPropagationResult:
     impacts: list[DownstreamImpact]
     # Non-metric queries already parsed here, reusable by the fingerprint pass.
     reusable_queries: dict[str, ReusableQuery] = field(default_factory=dict)
+    # Schemas from before and after downstream revalidation. The fingerprint pass
+    # needs both sides because revalidation updates the ORM columns in place.
+    current_columns: dict[str, list[ColumnSpec]] = field(default_factory=dict)
+    proposed_columns: dict[str, list[ColumnSpec]] = field(default_factory=dict)
+    unknown_proposed_columns: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -536,6 +545,13 @@ async def _revalidate_and_apply(
         if n.current and n.current.status == NodeStatus.INVALID
     }
 
+    current_columns = {
+        name: [column.to_spec() for column in node.current.columns or []]
+        for name in all_names
+        if (node := loaded_nodes.get(name)) is not None and node.current is not None
+    }
+    proposed_columns: dict[str, list[ColumnSpec]] = {}
+
     for depth in sorted(by_depth.keys()):
         for impact in by_depth[depth]:
             # Use pre-parsed AST if available (parsed in threadpool)
@@ -551,6 +567,7 @@ async def _revalidate_and_apply(
                 pre_parsed_query=parsed_ast,
                 dimension_nodes=dimension_nodes,
                 reachable_dimensions=reachable_dimensions,
+                proposed_columns=proposed_columns,
             )
             if revalidated.impact_type == ImpactType.WILL_INVALIDATE:
                 failed_names.add(impact.name)
@@ -576,7 +593,21 @@ async def _revalidate_and_apply(
         and node.type not in (NodeType.SOURCE, NodeType.METRIC)
     }
 
-    return ImpactPropagationResult(impacts=results, reusable_queries=reusable_queries)
+    return ImpactPropagationResult(
+        impacts=results,
+        reusable_queries=reusable_queries,
+        current_columns=current_columns,
+        proposed_columns=proposed_columns,
+        unknown_proposed_columns={
+            impact.name
+            for impact in impacts
+            if (node := loaded_nodes.get(impact.name)) is not None
+            and node.current is not None
+            and node.type != NodeType.SOURCE
+            and node.current.query
+            and impact.name not in proposed_columns
+        },
+    )
 
 
 async def _check_cube_dimension_reachability(
@@ -806,6 +837,7 @@ def _revalidate_single_node(
     pre_parsed_query: ast.Query | None = None,
     dimension_nodes: dict[str, Node] | None = None,
     reachable_dimensions: dict[str, set[str]] | None = None,
+    proposed_columns: dict[str, list[ColumnSpec]] | None = None,
 ) -> DownstreamImpact:
     """Revalidate a single downstream node using validate_node_query.
 
@@ -858,11 +890,19 @@ def _revalidate_single_node(
                     col.name: col.type for col in referenced.current.columns
                 }
 
+    validation_ast = pre_parsed_query
+    if node.type == NodeType.METRIC:
+        validation_ast = NodeRevision.metric_alias_ast(
+            query,
+            node.name,
+            pre_parsed=pre_parsed_query,
+        )
+
     # Validate the query and resolve output columns
     validation = validate_node_query(
         query,
         parent_columns_map,
-        pre_parsed=pre_parsed_query,
+        pre_parsed=validation_ast,
     )
 
     if validation.errors:
@@ -889,6 +929,13 @@ def _revalidate_single_node(
         )
 
     new_columns = validation.output_columns
+    if proposed_columns is not None:
+        from datajunction_server.models.deployment import ColumnSpec
+
+        proposed_columns[impact.name] = [
+            ColumnSpec(name=name, type=str(column_type))
+            for name, column_type in new_columns
+        ]
 
     # Compare old columns with new
     old_columns = [(col.name, col.type) for col in (node.current.columns or [])]

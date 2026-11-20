@@ -173,7 +173,6 @@ def test_ast_canonicalizes_aliases_and_comments():
     [
         "SELECT * FROM ns.source",
         "SELECT amount FROM ns.source JOIN ns.source other ON ns.source.amount = other.amount",
-        "WITH rows AS (SELECT amount FROM ns.source) SELECT amount FROM rows",
         "SELECT amount FROM ns.source GROUP BY 1",
         "SELECT APPROX_PERCENTILE(amount, ARRAY(0.5, 0.9)) FROM ns.source",
         "SELECT APPROX_PERCENTILE(amount, unknown_udf(0.5)) FROM ns.source",

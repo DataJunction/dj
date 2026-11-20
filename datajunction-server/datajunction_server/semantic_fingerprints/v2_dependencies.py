@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from functools import lru_cache
-from typing import Any
+from typing import Any, Literal
 
 from datajunction_server.models.deployment import (
     ColumnSpec,
@@ -120,6 +120,8 @@ _LOSSY_CLAUSES = ("TABLESAMPLE", "TRY_CAST", "FILTER", "NULLS", "TRIM")
 _LOSSY_TOKENS = frozenset(
     getattr(SqlBaseParser, clause) for clause in _LOSSY_CLAUSES if clause != "TRIM"
 )
+_MAX_CTE_EXPANDED_NODES = 4096
+_MAX_CTE_COUNT = 32
 _DimensionLink = DimensionJoinLinkSpec | DimensionReferenceLinkSpec
 _JoinColumnCache = dict[
     tuple[str, str, str, str],
@@ -142,11 +144,21 @@ class _Unsupported(ValueError):
 
 
 @dataclass(frozen=True)
+class _BoundOutput:
+    expression: object
+    dependencies: tuple[tuple[str, ComponentKey], ...]
+    expansion_cost: int
+
+
+@dataclass(frozen=True)
 class _BoundInput:
     provider: str
     schema: Mapping[str, ColumnSpec]
     aliases: frozenset[str]
     is_source: bool
+    output_bindings: Mapping[str, _BoundOutput] | None = None
+    row_dependencies: tuple[tuple[str, ComponentKey], ...] = ()
+    row_semantics: object | None = None
 
 
 @dataclass(frozen=True)
@@ -160,6 +172,7 @@ class _BoundSource:
     joins: tuple[dict[str, object], ...] = ()
     join_dependencies: tuple[tuple[str, ComponentKey], ...] = ()
     context_columns: Mapping[str, ComponentKey] | None = None
+    expansion_tracker: list[int] | None = None
 
     @property
     def providers(self) -> tuple[_BoundInput, ...]:
@@ -174,7 +187,7 @@ class _BoundSource:
 
     @property
     def is_joined(self) -> bool:
-        return bool(self.inputs)
+        return len(self.inputs) > 1
 
 
 def _column_contract(column: ColumnSpec) -> dict[str, object]:
@@ -657,7 +670,54 @@ def _opaque_sql_references(
 
 
 def _numeric_literals(query: ast.Query, text: str) -> dict[int, str]:
-    numbers = list(query.find_all(ast.Number))
+    def ordered_numbers(node: object) -> Iterable[ast.Number]:
+        if isinstance(node, ast.Query):
+            for cte in node.ctes or ():
+                yield from ordered_numbers(cte)
+            yield from ordered_numbers(node.select)
+            return
+        if isinstance(node, ast.Select):
+            for value in (
+                node.projection,
+                node.from_,
+                node.where,
+                node.group_by,
+                node.having,
+                node.lateral_views,
+                node.set_op,
+                node.limit,
+                node.offset,
+                node.organization,
+                node.hints,
+            ):
+                yield from ordered_numbers(value)
+            return
+        if isinstance(node, ast.Number):
+            yield node
+            return
+        if isinstance(node, ast.Node):
+            for _, value in node.fields(
+                flat=False,
+                nodes_only=False,
+                obfuscated=False,
+                nones=False,
+                named=True,
+            ):
+                yield from ordered_numbers(value)
+            return
+        if isinstance(node, (list, tuple)):
+            for value in node:
+                yield from ordered_numbers(value)
+
+    if (
+        not query.ctes
+        and isinstance(query.select, ast.Select)
+        and not query.select.group_by
+        and query.select.having is None
+    ):
+        numbers = list(query.find_all(ast.Number))
+    else:
+        numbers = list(ordered_numbers(query))
     if not numbers:
         return {}
     literals = []
@@ -1294,39 +1354,327 @@ def _metric_context_references(spec: NodeSpec) -> tuple[str, ...]:
     return tuple(sorted(references))
 
 
-def _calculation_definition(
+def _node_result_definition(
     name: str,
     spec: NodeSpec,
     output_names: tuple[str, ...],
-    rows: ComponentKey,
     columns: tuple[ColumnSpec, ...],
+    *,
+    kind: Literal["full", "calculation"] = "full",
 ) -> ComponentDefinition:
     dependencies = [
-        ("rows", rows),
+        ("rows", ComponentKey(name, "rows")),
         *(
             (f"output:{index}:{output}", ComponentKey(name, "output", output))
             for index, output in enumerate(output_names)
         ),
     ]
+    schema: dict[str, ColumnSpec] = {}
+    for column in columns:
+        schema.setdefault(column.name, column)
     contract_columns = columns if isinstance(spec, SourceSpec) else None
     return _definition(
-        ComponentKey(name, "calculation"),
+        ComponentKey(name, kind),
         {
             "node": _node_contract(
                 spec,
                 contract_columns,
-                include_dimension_links=False,
+                include_dimension_links=kind == "full",
             ),
             "output_layout": [
-                _output_column_contract(
-                    output,
-                    next((column for column in columns if column.name == output), None),
-                )
+                _output_column_contract(output, schema.get(output))
                 for output in output_names
             ],
         },
         dependencies,
     )
+
+
+def _bind_row_semantics(
+    select: ast.Select,
+    source: _BoundSource,
+) -> tuple[dict[tuple[str, str, str, str], tuple[str, ComponentKey]], dict]:
+    """Bind clauses that determine which grouped or ungrouped rows exist."""
+    dependencies: dict[
+        tuple[str, str, str, str],
+        tuple[str, ComponentKey],
+    ] = {}
+
+    def add(label: str, key: ComponentKey) -> None:
+        dependencies[(label, key.node, key.kind, key.field)] = (label, key)
+
+    for index, provider in enumerate(source.providers):
+        if provider.row_semantics is not None:
+            for label, key in provider.row_dependencies:
+                add(f"input:{index}:{label}", key)
+        else:
+            label = (
+                "source_rows"
+                if not source.is_joined
+                else f"source_rows:{provider.provider}"
+            )
+            add(label, ComponentKey(provider.provider, "rows"))
+    for label, key in source.join_dependencies:
+        add(label, key)
+
+    where_shape = None
+    if select.where is not None:
+        where_shape, where_dependencies, where_aggregate = _bind_expression(
+            select.where,
+            source,
+        )
+        if where_aggregate:
+            raise _Unsupported("unsupported_where_aggregate")
+        for label, key in where_dependencies:
+            add(f"where:{label}", key)
+
+    group_by_shapes = []
+    for expression in select.group_by or ():
+        if isinstance(expression, (ast.Number, ast.Wildcard)):
+            raise _Unsupported("unsupported_group_by")
+        shape, group_dependencies, aggregate = _bind_expression(expression, source)
+        if aggregate:
+            raise _Unsupported("unsupported_group_by")
+        group_by_shapes.append(shape)
+        for label, key in group_dependencies:
+            add(f"group:{label}", key)
+    group_by_shapes = sorted(
+        {canonical_json(shape): shape for shape in group_by_shapes}.values(),
+        key=canonical_json,
+    )
+
+    having_shape = None
+    if select.having is not None:
+        having_shape, having_dependencies, _ = _bind_expression(
+            select.having,
+            source,
+        )
+        for label, key in having_dependencies:
+            add(f"having:{label}", key)
+
+    inherited_rows = [
+        provider.row_semantics
+        for provider in source.providers
+        if provider.row_semantics is not None
+    ]
+    row_semantics: dict[str, object]
+    if source.is_joined:
+        row_semantics = {
+            "sources": [provider.provider for provider in source.providers],
+            "joins": list(source.joins),
+        }
+    else:
+        row_semantics = {
+            "source": ("cte_input" if inherited_rows else source.provider),
+        }
+    if inherited_rows:
+        row_semantics["inputs"] = inherited_rows
+    row_semantics.update(
+        {
+            "where": where_shape,
+            "group_by": group_by_shapes,
+            "having": having_shape,
+            "grain": (
+                "grouped_rows"
+                if group_by_shapes
+                else "global_aggregate"
+                if select.having is not None
+                else "source_rows"
+            ),
+        },
+    )
+    return dependencies, row_semantics
+
+
+def _compile_pass_through_ctes(
+    query: ast.Query,
+    specs: Mapping[str, NodeSpec],
+    snapshot: SemanticGraphSnapshot,
+    schemas: dict[str, tuple[ColumnSpec, ...]],
+    numeric_literals: Mapping[int, str],
+    expansion_tracker: list[int],
+) -> dict[str, _BoundInput]:
+    """Bind simple, ordered CTEs to their source outputs and row contracts."""
+    ctes = list(query.ctes or ())
+    if not ctes:
+        return {}
+    if len(ctes) > _MAX_CTE_COUNT:
+        raise _Unsupported("cte_count_limit")
+    declarations: list[tuple[ast.Query, str]] = []
+    for cte in ctes:
+        alias = cte.alias
+        if alias is None or alias.quote_style:
+            raise _Unsupported("unsupported_cte_declaration")
+        declarations.append((cte, alias.name.casefold()))
+    names = [name for _, name in declarations]
+    if len(set(names)) != len(names):
+        raise _Unsupported("unsupported_cte_declaration")
+
+    bindings: dict[str, _BoundInput] = {}
+    all_names = set(names)
+    for cte, cte_name in declarations:
+        if (
+            getattr(query, "recursive", False)
+            or cte.column_list
+            or cte.ctes
+            or not isinstance(cte.select, ast.Select)
+        ):
+            raise _Unsupported("unsupported_cte_shape")
+        select = cte.select
+        if (
+            select.quantifier
+            or select.group_by
+            or select.having
+            or select.lateral_views
+            or select.set_op
+            or select.limit
+            or select.offset
+            or select.hints
+            or (
+                select.organization
+                and (select.organization.order or select.organization.sort)
+            )
+            or any(
+                isinstance(expression, ast.Wildcard) for expression in select.projection
+            )
+        ):
+            raise _Unsupported("unsupported_cte_shape")
+        if select.from_ is None or len(select.from_.relations) != 1:
+            raise _Unsupported("unsupported_cte_source")
+        if any(
+            column.name.quote_style
+            or any(part.quote_style for part in column.namespace or ())
+            for column in select.find_all(ast.Column)
+        ):
+            raise _Unsupported("unsupported_cte_identifier")
+        relation = select.from_.relations[0]
+        if not isinstance(relation.primary, ast.Table) or relation.extensions:
+            raise _Unsupported("unsupported_cte_source")
+        reference = relation.primary.identifier(quotes=False)
+        if (
+            "." not in reference
+            and reference.casefold() in all_names
+            and reference.casefold() not in bindings
+        ):
+            raise _Unsupported("unsupported_cte_reference")
+        if "." not in reference and reference.casefold() in all_names:
+            if (
+                relation.primary.name.quote_style
+                or any(part.quote_style for part in relation.primary.namespace or ())
+                or (
+                    relation.primary.alias is not None
+                    and relation.primary.alias.quote_style
+                )
+            ):
+                raise _Unsupported("unsupported_cte_identifier")
+        source = _bind_source(
+            cte,
+            specs,
+            snapshot,
+            schemas,
+            numeric_literals,
+            bindings,
+            expansion_tracker if bindings else None,
+        )
+        output_names_list: list[str] = []
+        for index, projection in enumerate(select.projection):
+            expression = (
+                projection.child if isinstance(projection, ast.Alias) else projection
+            )
+            if isinstance(projection, (ast.Alias, ast.Column)):
+                output_alias = projection.alias
+            else:
+                output_alias = None
+            if output_alias is not None:
+                if output_alias.quote_style:
+                    raise _Unsupported("unsupported_cte_identifier")
+                output_names_list.append(output_alias.name)
+            elif isinstance(expression, ast.Column):
+                output_names_list.append(expression.name.name)
+            else:
+                raise _Unsupported("unsupported_cte_output_name")
+        output_names = tuple(output_names_list)
+        if (
+            not output_names
+            or len(output_names) != len(select.projection)
+            or len({output.casefold() for output in output_names}) != len(output_names)
+        ):
+            raise _Unsupported("unsupported_cte_outputs")
+
+        row_dependencies, row_semantics = _bind_row_semantics(select, source)
+        output_bindings = {}
+        output_schema = {}
+        for output_name, projection in zip(output_names, select.projection):
+            expression = (
+                projection.child if isinstance(projection, ast.Alias) else projection
+            )
+            expansion_cost = _cte_expression_expansion_cost(expression, source)
+            expression_shape, output_dependencies, aggregate = _bind_expression(
+                expression,
+                source,
+            )
+            if aggregate:
+                raise _Unsupported("unsupported_cte_aggregate")
+            output_bindings[output_name.casefold()] = _BoundOutput(
+                expression=expression_shape,
+                dependencies=tuple(output_dependencies),
+                expansion_cost=expansion_cost,
+            )
+            output_type = None
+            if isinstance(expression, ast.Column):
+                input_name = expression.name.name
+                input_column = next(
+                    (
+                        column
+                        for column in source.schema.values()
+                        if column.name.casefold() == input_name.casefold()
+                    ),
+                    None,
+                )
+                output_type = input_column.type if input_column else None
+            output_schema[output_name] = ColumnSpec(name=output_name, type=output_type)
+
+        prefixed_row_dependencies = tuple(
+            (f"cte:{label}", key) for label, key in row_dependencies.values()
+        )
+        bindings[cte_name] = _BoundInput(
+            provider="__inline_cte__",
+            schema=output_schema,
+            aliases=frozenset({cte_name}),
+            is_source=False,
+            output_bindings=output_bindings,
+            row_dependencies=prefixed_row_dependencies,
+            row_semantics=row_semantics,
+        )
+    return bindings
+
+
+def _cte_expression_expansion_cost(
+    expression: ast.Node,
+    source: _BoundSource,
+    tracker: list[int] | None = None,
+) -> int:
+    cost = 0
+    input_relation = source.providers[0]
+    outputs = input_relation.output_bindings
+    aliases = {alias.casefold() for alias in source.aliases}
+    for node in expression.flatten():
+        cost += 1
+        if not isinstance(node, ast.Column) or outputs is None:
+            continue
+        qualifier = ".".join(part.name for part in node.namespace or ())
+        if qualifier and qualifier.casefold() not in aliases:
+            continue
+        output = outputs.get(node.name.name.casefold())
+        if output is not None:
+            cost += output.expansion_cost - 1
+        if cost > _MAX_CTE_EXPANDED_NODES:
+            raise _Unsupported("cte_expansion_limit")
+    if tracker is not None:
+        tracker[0] += cost
+        if tracker[0] > _MAX_CTE_EXPANDED_NODES:
+            raise _Unsupported("cte_expansion_limit")
+    return cost
 
 
 def _opaque_query_tokens(text: str) -> list[str]:
@@ -1505,14 +1853,18 @@ def _bind_source(
     snapshot: SemanticGraphSnapshot,
     schemas: dict[str, tuple[ColumnSpec, ...]],
     numeric_literals: Mapping[int, str],
+    cte_bindings: Mapping[str, _BoundInput] | None = None,
+    expansion_tracker: list[int] | None = None,
 ) -> _BoundSource:
-    if query.ctes or not isinstance(query.select, ast.Select):
+    if not isinstance(query.select, ast.Select):
         raise _Unsupported("unsupported_query_shape")
     from_clause = query.select.from_
     if from_clause is None or len(from_clause.relations) != 1:
         raise _Unsupported("unsupported_from_expression")
     relation = from_clause.relations[0]
     if relation.extensions:
+        if query.ctes or cte_bindings:
+            raise _Unsupported("unsupported_cte_join")
         return _bind_join_source(query, specs, snapshot, schemas, numeric_literals)
     table = relation.primary
     if not isinstance(table, ast.Table):
@@ -1520,6 +1872,29 @@ def _bind_source(
     if table.column_list or table.path or table.dimension_link:
         raise _Unsupported("unsupported_table_modifier")
     reference = table.identifier(quotes=False)
+    cte = (
+        (cte_bindings or {}).get(reference.casefold()) if "." not in reference else None
+    )
+    if cte is not None:
+        if (
+            table.name.quote_style
+            or any(part.quote_style for part in table.namespace or ())
+            or (table.alias is not None and table.alias.quote_style)
+        ):
+            raise _Unsupported("unsupported_cte_identifier")
+        aliases = {table.name.name, reference, cte.provider}
+        if table.alias is not None:
+            aliases.add(table.alias.name)
+        binding = replace(cte, aliases=frozenset(alias.casefold() for alias in aliases))
+        return _BoundSource(
+            binding.provider,
+            binding.schema,
+            binding.aliases,
+            False,
+            numeric_literals,
+            (binding,),
+            expansion_tracker=expansion_tracker,
+        )
     provider = _resolve_node_name(reference, specs)
     if provider is None:
         raise _Unsupported("unresolved_source")
@@ -1533,6 +1908,7 @@ def _bind_source(
         frozenset(aliases),
         isinstance(specs[provider], SourceSpec),
         numeric_literals,
+        expansion_tracker=expansion_tracker,
     )
 
 
@@ -1542,10 +1918,19 @@ def _bind_expression(
     *,
     allow_unknown_functions: bool = False,
 ) -> tuple[object, list[tuple[str, ComponentKey]], bool]:
+    if source.expansion_tracker is not None and any(
+        provider.output_bindings is not None for provider in source.providers
+    ):
+        _cte_expression_expansion_cost(
+            expression,
+            source,
+            source.expansion_tracker,
+        )
     dependencies: dict[str, ComponentKey] = {}
     aggregate = False
     numeric_literals = []
     bound_columns: dict[str, tuple[str, str]] = {}
+    inline_columns: dict[str, object] = {}
     joined = source.is_joined
     source_aliases = {alias.casefold() for alias in source.aliases}
     for node in expression.flatten():
@@ -1575,10 +1960,32 @@ def _bind_expression(
                 node.identifier(quotes=False).casefold(),
             )
             if context_key is not None and not node.role and not node.dimension_ref:
-                dependencies[node.identifier(quotes=False)] = context_key
+                dependencies[f"dimension:{context_key.node}.{context_key.field}"] = (
+                    context_key
+                )
+                bound_columns[node.identifier(quotes=False).casefold()] = (
+                    context_key.node,
+                    context_key.field,
+                )
                 continue
             if joined:
                 provider, path, has_type = _resolve_join_column(node, source)
+                if provider.output_bindings is not None:
+                    if len(path) != 1:
+                        raise _Unsupported("unsupported_cte_column_path")
+                    if node.name.quote_style or any(
+                        part.quote_style for part in node.namespace or ()
+                    ):
+                        raise _Unsupported("unsupported_cte_identifier")
+                    output = provider.output_bindings.get(path[0].casefold())
+                    if output is None:
+                        raise _Unsupported("resolved_column_schema_missing")
+                    reference = node.identifier(quotes=False).casefold()
+                    inline_columns[reference] = output.expression
+                    dependencies.update(
+                        {f"cte:{label}": key for label, key in output.dependencies},
+                    )
+                    continue
                 if provider.is_source and not has_type:
                     raise _Unsupported("source_column_type_unavailable")
                 column_key = ComponentKey(
@@ -1630,11 +2037,45 @@ def _bind_expression(
             if qualifier and qualifier not in source.aliases:
                 raise _Unsupported("unresolved_or_ambiguous_column")
             name = node.name.name
-            if name not in source.schema:
+            matched_name = (
+                name
+                if name in source.schema
+                else next(
+                    (
+                        column_name
+                        for column_name in source.schema
+                        if column_name.casefold() == name.casefold()
+                    ),
+                    None,
+                )
+            )
+            if matched_name is None:
                 raise _Unsupported("resolved_column_schema_missing")
-            if source.is_source and _parsed_type(source.schema[name].type) is None:
+            input_relation = source.providers[0]
+            if input_relation.output_bindings is not None:
+                if node.name.quote_style or any(
+                    part.quote_style for part in node.namespace or ()
+                ):
+                    raise _Unsupported("unsupported_cte_identifier")
+                output = input_relation.output_bindings.get(matched_name.casefold())
+                if output is None:
+                    raise _Unsupported("resolved_column_schema_missing")
+                reference = node.identifier(quotes=False).casefold()
+                inline_columns[reference] = output.expression
+                dependencies.update(
+                    {f"cte:{label}": key for label, key in output.dependencies},
+                )
+                continue
+            if (
+                input_relation.is_source
+                and _parsed_type(source.schema[matched_name].type) is None
+            ):
                 raise _Unsupported("source_column_type_unavailable")
-            dependencies[name] = ComponentKey(source.provider, "output", name)
+            dependencies[matched_name] = ComponentKey(
+                input_relation.provider,
+                "output",
+                matched_name,
+            )
 
     def canonicalize(value: Any) -> Any:
         if isinstance(value, list):
@@ -1653,7 +2094,11 @@ def _bind_expression(
             fields.pop(field, None)
         if value["type"] == "Column":
             parts = _serialized_column_parts(value)
-            identity = bound_columns.get(".".join(parts).casefold())
+            reference = ".".join(parts).casefold()
+            inline = inline_columns.get(reference)
+            if inline is not None:
+                return {"inline_expression": inline}
+            identity = bound_columns.get(reference)
             if joined and identity is None:
                 raise _Unsupported("unresolved_or_ambiguous_column")
             if identity is not None:
@@ -1793,32 +2238,14 @@ def _source_definitions(
                 unavailable=parsed_type is None,
             ),
         )
+    definitions.append(_node_result_definition(name, spec, names, columns))
     definitions.append(
-        _definition(
-            ComponentKey(name, "full"),
-            {
-                "node": _node_contract(spec, columns),
-                "output_layout": [
-                    _output_column_contract(output, schema.get(output))
-                    for output in names
-                ],
-            },
-            [
-                ("rows", ComponentKey(name, "rows")),
-                *(
-                    (f"output:{index}:{output}", ComponentKey(name, "output", output))
-                    for index, output in enumerate(names)
-                ),
-            ],
-        ),
-    )
-    definitions.append(
-        _calculation_definition(
+        _node_result_definition(
             name,
             spec,
             names,
-            ComponentKey(name, "rows"),
             columns,
+            kind="calculation",
         ),
     )
     return definitions
@@ -1958,12 +2385,12 @@ def _opaque_definitions(
         ),
     )
     definitions.append(
-        _calculation_definition(
+        _node_result_definition(
             name,
             spec,
             output_names,
-            ComponentKey(name, "rows"),
             columns,
+            kind="calculation",
         ),
     )
     return definitions
@@ -1995,8 +2422,6 @@ def _query_definitions(
             getattr(select, field)
             for field in (
                 "quantifier",
-                "group_by",
-                "having",
                 "lateral_views",
                 "set_op",
                 "limit",
@@ -2010,16 +2435,28 @@ def _query_definitions(
         )
     ):
         raise _Unsupported("unsupported_query_shape")
+    numeric_literals = _numeric_literals(query, spec.rendered_query or "")
+    expansion_tracker = [0]
+    cte_bindings = _compile_pass_through_ctes(
+        query,
+        specs,
+        snapshot,
+        schemas,
+        numeric_literals,
+        expansion_tracker,
+    )
     source = _bind_source(
         query,
         specs,
         snapshot,
         schemas,
-        _numeric_literals(query, spec.rendered_query or ""),
+        numeric_literals,
+        cte_bindings,
+        expansion_tracker if cte_bindings else None,
     )
     implicit_links, implicit_dependencies = [], []
     if isinstance(spec, MetricSpec):
-        context_columns = {}
+        context_columns: dict[str, ComponentKey] = {}
         for column in query.find_all(ast.Column):
             namespace = ".".join(part.name for part in column.namespace or ())
             if (
@@ -2030,13 +2467,20 @@ def _query_definitions(
                 )
                 and isinstance(specs.get(namespace), DimensionSpec)
             ):
-                context_columns[column.identifier(quotes=False).casefold()] = (
-                    ComponentKey(
-                        namespace,
-                        "output",
-                        column.name.name,
-                    )
+                if column.name.quote_style or any(
+                    part.quote_style for part in column.namespace or ()
+                ):
+                    raise _Unsupported("unsupported_implicit_dimension_identifier")
+                reference = column.identifier(quotes=False).casefold()
+                component = ComponentKey(
+                    namespace,
+                    "output",
+                    column.name.name,
                 )
+                existing = context_columns.get(reference)
+                if existing is not None and existing != component:
+                    raise _Unsupported("ambiguous_implicit_dimension_reference")
+                context_columns[reference] = component
         if context_columns:
             source = replace(source, context_columns=context_columns)
             implicit_links, implicit_dependencies, unresolved = (
@@ -2062,31 +2506,11 @@ def _query_definitions(
         raise _Unsupported("duplicate_output_name")
 
     outputs = {output: ComponentKey(name, "output", output) for output in output_names}
-    where = select.where
-    row_dependencies: dict[tuple[str, str, str, str], tuple[str, ComponentKey]] = {}
+    row_dependencies, row_payload = _bind_row_semantics(select, source)
     for label, key in implicit_dependencies:
         row_dependencies[(label, key.node, key.kind, key.field)] = (label, key)
-    for input_relation in source.providers:
-        label = (
-            "source_rows"
-            if not source.is_joined
-            else f"source_rows:{input_relation.provider}"
-        )
-        row_dependencies[(label, input_relation.provider, "rows", "")] = (
-            label,
-            ComponentKey(input_relation.provider, "rows"),
-        )
-    for label, key in source.join_dependencies:
-        row_dependencies[(label, key.node, key.kind, key.field)] = (label, key)
-    where_shape = None
-    if where is not None:
-        where_shape, dependencies, where_aggregate = _bind_expression(where, source)
-        if source.is_joined and where_aggregate:
-            raise _Unsupported("unsupported_join_aggregate")
-        for label, key in dependencies:
-            row_dependencies[(label, key.node, key.kind, key.field)] = (label, key)
     input_rows = ComponentKey(name, "rows", "input")
-    aggregate_query = False
+    aggregate_query = bool(select.group_by) or select.having is not None
     output_definitions = []
     conservative_projections = []
     opaque = ComponentKey(name, "opaque")
@@ -2146,6 +2570,15 @@ def _query_definitions(
         raise _Unsupported("unsupported_join_aggregate")
     if conservative_projections and aggregate_query:
         raise _Unsupported("unsupported_function")
+    row_payload["grain"] = (
+        "grouped_rows"
+        if select.group_by
+        else "global_aggregate"
+        if aggregate_query
+        else "joined_rows"
+        if source.is_joined
+        else row_payload["grain"]
+    )
     opaque_definitions = []
     if conservative_projections:
         row_dependencies[("opaque_projection", name, "opaque", "")] = (
@@ -2162,27 +2595,13 @@ def _query_definitions(
             ),
         )
 
-    row_payload = (
-        {
-            "source": source.provider,
-            "where": where_shape,
-            "grain": "global_aggregate" if aggregate_query else "source_rows",
-        }
-        if not source.is_joined
-        else {
-            "sources": [provider.provider for provider in source.providers],
-            "joins": list(source.joins),
-            "where": where_shape,
-            "grain": "joined_rows",
-        }
-    )
     if implicit_links:
         row_payload["implicit_dimension_links"] = implicit_links
     definitions = [
         *opaque_definitions,
         _definition(
             input_rows,
-            {"where": where_shape},
+            row_payload,
             row_dependencies.values(),
             precision="conservative" if implicit_links else "precise",
             reasons=(
@@ -2197,39 +2616,18 @@ def _query_definitions(
             row_payload,
             [("input_rows", input_rows)],
         ),
-        _definition(
-            ComponentKey(name, "full"),
-            {
-                "node": _node_contract(spec),
-                "output_layout": [
-                    _output_column_contract(
-                        output,
-                        next(
-                            (
-                                column
-                                for column in _declared_columns(spec)
-                                if column.name == output
-                            ),
-                            None,
-                        ),
-                    )
-                    for output in output_names
-                ],
-            },
-            [
-                ("rows", ComponentKey(name, "rows")),
-                *(
-                    (f"output:{index}:{output}", outputs[output])
-                    for index, output in enumerate(output_names)
-                ),
-            ],
-        ),
-        _calculation_definition(
+        _node_result_definition(
             name,
             spec,
             output_names,
-            ComponentKey(name, "rows"),
+            _declared_columns(spec),
+        ),
+        _node_result_definition(
+            name,
+            spec,
+            output_names,
             schemas[name],
+            kind="calculation",
         ),
     ]
     return definitions
@@ -2275,76 +2673,46 @@ def build_component_definitions(
     join_column_cache: _JoinColumnCache = {}
     for name, spec in specs.items():
         names = output_names[name]
-        if name in reasons_by_node:
+        reason = reasons_by_node[name][0] if name in reasons_by_node else None
+        if reason is None:
+            if isinstance(spec, SourceSpec):
+                node_definitions = _source_definitions(name, spec, snapshot, names)
+            elif isinstance(spec, CubeSpec):
+                reason = "cube_dependency_context_unsupported"
+            else:
+                try:
+                    node_definitions = _query_definitions(
+                        name,
+                        spec,
+                        snapshot,
+                        specs,
+                        names,
+                        schemas,
+                        relation_cache,
+                        ancestry_cache,
+                        join_column_cache,
+                    )
+                except (DJParseException, TypeError, ValueError) as exc:
+                    reason = (
+                        exc.reason
+                        if isinstance(exc, _Unsupported)
+                        else "query_parse_failure"
+                        if isinstance(exc, DJParseException)
+                        else "unsupported_query_shape"
+                    )
+                    reasons_by_node[name] = (reason,)
+        if reason is not None:
             node_definitions = _opaque_definitions(
                 name,
                 spec,
                 names,
                 specs,
-                reasons_by_node[name][0],
+                reason,
                 snapshot,
                 schemas,
                 relation_cache,
                 ancestry_cache,
             )
-        elif isinstance(spec, SourceSpec):
-            node_definitions = _source_definitions(name, spec, snapshot, names)
-        elif isinstance(spec, CubeSpec):
-            node_definitions = _opaque_definitions(
-                name,
-                spec,
-                names,
-                specs,
-                "cube_dependency_context_unsupported",
-                snapshot,
-                schemas,
-                relation_cache,
-                ancestry_cache,
-            )
-        else:
-            try:
-                node_definitions = _query_definitions(
-                    name,
-                    spec,
-                    snapshot,
-                    specs,
-                    names,
-                    schemas,
-                    relation_cache,
-                    ancestry_cache,
-                    join_column_cache,
-                )
-            except _Unsupported as exc:
-                reasons_by_node[name] = (exc.reason,)
-                node_definitions = _opaque_definitions(
-                    name,
-                    spec,
-                    names,
-                    specs,
-                    exc.reason,
-                    snapshot,
-                    schemas,
-                    relation_cache,
-                    ancestry_cache,
-                )
-            except (DJParseException, TypeError, ValueError) as exc:
-                reason = (
-                    "query_parse_failure"
-                    if isinstance(exc, DJParseException)
-                    else "unsupported_query_shape"
-                )
-                reasons_by_node[name] = (reason,)
-                node_definitions = _opaque_definitions(
-                    name,
-                    spec,
-                    names,
-                    specs,
-                    reason,
-                    snapshot,
-                    schemas,
-                    relation_cache,
-                    ancestry_cache,
-                )
         for definition in node_definitions:
             definitions[definition.key.token] = definition
     return definitions, output_names, reasons_by_node

@@ -155,7 +155,7 @@ def test_default_graph_fingerprints_match_v1_golden_values():
 @pytest.mark.asyncio
 async def test_default_deployment_fingerprints_remain_v1():
     specs = _compatibility_specs()
-    _, proposed = await build_deployment_fingerprints(
+    result = await build_deployment_fingerprints(
         object(),
         {},
         specs,
@@ -164,13 +164,14 @@ async def test_default_deployment_fingerprints_remain_v1():
 
     assert {
         name: fingerprint.digest
-        for name, fingerprint in proposed.items()
+        for name, fingerprint in result.proposed.items()
         if isinstance(fingerprint, SemanticFingerprint)
     } == _EXPECTED_DIGESTS
     assert all(
         isinstance(fingerprint, SemanticFingerprint) and fingerprint.version == 1
-        for fingerprint in proposed.values()
+        for fingerprint in result.proposed.values()
     )
+    assert result.comparisons == {}
 
 
 def test_deployment_result_serializes_the_default_fingerprint_as_v1():

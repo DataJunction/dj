@@ -105,6 +105,7 @@ if TYPE_CHECKING:
     from datajunction_server.database.dimensionlink import DimensionLink
     from datajunction_server.database.measure import FrozenMeasure
     from datajunction_server.database.namespace import NodeNamespace
+    from datajunction_server.sql.parsing.ast import Query
 
 
 _logger = logging.getLogger(__name__)
@@ -2172,7 +2173,12 @@ class NodeRevision(
         )
 
     @staticmethod
-    def metric_alias_ast(query: str, name: str):
+    def metric_alias_ast(
+        query: str,
+        name: str,
+        *,
+        pre_parsed: Query | None = None,
+    ) -> Query:
         """
         Parse a metric query and reassign its projection alias to the
         node's name. Callers that only need the AST (not re-serialized
@@ -2181,7 +2187,7 @@ class NodeRevision(
         from datajunction_server.sql.parsing import ast
         from datajunction_server.sql.parsing.backends.antlr4 import parse
 
-        tree = parse(query)
+        tree = pre_parsed.copy() if pre_parsed is not None else parse(query)
         projection_0 = tree.select.projection[0]
         tree.select.projection[0] = projection_0.set_alias(
             ast.Name(amenable_name(name)),

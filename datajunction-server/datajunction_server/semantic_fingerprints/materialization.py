@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping
 
 from pydantic import ValidationError
 
@@ -113,14 +113,6 @@ class MaterializationFingerprint:
         if storage is None or not _current_storage_contract(storage):
             return None
         return cls(semantic=semantic, storage=storage)
-
-
-@dataclass(frozen=True)
-class MaterializationReuseDecision:
-    """Whether saved cube data can be used for a new semantic result."""
-
-    reusable: bool
-    reason: str
 
 
 def _is_sha256_digest(value: object) -> bool:
@@ -343,33 +335,3 @@ def materialization_artifact_matches(
             return False
         data_sources.append(data_source)
     return len(set(data_sources)) == 1 and data_sources[0] == table
-
-
-def decide_materialization_reuse(
-    old: MaterializationFingerprint | None,
-    new: MaterializationFingerprint | None,
-    *,
-    available: bool,
-    fresh: bool,
-    execution_compatible: bool,
-) -> MaterializationReuseDecision:
-    """Fail closed unless semantics, stored layout and freshness all match."""
-    if old is None or new is None:
-        return MaterializationReuseDecision(False, "fingerprint_unknown")
-    if old.semantic.version != 2 or new.semantic.version != 2:
-        return MaterializationReuseDecision(False, "semantic_unknown")
-    if not _current_storage_contract(old.storage) or not _current_storage_contract(
-        new.storage,
-    ):
-        return MaterializationReuseDecision(False, "storage_unknown")
-    if old.semantic.digest != new.semantic.digest:
-        return MaterializationReuseDecision(False, "semantic_changed")
-    if old.storage.digest != new.storage.digest:
-        return MaterializationReuseDecision(False, "storage_changed")
-    if not available:
-        return MaterializationReuseDecision(False, "unavailable")
-    if not fresh:
-        return MaterializationReuseDecision(False, "stale")
-    if not execution_compatible:
-        return MaterializationReuseDecision(False, "execution_unknown")
-    return MaterializationReuseDecision(True, "compatible")

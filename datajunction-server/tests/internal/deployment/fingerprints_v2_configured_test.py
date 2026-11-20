@@ -9,9 +9,7 @@ from datajunction_server.models.deployment import (
     ColumnSpec,
     CubeSpec,
     DimensionJoinLinkSpec,
-    DimensionSpec,
     MetricSpec,
-    SourceSpec,
     TransformSpec,
 )
 from datajunction_server.models.filter_requirements import FilterRequirement
@@ -26,71 +24,9 @@ from datajunction_server.semantic_fingerprints.v2_configured import (
     compute_configured_v2_fingerprints,
 )
 from datajunction_server.sql.parsing import ast
-
-
-def specs(*, opaque_fact=False):
-    fact = SourceSpec(
-        name="ns.fact",
-        catalog="warehouse",
-        schema_="sales",
-        table="fact",
-        columns=[
-            ColumnSpec(name="amount", type="double"),
-            ColumnSpec(name="debug", type="bigint"),
-            ColumnSpec(name="country_id", type="bigint"),
-            ColumnSpec(name="region_id", type="bigint"),
-        ],
-        dimension_links=[
-            DimensionJoinLinkSpec(
-                dimension_node="ns.country",
-                join_on="ns.fact.country_id = ns.country.id",
-            ),
-        ],
-    )
-    lookup = SourceSpec(
-        name="ns.lookup",
-        catalog="warehouse",
-        schema_="sales",
-        table="lookup",
-        columns=[
-            ColumnSpec(name="id", type="bigint"),
-            ColumnSpec(name="name", type="string"),
-        ],
-    )
-    country = DimensionSpec(
-        name="ns.country",
-        query="SELECT id, name FROM ns.lookup",
-        columns=lookup.columns,
-        primary_key=["id"],
-    )
-    region = country.model_copy(update={"name": "ns.region"})
-    metric = MetricSpec(
-        name="ns.total",
-        query="SELECT SUM(amount) FROM ns.fact",
-    )
-    cube = CubeSpec(
-        name="ns.by_country",
-        metrics=["ns.total"],
-        dimensions=["ns.country.name"],
-    )
-    nodes = {
-        item.rendered_name: item
-        for item in (fact, lookup, country, region, metric, cube)
-    }
-    if opaque_fact:
-        nodes["ns.fact_rows"] = fact.model_copy(
-            update={"name": "ns.fact_rows", "dimension_links": []},
-        )
-        nodes["ns.fact"] = TransformSpec(
-            name="ns.fact",
-            query=(
-                "SELECT unknown_udf(amount) AS amount, debug, country_id, region_id "
-                "FROM ns.fact_rows"
-            ),
-            columns=fact.columns,
-            dimension_links=fact.dimension_links,
-        )
-    return nodes
+from tests.internal.deployment.configured_fingerprint_specs import (
+    configured_graph_specs as specs,
+)
 
 
 def evaluate(nodes):

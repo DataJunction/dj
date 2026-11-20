@@ -2,8 +2,8 @@
 
 This package describes how a node's definition can affect query results. V2 aims
 to track changes to consumer values or population while ignoring presentation
-metadata and unused inputs. Materialization reuse also checks a separate
-planner-derived storage contract. Evaluation compares definitions and captured
+metadata and unused inputs. A separate planner-derived storage contract describes
+materialization compatibility. Evaluation compares definitions and captured
 schemas; it does not execute queries or detect new data arriving in a source table.
 
 This document describes the implemented behavior, including conservative cases
@@ -101,6 +101,7 @@ result is unchanged. They affect storage layout and materialization behavior.
 | Used input outputs | Retains the values and types read by each expression. |
 | Every input's rows | Retains population and multiplicity changes even when projected values are unchanged. |
 | `WHERE` and referenced outputs | Predicate changes, and changes to values used by predicates, can change the population. |
+| Grouping keys and `HAVING` | Simple single-source grouped queries retain grouping expressions and post-aggregate predicates in rows. Each aggregate output retains its own arguments. |
 | Ordered joins | Retains the introduced providers, join types, complete `ON` expressions, and outputs/types read by those expressions. |
 | Aggregate versus scalar row shape | Distinguishes a global aggregate from a projection over source rows. Aggregate outputs depend on their input rows. |
 | Output column contract | Retains output name, available type, and partition declaration. |
@@ -110,6 +111,8 @@ result is unchanged. They affect storage layout and materialization behavior.
 The serializer removes bound relation aliases and redundant expression
 alias/parenthesis wrappers where supported. Output names remain inputs. This
 normalization does not establish that arbitrary SQL rewrites are equivalent.
+Each bound column occurrence retains its provider and field. Swapping two
+same-named fields from different dimensions therefore changes an expression.
 
 ### Dimension links
 
@@ -157,6 +160,12 @@ no effective predicate. Changing only required versus recommended classification
 also leaves the data fingerprint unchanged when the effective defaults stay the
 same. Required-filter validation still happens in the query API. Conflicting or
 unresolvable effective filters produce an unknown result.
+
+A requested dimension column is local only when it belongs to the metric's
+direct input. Finding its provider somewhere in SQL ancestry does not establish
+which grouping link the planner uses. Such ancestor bindings are unknown until
+the planner's selected binding is available. Supported explicit role paths still
+retain their link contracts and join keys.
 
 ### Cubes
 
@@ -217,6 +226,7 @@ mean it is an input to a V2 fingerprint.
 | Effective-default filtering | Requirements without defaults and required/recommended labels add no data dependency. Caller filters can make a default irrelevant. |
 | Scalar allowlist, join-chain binding, and struct binding | More queries retain output-level dependencies instead of falling back to whole calculations. |
 | Structural SQL normalization | Supported alias, comment, whitespace, and redundant-wrapper edits avoid propagation. |
+| Pass-through CTEs and simple grouping | Supported scalar CTE outputs expand into their used expressions. Editing one unused projection leaves other consumers stable, including through single-source grouping. CTE filters, grouping keys, and `HAVING` remain row dependencies. |
 | Canonical collections and types | Equivalent collection orderings and recognized type spellings do not introduce accidental differences. |
 
 ### Keeping evaluation fast
@@ -227,6 +237,8 @@ mean it is an input to a V2 fingerprint.
   components when attaching demands.
 - Cache schemas, ancestry, link indexes, candidate paths, filter references,
   join-predicate columns, type parsing, and duplicate demands.
+- Bound expanded CTE expressions; excessive expansion uses conservative SQL
+  dependencies instead of growing the inlined representation without a limit.
 - Evaluate a captured in-memory graph without database calls. Database loading
   and materialization capture live outside the pure evaluator.
 
@@ -238,7 +250,9 @@ snapshot inputs change.
 ## SQL coverage and remaining extra propagation
 
 Precise binding covers flat single-source projections, supported scalar
-expressions, `WHERE`, and common global aggregates. It also covers flat,
+expressions, `WHERE`, common global aggregates, and simple single-source
+`GROUP BY`/`HAVING`. Ordered single-source scalar CTEs can feed these queries;
+the binder follows each demanded CTE output to its inputs. It also covers flat,
 explicitly aliased `INNER`, `LEFT`, and `CROSS` table join chains. `INNER`/`LEFT`
 require complete scalar `ON` predicates; `CROSS` has no `ON` criteria. Each
 predicate binds against the tables introduced so far, preventing a forward
@@ -253,10 +267,12 @@ whole source root type, so changing an unused sibling field's type can propagate
 The following retain conservative dependencies or become unknown when evidence
 is incomplete:
 
-- CTEs, subqueries/derived tables, self joins, and unsupported join forms such as
+- Grouped or joined CTE bodies, joins reading CTEs, recursive/forward CTE
+  references, quoted CTE bindings, and unaliased computed CTE outputs.
+- Subqueries/derived tables, self joins, and unsupported join forms such as
   `RIGHT`, `FULL`, `NATURAL`, `USING`, and `LATERAL`.
-- Joined aggregates, `GROUP BY`, `HAVING`, `DISTINCT`, windows, set operations,
-  limits/offsets, and ordering clauses.
+- Joined aggregates, advanced grouping forms, `DISTINCT`, windows, set
+  operations, limits/offsets, and ordering clauses.
 - Unsupported functions, generators, ambiguous bindings, and missing used types.
 - Syntax whose meaning is incompletely represented by the AST, including
   `TRY_CAST`, sampling, aggregate `FILTER`/null treatment, custom `TRIM`
@@ -334,11 +350,6 @@ the retained schema. Aggregate and merge expressions above remain included.
 The generated V3 `dataSchema` is retained with the two explicit exclusions above;
 it is not filtered through the user-metadata exclusion table.
 
-The reuse decision helper requires known current manifests, equal semantic and
-storage digests, availability, freshness, and execution compatibility. Unknown,
-legacy, malformed, or unsupported contracts block reuse. Known conservative
-semantic digests are accepted; precision diagnostics are not in the saved manifest.
-
 Capture also checks that the planner's node revisions still match current
 revisions. An availability callback that sends a V2 receipt must provide an
 explicit built `node_version` and echo the `fingerprint_v2` manifest for the
@@ -347,15 +358,35 @@ remain accepted. Desired configuration alone cannot establish what produced
 existing data.
 
 **Integration boundary:** manifests are captured and availability receipts are
-validated, but the new reuse decision helper currently has no production caller.
-Automatic old-table adoption still uses the existing cube-change logic. The
-presence of these contracts does not enable V2-based adoption by itself.
+validated. Automatic adoption of an old Druid table remains unimplemented.
+DJQuery's producer workflow must capture and echo receipts, and a consuming reuse
+path must check them, freshness, and execution compatibility before that feature
+can be enabled across services.
 
 ## V1 compatibility and current integration
 
 V1 remains frozen for compatibility. The latest/default fingerprint version is
 still `1`; supported versions are `1` and `2`. Deployment's default review-impact
 path uses V1. Materialization manifest capture explicitly requests V2.
+
+Deployments can opt in with `semantic_fingerprint_version: 2`. Current and
+proposed graphs are both recomputed with V2, so opting in alone does not count as
+a semantic change. Proposed query output names/types come from deployment
+validation, including downstream revalidation, merged with proposed partition
+declarations. Both validation paths use the metric's canonical output alias and
+preserve cached ASTs. The evaluator does not copy old types onto a changed
+proposed source when validation has no schema;
+missing used types remain unknown. V1 schema handling stays unchanged.
+
+Each downstream impact then includes `semantic_comparison` with `status`
+(`changed`, `unchanged`, or `indeterminate`), `precision`, and diagnostic
+`reasons`. Unknown on both sides remains indeterminate. Deployment responses
+also expose sorted, deduplicated `semantic_review_recipients` from confirmed
+changed downstream contracts. Callers must handle indeterminate impacts under
+their validation/review policy. These fields are omitted when uncomputed, and
+OSS DJ does not send review requests itself.
+Failed downstream schema validation produces `indeterminate` with
+`proposed_schema_unavailable` and no usable proposed digest.
 
 V1 hashes node type, the following normalized local fields, and sorted distinct
 whole-parent digests:
@@ -375,7 +406,9 @@ metadata noise and propagation through whole parents.
 
 Use `compute_configured_v2_fingerprints(SemanticGraphSnapshot(...))` for V2
 metric/cube evaluation, or explicitly pass `version=2` to the deployment graph
-builder. `compute_v2_fingerprints()` exposes the base rows/outputs/full graph;
+builder. Its result contains `current`, `proposed`, and per-node `comparisons`
+when comparison targets are requested. `compute_v2_fingerprints()` exposes the base
+rows/outputs/full graph;
 standalone cubes need the configured entry point. The legacy single-node
 `engine.py` builder registry only implements V1.
 
@@ -386,7 +419,7 @@ standalone cubes need the configured entry point. The legacy single-node
 | [`v2.py`](v2.py) | Snapshot, component results, comparison, deterministic graph evaluation. |
 | [`v2_dependencies.py`](v2_dependencies.py) | Semantic field projection, SQL binding, fallback dependencies. |
 | [`v2_configured.py`](v2_configured.py) | Metric/cube demands, role-aware dimension context, derived formulas. |
-| [`materialization.py`](materialization.py) | Storage contracts, manifest validation, reuse decisions. |
+| [`materialization.py`](materialization.py) | Storage contracts, manifest validation, artifact matching. |
 | [`v1.py`](v1.py), [`engine.py`](engine.py) | Frozen V1 payload and legacy dispatch. |
 | [`normalization.py`](normalization.py), [`merkle.py`](merkle.py) | Shared canonicalization/diffs and graph helpers. |
 | [`internal/deployment/fingerprints.py`](../internal/deployment/fingerprints.py) | Database loading and versioned deployment graph orchestration. |

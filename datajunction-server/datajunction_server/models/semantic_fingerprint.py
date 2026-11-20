@@ -4,7 +4,6 @@ from typing import Literal, TypeAlias
 
 from pydantic import BaseModel, Field, field_validator
 
-
 LATEST_SEMANTIC_FINGERPRINT_VERSION = 1
 SUPPORTED_SEMANTIC_FINGERPRINT_VERSIONS = frozenset(
     {LATEST_SEMANTIC_FINGERPRINT_VERSION, 2},
@@ -28,6 +27,14 @@ class SemanticFingerprint(BaseModel):
         if version not in SUPPORTED_SEMANTIC_FINGERPRINT_VERSIONS:
             raise ValueError(f"Unsupported semantic fingerprint version: {version}")
         return version
+
+
+class SemanticFingerprintComparison(BaseModel):
+    """Evidence about whether two semantic fingerprints changed."""
+
+    status: Literal["changed", "unchanged", "indeterminate"]
+    precision: Literal["precise", "conservative", "unknown"] | None = None
+    reasons: list[str] = Field(default_factory=list)
 
 
 SemanticFingerprintValue: TypeAlias = SemanticFingerprint | Literal["unknown"]

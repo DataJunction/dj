@@ -15,7 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.construction.build import get_default_criteria
 from datajunction_server.construction.build_v2 import QueryBuilder
 from datajunction_server.database.backfill import Backfill
-from datajunction_server.database.availabilitystate import AvailabilityState
 from datajunction_server.database.column import Column
 from datajunction_server.database.history import (
     ActivityType,
@@ -68,13 +67,11 @@ from datajunction_server.models.preaggregation import CubeBackfillInput
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.models.semantic_fingerprint import SemanticFingerprint
 from datajunction_server.naming import amenable_name
-from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.semantic_fingerprints.materialization import (
     MaterializationFingerprint,
-    MaterializationReuseDecision,
-    decide_materialization_reuse,
     materialization_contract,
 )
+from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import parse
@@ -123,14 +120,14 @@ async def capture_materialization_fingerprint(
             if column.partition
         ],
     )
-    _, fingerprints = await build_deployment_fingerprints(
+    fingerprint_build = await build_deployment_fingerprints(
         session,
         {},
         [cube],
         [],
         version=2,
     )
-    semantic = fingerprints.get(revision.name, "unknown")
+    semantic = fingerprint_build.proposed.get(revision.name, "unknown")
     storage = materialization_contract(config)
     if not isinstance(semantic, SemanticFingerprint) or storage is None:
         return None
@@ -146,35 +143,6 @@ async def capture_materialization_fingerprint(
     if current_versions != planned_versions:
         return None
     return MaterializationFingerprint(semantic, storage).to_dict()
-
-
-def materialization_reuse_decision(
-    produced: AvailabilityState | None,
-    expected: dict[str, Any],
-    *,
-    fresh: bool,
-    execution_compatible: bool,
-) -> MaterializationReuseDecision:
-    """Compare a producer's receipt with a newly planned materialization.
-
-    Producers echo the planned fingerprint in availability links after writing
-    data, with node_version identifying the revision they built. A desired config
-    alone is never evidence about the data in an existing table.
-    """
-    receipt = (
-        (produced.links or {}).get(MATERIALIZATION_FINGERPRINT_KEY)
-        if produced
-        else None
-    )
-    return decide_materialization_reuse(
-        MaterializationFingerprint.from_value(receipt),
-        MaterializationFingerprint.from_value(
-            expected.get(MATERIALIZATION_FINGERPRINT_KEY)
-        ),
-        available=produced is not None,
-        fresh=fresh,
-        execution_compatible=execution_compatible,
-    )
 
 
 async def rewrite_metrics_expressions(

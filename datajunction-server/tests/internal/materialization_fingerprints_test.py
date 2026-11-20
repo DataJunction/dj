@@ -11,7 +11,6 @@ from datajunction_server.database.node import NodeRevision
 from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.internal.materializations import (
     capture_materialization_fingerprint,
-    materialization_reuse_decision,
 )
 from datajunction_server.materialization.jobs.cube_materialization import (
     DruidCubeMaterializationJob,
@@ -61,9 +60,10 @@ async def test_capture_and_schedule_pass_the_same_planned_manifest():
         patch(
             "datajunction_server.internal.deployment.fingerprints.build_deployment_fingerprints",
             new_callable=AsyncMock,
-            return_value=(
-                {},
-                {revision.name: SemanticFingerprint(**manifest["semantic"])},
+            return_value=SimpleNamespace(
+                current={},
+                proposed={revision.name: SemanticFingerprint(**manifest["semantic"])},
+                comparisons={},
             ),
         ) as build,
         patch(
@@ -135,7 +135,11 @@ async def test_capture_returns_unknown_without_a_matching_version_snapshot(
         patch(
             "datajunction_server.internal.deployment.fingerprints.build_deployment_fingerprints",
             new_callable=AsyncMock,
-            return_value=({}, {revision.name: semantic}),
+            return_value=SimpleNamespace(
+                current={},
+                proposed={revision.name: semantic},
+                comparisons={},
+            ),
         ),
         patch(
             "datajunction_server.internal.materializations.materialization_contract",
@@ -148,36 +152,6 @@ async def test_capture_returns_unknown_without_a_matching_version_snapshot(
             config,
         )
     assert manifest is None
-
-
-def test_reuse_reads_produced_receipt_and_requires_explicit_operational_gates():
-    expected = {"fingerprint_v2": _manifest()}
-    availability = AvailabilityState(links=expected)
-    assert materialization_reuse_decision(
-        availability,
-        expected,
-        fresh=True,
-        execution_compatible=True,
-    ).reusable
-    for receipt in (
-        None,
-        {},
-        {"fingerprint_v2": "unknown"},
-        {"fingerprint_v2": _manifest("c")},
-    ):
-        availability.links = receipt
-        assert not materialization_reuse_decision(
-            availability,
-            expected,
-            fresh=True,
-            execution_compatible=True,
-        ).reusable
-    assert not materialization_reuse_decision(
-        None,
-        expected,
-        fresh=True,
-        execution_compatible=True,
-    ).reusable
 
 
 @pytest.mark.asyncio
