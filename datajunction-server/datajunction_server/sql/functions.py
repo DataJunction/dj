@@ -81,12 +81,26 @@ def bind_lambda_params(func, param_types: list[ct.ColumnType]) -> None:
         idx = available_identifiers[name]
         return param_types[idx] if idx < len(param_types) else None
 
+    def param_ref(col) -> str:
+        """The param name a column refers to: `x` for both `x` and `x.field`"""
+        return (col.alias_or_name.namespace or col.alias_or_name).name
+
+    # A nested lambda that redeclares a param name owns its references to it
+    shadowed = {
+        id(col)
+        for nested_func in func.expr.find_all(ast.Lambda)
+        for col in nested_func.expr.find_all(ast.Column)
+        if param_ref(col) in {ident.name for ident in nested_func.identifiers}
+    }
+
     for col in func.expr.find_all(ast.Column):
+        if id(col) in shadowed:
+            continue
         col_name = col.alias_or_name.name
         col_ns = col.alias_or_name.namespace
 
         # Direct reference to lambda param: x
-        if col_name in available_identifiers:
+        if col_ns is None and col_name in available_identifiers:
             if (type_ := param_type(col_name)) is not None:
                 col.add_type(type_)
 

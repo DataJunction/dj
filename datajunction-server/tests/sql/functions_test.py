@@ -3853,6 +3853,33 @@ async def test_hof_lambda_struct_field_access(session: AsyncSession, call: str):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "call, expected",
+    [
+        # the inner `x` is a string, not the outer lambda's integer `x`
+        (
+            "exists(array(1), x -> x > 0 AND exists(array('a'), x -> length(x) > 0))",
+            ct.BooleanType(),
+        ),
+        # `x.x` is the struct's `x` field, not the lambda param itself
+        ("exists(array(struct(5 AS x)), x -> x.x + 1 > 0)", ct.BooleanType()),
+    ],
+)
+async def test_hof_lambda_param_scoping(
+    session: AsyncSession,
+    call: str,
+    expected: ct.ColumnType,
+):
+    """
+    Lambda params are bound only where they're actually referenced.
+    """
+    query = parse(f"SELECT {call}")
+    ctx = ast.CompileContext(session=session, exception=DJException())
+    await query.compile(ctx)
+    assert query.select.projection[0].type == expected  # type: ignore
+
+
+@pytest.mark.asyncio
 async def test_transform_compile_edge_cases(session: AsyncSession):
     """
     Test edge cases in Transform.compile.
