@@ -134,7 +134,7 @@ def test_join_cardinality_is_warning_only_while_join_predicate_is_semantic():
         update={
             "dimension_links": [
                 link.model_copy(
-                    update={"join_on": "ns.source.id + 1 = ns.dimension.id"}
+                    update={"join_on": "ns.source.id + 1 = ns.dimension.id"},
                 ),
             ],
         },
