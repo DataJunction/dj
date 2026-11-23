@@ -52,7 +52,9 @@ def test_component_waits_for_all_inputs_and_propagates_their_changes():
     assert before[consumer.key.token].digest is not None
 
     changed_right = ComponentDefinition(
-        right.key, {"multiplier": 4}, right.dependencies
+        right.key,
+        {"multiplier": 4},
+        right.dependencies,
     )
     after = _results(source, left, changed_right, consumer)
     assert (
