@@ -383,6 +383,6 @@ def _evaluate_definitions(
             if not component_dependencies[child]:
                 heappush(ready, (sccs[child], child))
 
-    if evaluated != len(sccs):
+    if evaluated != len(sccs):  # pragma: no cover - SCCs form a DAG
         raise RuntimeError("Component SCC condensation was not acyclic")
     return results

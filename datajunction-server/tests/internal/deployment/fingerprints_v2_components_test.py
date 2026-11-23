@@ -1,11 +1,14 @@
 """Core component hashing stays deterministic and preserves evidence quality."""
 
+import pytest
+
 from datajunction_server.models.deployment import ColumnSpec, SourceSpec
 from datajunction_server.semantic_fingerprints.v2 import (
     ComponentDefinition,
     ComponentKey,
     SemanticGraphSnapshot,
     _evaluate_definitions,
+    _parsed_type,
     compare_components,
 )
 
@@ -17,6 +20,48 @@ def _results(*definitions):
 def _source_definition():
     key = ComponentKey("ns.source", "output", "amount")
     return ComponentDefinition(key, {"value": 3})
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [("integer", "int"), (None, None), ("not_a_dj_type", None)],
+)
+def test_column_types_are_canonical_or_unavailable(value, expected):
+    assert _parsed_type(value) == expected
+
+
+def test_component_waits_for_all_inputs_and_propagates_their_changes():
+    source = _source_definition()
+    left = ComponentDefinition(
+        ComponentKey("ns.branch", "output", "left"),
+        {"multiplier": 2},
+        (("source", source.key),),
+    )
+    right = ComponentDefinition(
+        ComponentKey("ns.branch", "output", "right"),
+        {"multiplier": 3},
+        (("source", source.key),),
+    )
+    consumer = ComponentDefinition(
+        ComponentKey("ns.metric", "full"),
+        {},
+        (("left", left.key), ("right", right.key)),
+    )
+    before = _results(source, left, right, consumer)
+    assert before == _results(consumer, right, left, source)
+    assert before[consumer.key.token].digest is not None
+
+    changed_right = ComponentDefinition(
+        right.key, {"multiplier": 4}, right.dependencies
+    )
+    after = _results(source, left, changed_right, consumer)
+    assert (
+        compare_components(before[left.key.token], after[left.key.token]) == "unchanged"
+    )
+    assert (
+        compare_components(before[consumer.key.token], after[consumer.key.token])
+        == "changed"
+    )
 
 
 def test_component_cycle_hash_is_order_independent_and_labelled():
