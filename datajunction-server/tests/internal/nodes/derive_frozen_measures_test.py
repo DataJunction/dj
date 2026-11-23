@@ -25,6 +25,7 @@ from datajunction_server.models.decompose import (
     AggregationRule,
     MetricComponent,
 )
+from datajunction_server.models.dialect import Dialect
 from datajunction_server.models.node import NodeStatus
 from datajunction_server.models.node_type import NodeType
 from datajunction_server.models.reaggregate import ReaggregationFunction
@@ -147,10 +148,12 @@ async def test_base_metric_populates_derived_expression_and_measure(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("bulk", [False, True])
+@pytest.mark.parametrize("dialect", [Dialect.SPARK, Dialect.TRINO, Dialect.DRUID])
 async def test_legacy_explicit_default_frozen_measure_is_reused(
     session: AsyncSession,
     user: User,
     bulk: bool,
+    dialect: Dialect,
 ):
     """An old explicit default row remains reusable after family normalization."""
 
@@ -159,6 +162,8 @@ async def test_legacy_explicit_default_frozen_measure_is_reused(
         aggregate_functions=(dj_functions.ApproxPercentile,),
     )
     class Digest(AggDecomposition):
+        supported_dialects = (dialect,)
+
         def __init__(self, params=None):
             super().__init__(params)
             compression = int(self.params.get("compression", 200))
@@ -175,6 +180,7 @@ async def test_legacy_explicit_default_frozen_measure_is_reused(
             ]
 
         def combine(self, components, func, dialect=None):
+            assert dialect in self.supported_dialects
             return make_func("read_sketch", components[0].name)
 
     try:

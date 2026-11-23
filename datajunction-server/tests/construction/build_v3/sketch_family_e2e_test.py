@@ -134,7 +134,7 @@ def infer_type(
 
 
 @pytest.fixture
-def digest_family():
+def digest_family(request):
     """
     Register the family and its functions, then put the registries back.
 
@@ -153,6 +153,12 @@ def digest_family():
         aggregate_functions=(ApproxPercentile,),
     )
     class _DigestDecomposition(AggDecomposition):
+        supported_dialects = getattr(
+            request,
+            "param",
+            (Dialect.SPARK, Dialect.TRINO, Dialect.DRUID),
+        )
+
         @property
         def compression(self) -> int:
             return int(self.params.get("compression", 100))
@@ -178,6 +184,8 @@ def digest_family():
             ]
 
         def combine(self, components, func, dialect=Dialect.SPARK):
+            if self.supported_dialects:
+                assert dialect in self.supported_dialects
             column, fraction = components[0].name, func.args[1]
             if dialect == Dialect.DRUID:
                 return make_func("DIGEST_QUANTILE", column, fraction)
@@ -236,6 +244,55 @@ async def _measures(client: AsyncClient, dialect: str = "spark") -> dict:
     )
     assert response.status_code == 200, response.json()
     return response.json()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "digest_family",
+    [(Dialect.TRINO,), (Dialect.DRUID,), (Dialect.TRINO, Dialect.DRUID)],
+    indirect=True,
+)
+async def test_non_spark_family_metadata_and_explicit_planning(
+    percentile_metric,
+    digest_family,
+):
+    """Metadata needs no Spark support; an explicit Spark target is rejected."""
+    client = percentile_metric
+    response = await client.get(f"/metrics/{METRIC}")
+    assert response.status_code == 200, response.json()
+    assert len(response.json()["measures"]) == 1
+    response = await client.post(
+        "/graphql",
+        json={
+            "query": """
+                query($names: [String!]!) {
+                    findNodes(names: $names) {
+                        current {
+                            extractedMeasures {
+                                components { name }
+                                derivedExpression
+                            }
+                        }
+                    }
+                }
+            """,
+            "variables": {"names": [METRIC]},
+        },
+    )
+    assert response.status_code == 200, response.json()
+    payload = response.json()
+    assert not payload.get("errors"), payload
+    extracted = payload["data"]["findNodes"][0]["current"]["extractedMeasures"]
+    assert len(extracted["components"]) == 1
+    assert extracted["derivedExpression"]
+    for dialect in digest_family.supported_dialects:
+        await _measures(client, dialect=dialect.value)
+    response = await client.get(
+        "/sql/measures/v3/",
+        params={"metrics": [METRIC], "dimensions": DIMENSIONS, "dialect": "spark"},
+    )
+    assert response.status_code == 422, response.json()
+    assert "does not support dialect" in response.text
 
 
 async def _publish_preagg(client: AsyncClient) -> None:
@@ -487,3 +544,105 @@ async def test_metrics_layer_recomputes_from_source(percentile_metric):
         FROM v3_DOT_order_details_metrics
         """,
     )
+
+
+@pytest.mark.asyncio
+async def test_family_compatibility_agrees_in_rest_and_graphql(percentile_metric):
+    client = percentile_metric
+    plain = "v3.plain_p95_line_total"
+    response = await client.post(
+        "/nodes/metric/",
+        json={
+            "name": plain,
+            "query": "SELECT APPROX_PERCENTILE(line_total, 0.95) FROM v3.order_details",
+            "mode": "published",
+        },
+    )
+    assert response.status_code in (200, 201), response.json()
+    for name, expected in ((METRIC, []), (plain, ["APPROXPERCENTILE"])):
+        response = await client.get(f"/metrics/{name}")
+        assert response.status_code == 200, response.json()
+        assert response.json()["incompatible_druid_functions"] == expected
+        response = await client.post(
+            "/graphql",
+            json={
+                "query": """
+                query($names: [String!]!) {
+                    findNodes(names: $names) {
+                        current { metricMetadata { incompatibleDruidFunctions } }
+                    }
+                }
+            """,
+                "variables": {"names": [name]},
+            },
+        )
+        assert response.status_code == 200, response.json()
+        payload = response.json()
+        assert not payload.get("errors"), payload
+        assert (
+            payload["data"]["findNodes"][0]["current"]["metricMetadata"][
+                "incompatibleDruidFunctions"
+            ]
+            == expected
+        )
+
+
+@pytest.mark.asyncio
+async def test_malformed_stored_declaration_returns_actionable_rest_error_and_native_graphql_metadata(
+    percentile_metric,
+    session,
+):
+    from sqlalchemy import select
+    from datajunction_server.database.node import NodeRevision
+
+    client = percentile_metric
+    revision = await session.scalar(
+        select(NodeRevision).where(NodeRevision.name == METRIC),
+    )
+    revision.reaggregate = {"fn": "unknown_family"}
+    await session.commit()
+    response = await client.get(f"/metrics/{METRIC}")
+    assert response.status_code == 422, response.json()
+    assert "invalid stored reaggregate declaration" in response.text
+    response = await client.post(
+        "/graphql",
+        json={
+            "query": """
+            query($names: [String!]!) {
+                findNodes(names: $names) {
+                    current { metricMetadata { incompatibleDruidFunctions } }
+                }
+            }
+        """,
+            "variables": {"names": [METRIC]},
+        },
+    )
+    assert response.status_code == 200, response.json()
+    payload = response.json()
+    assert not payload.get("errors"), payload
+    assert payload["data"]["findNodes"][0]["current"]["metricMetadata"][
+        "incompatibleDruidFunctions"
+    ] == ["APPROXPERCENTILE"]
+
+
+@pytest.mark.asyncio
+async def test_mixed_nondecomposable_metric_does_not_gain_druid_compatibility(
+    percentile_metric,
+):
+    client = percentile_metric
+    name = "v3.mixed_percentile_min_by"
+    response = await client.post(
+        "/nodes/metric/",
+        json={
+            "name": name,
+            "query": "SELECT APPROX_PERCENTILE(line_total, 0.5) + MIN_BY(line_total, quantity) FROM v3.order_details",
+            "mode": "published",
+            "reaggregate": {"fn": "tdigest"},
+        },
+    )
+    assert response.status_code in (200, 201), response.json()
+    response = await client.get(f"/metrics/{name}")
+    assert response.status_code == 200, response.json()
+    payload = response.json()
+    assert payload["measures"] == []
+    assert "APPROXPERCENTILE" in payload["incompatible_druid_functions"]

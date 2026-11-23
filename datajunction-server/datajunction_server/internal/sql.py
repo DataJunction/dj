@@ -643,6 +643,7 @@ async def get_measures_query(
     parent_columns, metric_components = await extract_components_and_parent_columns(
         metric_nodes,
         session,
+        dialect=build_criteria.dialect,
     )
 
     column_name_regex = r"([A-Za-z0-9_\.]+)(\[[A-Za-z0-9_]+\])?"
