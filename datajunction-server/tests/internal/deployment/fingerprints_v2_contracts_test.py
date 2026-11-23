@@ -1,15 +1,24 @@
 """The v2 local contracts omit presentation metadata and retain data inputs."""
 
+import pytest
+
 from datajunction_server.models.deployment import (
     ColumnSpec,
     CubeSpec,
     DimensionJoinLinkSpec,
+    DimensionReferenceLinkSpec,
     DimensionSpec,
     MetricSpec,
     SourceSpec,
     TransformSpec,
 )
-from datajunction_server.semantic_fingerprints.v2_dependencies import _node_contract
+from datajunction_server.models.filter_requirements import FilterRequirement
+from datajunction_server.semantic_fingerprints.v2_dependencies import (
+    _dimension_link_contract,
+    _effective_filter_requirements,
+    _node_contract,
+    _output_column_contract,
+)
 
 
 def _specs():
@@ -133,3 +142,92 @@ def test_join_cardinality_is_warning_only_while_join_predicate_is_semantic():
 
     assert _contract(source) == _contract(changed_cardinality)
     assert _contract(source) != _contract(changed_predicate)
+
+
+def test_missing_output_column_has_a_stable_fallback_contract():
+    assert _output_column_contract("amount", None) == {
+        "name": "amount",
+        "type": None,
+        "partition": None,
+    }
+    assert _output_column_contract(
+        "amount",
+        ColumnSpec(name="amount", type="bigint"),
+    ) == {
+        "name": "amount",
+        "type": "bigint",
+        "partition": None,
+    }
+
+
+def test_effective_filter_defaults_are_normalized_and_deduplicated():
+    shared = FilterRequirement(
+        dimension=["ns.dimension.name", "ns.dimension.id", "ns.dimension.name"],
+        default="ns.dimension.id IS NOT NULL",
+    )
+    metric = MetricSpec(
+        name="ns.metric",
+        query="SELECT SUM(id) FROM ns.source",
+        required_filters=[
+            shared,
+            FilterRequirement(dimension=["ns.dimension.id"], default=""),
+        ],
+        recommended_filters=[
+            FilterRequirement(
+                dimension=["ns.dimension.id", "ns.dimension.name"],
+                default="ns.dimension.id IS NOT NULL",
+            ),
+            FilterRequirement(
+                dimension=["ns.dimension.name"],
+                default="ns.dimension.name IS NOT NULL",
+            ),
+        ],
+    )
+
+    assert _effective_filter_requirements(metric) == [
+        FilterRequirement(
+            dimension=["ns.dimension.id", "ns.dimension.name"],
+            default="ns.dimension.id IS NOT NULL",
+        ),
+        FilterRequirement(
+            dimension=["ns.dimension.name"],
+            default="ns.dimension.name IS NOT NULL",
+        ),
+    ]
+
+
+def test_reference_link_contract_records_attribute_and_rejects_unknown_links():
+    link = DimensionReferenceLinkSpec(
+        node_column="dimension_name",
+        dimension="ns.dimension.name",
+        role="owner",
+    )
+
+    assert _dimension_link_contract(link) == {
+        "type": "reference",
+        "role": "owner",
+        "dimension_node": "ns.dimension",
+        "dimension_attribute": "name",
+        "node_column": "dimension_name",
+    }
+    with pytest.raises(TypeError, match="Unsupported dimension link: object"):
+        _dimension_link_contract(object())
+
+
+def test_node_contract_can_omit_columns_and_dimension_links():
+    source = _specs()[0].model_copy(
+        update={
+            "dimension_links": [
+                DimensionJoinLinkSpec(
+                    dimension_node="ns.dimension",
+                    join_on="ns.source.id = ns.dimension.id",
+                ),
+            ],
+        },
+    )
+
+    contract = _node_contract(source, include_dimension_links=False)
+
+    assert contract["table"] == "orders"
+    assert "columns" not in contract
+    assert "dimension_links" not in contract
