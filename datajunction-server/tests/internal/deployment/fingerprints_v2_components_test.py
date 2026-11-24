@@ -66,7 +66,7 @@ def test_component_waits_for_all_inputs_and_propagates_their_changes():
     )
 
 
-def test_component_cycle_hash_is_order_independent_and_labelled():
+def test_component_cycles_are_indeterminate_and_propagate_to_consumers():
     source = _source_definition()
     first = ComponentKey("ns.cycle", "output", "first")
     second = ComponentKey("ns.cycle", "output", "second")
@@ -74,6 +74,11 @@ def test_component_cycle_hash_is_order_independent_and_labelled():
         source,
         ComponentDefinition(first, {}, (("left", second), ("input", source.key))),
         ComponentDefinition(second, {}, (("previous", first),)),
+        ComponentDefinition(
+            ComponentKey("ns.consumer", "full"),
+            {},
+            (("input", first),),
+        ),
     ]
     forward = _results(*definitions)
     reverse = _results(
@@ -90,8 +95,17 @@ def test_component_cycle_hash_is_order_independent_and_labelled():
         ),
     )
     assert forward == reverse
-    assert forward[first.token].digest is not None
+    assert forward[first.token].digest is None
+    assert all(
+        result.digest is None
+        for token, result in forward.items()
+        if token != source.key.token
+    )
     assert "cyclic_component" in forward[first.token].reasons
+    assert (
+        compare_components(forward[first.token], reverse[first.token])
+        == "indeterminate"
+    )
 
 
 def test_dependency_labels_are_part_of_component_hashes():

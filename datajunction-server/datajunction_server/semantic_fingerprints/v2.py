@@ -138,6 +138,14 @@ class ComponentDefinition:
     precision: ComponentPrecision = "precise"
     reasons: tuple[str, ...] = ()
     unavailable: bool = False
+    semantic_field: str | None = None
+
+
+@dataclass(frozen=True)
+class UnorderedPayload:
+    """Payload entries whose order does not affect query results."""
+
+    values: tuple[object, ...]
 
 
 def compare_components(
@@ -150,103 +158,62 @@ def compare_components(
     return "unchanged" if before.digest == after.digest else "changed"
 
 
+def _component_identity(key: ComponentKey, semantic_field: str | None) -> list[str]:
+    return [key.kind, key.field if semantic_field is None else semantic_field]
+
+
+def _component_payload(
+    value: object,
+    fingerprints: Mapping[ComponentKey, SemanticFingerprint],
+) -> object:
+    if isinstance(value, UnorderedPayload):
+        return sorted(
+            (_component_payload(item, fingerprints) for item in value.values),
+            key=canonical_json,
+        )
+    if isinstance(value, ComponentKey):
+        return {
+            "component": value.kind,
+            "fingerprint": fingerprints[value].model_dump(mode="json"),
+        }
+    if isinstance(value, dict):
+        return {
+            key: _component_payload(item, fingerprints) for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_component_payload(item, fingerprints) for item in value]
+    return value
+
+
 def _component_hash(
     key: ComponentKey,
     payload: object,
     dependencies: list[tuple[str, ComponentKey, SemanticFingerprint]],
+    *,
+    semantic_field: str | None = None,
 ) -> SemanticFingerprint:
     value = {
         "domain": "datajunction/component-semantic",
         "version": 2,
-        "key": [key.node, key.kind, key.field],
-        "payload": payload,
-        "dependencies": [
-            {
-                "binding": label,
-                "provider": [provider.node, provider.kind, provider.field],
-                "fingerprint": fingerprint.model_dump(mode="json"),
-            }
-            for label, provider, fingerprint in sorted(
-                dependencies,
-                key=lambda edge: (edge[0], edge[1]),
-            )
-        ],
+        "key": _component_identity(key, semantic_field),
+        "payload": _component_payload(
+            payload,
+            {provider: fingerprint for _, provider, fingerprint in dependencies},
+        ),
+        "dependencies": sorted(
+            [
+                {
+                    "binding": label,
+                    "provider": provider.kind,
+                    "fingerprint": fingerprint.model_dump(mode="json"),
+                }
+                for label, provider, fingerprint in dependencies
+            ],
+            key=canonical_json,
+        ),
     }
     digest = hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
     return SemanticFingerprint(version=2, digest=digest)
-
-
-def _cycle_hash(
-    members: tuple[str, ...],
-    definitions: Mapping[str, ComponentDefinition],
-    digests: Mapping[str, SemanticFingerprint],
-) -> dict[str, SemanticFingerprint]:
-    member_tokens = set(members)
-    internal_edges = sorted(
-        (token, label, provider.token)
-        for token in members
-        for label, provider in definitions[token].dependencies
-        if provider.token in member_tokens
-    )
-    external_edges = sorted(
-        [
-            (
-                token,
-                label,
-                provider.token,
-                digests[provider.token].model_dump(mode="json"),
-            )
-            for token in members
-            for label, provider in definitions[token].dependencies
-            if provider.token not in member_tokens
-        ],
-        key=lambda edge: (edge[0], edge[1], edge[2]),
-    )
-    payload = {
-        "domain": "datajunction/component-semantic-scc",
-        "version": 2,
-        "members": [
-            {
-                "key": [
-                    definitions[token].key.node,
-                    definitions[token].key.kind,
-                    definitions[token].key.field,
-                ],
-                "payload": definitions[token].payload,
-            }
-            for token in members
-        ],
-        "internal_edges": [
-            {"consumer": consumer, "binding": label, "provider": provider}
-            for consumer, label, provider in internal_edges
-        ],
-        "external_edges": [
-            {
-                "consumer": consumer,
-                "binding": label,
-                "provider": provider,
-                "fingerprint": fingerprint,
-            }
-            for consumer, label, provider, fingerprint in external_edges
-        ],
-    }
-    scc_digest = hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
-    return {
-        token: SemanticFingerprint(
-            version=2,
-            digest=hashlib.sha256(
-                canonical_json(
-                    {
-                        "domain": "datajunction/component-semantic-scc-member",
-                        "version": 2,
-                        "component": token,
-                        "scc": scc_digest,
-                    },
-                ).encode("utf-8"),
-            ).hexdigest(),
-        )
-        for token in members
-    }
 
 
 def _evaluate_definitions(
@@ -333,27 +300,11 @@ def _evaluate_definitions(
             for token in members:
                 results[token] = ComponentResult("unknown", "unknown", reasons)
         elif index in cyclic:
-            cycle_digests = _cycle_hash(
-                members,
-                definitions,
-                digest_by_token,
-            )
-            precision: ComponentPrecision = (
-                "conservative"
-                if any(
-                    definitions[token].precision == "conservative" for token in members
-                )
-                or any(
-                    result.precision == "conservative" for result in external_results
-                )
-                else "precise"
-            )
             cycle_reasons = tuple(sorted(set(reasons) | {"cyclic_component"}))
             for token in members:
-                digest_by_token[token] = cycle_digests[token]
                 results[token] = ComponentResult(
-                    cycle_digests[token],
-                    precision,
+                    "unknown",
+                    "unknown",
                     cycle_reasons,
                 )
         else:
@@ -363,21 +314,31 @@ def _evaluate_definitions(
                 (label, provider, digest_by_token[provider.token])
                 for label, provider in definition.dependencies
             ]
-            fingerprint = _component_hash(
-                definition.key,
-                definition.payload,
-                dependencies,
-            )
-            digest_by_token[token] = fingerprint
-            precision = (
-                "conservative"
-                if definition.precision == "conservative"
-                or any(
-                    result.precision == "conservative" for result in external_results
+            try:
+                fingerprint = _component_hash(
+                    definition.key,
+                    definition.payload,
+                    dependencies,
+                    semantic_field=definition.semantic_field,
                 )
-                else "precise"
-            )
-            results[token] = ComponentResult(fingerprint, precision, reasons)
+            except KeyError:
+                results[token] = ComponentResult(
+                    "unknown",
+                    "unknown",
+                    tuple(sorted(set(reasons) | {"unresolved_payload_dependency"})),
+                )
+            else:
+                digest_by_token[token] = fingerprint
+                precision: ComponentPrecision = (
+                    "conservative"
+                    if definition.precision == "conservative"
+                    or any(
+                        result.precision == "conservative"
+                        for result in external_results
+                    )
+                    else "precise"
+                )
+                results[token] = ComponentResult(fingerprint, precision, reasons)
         for child in sorted(dependents[index], key=lambda item: sccs[item]):
             component_dependencies[child].remove(index)
             if not component_dependencies[child]:
