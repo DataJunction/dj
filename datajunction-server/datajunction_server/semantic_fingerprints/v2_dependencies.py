@@ -15,9 +15,13 @@ from datajunction_server.models.deployment import (
 from datajunction_server.models.filter_requirements import FilterRequirement
 from datajunction_server.semantic_fingerprints.normalization import (
     canonical_json,
+    normalize_fixed_grain,
+    normalize_sequence,
     normalize_value,
 )
 from datajunction_server.semantic_fingerprints.v2 import _parsed_type
+from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 
 
 def _column_contract(column: ColumnSpec) -> dict[str, object]:
@@ -69,6 +73,24 @@ def _effective_filter_requirements(
             default=requirement.default,
         )
     return [unique[key] for key in sorted(unique)]
+
+
+def _required_dimensions_contract(spec: MetricSpec) -> list[str]:
+    dimensions = spec.rendered_required_dimensions
+    if any("." in dimension for dimension in dimensions):
+        try:
+            query = spec.query_ast
+            if (
+                query is not None
+                and query.select.from_ is not None
+                and list(query.find_all(ast.Query)) == [query]
+                and len(list(query.find_all(ast.Table))) == 1
+                and not any("[" in dimension for dimension in dimensions)
+            ):
+                dimensions = spec.canonical_required_dimensions
+        except DJParseException:
+            pass
+    return normalize_sequence(dimensions, preserve_order=False)
 
 
 def _dimension_link_contract(link: object) -> dict[str, object]:
@@ -126,12 +148,8 @@ def _node_contract(
         )
     if isinstance(spec, MetricSpec):
         contract.update(
-            required_dimensions=sorted(spec.rendered_required_dimensions),
-            fixed_grain=(
-                sorted(spec.rendered_fixed_grain)
-                if spec.rendered_fixed_grain is not None
-                else None
-            ),
+            required_dimensions=_required_dimensions_contract(spec),
+            fixed_grain=normalize_fixed_grain(spec.rendered_fixed_grain),
             reaggregate=normalize_value(spec.rendered_reaggregate),
             filter_defaults=normalize_value(_effective_filter_requirements(spec)),
         )
