@@ -22,6 +22,8 @@ from datajunction_server.models.filter_requirements import FilterRequirement
 from datajunction_server.naming import amenable_name
 from datajunction_server.semantic_fingerprints.normalization import (
     canonical_json,
+    normalize_fixed_grain,
+    normalize_sequence,
     normalize_value,
 )
 from datajunction_server.semantic_fingerprints.v2 import (
@@ -783,6 +785,24 @@ def build_node_component_keys(
     }
 
 
+def _required_dimensions_contract(spec: MetricSpec) -> list[str]:
+    dimensions = spec.rendered_required_dimensions
+    if any("." in dimension for dimension in dimensions):
+        try:
+            query = spec.query_ast
+            if (
+                query is not None
+                and query.select.from_ is not None
+                and list(query.find_all(ast.Query)) == [query]
+                and len(list(query.find_all(ast.Table))) == 1
+                and not any("[" in dimension for dimension in dimensions)
+            ):
+                dimensions = spec.canonical_required_dimensions
+        except DJParseException:
+            pass
+    return normalize_sequence(dimensions, preserve_order=False)
+
+
 def _dimension_link_contract(link: object) -> dict[str, object]:
     if isinstance(link, DimensionJoinLinkSpec):
         return {
@@ -838,12 +858,8 @@ def _node_contract(
         )
     if isinstance(spec, MetricSpec):
         contract.update(
-            required_dimensions=sorted(spec.rendered_required_dimensions),
-            fixed_grain=(
-                sorted(spec.rendered_fixed_grain)
-                if spec.rendered_fixed_grain is not None
-                else None
-            ),
+            required_dimensions=_required_dimensions_contract(spec),
+            fixed_grain=normalize_fixed_grain(spec.rendered_fixed_grain),
             reaggregate=normalize_value(spec.rendered_reaggregate),
             filter_defaults=normalize_value(_effective_filter_requirements(spec)),
         )
@@ -1307,7 +1323,7 @@ def _implicit_dimension_link_context(
                     "grains": {
                         node: sorted(getattr(specs[node], "primary_key", None) or [])
                         for node in (source, target)
-                    }
+                    },
                 }
                 if narrow_dependencies
                 else {}
@@ -2516,7 +2532,8 @@ def _query_definitions(
     opaque = ComponentKey(name, "opaque")
     opaque_dependencies = {
         f"opaque_parent:{provider.provider}": ComponentKey(
-            provider.provider, "calculation"
+            provider.provider,
+            "calculation",
         )
         for provider in source.providers
     }
@@ -2527,7 +2544,8 @@ def _query_definitions(
         conservative_projection = False
         try:
             expression_shape, dependencies, aggregate = _bind_expression(
-                expression, source
+                expression,
+                source,
             )
         except _Unsupported as exc:
             if exc.reason != "unsupported_function":
@@ -2541,7 +2559,7 @@ def _query_definitions(
                 raise _Unsupported("unsupported_function") from exc
             conservative_projection = True
             conservative_projections.append(
-                {"output": output, "expression": expression_shape}
+                {"output": output, "expression": expression_shape},
             )
             opaque_dependencies.update(dependencies)
             dependencies = [*dependencies, ("opaque_projection", opaque)]

@@ -1,5 +1,7 @@
 """The v2 local contracts omit presentation metadata and retain data inputs."""
 
+import pytest
+
 from datajunction_server.models.deployment import (
     ColumnSpec,
     CubeSpec,
@@ -125,7 +127,7 @@ def test_join_cardinality_is_warning_only_while_join_predicate_is_semantic():
         update={
             "dimension_links": [
                 link.model_copy(
-                    update={"join_on": "ns.source.id + 1 = ns.dimension.id"}
+                    update={"join_on": "ns.source.id + 1 = ns.dimension.id"},
                 ),
             ],
         },
@@ -133,3 +135,71 @@ def test_join_cardinality_is_warning_only_while_join_predicate_is_semantic():
 
     assert _contract(source) == _contract(changed_cardinality)
     assert _contract(source) != _contract(changed_predicate)
+
+
+@pytest.mark.parametrize(
+    ("query", "equivalent"),
+    [
+        ("SELECT SUM(id) FROM ns.source", True),
+        ("SELECT SUM(s.id) FROM ns.source s", True),
+        ("SELECT SUM(s.id) FROM ns.source s JOIN ns.other o ON s.id = o.id", False),
+        ("SELECT SUM(s.id) FROM ns.source s JOIN ns.source t ON s.id = t.id", False),
+        ("WITH t AS (SELECT id FROM ns.source) SELECT SUM(id) FROM t", False),
+        ("SELECT SUM(id) FROM (SELECT id FROM ns.source) t", False),
+        ("SELECT ns.source", False),
+        ("SELECT (", False),
+        ("", False),
+    ],
+)
+def test_required_dimensions_normalize_only_single_input_references(query, equivalent):
+    metric = MetricSpec(name="ns.metric", query=query, required_dimensions=["id", "z"])
+    qualified = metric.model_copy(
+        update={"required_dimensions": ["z", "ns.source.id", "ns.source.id"]},
+    )
+
+    assert (_contract(metric) == _contract(qualified)) is equivalent
+    assert _contract(qualified)["required_dimensions"] == [
+        "id" if equivalent else "ns.source.id",
+        "z",
+    ]
+
+
+def test_required_dimensions_preserve_join_providers_and_roles():
+    metric = MetricSpec(
+        name="ns.metric",
+        query=(
+            "SELECT SUM(o.amount) FROM ns.orders o "
+            "JOIN ns.customers c ON o.customer_id = c.id"
+        ),
+        required_dimensions=["ns.orders.id"],
+    )
+    customer = metric.model_copy(update={"required_dimensions": ["ns.customers.id"]})
+    assert _contract(metric) != _contract(customer)
+
+    metric = _specs()[3]
+    employee = metric.model_copy(
+        update={"required_dimensions": ["ns.source.id[employee]"]},
+    )
+    manager = metric.model_copy(
+        update={"required_dimensions": ["ns.source.id[manager]"]},
+    )
+    assert _contract(employee)["required_dimensions"] == ["ns.source.id[employee]"]
+    assert _contract(employee) != _contract(manager)
+
+
+@pytest.mark.parametrize(
+    ("before", "after", "equivalent"),
+    [
+        (["b", "a", "a"], ["a", "b"], True),
+        (None, [], False),
+        (["a"], ["b"], False),
+    ],
+)
+def test_fixed_grain_ignores_order_and_duplicates_but_retains_meaning(
+    before,
+    after,
+    equivalent,
+):
+    metric = _specs()[3].model_copy(update={"fixed_grain": before})
+    changed = metric.model_copy(update={"fixed_grain": after})
+    assert (_contract(metric) == _contract(changed)) is equivalent

@@ -69,7 +69,11 @@ def evaluate(*specs):
 
 
 def test_fingerprinting_reuses_cached_asts_without_mutating_them(monkeypatch):
-    specs = [source(), project(), metric()]
+    specs = [
+        source(),
+        project(),
+        metric(required_dimensions=["ns.project.amount"]),
+    ]
     fresh_result = evaluate(*specs)
     query_specs = [spec for spec in specs if spec.rendered_query]
     caller_asts = {
@@ -99,9 +103,9 @@ def test_fingerprinting_reuses_cached_asts_without_mutating_them(monkeypatch):
     assert result.nodes == fresh_result.nodes
     assert parse_calls == []
     assert result.nodes["ns.project"].precision == "precise"
-    assert result.nodes["ns.total"].precision == "precise"
+    assert result.nodes["ns.total"].precision == "conservative"
     assert result.nodes["ns.total"].full.digest == (
-        "47181291ab8708c4c9a67af045d50175f324c4ee737e6112754ac4401c7d8617"
+        "4553da3dc25539d5f0cc36a0d024d9c8173f37800f9ced7329f93434e4ef0aad"
     )
     assert {
         spec.rendered_name: structural.serialize_ast(spec.query_ast, version=1)

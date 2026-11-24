@@ -39,6 +39,23 @@ def compare(before, after, name):
     return compare_components(before.nodes[name].full, after.nodes[name].full)
 
 
+def test_configured_metric_contract_preserves_ambiguous_required_dimension_providers():
+    query = (
+        "SELECT SUM(o.amount) FROM ns.orders o "
+        "JOIN ns.customers c ON o.customer_id = c.id"
+    )
+    orders = MetricSpec(
+        name="ns.total",
+        query=query,
+        required_dimensions=["ns.orders.id"],
+    )
+    customers = orders.model_copy(
+        update={"required_dimensions": ["ns.customers.id"]},
+    )
+
+    assert v2_configured._contract(orders) != v2_configured._contract(customers)
+
+
 def _contextual(nodes):
     nodes["ns.total"].required_dimensions = ["ns.country.name"]
     return nodes
@@ -99,7 +116,9 @@ def test_output_edit_stays_local_with_configured_dimension_context():
     ],
 )
 def test_implicit_metric_columns_retain_rows_keys_and_used_values(
-    edit, expected, try_cast
+    edit,
+    expected,
+    try_cast,
 ):
     nodes = specs()
     fact = nodes["ns.fact"]

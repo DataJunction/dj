@@ -47,6 +47,7 @@ from datajunction_server.semantic_fingerprints.v2_dependencies import (
     _dimension_link_contract,
     _effective_filter_requirements,
     _join_columns,
+    _required_dimensions_contract,
     _JoinColumnCache,
     _opaque_query_tokens,
 )
@@ -74,15 +75,8 @@ _ContextPathCache = dict[
 
 def _contract(spec: MetricSpec | CubeSpec) -> dict[str, object]:
     if isinstance(spec, MetricSpec):
-        try:
-            required_dimensions = spec.canonical_required_dimensions
-        except DJParseException:
-            required_dimensions = spec.rendered_required_dimensions
         return {
-            "required_dimensions": normalize_sequence(
-                required_dimensions,
-                preserve_order=False,
-            ),
+            "required_dimensions": _required_dimensions_contract(spec),
             "reaggregate": normalize_value(spec.rendered_reaggregate),
             "fixed_grain": normalize_fixed_grain(spec.rendered_fixed_grain),
         }
@@ -846,7 +840,9 @@ async def compute_configured_v2_fingerprints(
             reason=(
                 "cube_blending_rows_conservative"
                 if isinstance(spec, CubeSpec)
-                else "derived_metric_dependencies_conservative" if formulas else None
+                else "derived_metric_dependencies_conservative"
+                if formulas
+                else None
             ),
         )
         components[row_key] = rows
