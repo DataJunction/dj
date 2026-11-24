@@ -17,6 +17,7 @@ from __future__ import annotations
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datajunction_server.construction.build_v3.dimension_refs import split_dimension_ref
 from datajunction_server.construction.build_v3.loaders import find_join_paths_batch
 from datajunction_server.database.column import Column
 from datajunction_server.database.node import Node, NodeRevision
@@ -26,26 +27,26 @@ async def find_reference_dimensions_batch(
     session: AsyncSession,
     source_revision_ids: set[int],
     target_dimension_names: set[str],
-) -> dict[int, set[tuple[str, str]]]:
-    """Reference-linked dimensions per source revision, as (dim_name, role) pairs.
+) -> dict[int, set[tuple[str, str, str]]]:
+    """Reference columns per revision, as (dimension name, column name, role).
 
     A reference link is not a graph edge — it lives on ``Column.dimension_id``
     with the role inline in ``dimension_column`` — so the BFS cannot see it.
     """
     statement = (
-        select(Column.node_revision_id, Node.name, Column.dimension_column)
+        select(Column.node_revision_id, Node.name, Column.name, Column.dimension_column)
         .join(Node, Node.id == Column.dimension_id)
         .where(Column.node_revision_id.in_(source_revision_ids))
         .where(Node.name.in_(target_dimension_names))
     )
     rows = (await session.execute(statement)).all()
-    reference_dims: dict[int, set[tuple[str, str]]] = {}
-    for rev_id, dim_name, dimension_column in rows:
-        role = ""
-        if dimension_column and "[" in dimension_column:
-            role = dimension_column.split("[", 1)[1].rstrip("]")
-        reference_dims.setdefault(rev_id, set()).add((dim_name, role))
-    return reference_dims
+    reference_columns: dict[int, set[tuple[str, str, str]]] = {}
+    for rev_id, dim_name, source_column, dimension_column in rows:
+        column_name, role = split_dimension_ref(dimension_column or source_column)
+        reference_columns.setdefault(rev_id, set()).add(
+            (dim_name, column_name, role or ""),
+        )
+    return reference_columns
 
 
 class DimensionReachability:
@@ -61,8 +62,11 @@ class DimensionReachability:
         paths: dict[tuple[int, str, str], list[int]],
         local_names: dict[int, str] | None = None,
         reference_dims: dict[int, set[tuple[str, str]]] | None = None,
+        reference_columns: dict[int, set[tuple[str, str, str]]] | None = None,
     ):
         self._paths = paths
+        self._local_names = local_names or {}
+        self._reference_columns = reference_columns or {}
         # Reachable (dimension, role) pairs for each source node; role is "" for
         # a role-less path. Keying on role — not just the dimension — is what
         # rejects a bare reference that's only reachable under a role.
@@ -78,6 +82,10 @@ class DimensionReachability:
         # value — but they carry the role declared on the column.
         for rev_id, dim_roles in (reference_dims or {}).items():
             self._reachable_roles.setdefault(rev_id, set()).update(dim_roles)
+        for rev_id, columns in self._reference_columns.items():
+            self._reachable_roles.setdefault(rev_id, set()).update(
+                (dim_name, role) for dim_name, _column, role in columns
+            )
         # Node-level (role-agnostic) view, derived once for O(1) lookups.
         self._reachable: dict[int, set[str]] = {
             sid: {name for name, _role in roles}
@@ -107,12 +115,28 @@ class DimensionReachability:
             source_revision_ids,
             target_dimension_names,
         )
-        reference_dims = await find_reference_dimensions_batch(
+        reference_columns = await find_reference_dimensions_batch(
             session,
             source_revision_ids,
             target_dimension_names,
         )
-        return cls(paths, local_names, reference_dims)
+        return cls(paths, local_names, reference_columns=reference_columns)
+
+    def is_column_reachable_under_role(
+        self,
+        source_rev_id: int,
+        dim_name: str,
+        column_name: str,
+        role: str | None,
+    ) -> bool:
+        """Join paths expose all attributes; references expose one exact column."""
+        role_path = role or ""
+        return (
+            (not role_path and self._local_names.get(source_rev_id) == dim_name)
+            or (source_rev_id, dim_name, role_path) in self._paths
+            or (dim_name, column_name, role_path)
+            in self._reference_columns.get(source_rev_id, set())
+        )
 
     def is_reachable(self, source_rev_id: int, dim_name: str) -> bool:
         """Node-level (role-agnostic) check: is the dimension reachable at all?"""
@@ -136,6 +160,10 @@ class DimensionReachability:
     def reachable_from(self, source_rev_id: int) -> set[str]:
         """All dimension names reachable from a source node."""
         return self._reachable.get(source_rev_id, set())
+
+    def reachable_roles_from(self, source_rev_id: int) -> set[tuple[str, str]]:
+        """Reachable dimension nodes and their exact role paths."""
+        return self._reachable_roles.get(source_rev_id, set())
 
     def shared_dimensions(self, source_rev_ids: set[int]) -> set[str]:
         """Intersection of reachable dimensions across all source nodes."""

@@ -43,6 +43,7 @@ from datajunction_server.construction.build_v3.utils import (
 )
 from datajunction_server.database.catalog import Catalog
 from datajunction_server.database.column import Column
+from datajunction_server.database.engine import Engine
 from datajunction_server.database.node import Node, NodeRelationship, NodeRevision
 from datajunction_server.database.partition import Partition
 from datajunction_server.errors import DJInvalidInputException
@@ -703,6 +704,14 @@ async def validate_pinned_cube_covers_filters(
     )
 
 
+def preferred_live_engine(engines: list[Engine]) -> Engine | None:
+    """Choose the default live-query engine consistently across API callers."""
+    return next(
+        (engine for engine in engines if engine.dialect == Dialect.TRINO),
+        engines[0] if engines else None,
+    )
+
+
 async def resolve_dialect_and_engine_for_metrics(
     session: AsyncSession,
     metrics: list[str],
@@ -839,9 +848,8 @@ async def resolve_dialect_and_engine_for_metrics(
     # Resolve engine: when no dialect is explicitly requested, prefer Trino.
     # Fall back to the catalog's first engine if no Trino engine exists.
     if not dialect_override and not engine_name:
-        catalog_engines = node.current.catalog.engines
-        trino_engines = [e for e in catalog_engines if e.dialect == Dialect.TRINO]
-        preferred_dialect: Dialect | None = Dialect.TRINO if trino_engines else None
+        preferred = preferred_live_engine(node.current.catalog.engines)
+        preferred_dialect: Dialect | None = preferred.dialect if preferred else None
     else:
         preferred_dialect = dialect_override
 
