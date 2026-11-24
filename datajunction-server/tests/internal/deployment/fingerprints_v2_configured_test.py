@@ -24,6 +24,7 @@ from datajunction_server.semantic_fingerprints.v2_configured import (
     compute_configured_v2_fingerprints,
 )
 from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.backends import antlr4
 from tests.internal.deployment.configured_fingerprint_specs import (
     configured_graph_specs as specs,
 )
@@ -444,7 +445,7 @@ def test_ancestry_walk_is_reused_within_one_evaluation(monkeypatch):
     assert table_walks == 2
 
 
-def test_filter_and_join_predicates_parse_once_per_evaluation(monkeypatch):
+def test_filter_and_join_predicates_reuse_bounded_parse_cache(monkeypatch):
     nodes = specs()
     filter_text = "ns.country.name IS NOT NULL"
     nodes["ns.total"].required_dimensions = ["ns.country.name"]
@@ -455,23 +456,111 @@ def test_filter_and_join_predicates_parse_once_per_evaluation(monkeypatch):
         ),
     ]
     snapshot = SemanticGraphSnapshot(nodes)
+    antlr4._cached_parse.cache_clear()
     parse_calls = []
-    original_parse = v2_configured.parse
+    original_parse = antlr4.parse
 
     def count_parse(query):
         parse_calls.append(query)
         return original_parse(query)
 
-    monkeypatch.setattr(v2_configured, "parse", count_parse)
-    monkeypatch.setattr(v2_dependencies, "parse", count_parse)
+    monkeypatch.setattr(antlr4, "parse", count_parse)
     for _ in range(2):
         asyncio.run(compute_configured_v2_fingerprints(snapshot))
 
     filter_sql = f"SELECT 1 WHERE ({filter_text})"
     link = nodes["ns.fact"].dimension_links[0]
     join_sql = f"SELECT 1 WHERE ({link.rendered_join_on})"
-    assert parse_calls.count(filter_sql) == 2
-    assert parse_calls.count(join_sql) == 2
+    assert parse_calls.count(filter_sql) == 1
+    assert parse_calls.count(join_sql) == 1
+
+
+def test_same_unqualified_filter_uses_provider_specific_semantic_cache():
+    nodes = specs()
+    filter_text = ("name IS NOT NULL",)
+    semantics_cache = {}
+    column_cache = {}
+    country, country_dependencies = v2_configured._cached_semantic_filters(
+        filter_text,
+        nodes,
+        {"ns.country.name"},
+        semantics_cache,
+        column_cache,
+    )
+    region, region_dependencies = v2_configured._cached_semantic_filters(
+        filter_text,
+        nodes,
+        {"ns.region.name"},
+        semantics_cache,
+        column_cache,
+    )
+
+    assert country != region
+    assert {key.node for key in country_dependencies} == {"ns.country"}
+    assert {key.node for key in region_dependencies} == {"ns.region"}
+
+
+def test_fixed_grain_provider_change_is_preserved_when_required_dimensions_match():
+    nodes = specs()
+    nodes["ns.fact"].dimension_links.append(
+        DimensionJoinLinkSpec(
+            dimension_node="ns.region",
+            join_on="ns.fact.region_id = ns.region.id",
+        ),
+    )
+    nodes["ns.region_rows"] = nodes["ns.lookup"].model_copy(
+        update={"name": "ns.region_rows", "table": "region_rows"},
+    )
+    nodes["ns.region"].query = "SELECT id, name FROM ns.region_rows"
+    nodes["ns.total"].required_dimensions = [
+        "ns.country.name",
+        "ns.region.name",
+    ]
+    nodes["ns.total"].fixed_grain = ["ns.country.name"]
+    before = evaluate(nodes)
+
+    after_nodes = copy.deepcopy(nodes)
+    after_nodes["ns.total"].fixed_grain = ["ns.region.name"]
+    after = evaluate(after_nodes)
+
+    assert compare(before, after, "ns.total") == "changed"
+
+
+def test_configured_metric_partition_reference_keeps_provider_identity():
+    nodes = specs()
+    nodes["ns.first"] = MetricSpec(
+        name="ns.first",
+        query="SELECT SUM(amount) FROM ns.fact",
+        required_filters=[
+            FilterRequirement(
+                dimension=["ns.country.name"],
+                default="ns.country.name = 'US'",
+            ),
+        ],
+    )
+    nodes["ns.second"] = MetricSpec(
+        name="ns.second",
+        query="SELECT SUM(amount) FROM ns.fact",
+        required_filters=[
+            FilterRequirement(
+                dimension=["ns.country.name"],
+                default="ns.country.name = 'CA'",
+            ),
+        ],
+    )
+
+    first, first_dependencies = v2_configured._semantic_column_reference(
+        "ns.first",
+        nodes,
+    )
+    second, second_dependencies = v2_configured._semantic_column_reference(
+        "ns.second",
+        nodes,
+    )
+
+    assert first != second
+    assert first_dependencies == (ComponentKey("ns.first", "full"),)
+    assert second_dependencies == (ComponentKey("ns.second", "full"),)
 
 
 def test_nonmetric_definitions_are_shared_only_within_one_evaluation(monkeypatch):

@@ -39,20 +39,26 @@ from datajunction_server.semantic_fingerprints.v2 import (
     ComponentResult,
     NodeComponents,
     SemanticGraphSnapshot,
+    UnorderedPayload,
     V2FingerprintGraph,
     _component_hash,
     compute_v2_fingerprints,
 )
 from datajunction_server.semantic_fingerprints.v2_dependencies import (
+    _canonical_dimension_join_on,
+    _canonicalize_expression_ast,
+    _column_reference_key,
     _dimension_link_contract,
     _effective_filter_requirements,
+    _exact_numeric_literals,
+    _has_lossy_sql_tokens,
     _join_columns,
-    _required_dimensions_contract,
     _JoinColumnCache,
     _opaque_query_tokens,
+    _required_dimensions_contract,
 )
 from datajunction_server.sql.parsing import ast
-from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.sql.parsing.backends.antlr4 import cached_parse as parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 
 _PARSE_ERRORS = (DJParseException, TypeError, ValueError, AttributeError, KeyError)
@@ -65,7 +71,12 @@ _ContextLink = tuple[
 ]
 _ContextLinkIndex = Mapping[str, tuple[_ContextLink, ...]]
 _AncestryCache = dict[str, frozenset[str] | None]
-_FilterColumnCache = dict[str, tuple[frozenset[str], bool]]
+_FilterColumnCache = dict[str, tuple[frozenset[str], bool, ast.Query | None]]
+_FilterSemanticsCache = dict[
+    tuple[tuple[str, ...], frozenset[str]],
+    tuple[object, tuple[ComponentKey, ...]] | None,
+]
+_LinkContractCache = dict[tuple[str, str, str], object]
 _ContextPaths = tuple[list[tuple[str, str, object]], bool]
 _ContextPathCache = dict[
     tuple[frozenset[str], frozenset[tuple[str, str | None]]],
@@ -89,6 +100,314 @@ def _contract(spec: MetricSpec | CubeSpec) -> dict[str, object]:
         "filters": normalize_sequence(spec.rendered_filters, preserve_order=False),
         "columns": normalize_cube_columns(spec.matched_rendered_columns),
     }
+
+
+def _semantic_reference(
+    reference: str,
+    specs: Mapping[str, NodeSpec],
+) -> tuple[object, tuple[ComponentKey, ...]] | None:
+    ref = _dimension_ref(reference, specs)
+    if ref is None:
+        if "." not in reference and "[" not in reference:
+            return {"field": reference}, ()
+        return None
+    node, field, role = ref
+    output = ComponentKey(node, "output", field)
+    rows = ComponentKey(node, "rows")
+    return {
+        "output": output,
+        "source_rows": rows,
+        "role": role,
+    }, (output, rows)
+
+
+def _semantic_column_reference(
+    reference: str,
+    specs: Mapping[str, NodeSpec],
+) -> tuple[object, tuple[ComponentKey, ...]] | None:
+    node = _resolved_node(reference, specs)
+    if node and isinstance(specs[node], MetricSpec):
+        component = ComponentKey(node, "full")
+        if _has_metric_context(specs[node]):
+            return {
+                "metric": reference,
+                "configured_metric": component,
+            }, (component,)
+        return {"metric": component}, (component,)
+    return _semantic_reference(reference, specs)
+
+
+def _has_metric_context(metric: MetricSpec) -> bool:
+    return bool(
+        metric.rendered_required_dimensions
+        or metric.rendered_fixed_grain is not None
+        or metric.rendered_reaggregate is not None
+        or _effective_filter_requirements(metric),
+    )
+
+
+def _derived_formula_contract(
+    metric: MetricSpec,
+    specs: Mapping[str, NodeSpec],
+    own_contract: object,
+    own_dependencies: Iterable[ComponentKey],
+) -> tuple[object, tuple[ComponentKey, ...]]:
+    raw_query = metric.rendered_query or ""
+    try:
+        query = metric.query_ast
+        if (
+            query is None
+            or query.ctes
+            or query.select.from_ is not None
+            or len(query.select.projection) != 1
+            or _has_lossy_sql_tokens(raw_query)
+        ):
+            raise ValueError("unsupported_derived_metric_expression")
+        projection = query.select.projection[0]
+        expression = (
+            projection.child if isinstance(projection, ast.Alias) else projection
+        )
+        bound_columns = {}
+        dependencies = set(own_dependencies)
+        has_contextual_input = False
+        for column in expression.find_all(ast.Column):
+            name = _resolved_node(column.identifier(quotes=False), specs)
+            if not name or not isinstance(specs.get(name), MetricSpec) or column.role:
+                raise ValueError("unresolved_derived_metric_input")
+            child = cast(MetricSpec, specs[name])
+            has_contextual_input |= _has_metric_context(child)
+            component = ComponentKey(name, "full")
+            dependencies.add(component)
+            bound_columns[_column_reference_key(column)] = (component, "value")
+        if has_contextual_input:
+            return {
+                "raw_query": _opaque_query_tokens(raw_query),
+                "metric_contract": own_contract,
+            }, tuple(
+                sorted(
+                    dependencies,
+                    key=lambda item: (item.kind, item.field, item.token),
+                ),
+            )
+        ast_value = _canonicalize_expression_ast(
+            expression,
+            bound_columns,
+            require_bound=True,
+        )
+
+        def replace_metric_names(value: object) -> object:
+            if isinstance(value, list):
+                return [replace_metric_names(item) for item in value]
+            if not isinstance(value, dict):
+                return value
+            if value.get("type") == "Column":
+                name = value["fields"]["name"]["fields"]
+                name["name"] = "$metric"
+                name["namespace"] = None
+            return {key: replace_metric_names(item) for key, item in value.items()}
+
+        return {
+            "ast": replace_metric_names(ast_value),
+            "numeric_literals": _exact_numeric_literals(
+                expression,
+                query,
+                raw_query,
+            ),
+            "metric_contract": own_contract,
+        }, tuple(
+            sorted(dependencies, key=lambda item: (item.kind, item.field, item.token)),
+        )
+    except _PARSE_ERRORS:
+        return {
+            "raw_query": _opaque_query_tokens(raw_query),
+            "metric_contract": own_contract,
+        }, tuple(
+            sorted(
+                own_dependencies,
+                key=lambda item: (item.kind, item.field, item.token),
+            ),
+        )
+
+
+def _resolve_filter_column(
+    column: ast.Column,
+    specs: Mapping[str, NodeSpec],
+    known_references: Iterable[str],
+) -> tuple[str, str, str] | None:
+    identifier = column.identifier(quotes=False)
+    reference = identifier + (f"[{column.role}]" if column.role else "")
+    resolved = _dimension_ref(reference, specs)
+    if resolved is not None:
+        return resolved
+    if "." not in identifier:
+        matches = {
+            item
+            for candidate in known_references
+            if (item := _dimension_ref(candidate, specs)) is not None
+            and item[1].casefold() == column.name.name.casefold()
+            and item[2] == (column.role or "")
+        }
+        if len(matches) == 1:
+            return next(iter(matches))
+    return None
+
+
+def _semantic_filters(
+    filters: Iterable[str],
+    specs: Mapping[str, NodeSpec],
+    known_references: Iterable[str] = (),
+    filter_column_cache: _FilterColumnCache | None = None,
+) -> tuple[object, tuple[ComponentKey, ...]] | None:
+    values: list[object] = []
+    dependencies: set[ComponentKey] = set()
+    for text in filters:
+        sql = f"SELECT 1 WHERE ({text})"
+        try:
+            if _has_lossy_sql_tokens(sql):
+                values.append(text)
+                continue
+            cached = (filter_column_cache or {}).get(text)
+            if cached is not None and not cached[1]:
+                values.append(text)
+                continue
+            query = (
+                cached[2]
+                if cached is not None and cached[2] is not None
+                else parse(sql)
+            )
+            expression = query.select.where
+            if expression is None:
+                raise ValueError("filter_expression_missing")
+            bound_columns: dict[str, tuple[object, str]] = {}
+            filter_dependencies: set[ComponentKey] = set()
+            for column in query.find_all(ast.Column):
+                reference = _resolve_filter_column(column, specs, known_references)
+                if reference is None:
+                    raise ValueError("unresolved_filter_column")
+                node, field, role = reference
+                output = ComponentKey(node, "output", field)
+                rows = ComponentKey(node, "rows")
+                filter_dependencies.update((output, rows))
+                bound_columns[_column_reference_key(column)] = (
+                    (output, role),
+                    field,
+                )
+            values.append(
+                {
+                    "ast": _canonicalize_expression_ast(
+                        expression,
+                        bound_columns,
+                        require_bound=True,
+                    ),
+                    "numeric_literals": _exact_numeric_literals(
+                        expression,
+                        query,
+                        sql,
+                    ),
+                },
+            )
+            dependencies.update(filter_dependencies)
+        except _PARSE_ERRORS:
+            values.append(text)
+    return UnorderedPayload(tuple(values)), tuple(dependencies)
+
+
+def _cached_semantic_filters(
+    filters: tuple[str, ...],
+    specs: Mapping[str, NodeSpec],
+    known_references: Iterable[str],
+    semantics_cache: _FilterSemanticsCache,
+    column_cache: _FilterColumnCache,
+) -> tuple[object, tuple[ComponentKey, ...]] | None:
+    key = (filters, frozenset(known_references))
+    if key not in semantics_cache:
+        semantics_cache[key] = _semantic_filters(
+            filters,
+            specs,
+            known_references,
+            column_cache,
+        )
+    return semantics_cache[key]
+
+
+def _semantic_link_contract(
+    source: str,
+    target: str,
+    link: DimensionJoinLinkSpec | DimensionReferenceLinkSpec,
+) -> object | None:
+    contract = normalize_value(_dimension_link_contract(link))
+    if isinstance(link, DimensionJoinLinkSpec) and link.rendered_join_on:
+        try:
+            contract["join_on"] = _canonical_dimension_join_on(
+                link.rendered_join_on,
+                source,
+                target,
+            )
+        except _PARSE_ERRORS:
+            return normalize_value(_dimension_link_contract(link))
+        contract.pop("dimension_node", None)
+    else:
+        contract.pop("dimension_node", None)
+    return contract
+
+
+def _semantic_contract(
+    spec: MetricSpec | CubeSpec,
+    specs: Mapping[str, NodeSpec],
+) -> tuple[dict[str, object], tuple[ComponentKey, ...]] | None:
+    dependencies: set[ComponentKey] = set()
+    if isinstance(spec, MetricSpec):
+        required_dimensions = []
+        for reference in _required_dimensions_contract(spec):
+            semantic = _semantic_reference(reference, specs)
+            if semantic is None:
+                return None
+            value, refs = semantic
+            required_dimensions.append(value)
+            dependencies.update(refs)
+        fixed_grain = None
+        normalized_fixed_grain = normalize_fixed_grain(spec.rendered_fixed_grain)
+        if normalized_fixed_grain is not None:
+            fixed_grain = []
+            for reference in normalized_fixed_grain:
+                semantic = _semantic_reference(reference, specs)
+                if semantic is None:
+                    return None
+                value, refs = semantic
+                fixed_grain.append(value)
+                dependencies.update(refs)
+        reaggregate = normalize_value(spec.rendered_reaggregate)
+        if reaggregate is not None:
+            for rule in reaggregate["rules"]:
+                dimension = _semantic_reference(rule["dimension"], specs)
+                if dimension is None:
+                    return None
+                rule["dimension"], refs = dimension
+                dependencies.update(refs)
+        return {
+            "required_dimensions": UnorderedPayload(tuple(required_dimensions)),
+            "fixed_grain": (
+                None if fixed_grain is None else UnorderedPayload(tuple(fixed_grain))
+            ),
+            "reaggregate": reaggregate,
+        }, tuple(dependencies)
+
+    columns: list[dict[str, object]] = []
+    for column in spec.matched_rendered_columns:
+        if not column.partition:
+            continue
+        column_reference = _semantic_column_reference(column.name, specs)
+        if column_reference is None:
+            return None
+        reference_value, reference_dependencies = column_reference
+        dependencies.update(reference_dependencies)
+        columns.append(
+            {
+                "reference": reference_value,
+                "partition": normalize_value(column.partition),
+            },
+        )
+    return {"columns": UnorderedPayload(tuple(columns))}, tuple(dependencies)
 
 
 def _resolved_node(reference: str, specs: Mapping[str, NodeSpec]) -> str | None:
@@ -127,7 +446,7 @@ def _filter_columns(
             try:
                 query = parse(f"SELECT 1 WHERE ({text})")
             except _PARSE_ERRORS:
-                parsed = (frozenset(), False)
+                parsed = (frozenset(), False, None)
             else:
                 parsed = (
                     frozenset(
@@ -141,6 +460,7 @@ def _filter_columns(
                         for column in query.find_all(ast.Column)
                     ),
                     True,
+                    query,
                 )
             cache[text] = parsed
         references.update(parsed[0])
@@ -333,6 +653,9 @@ def _demand_context(
     link_index: _ContextLinkIndex,
     join_column_cache: _JoinColumnCache,
     path_cache: _ContextPathCache,
+    filter_semantics_cache: _FilterSemanticsCache,
+    filter_column_cache: _FilterColumnCache,
+    link_contract_cache: _LinkContractCache,
 ) -> tuple[ComponentResult, tuple[tuple[str, ComponentKey], ...]]:
     roots = _ancestors(parent, specs, ancestry_cache)
     if roots is None:
@@ -340,7 +663,7 @@ def _demand_context(
             ComponentResult("unknown", "unknown", ("unsupported_context_ancestry",)),
             (),
         )
-    output_dependencies: dict[tuple[str, str], tuple[str, ComponentKey]] = {}
+    output_dependencies: set[ComponentKey] = set()
     target_nodes: set[tuple[str, str | None]] = set()
     unresolved = False
     references = [(reference, False) for reference in sorted(refs)]
@@ -372,10 +695,7 @@ def _demand_context(
             and node == parent
             and (not role or any_role)
         ):
-            output_dependencies[(node, column)] = (
-                f"context-column:{node}.{column}",
-                ComponentKey(node, "output", column),
-            )
+            output_dependencies.add(ComponentKey(node, "output", column))
         elif node in roots and (not role or any_role):
             return (
                 ComponentResult(
@@ -386,22 +706,24 @@ def _demand_context(
                 (),
             )
         elif isinstance(specs.get(node), MetricSpec):
-            output_dependencies[(node, column)] = (
-                f"context-metric:{node}.{column}",
-                ComponentKey(node, "output", column),
-            )
+            output_dependencies.add(ComponentKey(node, "output", column))
         else:
-            output_dependencies[(node, column)] = (
-                f"context-column:{node}.{column}",
-                ComponentKey(node, "output", column),
-            )
+            output_dependencies.add(ComponentKey(node, "output", column))
             target_nodes.add((node, None if any_role else role))
 
     path_key = (frozenset(roots), frozenset(target_nodes))
     if path_key not in path_cache:
         path_cache[path_key] = _context_links(roots, target_nodes, specs, link_index)
     links, complete = path_cache[path_key]
-    dependencies = list(output_dependencies.values())
+    dependencies: list[tuple[str, ComponentKey]] = []
+    output_keys = sorted(
+        output_dependencies,
+        key=lambda item: (item.kind, item.field, item.token),
+    )
+    dependencies.extend(
+        (f"context-output:{output_key.kind}:{output_key.field}", output_key)
+        for output_key in output_keys
+    )
     link_contracts = []
     for source, target, raw_link in links:
         link = cast(DimensionJoinLinkSpec | DimensionReferenceLinkSpec, raw_link)
@@ -409,28 +731,76 @@ def _demand_context(
         if not parsed:
             unresolved = True
             continue
-        link_contracts.append(
-            {"source": source, "link": normalize_value(_dimension_link_contract(link))},
+        link_key = (
+            source,
+            target,
+            canonical_json(normalize_value(_dimension_link_contract(link))),
         )
-        dependencies.append(
-            (f"link-source-rows:{source}", ComponentKey(source, "rows")),
+        if link_key not in link_contract_cache:
+            link_contract_cache[link_key] = _semantic_link_contract(
+                source,
+                target,
+                link,
+            )
+        link_value = link_contract_cache[link_key]
+        if link_value is None:
+            unresolved = True
+            continue
+        join_keys = [ComponentKey(node, "output", column) for node, column in columns]
+        link_record = {
+            "source_rows": ComponentKey(source, "rows"),
+            "target_rows": ComponentKey(target, "rows"),
+            "link": link_value,
+            "join_keys": UnorderedPayload(tuple(join_keys)),
+        }
+        link_contracts.append(link_record)
+        dependencies.extend(
+            [
+                ("context-link:source-rows", ComponentKey(source, "rows")),
+                ("context-link:target-rows", ComponentKey(target, "rows")),
+            ],
         )
         dependencies.extend(
-            (f"join-key:{node}.{column}", ComponentKey(node, "output", column))
-            for node, column in sorted(columns)
+            (f"context-link:join-key:{join_key.field}", join_key)
+            for join_key in join_keys
         )
     context_nodes = {node for node, _ in target_nodes} | {
         target for _, target, _ in links if target not in roots
     }
-    dependencies.extend(
-        (f"dimension-rows:{node}", ComponentKey(node, "rows"))
-        for node in sorted(context_nodes)
+    context_primary_keys = []
+    for node in context_nodes:
+        row_key = ComponentKey(node, "rows")
+        primary_key = (
+            sorted(cast(LinkableNodeSpec, specs[node]).primary_key or [])
+            if isinstance(specs.get(node), LinkableNodeSpec)
+            else []
+        )
+        context_primary_keys.append({"rows": row_key, "primary_key": primary_key})
+        dependencies.append(("context-row", row_key))
+    root_grains = []
+    for node in roots:
+        if not isinstance(specs.get(node), (TransformSpec, DimensionSpec)):
+            continue
+        row_key = ComponentKey(node, "rows")
+        primary_key = sorted(cast(LinkableNodeSpec, specs[node]).primary_key or [])
+        root_grains.append({"rows": row_key, "primary_key": primary_key})
+        dependencies.append(("root-row", row_key))
+    cached_semantic_filters = _cached_semantic_filters(
+        filters,
+        specs,
+        refs,
+        filter_semantics_cache,
+        filter_column_cache,
     )
-    context_primary_keys = {
-        node: sorted(cast(LinkableNodeSpec, specs[node]).primary_key or [])
-        for node in sorted(context_nodes)
-        if isinstance(specs.get(node), LinkableNodeSpec)
-    }
+    semantic_filter_payload: object
+    filter_dependencies: tuple[ComponentKey, ...]
+    if cached_semantic_filters is None:
+        unresolved = True
+        semantic_filter_payload = UnorderedPayload(())
+        filter_dependencies = ()
+    else:
+        semantic_filter_payload, filter_dependencies = cached_semantic_filters
+    dependencies.extend(("filter-input", key) for key in filter_dependencies)
     if not complete or unresolved:
         return (
             ComponentResult(
@@ -444,14 +814,10 @@ def _demand_context(
         _combine(
             ComponentKey(metric.rendered_name, "demand_context", key),
             {
-                "links": sorted(link_contracts, key=canonical_json),
-                "filters": list(filters),
-                "context_primary_keys": context_primary_keys,
-                "root_grains": {
-                    node: sorted(cast(LinkableNodeSpec, specs[node]).primary_key or [])
-                    for node in sorted(roots)
-                    if isinstance(specs.get(node), (TransformSpec, DimensionSpec))
-                },
+                "links": UnorderedPayload(tuple(link_contracts)),
+                "filters": semantic_filter_payload,
+                "context_primary_keys": UnorderedPayload(tuple(context_primary_keys)),
+                "root_grains": UnorderedPayload(tuple(root_grains)),
             },
             dependencies,
             available,
@@ -483,11 +849,20 @@ def _combine(
         if result.precision == "conservative":
             precision = "conservative"
         inputs.append((label, provider, cast(SemanticFingerprint, result.fingerprint)))
-    return ComponentResult(
-        _component_hash(key, payload, inputs),
-        precision,
-        tuple(sorted(reasons)),
-    )
+    try:
+        fingerprint = _component_hash(
+            key,
+            payload,
+            inputs,
+            semantic_field="" if key.kind.startswith("demand_") else None,
+        )
+    except KeyError:
+        return ComponentResult(
+            "unknown",
+            "unknown",
+            ("unresolved_payload_dependency",),
+        )
+    return ComponentResult(fingerprint, precision, tuple(sorted(reasons)))
 
 
 async def compute_configured_v2_fingerprints(
@@ -567,21 +942,38 @@ async def compute_configured_v2_fingerprints(
     filter_column_cache: _FilterColumnCache = {}
     join_column_cache: _JoinColumnCache = {}
     path_cache: _ContextPathCache = {}
+    filter_semantics_cache: _FilterSemanticsCache = {}
+    link_contract_cache: _LinkContractCache = {}
     metric_parent_cache: dict[str, str | None] = {}
-    contracts: dict[str, dict[str, object]] = {}
+    contracts: dict[
+        str,
+        tuple[dict[str, object], tuple[ComponentKey, ...]] | None,
+    ] = {}
     requirements_cache: dict[str, tuple[str, ...] | None] = {}
     demands: dict[
         tuple[str, str],
-        tuple[MetricSpec, str, set[str], tuple[str, ...], dict],
+        tuple[
+            MetricSpec,
+            str,
+            set[str],
+            tuple[str, ...],
+            dict,
+            tuple[ComponentKey, ...],
+        ],
     ] = {}
     consumers: dict[str, set[tuple[str, str]]] = defaultdict(set)
-    derived_formulas: dict[str, dict[str, object]] = defaultdict(dict)
-    formula_contracts: dict[str, object] = {}
+    derived_formulas: dict[
+        str,
+        dict[str, tuple[object, tuple[ComponentKey, ...]]],
+    ] = defaultdict(dict)
+    formula_contracts: dict[str, tuple[object, tuple[ComponentKey, ...]]] = {}
     derived_inputs: dict[str, tuple[MetricSpec, ...] | None] = {}
 
-    def contract_for(spec: MetricSpec | CubeSpec) -> dict[str, object]:
+    def contract_for(
+        spec: MetricSpec | CubeSpec,
+    ) -> tuple[dict[str, object], tuple[ComponentKey, ...]] | None:
         if spec.rendered_name not in contracts:
-            contracts[spec.rendered_name] = _contract(spec)
+            contracts[spec.rendered_name] = _semantic_contract(spec, specs)
         return contracts[spec.rendered_name]
 
     def add_demand(
@@ -640,7 +1032,11 @@ async def compute_configured_v2_fingerprints(
             unavailable.add(consumer)
             return
         refs.update(filter_refs)
-        contract = contract_for(metric)
+        semantic_contract = contract_for(metric)
+        if semantic_contract is None:
+            unavailable.add(consumer)
+            return
+        contract, contract_dependencies = semantic_contract
         if parent is None:
             if metric_name not in derived_inputs:
                 derived_inputs[metric_name] = _derived_inputs(metric, specs)
@@ -649,14 +1045,12 @@ async def compute_configured_v2_fingerprints(
                 unavailable.add(consumer)
                 return
             if metric_name not in formula_contracts:
-                try:
-                    formula_contracts[metric_name] = {
-                        "query": _opaque_query_tokens(metric.rendered_query or ""),
-                        "contract": contract,
-                    }
-                except _PARSE_ERRORS:
-                    unavailable.add(consumer)
-                    return
+                formula_contracts[metric_name] = _derived_formula_contract(
+                    metric,
+                    specs,
+                    contract,
+                    contract_dependencies,
+                )
             derived_formulas[consumer][metric_name] = formula_contracts[metric_name]
             for child in children:
                 add_demand(
@@ -677,13 +1071,20 @@ async def compute_configured_v2_fingerprints(
                 "parent": parent,
                 "dimensions": sorted(dimensions),
                 "filters": sorted(effective_filters),
-                "contract": contract,
+                "contract": _contract(metric),
             },
         )
         compact_key = sha256(demand_key.encode("utf-8")).hexdigest()
         demands.setdefault(
             (metric.rendered_name, compact_key),
-            (metric, parent, refs, tuple(sorted(effective_filters)), contract),
+            (
+                metric,
+                parent,
+                refs,
+                tuple(sorted(effective_filters)),
+                contract,
+                contract_dependencies,
+            ),
         )
         consumers[consumer].add((metric.rendered_name, compact_key))
 
@@ -710,7 +1111,7 @@ async def compute_configured_v2_fingerprints(
     }
     components = dict(available)
     bindings = dict(formula_graph.bindings)
-    for key, (metric, parent, refs, filters, contract) in demands.items():
+    for key, (metric, parent, refs, filters, contract, _) in demands.items():
         metric_name, demand_id = key
         context_key = ComponentKey(metric_name, "demand_context", demand_id)
         context, context_dependencies = _demand_context(
@@ -725,6 +1126,9 @@ async def compute_configured_v2_fingerprints(
             link_index,
             join_column_cache,
             path_cache,
+            filter_semantics_cache,
+            filter_column_cache,
+            link_contract_cache,
         )
         components[context_key] = context
         bindings[context_key] = context_dependencies
@@ -737,20 +1141,23 @@ async def compute_configured_v2_fingerprints(
     }
     for consumer in sorted(consumer_names):
         spec = cast(MetricSpec | CubeSpec, specs[consumer])
-        references = sorted(consumers.get(consumer, ()))
+        references = sorted(consumers.get(consumer, ()), key=lambda ref: ref[1])
         row_dependencies = []
         value_dependencies = []
         outputs: dict[str, ComponentResult] = {}
-        for index, ref in enumerate(references):
+        if contract_for(spec) is None:
+            unavailable.add(consumer)
+        for ref in references:
             metric_name, demand_id = ref
             demand_contract = demands[(metric_name, demand_id)][4]
+            demand_contract_dependencies = demands[(metric_name, demand_id)][5]
             context_key = ComponentKey(metric_name, "demand_context", demand_id)
             if metric_name in unsupported_metrics:
                 fallback_key = ComponentKey(metric_name, "calculation")
                 rows_key = ComponentKey(metric_name, "demand_rows", demand_id)
                 row = _combine(
                     rows_key,
-                    {"metric": metric_name, "fallback": "formula_calculation"},
+                    {"fallback": "formula_calculation"},
                     [("formula-calculation", fallback_key), ("context", context_key)],
                     components,
                     reason="unsupported_metric_formula_fallback",
@@ -764,6 +1171,10 @@ async def compute_configured_v2_fingerprints(
                 value_deps = [
                     ("formula-calculation", fallback_key),
                     ("context", context_key),
+                    *(
+                        ("contract-reference", key)
+                        for key in demand_contract_dependencies
+                    ),
                 ]
                 value = _combine(
                     value_key,
@@ -774,15 +1185,15 @@ async def compute_configured_v2_fingerprints(
                 )
                 components[value_key] = value
                 bindings[value_key] = tuple(value_deps)
-                row_dependencies.append((f"metric:{index}:rows", rows_key))
-                value_dependencies.append((f"metric:{index}:value", value_key))
+                row_dependencies.append(("metric:rows", rows_key))
+                value_dependencies.append(("metric:value", value_key))
                 outputs.update(formula_graph.nodes[metric_name].outputs)
                 continue
             formula = formula_graph.nodes.get(metric_name)
             rows_key = ComponentKey(metric_name, "demand_rows", demand_id)
             row = _combine(
                 rows_key,
-                {"metric": metric_name},
+                {},
                 [
                     ("formula-rows", ComponentKey(metric_name, "rows")),
                     ("context", context_key),
@@ -797,21 +1208,42 @@ async def compute_configured_v2_fingerprints(
             value_key = ComponentKey(metric_name, "demand_value", demand_id)
             value_deps = [
                 (
-                    f"metric-output:{output}",
+                    "metric-output",
                     ComponentKey(metric_name, "output", output),
                 )
                 for output in (formula.outputs if formula else {})
             ]
             value_deps.extend((("rows", rows_key), ("context", context_key)))
+            value_deps.extend(
+                ("contract-reference", key) for key in demand_contract_dependencies
+            )
             value = _combine(value_key, demand_contract, value_deps, components)
             components[value_key] = value
             bindings[value_key] = tuple(value_deps)
-            row_dependencies.append((f"metric:{index}:rows", rows_key))
-            value_dependencies.append((f"metric:{index}:value", value_key))
+            row_dependencies.append(("metric:rows", rows_key))
+            value_dependencies.append(("metric:value", value_key))
             if formula:
                 outputs.update(formula.outputs)
 
         formulas = derived_formulas.get(consumer, {})
+        formula_items = list(formulas.items())
+        name_fallbacks = any(
+            isinstance(formula, Mapping) and "raw_query" in formula
+            for _, (formula, _) in formula_items
+        )
+        if name_fallbacks:
+            value_dependencies = [
+                (
+                    f"metric:{key.node}:value" if key.kind == "demand_value" else label,
+                    key,
+                )
+                for label, key in value_dependencies
+            ]
+        row_dependencies.extend(
+            ("derived-formula-input", key)
+            for _, (_, dependencies) in formula_items
+            for key in dependencies
+        )
         if consumer in unavailable or (not value_dependencies and not formulas):
             row_dependencies.append(
                 ("unavailable", ComponentKey(consumer, "missing_configured_demand")),
@@ -824,17 +1256,19 @@ async def compute_configured_v2_fingerprints(
         row_key = ComponentKey(consumer, "configured_rows")
         if isinstance(spec, CubeSpec) or formulas:
             row_dependencies.extend(value_dependencies)
+        formula_payload = UnorderedPayload(
+            tuple(
+                {"metric": name, "formula": value}
+                if name_fallbacks
+                and isinstance(value, Mapping)
+                and "raw_query" in value
+                else value
+                for name, (value, _) in formula_items
+            ),
+        )
         rows = _combine(
             row_key,
-            {
-                "consumer": consumer,
-                "dimensions": (
-                    sorted(spec.rendered_dimensions)
-                    if isinstance(spec, CubeSpec)
-                    else None
-                ),
-                "derived_formulas": formulas,
-            },
+            {"derived_formulas": formula_payload},
             row_dependencies,
             components,
             reason=(
@@ -848,8 +1282,27 @@ async def compute_configured_v2_fingerprints(
         components[row_key] = rows
         bindings[row_key] = tuple(row_dependencies)
         full_key = ComponentKey(consumer, "configured_full")
-        full_dependencies = [("rows", row_key), *value_dependencies]
-        full = _combine(full_key, contract_for(spec), full_dependencies, components)
+        semantic_contract = contract_for(spec)
+        contract_dependencies = (
+            [("contract-reference", key) for key in semantic_contract[1]]
+            if semantic_contract is not None
+            else []
+        )
+        full_dependencies = [
+            ("rows", row_key),
+            *value_dependencies,
+            *contract_dependencies,
+        ]
+        full = (
+            _combine(
+                full_key,
+                semantic_contract[0],
+                full_dependencies,
+                components,
+            )
+            if semantic_contract is not None and consumer not in unavailable
+            else unknown
+        )
         components[full_key] = full
         bindings[full_key] = tuple(full_dependencies)
         if isinstance(spec, MetricSpec) and formulas:

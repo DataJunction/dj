@@ -45,7 +45,8 @@ For example, a transform exposes `revenue` and `debug_label`, and a metric reads
 | Change the transform's `WHERE` | Its rows change and the metric changes, even if the revenue expression stays identical. |
 
 Value and row dependencies must travel together. A source column's output
-component alone does not identify the physical table or its population.
+component identifies its physical table and column recipe; row dependencies
+retain the population.
 Aggregates retain the rows they aggregate, and configured metric values retain
 both formula and context rows.
 
@@ -54,15 +55,20 @@ both formula and context rows.
 Each ordinary component is SHA-256 over canonical JSON containing:
 
 1. The domain `datajunction/component-semantic` and fingerprint version `2`.
-2. Its identity: fully qualified node name, component kind, and output or demand
-   identifier where applicable.
+2. Its component kind and output field or row stage. Internal demand cache
+   identifiers are excluded.
 3. Its local semantic payload, detailed below.
-4. Its sorted dependencies: binding label, provider component identity, and the
+4. Its sorted dependencies: binding label, provider component kind, and the
    provider's versioned fingerprint.
 
-Node and output names are structural inputs. Renaming them can change hashes
-even when the resulting numbers would be identical. Precision labels and
-diagnostic reasons are reported alongside hashes; they are not direct inputs.
+Logical node names address the graph and diagnostics. Supported SQL and configured
+bindings use resolved inputs, so renaming a node and updating its references
+preserves the digest. Generated metric aliases hash as `value`; their names remain
+available for SQL lookup. Physical source names and authored output field names
+remain inputs.
+Conservative SQL fallback can still retain logical names when references cannot
+be safely resolved. Precision labels and diagnostic reasons are reported
+alongside hashes; they are not direct inputs.
 
 ## V2 input inventory
 
@@ -74,7 +80,7 @@ change while an unaffected output and its downstream consumers stay unchanged.
 | Input | Meaning and scope |
 | --- | --- |
 | Node type | Distinguishes source, transform, dimension, metric, and cube contracts. |
-| Source `catalog`, `schema_`, `table` | Physical source identity, included in source rows and full/calculation contracts. Switching tables can change every result. |
+| Source `catalog`, `schema_`, `table` | Physical source identity, included in source outputs, rows, and full/calculation contracts. Switching tables can change every result. |
 | `primary_key` | Declared grain, sorted before hashing. Included in source rows and linkable-node contracts, and in configured grains where relevant. |
 | Column `name` | The output's identity and binding. |
 | Column `type` | Normalized declared/resolved type. Type changes can change comparisons, casts, aggregation, or stored values. |
@@ -95,7 +101,7 @@ result is unchanged. They affect storage layout and materialization behavior.
 
 | Input | Why it is retained |
 | --- | --- |
-| Bound provider identity | Identifies which node supplies each relation and value. |
+| Bound provider identity | Identifies which input supplies each relation and value, preserving its position in the expression independently of the logical node name. |
 | Output expression | Operators, functions, arguments, casts, literals, conditionals, and referenced column paths can change a value. |
 | Numeric literal text | Preserves distinctions that could be lost by converting a decimal through a floating-point AST value. |
 | Used input outputs | Retains the values and types read by each expression. |
@@ -124,7 +130,7 @@ configured consumers retain the relevant candidate paths.
 | --- | --- | --- | --- |
 | `type` | Yes | Yes | Distinguishes join and reference behavior. |
 | `role` | Yes | Yes | Selects the intended relationship to a dimension. |
-| Rendered `dimension_node` | Yes | Yes | Target node identity. |
+| Resolved `dimension_node` | Yes | Yes | Target data contract. Logical names remain lookup addresses. |
 | `join_type` | Yes | No | Determines matching and unmatched-row behavior. |
 | Rendered `join_on` | Yes | No | The matching predicate. |
 | `node_column` | Yes | Yes | Source-side binding. |
@@ -190,7 +196,7 @@ fallback payloads:
 | Excluded input | Explanation |
 | --- | --- |
 | Node and column descriptions | Documentation. |
-| Display names and labels | Presentation. Structural node/output names remain included. |
+| Display names and labels | Presentation. Output field names remain included. |
 | Owners and tags | Ownership and organization. |
 | `custom_metadata` and arbitrary annotations | No generic metadata dump is hashed. Payloads explicitly select fields. |
 | Column `attributes` | Includes hidden/groupability/dimension flags and the column-level primary-key annotation. The node's explicit `primary_key` remains included. |
@@ -283,19 +289,24 @@ might aggregate or generate rows. Ignoring their population effect would be unsa
 
 Remaining sources of extra propagation include candidate dimension paths
 (the evaluator does not trace the planner-selected path), opaque SQL depending
-on whole parent calculations, whole struct types, structural renames, and
+on whole parent calculations, whole struct types, output renames, and
 syntactically different equivalent expressions. Token fallback can distinguish
 harmless alias or keyword-case changes. A changed hash means the retained
 contract changed; it does not establish that query execution would return
 different values on today's data or that every downstream owner needs review.
 
+Logical renames can still invalidate opaque SQL, SQL that refers to generated
+metric column names, and derived formulas whose inputs have their own dimension,
+grain, reaggregation, or default-filter settings. These paths retain original
+references where name-free binding has not been established.
+
 ## Determinism and unknown results
 
 Canonical JSON sorts mapping keys, uses compact encoding, and rejects nonfinite
 values. Dependency edges and unordered contracts are sorted explicitly. Bound
-expressions retain literal meaning and provider identity. Component cycles use a
-deterministic strongly connected component hash containing member payloads,
-internal labelled edges, and external fingerprints.
+expressions retain literal meaning and input bindings. Cyclic component
+dependencies return unknown, avoiding name-dependent cycle hashes or unsafe
+assumptions about equivalent cyclic graphs.
 
 Each component reports one of:
 
@@ -307,7 +318,7 @@ Each component reports one of:
 
 Missing providers/schemas, invalid filters, ambiguous bindings, and unresolved
 contexts can produce unknown and propagate it. Recursive derived metric demands
-are unknown even though the component evaluator supports deterministic cycles.
+and cyclic component dependencies are unknown.
 `compare_components()` returns `indeterminate` if either digest is missing.
 Two `"unknown"` results never prove equality.
 

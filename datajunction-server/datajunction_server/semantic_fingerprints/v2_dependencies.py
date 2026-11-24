@@ -30,6 +30,7 @@ from datajunction_server.semantic_fingerprints.v2 import (
     ComponentDefinition,
     ComponentKey,
     SemanticGraphSnapshot,
+    UnorderedPayload,
     _parsed_type,
 )
 from datajunction_server.sql.parsing import ast
@@ -37,7 +38,7 @@ from datajunction_server.sql.parsing.backends.antlr4 import (
     SqlBaseParser,
     SqlParsingError,
     cached_definition_tree,
-    parse,
+    cached_parse as parse,
 )
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.sql.parsing.structural import serialize_ast
@@ -832,6 +833,107 @@ def _dimension_link_contract(link: object) -> dict[str, object]:
     raise TypeError(f"Unsupported dimension link: {type(link).__name__}")
 
 
+def _canonical_dimension_join_on(
+    value: str,
+    source: str,
+    target: str,
+) -> object:
+    query_text = f"SELECT 1 WHERE ({value})"
+    query = parse(query_text)
+    if not isinstance(query.select, ast.Select) or query.select.where is None:
+        raise _Unsupported("unsupported_dimension_join")
+    if _has_lossy_sql_tokens(query_text):
+        raise _Unsupported("lossy_dimension_join")
+    aliases = (
+        (source.casefold(), 0),
+        (source.rsplit(".", 1)[-1].casefold(), 0),
+        (target.casefold(), 1),
+        (target.rsplit(".", 1)[-1].casefold(), 1),
+    )
+    bound_columns: dict[str, tuple[object, str]] = {}
+    for column in query.find_all(ast.Column):
+        qualifier = ".".join(part.name for part in column.namespace or ())
+        matches = {
+            relation for alias, relation in aliases if qualifier.casefold() == alias
+        }
+        if len(matches) != 1:
+            raise _Unsupported("unresolved_dimension_join_binding")
+        relation = matches.pop()
+        bound_columns[_column_reference_key(column)] = (
+            relation,
+            column.name.name,
+        )
+    return {
+        "ast": _canonicalize_expression_ast(
+            query.select.where,
+            bound_columns,
+            require_bound=True,
+        ),
+        "numeric_literals": _exact_numeric_literals(
+            query.select.where,
+            query,
+            query_text,
+        ),
+    }
+
+
+def _has_lossy_sql_tokens(text: str) -> bool:
+    tree = cached_definition_tree(text, "singleStatement")
+    return any(
+        token.type in _LOSSY_TOKENS or (token.text or "").upper() in _LOSSY_CLAUSES
+        for token in tree.parser.getTokenStream().tokens
+    )
+
+
+def _exact_numeric_literals(
+    expression: ast.Node,
+    query: ast.Query,
+    text: str,
+) -> list[str]:
+    literals = _numeric_literals(query, text)
+    return [
+        literals[id(node)]
+        for node in expression.flatten()
+        if isinstance(node, ast.Number)
+    ]
+
+
+def _semantic_dimension_link(
+    source: str,
+    link: DimensionJoinLinkSpec | DimensionReferenceLinkSpec,
+) -> dict[str, object]:
+    target_name = link.rendered_dimension_node
+    contract = _dimension_link_contract(link)
+    contract["dimension_node"] = 1
+    if isinstance(link, DimensionJoinLinkSpec) and link.rendered_join_on:
+        try:
+            contract["join_on"] = _canonical_dimension_join_on(
+                link.rendered_join_on,
+                source,
+                target_name,
+            )
+        except (DJParseException, SqlParsingError, TypeError, ValueError, KeyError):
+            pass
+    return contract
+
+
+def _runtime_node_contract(
+    spec: NodeSpec,
+    columns: tuple[ColumnSpec, ...] | None = None,
+    *,
+    include_dimension_links: bool = True,
+) -> dict[str, object]:
+    contract = _node_contract(spec, columns, include_dimension_links=False)
+    if include_dimension_links and isinstance(spec, LinkableNodeSpec):
+        contract["dimension_links"] = UnorderedPayload(
+            tuple(
+                _semantic_dimension_link(spec.rendered_name, link)
+                for link in spec.dimension_links
+            ),
+        )
+    return contract
+
+
 def _node_contract(
     spec: NodeSpec,
     columns: tuple[ColumnSpec, ...] | None = None,
@@ -1260,7 +1362,10 @@ def _implicit_dimension_link_context(
     missing_targets = targets - reachable
     for target in sorted(missing_targets):
         contracts.append(
-            {"source_nodes": sorted(route_sources), "unresolved_target": target},
+            {
+                "source_count": len(route_sources),
+                "unresolved_target": target,
+            },
         )
         dependencies.add(
             (f"implicit_dimension:{target}", ComponentKey(target, "calculation")),
@@ -1280,7 +1385,8 @@ def _implicit_dimension_link_context(
             for edge in outgoing.get(parent, ())
             if edge[1] in can_reach
         ):
-            link_key = canonical_json(normalize_value(_dimension_link_contract(link)))
+            link_contract = _dimension_link_contract(link)
+            link_key = canonical_json(normalize_value(link_contract))
             relevant[(source, next_node, link_key)] = (source, next_node, link)
             columns, parsed = (
                 _join_columns(source, next_node, link, join_column_cache)
@@ -1289,25 +1395,29 @@ def _implicit_dimension_link_context(
             )
             if parsed:
                 dependencies.update(
-                    (f"implicit_link_rows:{node}", ComponentKey(node, "rows"))
-                    for node in (source, next_node)
+                    (
+                        (f"implicit_link_rows:{index}", ComponentKey(node, "rows"))
+                        for index, node in enumerate((source, next_node))
+                    ),
                 )
                 dependencies.update(
                     (
-                        f"implicit_join_key:{node}.{column}",
+                        f"implicit_join_key:{index}:{column}",
                         ComponentKey(node, "output", column),
                     )
-                    for node, column in columns
+                    for index, node in enumerate((source, next_node))
+                    for column_node, column in columns
+                    if column_node == node
                 )
             else:
                 dependencies.update(
                     (
                         (
-                            f"implicit_link_source:{source}",
+                            "implicit_link_source",
                             ComponentKey(source, "calculation"),
                         ),
                         (
-                            f"implicit_link_target:{next_node}",
+                            "implicit_link_target",
                             ComponentKey(next_node, "calculation"),
                         ),
                     ),
@@ -1315,15 +1425,15 @@ def _implicit_dimension_link_context(
 
     contracts.extend(
         {
-            "source": source,
-            "target": target,
-            "link": normalize_value(_dimension_link_contract(link)),
+            "source": 0,
+            "target": 1,
+            "link": _semantic_dimension_link(source, link),
             **(
                 {
-                    "grains": {
-                        node: sorted(getattr(specs[node], "primary_key", None) or [])
+                    "grains": [
+                        sorted(getattr(specs[node], "primary_key", None) or [])
                         for node in (source, target)
-                    },
+                    ],
                 }
                 if narrow_dependencies
                 else {}
@@ -1331,7 +1441,11 @@ def _implicit_dimension_link_context(
         }
         for source, target, link in (relevant[key] for key in sorted(relevant))
     )
-    return contracts, sorted(dependencies), bool(missing_targets)
+    return (
+        sorted(contracts, key=canonical_json),
+        sorted(dependencies),
+        bool(missing_targets),
+    )
 
 
 def _metric_context_references(spec: NodeSpec) -> tuple[str, ...]:
@@ -1370,6 +1484,21 @@ def _metric_context_references(spec: NodeSpec) -> tuple[str, ...]:
     return tuple(sorted(references))
 
 
+def _semantic_output_name(spec: NodeSpec, output: str) -> str:
+    return "value" if isinstance(spec, MetricSpec) else output
+
+
+def _node_output_contract(
+    spec: NodeSpec,
+    output: str,
+    column: ColumnSpec | None,
+) -> dict[str, object]:
+    return {
+        **_output_column_contract(output, column),
+        "name": _semantic_output_name(spec, output),
+    }
+
+
 def _node_result_definition(
     name: str,
     spec: NodeSpec,
@@ -1381,7 +1510,14 @@ def _node_result_definition(
     dependencies = [
         ("rows", ComponentKey(name, "rows")),
         *(
-            (f"output:{index}:{output}", ComponentKey(name, "output", output))
+            (
+                (
+                    f"output:{index}"
+                    if isinstance(spec, MetricSpec)
+                    else f"output:{index}:{output}"
+                ),
+                ComponentKey(name, "output", output),
+            )
             for index, output in enumerate(output_names)
         ),
     ]
@@ -1392,13 +1528,13 @@ def _node_result_definition(
     return _definition(
         ComponentKey(name, kind),
         {
-            "node": _node_contract(
+            "node": _runtime_node_contract(
                 spec,
                 contract_columns,
                 include_dimension_links=kind == "full",
             ),
             "output_layout": [
-                _output_column_contract(output, schema.get(output))
+                _node_output_contract(spec, output, schema.get(output))
                 for output in output_names
             ],
         },
@@ -1424,11 +1560,7 @@ def _bind_row_semantics(
             for label, key in provider.row_dependencies:
                 add(f"input:{index}:{label}", key)
         else:
-            label = (
-                "source_rows"
-                if not source.is_joined
-                else f"source_rows:{provider.provider}"
-            )
+            label = "source_rows" if not source.is_joined else f"source_rows:{index}"
             add(label, ComponentKey(provider.provider, "rows"))
     for label, key in source.join_dependencies:
         add(label, key)
@@ -1476,12 +1608,12 @@ def _bind_row_semantics(
     row_semantics: dict[str, object]
     if source.is_joined:
         row_semantics = {
-            "sources": [provider.provider for provider in source.providers],
+            "sources": list(range(len(source.providers))),
             "joins": list(source.joins),
         }
     else:
         row_semantics = {
-            "source": ("cte_input" if inherited_rows else source.provider),
+            "source": ("cte_input" if inherited_rows else 0),
         }
     if inherited_rows:
         row_semantics["inputs"] = inherited_rows
@@ -1945,7 +2077,7 @@ def _bind_expression(
     dependencies: dict[str, ComponentKey] = {}
     aggregate = False
     numeric_literals = []
-    bound_columns: dict[str, tuple[str, str]] = {}
+    bound_columns: dict[str, tuple[object, str]] = {}
     inline_columns: dict[str, object] = {}
     joined = source.is_joined
     source_aliases = {alias.casefold() for alias in source.aliases}
@@ -1972,15 +2104,21 @@ def _bind_expression(
         if isinstance(node, ast.Number):
             numeric_literals.append(source.numeric_literals[id(node)])
         if isinstance(node, ast.Column):
-            context_key = (source.context_columns or {}).get(
-                node.identifier(quotes=False).casefold(),
-            )
+            reference_key = _column_reference_key(node)
+            context_key = (source.context_columns or {}).get(reference_key)
             if context_key is not None and not node.role and not node.dimension_ref:
-                dependencies[f"dimension:{context_key.node}.{context_key.field}"] = (
+                context_keys = tuple(
+                    dict.fromkeys((source.context_columns or {}).values()),
+                )
+                try:
+                    context_index = context_keys.index(context_key)
+                except ValueError as exc:
+                    raise _Unsupported("unresolved_dimension_context") from exc
+                dependencies[f"dimension:{context_index}:{context_key.field}"] = (
                     context_key
                 )
-                bound_columns[node.identifier(quotes=False).casefold()] = (
-                    context_key.node,
+                bound_columns[reference_key] = (
+                    context_key,
                     context_key.field,
                 )
                 continue
@@ -1996,7 +2134,7 @@ def _bind_expression(
                     output = provider.output_bindings.get(path[0].casefold())
                     if output is None:
                         raise _Unsupported("resolved_column_schema_missing")
-                    reference = node.identifier(quotes=False).casefold()
+                    reference = reference_key
                     inline_columns[reference] = output.expression
                     dependencies.update(
                         {f"cte:{label}": key for label, key in output.dependencies},
@@ -2004,14 +2142,15 @@ def _bind_expression(
                     continue
                 if provider.is_source and not has_type:
                     raise _Unsupported("source_column_type_unavailable")
+                relation_index = _relation_index(source, provider)
                 column_key = ComponentKey(
                     provider.provider,
                     "output",
                     path[0],
                 )
-                identity = (provider.provider, ".".join(path))
-                dependencies[f"{identity[0]}:{identity[1]}"] = column_key
-                bound_columns[node.identifier(quotes=False).casefold()] = identity
+                identity = (relation_index, ".".join(path))
+                dependencies[f"relation:{identity[0]}:{identity[1]}"] = column_key
+                bound_columns[reference_key] = identity
                 continue
             qualifier = ".".join(part.name for part in node.namespace)
             if node.role or node.dimension_ref:
@@ -2042,13 +2181,13 @@ def _bind_expression(
                 if len(fields) != 1:
                     raise _Unsupported("resolved_column_schema_missing")
                 field = fields[0]
-                identity = (source.provider, f"{root.name}.{field.name.name}")
+                identity = (0, f"{root.name}.{field.name.name}")
                 dependencies[f"struct:{identity[1]}"] = ComponentKey(
                     source.provider,
                     "output",
                     root.name,
                 )
-                bound_columns[node.identifier(quotes=False).casefold()] = identity
+                bound_columns[reference_key] = identity
                 continue
             if qualifier and qualifier not in source.aliases:
                 raise _Unsupported("unresolved_or_ambiguous_column")
@@ -2076,7 +2215,7 @@ def _bind_expression(
                 output = input_relation.output_bindings.get(matched_name.casefold())
                 if output is None:
                     raise _Unsupported("resolved_column_schema_missing")
-                reference = node.identifier(quotes=False).casefold()
+                reference = reference_key
                 inline_columns[reference] = output.expression
                 dependencies.update(
                     {f"cte:{label}": key for label, key in output.dependencies},
@@ -2092,6 +2231,31 @@ def _bind_expression(
                 "output",
                 matched_name,
             )
+
+    return (
+        {
+            "ast": _canonicalize_expression_ast(
+                expression,
+                bound_columns,
+                inline_columns,
+                require_bound=joined,
+            ),
+            "numeric_literals": numeric_literals,
+        },
+        [(f"column:{name}", key) for name, key in sorted(dependencies.items())],
+        aggregate,
+    )
+
+
+def _canonicalize_expression_ast(
+    expression: ast.Node,
+    bound_columns: Mapping[str, tuple[object, str]],
+    inline_columns: Mapping[str, object] | None = None,
+    *,
+    require_bound: bool = False,
+) -> object:
+    """Serialize an expression after replacing relation names with bindings."""
+    inline_columns = inline_columns or {}
 
     def canonicalize(value: Any) -> Any:
         if isinstance(value, list):
@@ -2109,13 +2273,12 @@ def _bind_expression(
         ):
             fields.pop(field, None)
         if value["type"] == "Column":
-            parts = _serialized_column_parts(value)
-            reference = ".".join(parts).casefold()
+            reference = _serialized_column_reference(value)
             inline = inline_columns.get(reference)
             if inline is not None:
                 return {"inline_expression": inline}
             identity = bound_columns.get(reference)
-            if joined and identity is None:
+            if require_bound and identity is None:
                 raise _Unsupported("unresolved_or_ambiguous_column")
             if identity is not None:
                 fields["bound_relation"] = identity[0]
@@ -2132,14 +2295,40 @@ def _bind_expression(
         }
         return value
 
+    return canonicalize(serialize_ast(expression, version=1))
+
+
+def _column_reference_key(column: ast.Column) -> str:
     return (
-        {
-            "ast": canonicalize(serialize_ast(expression, version=1)),
-            "numeric_literals": numeric_literals,
-        },
-        [(f"column:{name}", key) for name, key in sorted(dependencies.items())],
-        aggregate,
+        f"{column.identifier(quotes=False).casefold()}"
+        f"\x1f{column.role or ''}\x1f{column.dimension_ref or ''}"
     )
+
+
+def _serialized_column_reference(value: dict[str, Any]) -> str:
+    fields = value["fields"]
+    return (
+        f"{'.'.join(_serialized_column_parts(value)).casefold()}"
+        f"\x1f{fields.get('role') or ''}\x1f{fields.get('dimension_ref') or ''}"
+    )
+
+
+def _relation_index(source: _BoundSource, provider: _BoundInput) -> int:
+    """Return a stable FROM/join position for a bound relation."""
+    matches = [
+        index
+        for index, candidate in enumerate(source.providers)
+        if candidate is provider
+    ]
+    if not matches:
+        matches = [
+            index
+            for index, candidate in enumerate(source.providers)
+            if candidate == provider
+        ]
+    if len(matches) != 1:
+        raise _Unsupported("ambiguous_relation_binding")
+    return matches[0]
 
 
 def _serialized_column_parts(value: dict[str, Any]) -> list[str]:
@@ -2214,6 +2403,7 @@ def _definition(
     precision: str = "precise",
     reasons: tuple[str, ...] = (),
     unavailable: bool = False,
+    semantic_field: str | None = None,
 ) -> ComponentDefinition:
     return ComponentDefinition(
         key=key,
@@ -2222,6 +2412,7 @@ def _definition(
         precision=precision,  # type: ignore[arg-type]
         reasons=reasons,
         unavailable=unavailable,
+        semantic_field=semantic_field,
     )
 
 
@@ -2245,10 +2436,12 @@ def _source_definitions(
     for output in names:
         column = schema.get(output)
         parsed_type = _parsed_type(column.type) if column else None
+        output_contract = _output_column_contract(output, column)
+        output_contract["source"] = [spec.catalog, spec.schema_, spec.table]
         definitions.append(
             _definition(
                 ComponentKey(name, "output", output),
-                _output_column_contract(output, column),
+                output_contract,
                 precision="precise" if parsed_type else "unknown",
                 reasons=() if parsed_type else ("source_column_type_unavailable",),
                 unavailable=parsed_type is None,
@@ -2368,7 +2561,7 @@ def _opaque_definitions(
         ),
         _definition(
             ComponentKey(name, "rows"),
-            {"opaque_component": opaque.token},
+            {},
             [("opaque", opaque)],
             precision=precision,
             reasons=reasons,
@@ -2378,11 +2571,14 @@ def _opaque_definitions(
     definitions.extend(
         _definition(
             ComponentKey(name, "output", output),
-            {"opaque_component": opaque.token, "output": output},
+            {
+                "output": _semantic_output_name(spec, output),
+            },
             [("opaque", opaque)],
             precision=precision,
             reasons=reasons,
             unavailable=unresolved,
+            semantic_field=("value" if isinstance(spec, MetricSpec) else None),
         )
         for output in output_names
     )
@@ -2390,9 +2586,10 @@ def _opaque_definitions(
         _definition(
             ComponentKey(name, "full"),
             {
-                "node": _node_contract(spec, columns),
-                "opaque_component": opaque.token,
-                "output_layout": list(output_names),
+                "node": _runtime_node_contract(spec, columns),
+                "output_layout": [
+                    _semantic_output_name(spec, output) for output in output_names
+                ],
             },
             [("opaque", opaque)],
             precision=precision,
@@ -2487,7 +2684,7 @@ def _query_definitions(
                     part.quote_style for part in column.namespace or ()
                 ):
                     raise _Unsupported("unsupported_implicit_dimension_identifier")
-                reference = column.identifier(quotes=False).casefold()
+                reference = _column_reference_key(column)
                 component = ComponentKey(
                     namespace,
                     "output",
@@ -2559,7 +2756,10 @@ def _query_definitions(
                 raise _Unsupported("unsupported_function") from exc
             conservative_projection = True
             conservative_projections.append(
-                {"output": output, "expression": expression_shape},
+                {
+                    "output": _semantic_output_name(spec, output),
+                    "expression": expression_shape,
+                },
             )
             opaque_dependencies.update(dependencies)
             dependencies = [*dependencies, ("opaque_projection", opaque)]
@@ -2576,11 +2776,12 @@ def _query_definitions(
                 outputs[output],
                 {
                     "expression": expression_shape,
-                    "column": _output_column_contract(output, declared),
+                    "column": _node_output_contract(spec, output, declared),
                 },
                 output_dependencies,
                 precision="conservative" if conservative_projection else "precise",
                 reasons=("unsupported_function",) if conservative_projection else (),
+                semantic_field=("value" if isinstance(spec, MetricSpec) else None),
             ),
         )
 
