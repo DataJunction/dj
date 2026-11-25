@@ -2575,7 +2575,7 @@ def test_semantic_fingerprint_digest_validation(digest):
 
 def test_semantic_fingerprint_rejects_unknown_version():
     with pytest.raises(ValidationError):
-        SemanticFingerprint(version=2, digest="a" * 64)
+        SemanticFingerprint(version=3, digest="a" * 64)
     with pytest.raises(ValueError, match="Unsupported semantic fingerprint version: 2"):
         local_node_fingerprint(semantic_specs()["source"], version=2)
 
