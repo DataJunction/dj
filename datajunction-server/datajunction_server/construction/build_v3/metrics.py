@@ -2156,11 +2156,15 @@ def generate_metrics_sql(
             if where_clause is not None and not window_metrics_cte_alias:
                 for col in list(where_clause.find_all(ast.Column)):
                     if col.name.name in output_dimension_exprs:
-                        where_clause.replace(
-                            from_=col,
-                            to=deepcopy(output_dimension_exprs[col.name.name]),
-                            copy=False,
-                        )
+                        replacement = deepcopy(output_dimension_exprs[col.name.name])
+                        if col is where_clause:
+                            where_clause = replacement
+                        else:
+                            where_clause.replace(
+                                from_=col,
+                                to=replacement,
+                                copy=False,
+                            )
 
     # Metric predicates run after their values are computed: HAVING in the
     # aggregation stage, or WHERE over output columns after the window stage.

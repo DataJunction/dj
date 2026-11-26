@@ -23,6 +23,10 @@ PURCHASES = "default.evidence_purchases"
 RUNNING_VISITORS = "default.evidence_running_visitors"
 LEFT_DOWNLOADS = "default.evidence_left_downloads"
 LEFT_VISITORS = "default.evidence_left_visitors"
+BOOLEAN_DAY = "default.evidence_boolean_calendar.day"
+ENABLED = "default.evidence_boolean_calendar.enabled"
+BOOLEAN_DOWNLOADS = "default.evidence_boolean_downloads"
+BOOLEAN_VISITORS = "default.evidence_boolean_visitors"
 
 
 async def post(client, path, body):
@@ -170,6 +174,129 @@ async def metrics_sql(client, metrics, dimensions, filters, dialect="duckdb"):
     )
     assert response.status_code == 200, response.text
     return response.json()["sql"]
+
+
+@pytest_asyncio.fixture(scope="module")
+async def boolean_client(evidence_client):
+    await post(
+        evidence_client,
+        "/nodes/source/",
+        {
+            "name": "default.evidence_boolean_dates",
+            "catalog": "default",
+            # Match the dimension's physical and semantic table qualifiers so
+            # this isolates output filtering from dimension-CTE qualification.
+            "schema_": "default",
+            "table": "evidence_boolean_calendar",
+            "columns": [
+                {"name": "k", "type": "int"},
+                {"name": "day", "type": "date"},
+                {"name": "enabled", "type": "boolean"},
+            ],
+        },
+    )
+    await post(
+        evidence_client,
+        "/nodes/dimension/",
+        {
+            "name": "default.evidence_boolean_calendar",
+            "query": "SELECT k, day, enabled FROM default.evidence_boolean_dates",
+            "primary_key": ["k"],
+        },
+    )
+    for fact, metric in [
+        ("downloads", BOOLEAN_DOWNLOADS),
+        ("visits", BOOLEAN_VISITORS),
+    ]:
+        node = f"default.evidence_boolean_{fact}_fact"
+        await post(
+            evidence_client,
+            "/nodes/source/",
+            {
+                "name": node,
+                "catalog": "default",
+                "schema_": "evidence",
+                "table": f"boolean_{fact}",
+                "columns": [
+                    {"name": "k", "type": "int"},
+                    {"name": "amount", "type": "int"},
+                ],
+            },
+        )
+        await post(
+            evidence_client,
+            f"/nodes/{node}/link",
+            {
+                "dimension_node": "default.evidence_boolean_calendar",
+                "join_type": "left",
+                "join_on": f"{node}.k = default.evidence_boolean_calendar.k",
+            },
+        )
+        await post(
+            evidence_client,
+            "/nodes/metric/",
+            {"name": metric, "query": f"SELECT SUM(amount) FROM {node}"},
+        )
+    return evidence_client
+
+
+@pytest.fixture
+def boolean_db():
+    with duckdb.connect() as conn:
+        conn.execute("""ATTACH ':memory:' AS "default" """)
+        conn.execute('CREATE SCHEMA "default"."default"')
+        conn.execute('CREATE SCHEMA "default".evidence')
+        conn.execute("""CREATE TABLE "default"."default".evidence_boolean_calendar AS
+            SELECT * FROM (VALUES
+                (1, DATE '2024-01-01', TRUE),
+                (2, DATE '2024-01-02', TRUE),
+                (3, DATE '2024-01-03', FALSE),
+                (4, DATE '2024-01-04', NULL::BOOLEAN)
+            ) AS t(k, day, enabled)""")
+        conn.execute("""CREATE TABLE "default".evidence.boolean_downloads AS
+            SELECT 1 AS k, 2 AS amount""")
+        conn.execute("""CREATE TABLE "default".evidence.boolean_visits AS
+            SELECT * FROM (VALUES (2, 1), (3, 3), (4, 7)) AS t(k, amount)""")
+        yield conn
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reverse_metrics", [False, True])
+@pytest.mark.parametrize(
+    "filters, expected",
+    [
+        ([ENABLED], [(D1, True, 2, None), (D2, True, None, 1)]),
+        ([f"{ENABLED} = TRUE"], [(D1, True, 2, None), (D2, True, None, 1)]),
+        ([f"NOT {ENABLED}"], [(D3, False, None, 3)]),
+        (
+            [ENABLED, f"{BOOLEAN_DAY} IS NOT NULL"],
+            [(D1, True, 2, None), (D2, True, None, 1)],
+        ),
+    ],
+    ids=["bare", "explicit-true", "not", "compound"],
+)
+async def test_boolean_output_filter(
+    boolean_client,
+    boolean_db,
+    compiler_groups,
+    reverse_metrics,
+    filters,
+    expected,
+):
+    metrics = [BOOLEAN_DOWNLOADS, BOOLEAN_VISITORS]
+    if reverse_metrics:
+        metrics.reverse()
+        expected = [
+            (day, enabled, visits, downloads)
+            for day, enabled, downloads, visits in expected
+        ]
+    sql = await metrics_sql(
+        boolean_client,
+        metrics,
+        [BOOLEAN_DAY, ENABLED],
+        filters,
+    )
+    assert sorted(boolean_db.execute(sql).fetchall()) == expected, sql
 
 
 @pytest.mark.asyncio
