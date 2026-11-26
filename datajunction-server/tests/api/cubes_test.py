@@ -1159,7 +1159,7 @@ FULL OUTER JOIN repair_orders_fact_0
   AND repair_order_details_0.company_name = repair_orders_fact_0.company_name
   AND repair_order_details_0.local_region = repair_orders_fact_0.local_region
   AND repair_order_details_0.hire_date = repair_orders_fact_0.hire_date
-WHERE  repair_order_details_0.state = 'AZ'
+WHERE  COALESCE(repair_order_details_0.state, repair_orders_fact_0.state) = 'AZ'
 GROUP BY  1, 2, 3, 4, 5, 6, 7"""
     assert str(parse(cube_sql_results["sql"])) == str(parse(expected_cube_query))
 
@@ -1293,7 +1293,7 @@ async def test_cube_filters_merged_with_request_filters(
           AND repair_order_details_0.company_name = repair_orders_fact_0.company_name
           AND repair_order_details_0.local_region = repair_orders_fact_0.local_region
           AND repair_order_details_0.hire_date = repair_orders_fact_0.hire_date
-        WHERE  repair_order_details_0.state = 'AZ' AND repair_order_details_0.company_name = 'Potts LLC'
+        WHERE  COALESCE(repair_order_details_0.state, repair_orders_fact_0.state) = 'AZ' AND COALESCE(repair_order_details_0.company_name, repair_orders_fact_0.company_name) = 'Potts LLC'
         GROUP BY  1, 2, 3, 4, 5, 6, 7
         """,
     )
@@ -1608,7 +1608,7 @@ async def test_cube_only_no_metrics_no_dims(client_with_repairs_cube: AsyncClien
           AND repair_order_details_0.company_name = repair_orders_fact_0.company_name
           AND repair_order_details_0.local_region = repair_orders_fact_0.local_region
           AND repair_order_details_0.hire_date = repair_orders_fact_0.hire_date
-        WHERE repair_order_details_0.state = 'AZ'
+        WHERE COALESCE(repair_order_details_0.state, repair_orders_fact_0.state) = 'AZ'
         GROUP BY 1, 2, 3, 4, 5, 6, 7
         """,
     )

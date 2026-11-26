@@ -2091,6 +2091,15 @@ def generate_metrics_sql(
         ),
     )
 
+    # Keep the dimension expressions before appending metric projections. Final
+    # predicates must see the same dimension values as the result, including
+    # values supplied only by a later side of a FULL OUTER JOIN.
+    output_dimension_exprs = {
+        col.alias.name: col.child
+        for col in projection
+        if isinstance(col, ast.Alias) and col.alias is not None
+    }
+
     # Build metric projection in requested order
     metric_projection, metric_columns = build_metric_projection(ctx, metric_expr_asts)
     projection.extend(metric_projection)
@@ -2143,6 +2152,15 @@ def generate_metrics_sql(
                 cte_alias=filter_cte,
                 nodes=ctx.nodes,
             )
+            # base_metrics already exposes coalesced dimensions to the window stage.
+            if where_clause is not None and not window_metrics_cte_alias:
+                for col in list(where_clause.find_all(ast.Column)):
+                    if col.name.name in output_dimension_exprs:
+                        where_clause.replace(
+                            from_=col,
+                            to=deepcopy(output_dimension_exprs[col.name.name]),
+                            copy=False,
+                        )
 
     # Metric predicates run after their values are computed: HAVING in the
     # aggregation stage, or WHERE over output columns after the window stage.
