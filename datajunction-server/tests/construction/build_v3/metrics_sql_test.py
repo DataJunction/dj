@@ -8155,7 +8155,8 @@ class TestCrossParentDerivedRatio:
         # Both grain groups are built (order_details_0 for the fact-sourced
         # numerator, product_0 for the dimension-sourced denominator) and joined
         # with FULL OUTER JOIN, so the denominator aggregate (price_sum_*) is
-        # actually computed rather than referenced out of thin air.
+        # actually computed rather than referenced out of thin air. Keep both
+        # independently pruned product variants: the denominator needs price.
         assert_sql_equal(
             sql,
             """
@@ -8168,6 +8169,9 @@ class TestCrossParentDerivedRatio:
             v3_product AS (
               SELECT product_id, category FROM default.v3.products
             ),
+            v3_product__1 AS (
+              SELECT category, price FROM default.v3.products
+            ),
             order_details_0 AS (
               SELECT t2.category, SUM(t1.line_total) line_total_sum_e1f61696
               FROM v3_order_details t1
@@ -8176,7 +8180,7 @@ class TestCrossParentDerivedRatio:
             ),
             product_0 AS (
               SELECT t1.category, SUM(t1.price) price_sum_78363aa6
-              FROM v3_product t1
+              FROM v3_product__1 t1
               GROUP BY t1.category
             )
             SELECT
