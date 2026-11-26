@@ -454,6 +454,19 @@ def validate_fixed_grain_query_shape(
         )
 
 
+def _decomposed_metrics_for_group(
+    gg: GrainGroupSQL,
+    decomposed_metrics: dict[str, DecomposedMetricInfo] | None,
+) -> dict[str, DecomposedMetricInfo]:
+    """Use this group's base owners, including implicit parents of derived metrics.
+
+    Bare DISTINCT component names can coincide across unrelated facts. Expanded
+    derived combiners can also contain components from more than one fact.
+    """
+    metrics = decomposed_metrics or {}
+    return {name: metrics[name] for name in gg.metrics if name in metrics}
+
+
 def _distinct_component_operator(
     component: MetricComponent,
     decomposed_metrics: dict[str, DecomposedMetricInfo] | None,
@@ -463,6 +476,7 @@ def _distinct_component_operator(
 
     The extractor deliberately leaves aggregation/merge unset for DISTINCT.
     One wrapper column cannot hold both COUNT(DISTINCT x) and SUM(DISTINCT x).
+    The supplied metrics must belong to the current grain group.
     """
     operators = {
         func.name.name.upper()
@@ -496,6 +510,7 @@ def _build_pre_agg_wrapper_cte(
     AVG operands and sketch states are combined according to decomposition.
     """
     wrapper_alias = f"{alias}_agg"
+    decomposed_metrics = _decomposed_metrics_for_group(gg, decomposed_metrics)
     limited_grain_keys = {
         gg.component_aliases.get(comp.name) or comp.rule.level[0]
         for comp in gg.components
@@ -508,7 +523,7 @@ def _build_pre_agg_wrapper_cte(
     )
     original_components = {
         comp.name: comp
-        for metric in (decomposed_metrics or {}).values()
+        for metric in decomposed_metrics.values()
         for comp in metric.components
     }
     projection: list[Any] = [make_column_ref(name) for name in dim_col_names]
@@ -593,11 +608,14 @@ def collect_and_build_ctes(
 
     Returns (all_cte_asts, cte_aliases).
     """
-    original_components = {
-        comp.name: comp
-        for metric in (decomposed_metrics or {}).values()
-        for comp in metric.components
-    }
+    group_components = [
+        {
+            comp.name: comp
+            for metric in _decomposed_metrics_for_group(gg, decomposed_metrics).values()
+            for comp in metric.components
+        }
+        for gg in grain_groups
+    ]
     # Raw DISTINCT and MIN/MAX ignore duplicated inputs. Other merges (SUM,
     # AVG operands, sketch states, or non-decomposable metrics) may change.
     has_non_idempotent_metrics = any(
@@ -609,7 +627,7 @@ def collect_and_build_ctes(
             not in {"MIN", "MAX"}
             for comp in gg.components
         )
-        for gg in grain_groups
+        for gg, original_components in zip(grain_groups, group_components)
     )
     # Collect all inner CTEs, dedupe by original name
     # CTEs with the same name are shared (e.g., v3_product dimension used by multiple grain groups)

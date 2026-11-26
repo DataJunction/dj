@@ -417,16 +417,34 @@ async def test_real_extractor_distinct_operator(client, with_wrapper, name, expe
     assert rows == [(1, *expected_values)], sql
 
 
-async def test_shared_distinct_operator_conflict_is_explicit(client):
+@pytest.mark.parametrize("name", ["cf_distinct_sum", "cf_distinct_avg"])
+@pytest.mark.parametrize("derived", [False, True])
+@pytest.mark.parametrize("reverse", [False, True])
+async def test_shared_distinct_operator_conflict_is_explicit(
+    client,
+    name,
+    derived,
+    reverse,
+):
     await api_model(client)
+    metrics = ["default.cf_volume", "default.cf_visitors", "default." + name]
+    if derived:
+        await api_post(
+            client,
+            "/nodes/metric/",
+            {
+                "name": "default.cf_conflict",
+                "query": "SELECT default.cf_visitors + default." + name,
+                "mode": "published",
+            },
+        )
+        metrics = ["default.cf_volume", "default.cf_conflict"]
+    if reverse:
+        metrics.reverse()
     response = await client.get(
         "/sql/metrics/v3/",
         params={
-            "metrics": [
-                "default.cf_volume",
-                "default.cf_visitors",
-                "default.cf_distinct_sum",
-            ],
+            "metrics": metrics,
             "dimensions": ["default.cf_day.day"],
             "dialect": "duckdb",
             "use_materialized": False,
@@ -435,6 +453,86 @@ async def test_shared_distinct_operator_conflict_is_explicit(client):
     assert response.status_code in (400, 422), response.json()
     assert "distinct" in str(response.json()).lower()
     assert "conflict" in str(response.json()).lower()
+
+
+@pytest.mark.parametrize(("operator", "expected"), [("SUM", 30), ("AVG", 15)])
+@pytest.mark.parametrize("derived", ["direct", "same_fact", "cross_fact"])
+@pytest.mark.parametrize("reverse", [False, True])
+async def test_api_separate_fact_distinct_operators(
+    client,
+    operator,
+    expected,
+    derived,
+    reverse,
+):
+    await api_model(client)
+    await api_post(
+        client,
+        "/nodes/source/",
+        {
+            "name": "default.cf_purchases",
+            "catalog": "default",
+            "schema_": "cross_fact",
+            "table": "cf_purchases",
+            "mode": "published",
+            "columns": [
+                {"name": "day", "type": "int"},
+                {"name": "account_id", "type": "int"},
+            ],
+        },
+    )
+    await api_post(
+        client,
+        "/nodes/default.cf_purchases/link",
+        {
+            "dimension_node": "default.cf_day",
+            "join_type": "left",
+            "join_on": "default.cf_purchases.day = default.cf_day.day",
+        },
+    )
+    await api_post(
+        client,
+        "/nodes/metric/",
+        {
+            "name": "default.cf_purchase_value",
+            "query": "SELECT " + operator + "(DISTINCT account_id)"
+            " FROM default.cf_purchases",
+            "mode": "published",
+        },
+    )
+    name = "cf_purchase_value"
+    if derived != "direct":
+        name = "cf_purchase_derived"
+        await api_post(
+            client,
+            "/nodes/metric/",
+            {
+                "name": "default." + name,
+                "query": (
+                    "SELECT default.cf_purchase_value * 2"
+                    if derived == "same_fact"
+                    else "SELECT default.cf_visitors + default.cf_purchase_value"
+                ),
+                "mode": "published",
+            },
+        )
+        expected = expected * 2 if derived == "same_fact" else expected + 3
+    names = ["cf_visitors", name]
+    if reverse:
+        names.reverse()
+    with api_evidence() as conn:
+        conn.execute(
+            'CREATE TABLE "default".cross_fact.cf_purchases (day INT, account_id INT)',
+        )
+        conn.execute(
+            'INSERT INTO "default".cross_fact.cf_purchases VALUES '
+            "(1,10), (1,10), (1,20), (1,NULL)",
+        )
+        sql = await api_sql(client, names)
+        rows = conn.execute(sql).fetchall()
+    assert len(rows) == 1, sql
+    assert rows[0][0] == 1, sql
+    assert dict(zip(names, rows[0][1:])) == {"cf_visitors": 3, name: expected}, sql
 
 
 @pytest.mark.parametrize("raw_metric", [False, True])
@@ -661,10 +759,19 @@ async def test_api_filter_only_day_preserves_exact_membership_across_days(client
         assert conn.execute(sql).fetchall() == [("north", 50, 4, 2, 58)], sql
 
 
-def test_wrapper_recovers_merge_metadata_and_fixed_arguments():
+@pytest.mark.parametrize("unrelated_first", [False, True])
+def test_wrapper_recovers_merge_metadata_and_fixed_arguments(unrelated_first):
     token = component("tokens", "STRING_AGG", merge="STRING_AGG")
     token.merge_args = ["'|'"]
     decomposed = metric("tokens", [token], "STRING_AGG(tokens, '|')")
+    unrelated = metric(
+        "other_tokens",
+        [component("tokens", "MAX", merge="MAX")],
+        "MAX(tokens)",
+    )
+    metrics = {"test.tokens": decomposed, "test.other_tokens": unrelated}
+    if unrelated_first:
+        metrics = dict(reversed(list(metrics.items())))
     planned = token.model_copy(deep=True)
     planned.aggregation = None
     planned.merge = None
@@ -682,7 +789,7 @@ def test_wrapper_recovers_merge_metadata_and_fixed_arguments():
         "states",
         gg,
         ["day"],
-        {"test.tokens": decomposed},
+        metrics,
     )
     with duckdb.connect() as conn:
         conn.execute("CREATE TABLE states(day INT, account_id INT, tokens VARCHAR)")
