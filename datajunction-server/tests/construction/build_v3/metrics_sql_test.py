@@ -2715,7 +2715,7 @@ class TestMetricsSQLDerived:
                    SUM(page_views_enriched_0.view_id_count_f41e2db4) AS page_view_count
             FROM order_details_0
             FULL OUTER JOIN page_views_enriched_0 ON order_details_0.category = page_views_enriched_0.category
-            WHERE order_details_0.category = 'Electronics'
+            WHERE COALESCE(order_details_0.category, page_views_enriched_0.category) = 'Electronics'
             GROUP BY 1
             """,
         )
