@@ -1356,8 +1356,8 @@ class TestMetricsSQLDerived:
         assert response.status_code == 200, response.json()
         result = response.json()
 
-        # With merged grain groups, we get one CTE per parent
-        # with raw values and aggregations applied in the final SELECT
+        # Collapse merged groups before the join so additive operands do not
+        # multiply across the other fact's distinct keys.
         assert_sql_equal(
             result["sql"],
             """
@@ -1394,6 +1394,13 @@ class TestMetricsSQLDerived:
             LEFT OUTER JOIN v3_customer t3 ON t1.customer_id = t3.customer_id
             GROUP BY  t2.category, t3.name, t1.order_id
             ),
+            order_details_0_agg AS (
+            SELECT category, name_customer,
+                SUM(line_total_sum_e1f61696) AS line_total_sum_e1f61696,
+                COUNT(DISTINCT order_id) AS order_id
+            FROM order_details_0
+            GROUP BY category, name_customer
+            ),
             page_views_enriched_0 AS (
             SELECT  t2.category,
                 t3.name name_customer,
@@ -1402,14 +1409,21 @@ class TestMetricsSQLDerived:
             FROM v3_page_views_enriched t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
             LEFT OUTER JOIN v3_customer t3 ON t1.customer_id = t3.customer_id
             GROUP BY  t2.category, t3.name, t1.customer_id
+            ),
+            page_views_enriched_0_agg AS (
+            SELECT category, name_customer,
+                SUM(view_id_count_f41e2db4) AS view_id_count_f41e2db4,
+                COUNT(DISTINCT customer_id) AS customer_id
+            FROM page_views_enriched_0
+            GROUP BY category, name_customer
             )
 
-            SELECT  COALESCE(order_details_0.category, page_views_enriched_0.category) AS category,
-                COALESCE(order_details_0.name_customer, page_views_enriched_0.name_customer) AS name_customer,
-                CAST(COUNT( DISTINCT order_details_0.order_id) AS DOUBLE) / NULLIF(COUNT( DISTINCT page_views_enriched_0.customer_id), 0) AS conversion_rate,
-                SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT( DISTINCT page_views_enriched_0.customer_id), 0) AS revenue_per_visitor,
-                SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(SUM(page_views_enriched_0.view_id_count_f41e2db4), 0) AS revenue_per_page_view
-            FROM order_details_0 FULL OUTER JOIN page_views_enriched_0 ON order_details_0.category = page_views_enriched_0.category AND order_details_0.name_customer = page_views_enriched_0.name_customer
+            SELECT  COALESCE(order_details_0_agg.category, page_views_enriched_0_agg.category) AS category,
+                COALESCE(order_details_0_agg.name_customer, page_views_enriched_0_agg.name_customer) AS name_customer,
+                CAST(MAX(order_details_0_agg.order_id) AS DOUBLE) / NULLIF(MAX(page_views_enriched_0_agg.customer_id), 0) AS conversion_rate,
+                SUM(order_details_0_agg.line_total_sum_e1f61696) / NULLIF(MAX(page_views_enriched_0_agg.customer_id), 0) AS revenue_per_visitor,
+                SUM(order_details_0_agg.line_total_sum_e1f61696) / NULLIF(SUM(page_views_enriched_0_agg.view_id_count_f41e2db4), 0) AS revenue_per_page_view
+            FROM order_details_0_agg FULL OUTER JOIN page_views_enriched_0_agg ON order_details_0_agg.category = page_views_enriched_0_agg.category AND order_details_0_agg.name_customer = page_views_enriched_0_agg.name_customer
             GROUP BY 1, 2
             """,
         )
@@ -4980,17 +4994,27 @@ class TestMetricsSQLNestedDerived:
                 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
                 GROUP BY t2.category, t1.order_id
             ),
+            order_details_0_agg AS (
+                SELECT category, SUM(line_total_sum_e1f61696) AS line_total_sum_e1f61696,
+                       COUNT(DISTINCT order_id) AS order_id
+                FROM order_details_0 GROUP BY category
+            ),
             page_views_enriched_0 AS (
                 SELECT t2.category, t1.session_id, COUNT(t1.view_id) view_id_count_f41e2db4
                 FROM v3_page_views_enriched t1
                 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
                 GROUP BY t2.category, t1.session_id
+            ),
+            page_views_enriched_0_agg AS (
+                SELECT category, SUM(view_id_count_f41e2db4) AS view_id_count_f41e2db4,
+                       COUNT(DISTINCT session_id) AS session_id
+                FROM page_views_enriched_0 GROUP BY category
             )
-            SELECT COALESCE(order_details_0.category, page_views_enriched_0.category) AS category,
-                   SUM(order_details_0.line_total_sum_e1f61696) / NULLIF(COUNT(DISTINCT order_details_0.order_id), 0)
-                   / NULLIF(SUM(page_views_enriched_0.view_id_count_f41e2db4) / NULLIF(COUNT(DISTINCT page_views_enriched_0.session_id), 0), 0) AS efficiency_ratio
-            FROM order_details_0
-            FULL OUTER JOIN page_views_enriched_0 ON order_details_0.category = page_views_enriched_0.category
+            SELECT COALESCE(order_details_0_agg.category, page_views_enriched_0_agg.category) AS category,
+                   SUM(order_details_0_agg.line_total_sum_e1f61696) / NULLIF(MAX(order_details_0_agg.order_id), 0)
+                   / NULLIF(SUM(page_views_enriched_0_agg.view_id_count_f41e2db4) / NULLIF(MAX(page_views_enriched_0_agg.session_id), 0), 0) AS efficiency_ratio
+            FROM order_details_0_agg
+            FULL OUTER JOIN page_views_enriched_0_agg ON order_details_0_agg.category = page_views_enriched_0_agg.category
             GROUP BY 1
             """,
         )
@@ -5700,8 +5724,7 @@ class TestMetricsSQLCrossFactWindow:
 
         assert response.status_code == 422, response.json()
         message = response.json()["message"]
-        assert "Unsupported distinct metric reaggregation" in message
-        assert "no longer retains the distinct grain key" in message
+        assert "SQL window metrics with cross-fact fanout" in message
 
     @pytest.mark.asyncio
     async def test_cross_fact_window_on_base_metrics(self, client_with_build_v3):
@@ -5762,14 +5785,8 @@ class TestMetricsSQLCrossFactWindow:
         2. wow_pages_per_session_change (page_views_enriched) uses ORDER BY week
         3. Both have the same ORDER BY grain but come from DIFFERENT facts
 
-        Expected behavior:
-        - Each fact gets its own window aggregation CTE
-        - order_details metrics use order_details_0 as source
-        - page_views metrics use page_views_enriched_0 as source
-        - They are NOT mixed together
-
-        This is similar to the demo case with thumbs_up_rate_wow_change (thumb_rating)
-        and avg_download_time_wow_change (download_session).
+        The page-view group retains private session keys. Joining it before
+        collapsing those keys would multiply revenue, so reject this shape.
         """
         # Create the metric locally for this test
         response = await client_with_build_v3.post(
@@ -5803,75 +5820,9 @@ class TestMetricsSQLCrossFactWindow:
             },
         )
 
-        assert response.status_code == 200, response.json()
-        result = response.json()
-        sql = result["sql"]
-        assert_sql_equal(
-            sql,
-            """
-            WITH
-            v3_date AS (
-            SELECT  date_id,
-                week
-            FROM default.v3.dates
-            ),
-            v3_order_details AS (
-            SELECT  o.order_date,
-                oi.product_id,
-                oi.quantity * oi.unit_price AS line_total
-            FROM default.v3.orders o JOIN default.v3.order_items oi ON o.order_id = oi.order_id
-            ),
-            v3_product AS (
-            SELECT  product_id,
-                category
-            FROM default.v3.products
-            ),
-            v3_page_views_enriched AS (
-            SELECT  view_id,
-                session_id,
-                page_date,
-                product_id
-            FROM default.v3.page_views
-            ),
-            order_details_0 AS (
-            SELECT  t2.category,
-                t3.week AS week_order,
-                SUM(t1.line_total) line_total_sum_e1f61696
-            FROM v3_order_details t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-            LEFT OUTER JOIN v3_date t3 ON t1.order_date = t3.date_id
-            GROUP BY  t2.category, t3.week
-            ),
-            page_views_enriched_0 AS (
-            SELECT  t2.category,
-                t3.week AS week_order,
-                t1.session_id,
-                COUNT(t1.view_id) view_id_count_f41e2db4
-            FROM v3_page_views_enriched t1 LEFT OUTER JOIN v3_product t2 ON t1.product_id = t2.product_id
-            LEFT OUTER JOIN v3_date t3 ON t1.page_date = t3.date_id
-            GROUP BY  t2.category, t3.week, t1.session_id
-            ),
-            base_metrics AS (
-            SELECT  COALESCE(order_details_0.category, page_views_enriched_0.category) AS category,
-                COALESCE(order_details_0.week_order, page_views_enriched_0.week_order) AS week_order,
-                SUM(page_views_enriched_0.view_id_count_f41e2db4) AS page_view_count,
-                COUNT( DISTINCT page_views_enriched_0.session_id) AS session_count,
-                SUM(order_details_0.line_total_sum_e1f61696) AS total_revenue,
-                SUM(page_views_enriched_0.view_id_count_f41e2db4) / NULLIF(COUNT( DISTINCT page_views_enriched_0.session_id), 0) AS pages_per_session
-            FROM order_details_0 FULL OUTER JOIN page_views_enriched_0 ON order_details_0.category = page_views_enriched_0.category AND order_details_0.week_order = page_views_enriched_0.week_order
-            GROUP BY  1, 2
-            )
-
-            SELECT  base_metrics.category AS category,
-                base_metrics.week_order AS week_order,
-                (base_metrics.total_revenue - LAG(base_metrics.total_revenue, 1) OVER ( PARTITION BY base_metrics.category
-            ORDER BY base_metrics.week_order) ) / NULLIF(LAG(base_metrics.total_revenue, 1) OVER ( PARTITION BY base_metrics.category
-            ORDER BY base_metrics.week_order) , 0) * 100 AS wow_revenue_change,
-                (base_metrics.pages_per_session - LAG(base_metrics.pages_per_session, 1) OVER ( PARTITION BY base_metrics.category
-            ORDER BY base_metrics.week_order) ) / NULLIF(LAG(base_metrics.pages_per_session, 1) OVER ( PARTITION BY base_metrics.category
-            ORDER BY base_metrics.week_order) , 0) * 100 AS wow_pages_per_session_change
-            FROM base_metrics
-            """,
-        )
+        # The page-view group's private session grain would multiply revenue.
+        assert response.status_code == 422, response.json()
+        assert "SQL window metrics with cross-fact fanout" in response.json()["message"]
 
     @pytest.mark.asyncio
     async def test_cross_fact_rows_between_ratio(self, client_with_build_v3):
