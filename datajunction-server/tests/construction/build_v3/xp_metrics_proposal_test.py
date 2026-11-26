@@ -178,13 +178,17 @@ async def test_global_grain_ratio_builds_but_is_a_different_number(
         LEFT OUTER JOIN v3_date t2 ON t1.page_date = t2.date_id
         GROUP BY t2.month, t1.customer_id
         ),
+        page_views_enriched_0_agg AS (
+        SELECT month_order, COUNT(DISTINCT customer_id) AS customer_id
+        FROM page_views_enriched_0 GROUP BY month_order
+        ),
         base_metrics AS (
-        SELECT COALESCE(order_details_0.month_order, page_views_enriched_0.month_order) AS month_order,
-            COUNT(DISTINCT page_views_enriched_0.customer_id) AS visitor_count,
+        SELECT COALESCE(order_details_0.month_order, page_views_enriched_0_agg.month_order) AS month_order,
+            MAX(page_views_enriched_0_agg.customer_id) AS visitor_count,
             SUM(SUM(order_details_0.line_total_sum_e1f61696)) OVER () AS xp_activity_global
         FROM order_details_0
-        FULL OUTER JOIN page_views_enriched_0
-            ON order_details_0.month_order = page_views_enriched_0.month_order
+        FULL OUTER JOIN page_views_enriched_0_agg
+            ON order_details_0.month_order = page_views_enriched_0_agg.month_order
         GROUP BY 1
         )
 
