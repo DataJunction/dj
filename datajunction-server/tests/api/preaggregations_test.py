@@ -2,21 +2,18 @@
 
 from unittest.mock import MagicMock
 
-import json
 import os
 import pathlib
 import subprocess
 import sys
 from collections.abc import Generator
 
-from urllib.parse import urlparse
-
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from psycopg import connect
+from psycopg import Connection
 from testcontainers.postgres import PostgresContainer
 from sqlalchemy.orm import joinedload
 
@@ -148,30 +145,47 @@ async def _plan_preagg(
 PREAGGS_TEMPLATE_DB_NAME = "template_preaggs"
 
 
-def _preagg_ids_from(postgres_container, dbname: str) -> list[int]:
-    """Read preagg ids out of an already-built template, in creation order."""
-    url = urlparse(postgres_container.get_connection_url())
-    with connect(
-        host=url.hostname,
-        port=url.port,
-        dbname=dbname,
-        user=url.username,
-        password=url.password,
-        autocommit=True,
-    ) as conn:
-        return [
-            row[0]
-            for row in conn.execute(
-                "SELECT id FROM pre_aggregation ORDER BY id",
-            ).fetchall()
-        ]
+def test_shared_preaggs_template_initialization_during_clone(
+    request,
+    postgres_container,
+    template_database,
+    monkeypatch,
+):
+    """Shared-template initialization must not open a reader killed by cloning."""
+    request.getfixturevalue("preaggs_template_database")
+    module = sys.modules[__name__]
+    execute = Connection.execute
+    clone_name = f"test_preagg_reader_race_{os.getpid()}"
+
+    def execute_during_clone(conn, query, *args, **kwargs):
+        if conn.info.dbname == PREAGGS_TEMPLATE_DB_NAME:
+            # Force the other worker's clone after this connection opens but
+            # before its read. The clone terminates shared-template readers.
+            clone_database_from_template(
+                postgres_container,
+                PREAGGS_TEMPLATE_DB_NAME,
+                clone_name,
+            )
+        return execute(conn, query, *args, **kwargs)
+
+    monkeypatch.setattr(module, "externally_managed_postgres", lambda: True)
+    monkeypatch.setattr(Connection, "execute", execute_during_clone)
+    shared_fixture = preaggs_template_database.__wrapped__(
+        postgres_container,
+        template_database,
+    )
+    try:
+        assert next(shared_fixture) == PREAGGS_TEMPLATE_DB_NAME
+    finally:
+        shared_fixture.close()
+        cleanup_database_for_module(postgres_container, clone_name)
 
 
 @pytest.fixture(scope="session")
 def preaggs_template_database(
     postgres_container: PostgresContainer,
     template_database: str,
-) -> Generator[tuple[str, list[int]], None, None]:
+) -> Generator[str, None, None]:
     """
     A template database that already holds the ten planned pre-aggregations.
 
@@ -179,11 +193,12 @@ def preaggs_template_database(
     once and letting every test clone the result (~90ms) keeps each test fully
     isolated -- which the 67 mutating tests here need -- without re-planning.
 
-    Returns the template name and the preagg ids, in preagg1..preagg10 order.
+    Yields the template name; preagg metadata is read from each private clone.
     """
     externally_managed = externally_managed_postgres()
     if externally_managed:
-        # Planned once outside pytest; read the ids back off the template.
+        # Planned once outside pytest. Never open a connection to this shared
+        # template: another worker cloning it terminates template connections.
         require_shared_template(
             postgres_container,
             PREAGGS_TEMPLATE_DB_NAME,
@@ -192,13 +207,7 @@ def preaggs_template_database(
             f"tests/helpers/populate_preaggs_template.py "
             f"<url-ending-in>/{PREAGGS_TEMPLATE_DB_NAME}",
         )
-        yield (
-            PREAGGS_TEMPLATE_DB_NAME,
-            _preagg_ids_from(
-                postgres_container,
-                PREAGGS_TEMPLATE_DB_NAME,
-            ),
-        )
+        yield PREAGGS_TEMPLATE_DB_NAME
         return
 
     clone_database_from_template(
@@ -232,12 +241,7 @@ def preaggs_template_database(
         raise RuntimeError(
             f"Failed to populate preaggs template:\n{result.stdout}\n{result.stderr}",
         )
-    ids = next(
-        json.loads(line.split(" ", 1)[1])
-        for line in result.stdout.splitlines()
-        if line.startswith("PREAGG_IDS ")
-    )
-    yield PREAGGS_TEMPLATE_DB_NAME, ids
+    yield PREAGGS_TEMPLATE_DB_NAME
     if not externally_managed:
         # A shared template outlives this process; dropping it would pull the
         # rug from under the other workers.
@@ -249,7 +253,7 @@ def func__postgres_container(
     request,
     postgres_container: PostgresContainer,
     template_database: str,
-    preaggs_template_database: tuple[str, list[int]],
+    preaggs_template_database: str,
 ):
     """
     Clone from the preaggs template, but only for tests that ask for preaggs.
@@ -260,7 +264,7 @@ def func__postgres_container(
     pre-seeded one makes those assertions see rows they did not create.
     """
     wants_preaggs = "client_with_preaggs" in request.fixturenames
-    template_name = preaggs_template_database[0] if wants_preaggs else template_database
+    template_name = preaggs_template_database if wants_preaggs else template_database
     dbname = f"test_preagg_{abs(hash(request.node.name)) % 10000000}_{id(request)}"
     db_url = clone_database_from_template(
         postgres_container,
@@ -274,7 +278,6 @@ def func__postgres_container(
 @pytest_asyncio.fixture
 async def client_with_preaggs(
     client_with_build_v3: AsyncClient,
-    preaggs_template_database: tuple[str, list[int]],
 ):
     """
     Client whose database already contains the ten pre-aggregations.
@@ -289,12 +292,12 @@ async def client_with_preaggs(
 
     session = client.app.dependency_overrides[get_session]()
 
-    _, preagg_ids = preaggs_template_database
-    _opts = [joinedload(PreAggregation.node_revision)]
-    preaggs = [
-        await session.get(PreAggregation, preagg_id, options=_opts)
-        for preagg_id in preagg_ids
-    ]
+    result = await session.execute(
+        select(PreAggregation)
+        .options(joinedload(PreAggregation.node_revision))
+        .order_by(PreAggregation.id),
+    )
+    preaggs = result.unique().scalars().all()
 
     yield {
         "client": client,
