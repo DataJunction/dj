@@ -288,7 +288,11 @@ def _create_ctes(
     # Share nested CTEs only when their resolved bodies match; conflicting
     # independently pruned variants keep distinct names and readers.
     queries = [gg.query for gg in grain_groups]
-    names = CTENameRegistry(queries, reserved=cte_names)
+    names = CTENameRegistry(
+        queries,
+        dialect=grain_groups[0].dialect if grain_groups else Dialect.SPARK,
+        reserved=cte_names,
+    )
     nested_ctes, main_queries = collect_shared_ctes(queries, names)
 
     # Then create the grain group CTEs

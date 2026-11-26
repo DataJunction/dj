@@ -6,6 +6,7 @@ import duckdb
 import pytest
 
 from datajunction_server.construction.build_v3.combiners import _create_ctes
+from datajunction_server.construction.build_v3.cte_identity import CTENameRegistry
 from datajunction_server.construction.build_v3.metrics import (
     collect_and_build_ctes,
     generate_metrics_sql,
@@ -28,7 +29,7 @@ from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 
-def group(sql, parent="fact"):
+def group(sql, parent="fact", dialect=Dialect.SPARK):
     return GrainGroupSQL(
         query=parse(sql),
         columns=[],
@@ -36,11 +37,16 @@ def group(sql, parent="fact"):
         aggregability=Aggregability.FULL,
         metrics=[],
         parent_name=parent,
+        dialect=dialect,
     )
 
 
-def combine(groups):
-    ctes, aliases = collect_and_build_ctes(groups)
+def combine(groups, collector="metrics", dialect=Dialect.DUCKDB):
+    if collector == "metrics":
+        ctes, aliases = collect_and_build_ctes(groups)
+    else:
+        aliases = [f"gg{i}" for i in range(len(groups))]
+        ctes = _create_ctes(groups, aliases)
     query = parse(
         "SELECT "
         + ", ".join(f"{alias}.value" for alias in aliases)
@@ -48,7 +54,7 @@ def combine(groups):
         + " CROSS JOIN ".join(aliases),
     )
     query.ctes = ctes
-    return ast.to_sql(query, Dialect.DUCKDB), ctes
+    return ast.to_sql(query, dialect), ctes
 
 
 @pytest.mark.parametrize("reverse", [False, True])
@@ -243,13 +249,19 @@ def test_preaggregation_wrapper_does_not_capture_existing_names():
         assert conn.execute(sql).fetchall() == [(2, 9)]
 
 
-def test_fixed_wrapper_names_remain_available():
+@pytest.mark.parametrize(
+    "dialect",
+    [Dialect.SPARK, Dialect.POSTGRES, Dialect.SNOWFLAKE],
+)
+@pytest.mark.parametrize("quote", ["", '"'])
+def test_fixed_wrapper_names_remain_available(dialect, quote):
     groups = [
         group(
-            "WITH base_metrics AS (SELECT 3 AS value), "
-            "__metric_filtered AS (SELECT base_metrics.value + 4 AS value FROM base_metrics), "
-            "__windowed AS (SELECT value * 2 AS value FROM __metric_filtered) "
-            "SELECT value FROM __windowed",
+            f"WITH {quote}base_metrics{quote} AS (SELECT 3 AS value), "
+            f"{quote}__metric_filtered{quote} AS (SELECT value + 4 AS value FROM {quote}base_metrics{quote}), "
+            f"{quote}__windowed{quote} AS (SELECT value * 2 AS value FROM {quote}__metric_filtered{quote}) "
+            f"SELECT value FROM {quote}__windowed{quote}",
+            dialect=dialect,
         ),
     ]
     sql, ctes = combine(groups)
@@ -272,6 +284,190 @@ def test_quoted_cte_names_keep_quoting():
     sql, _ = combine(groups)
     with duckdb.connect() as conn:
         assert conn.execute(sql).fetchall() == [(3, 7)]
+
+
+@pytest.mark.parametrize("collector", ["metrics", "measures"])
+@pytest.mark.parametrize("physical", [False, True])
+@pytest.mark.parametrize(
+    "producer,reader",
+    [
+        ('"Shared"', "shared"),
+        ('"Shared"', '"SHARED"'),
+        ("shared", '"Shared"'),
+        ("`Shared`", "shared"),
+        ('"shared"', "shared"),
+        ('"Shared"', '"Shared"'),
+    ],
+)
+def test_quoted_readers_keep_cte_binding(collector, physical, producer, reader):
+    """A case-insensitive reader must not fall through to a physical table."""
+    sql = f"WITH {producer} AS (SELECT 7 AS value) SELECT value FROM {reader}"
+    groups = [group(sql, "one", Dialect.DUCKDB), group("SELECT 11 AS value", "two")]
+    original = [str(g.query) for g in groups]
+    combined, _ = combine(groups, collector)
+    with duckdb.connect() as conn:
+        if physical:
+            conn.execute("CREATE TABLE shared(value INT)")
+            conn.execute("INSERT INTO shared VALUES (99)")
+        assert conn.execute(ast.to_sql(groups[0].query, Dialect.DUCKDB)).fetchall() == [
+            (7,),
+        ]
+        assert conn.execute(combined).fetchall() == [(7, 11)]
+    assert [str(g.query) for g in groups] == original
+
+
+@pytest.mark.parametrize("collector", ["metrics", "measures"])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_quoted_dependencies_and_nested_scopes(collector, reverse):
+    groups = [
+        group(
+            f'WITH "Shared" AS (SELECT {value} AS value), '
+            '"Reader" AS (SELECT shared.value + s.value AS value '
+            'FROM shared JOIN "SHARED" AS s ON shared.value = s.value '
+            "WHERE EXISTS (SELECT 1)) SELECT value FROM reader",
+            f"fact{i}",
+            Dialect.DUCKDB,
+        )
+        for i, value in enumerate([3, 7, 7])
+    ]
+    # Preserve an explicit nested WITH: the parser drops WITH inside EXISTS.
+    for gg in groups:
+        exists = next(gg.query.find_all(ast.UnaryOp))
+        assert exists.op == ast.UnaryOpKind.Exists
+        nested = parse(
+            'WITH "sHaReD" AS (SELECT 100 AS value) '
+            "SELECT value FROM shared WHERE value = 100",
+        )
+        nested.parenthesized = True
+        exists.expr = nested
+    if reverse:
+        groups.reverse()
+    original = [str(g.query) for g in groups]
+    sql, ctes = combine(groups, collector)
+    # Two producer/reader variants, plus three group outputs. Equal readers share.
+    assert len(ctes) == 7
+    with duckdb.connect() as conn:
+        conn.execute("CREATE TABLE shared(value INT)")
+        conn.execute("INSERT INTO shared VALUES (99)")
+        expected = [(14, 14, 6)] if reverse else [(6, 14, 14)]
+        standalone = [
+            conn.execute(ast.to_sql(g.query, Dialect.DUCKDB)).fetchone()[0]
+            for g in groups
+        ]
+        assert tuple(standalone) == expected[0]
+        assert conn.execute(sql).fetchall() == expected
+    assert [str(g.query) for g in groups] == original
+
+
+@pytest.mark.parametrize("collector", ["metrics", "measures"])
+def test_quoted_cte_does_not_rebind_qualified_physical_table(collector):
+    groups = [
+        group(
+            'WITH "Shared" AS (SELECT 7 AS value) SELECT value FROM shared',
+            "one",
+            Dialect.DUCKDB,
+        ),
+        group('SELECT value FROM physical."SHARED"', "two", Dialect.DUCKDB),
+    ]
+    sql, ctes = combine(groups, collector)
+    assert ctes[0].alias.name == "Shared"
+    with duckdb.connect() as conn:
+        conn.execute("CREATE SCHEMA physical")
+        conn.execute('CREATE TABLE physical."Shared"(value INT)')
+        conn.execute('INSERT INTO physical."Shared" VALUES (99)')
+        assert conn.execute(sql).fetchall() == [(7, 99)]
+
+
+@pytest.mark.parametrize("collector", ["metrics", "measures"])
+@pytest.mark.parametrize("dialect", [Dialect.DUCKDB, Dialect.SPARK, Dialect.TRINO])
+def test_case_insensitive_cte_sharing_and_physical_names(collector, dialect):
+    groups = [
+        group(
+            'WITH "Shared" AS (SELECT 7 AS value) SELECT value FROM shared',
+            "one",
+            dialect,
+        ),
+        group(
+            'WITH shared AS (SELECT 7 AS value) SELECT value FROM "SHARED"',
+            "two",
+            dialect,
+        ),
+        group(
+            'WITH "SHARED" AS (SELECT 9 AS value) SELECT value FROM shared',
+            "three",
+            dialect,
+        ),
+        group('SELECT value FROM "Shared__1"', "physical", dialect),
+    ]
+    sql, ctes = combine(groups, collector, dialect)
+    # Both spellings share one producer; their readers stay bound.
+    assert len(ctes) == 6
+    assert ctes[0].alias.name == "Shared"
+    assert ctes[0].alias.quote_style == '"'
+    assert ctes[1].alias.name == "SHARED__2"
+    # Only DuckDB is executed. Spark/Trino assertions exercise compiler ASTs and rendering.
+    assert sql
+    if dialect == Dialect.DUCKDB:
+        with duckdb.connect() as conn:
+            conn.execute('CREATE TABLE "Shared__1"(value INT)')
+            conn.execute('INSERT INTO "Shared__1" VALUES (99)')
+            assert conn.execute(sql).fetchall() == [(7, 7, 9, 99)]
+
+
+@pytest.mark.parametrize("collector", ["metrics", "measures"])
+@pytest.mark.parametrize(
+    "dialect,reader",
+    [
+        (Dialect.POSTGRES, '"shared"'),
+        (Dialect.SNOWFLAKE, '"SHARED"'),
+        (Dialect.CLICKHOUSE, "shared"),
+    ],
+)
+def test_case_sensitive_ctes_keep_producer_quoting(collector, dialect, reader):
+    groups = [
+        group(
+            'WITH "Shared" AS (SELECT 3 AS value), '
+            f"shared AS (SELECT 7 AS value) SELECT value FROM {reader}",
+            "one",
+            dialect,
+        ),
+        group('SELECT value FROM "Shared"', "physical", dialect),
+    ]
+    _, ctes = combine(groups, collector, dialect)
+    # The quoted physical table displaces only its exact CTE, not unquoted shared.
+    assert ctes[0].alias.name == "Shared__1"
+    assert ctes[0].alias.quote_style == '"'
+    assert ctes[1].alias.name == "shared"
+    assert ctes[1].alias.quote_style == ""
+    table = next(ctes[-2].select.from_.find_all(ast.Table))
+    assert table.name.name == "shared"
+    assert table.name.quote_style == ""
+    assert next(ctes[-1].select.from_.find_all(ast.Table)).name.name == "Shared"
+
+
+@pytest.mark.parametrize(
+    "dialect,same_name",
+    [
+        (Dialect.DUCKDB, True),
+        (Dialect.SPARK, True),
+        (Dialect.TRINO, True),
+        (Dialect.POSTGRES, False),
+        (Dialect.SNOWFLAKE, False),
+        (Dialect.CLICKHOUSE, False),
+        (Dialect.DRUID, False),
+        (Dialect.REDSHIFT, True),
+        (Dialect.SQLITE, True),
+        (Dialect.BIGQUERY, True),
+    ],
+)
+def test_cte_wrapper_reservations_follow_dialect(dialect, same_name):
+    """Wrapper allocation and physical-name protection use the binding policy too."""
+    query = parse('SELECT value FROM "Base_Metrics"')
+    names = CTENameRegistry([query], dialect=dialect)
+    combined = CTENameRegistry.for_combined_ctes([query], dialect)
+    # The generated unquoted wrapper conflicts only if the engine resolves both alike.
+    assert (names.key(ast.Name("base_metrics")) in names.physical_names) == same_name
+    assert (combined.allocate("base_metrics") != "base_metrics") == same_name
 
 
 @pytest.mark.parametrize(

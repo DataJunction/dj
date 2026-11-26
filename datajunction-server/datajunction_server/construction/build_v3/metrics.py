@@ -541,7 +541,10 @@ def collect_and_build_ctes(
     Returns (all_cte_asts, cte_aliases).
     """
     queries = [gg.query for gg in grain_groups]
-    names = CTENameRegistry(queries)
+    names = CTENameRegistry(
+        queries,
+        dialect=grain_groups[0].dialect if grain_groups else Dialect.SPARK,
+    )
     all_cte_asts, main_queries = collect_shared_ctes(queries, names)
     cte_aliases: list[str] = []
 
@@ -1884,6 +1887,7 @@ def generate_metrics_sql(
     if window_metrics:
         window_metrics_cte_alias = CTENameRegistry.for_combined_ctes(
             all_cte_asts,
+            measures_result.dialect,
         ).allocate("base_metrics")
 
         # Walk the dependency graph once. Windows stay above the aggregation
@@ -1948,7 +1952,7 @@ def generate_metrics_sql(
         # We REAGGREGATE from the base grain group CTE, not from source tables
         # This is more efficient and enables pre-agg matching at the base grain
         window_cte_names = AliasRegistry()
-        window_names = CTENameRegistry(all_cte_asts)
+        window_names = CTENameRegistry(all_cte_asts, dialect=measures_result.dialect)
         window_cte_owners: dict[str, str] = {}
         for idx, wgg in enumerate(window_grain_groups):
             # Get the ORDER BY dimension for naming (e.g., "week" from "v3.date.week")
@@ -2142,7 +2146,10 @@ def generate_metrics_sql(
     # below) or a known dimension (passes through to engine-side resolution).
     metric_filter: ast.Expression | None = None
     filtered_cte_alias = (
-        CTENameRegistry.for_combined_ctes(all_cte_asts).allocate("__metric_filtered")
+        CTENameRegistry.for_combined_ctes(
+            all_cte_asts,
+            measures_result.dialect,
+        ).allocate("__metric_filtered")
         if window_metrics_cte_alias and metric_filters_raw
         else "__metric_filtered"
     )
