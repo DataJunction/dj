@@ -23,6 +23,10 @@ from datajunction_server.construction.build_v3.builder import build_measures_sql
 from datajunction_server.construction.build_v3.cte import (
     process_metric_combiner_expression,
 )
+from datajunction_server.construction.build_v3.cte_identity import (
+    CTENameRegistry,
+    collect_shared_ctes,
+)
 from datajunction_server.construction.build_v3.decomposition import (
     apply_component_serialize,
     build_merge_call,
@@ -281,28 +285,19 @@ def _create_ctes(
     Uses the Query.to_cte() method to properly format the CTE with
     parentheses and AS keyword.
     """
-    from copy import deepcopy
-
-    # First, collect all nested CTEs from all grain groups (deduplicated)
-    nested_ctes: list[ast.Query] = []
-    seen_cte_names: set[str] = set()
-
-    for gg in grain_groups:
-        if gg.query.ctes:
-            for nested_cte in gg.query.ctes:
-                # CTE name is stored in the alias attribute (set by to_cte method)
-                cte_name = nested_cte.alias.name if nested_cte.alias else None
-                if cte_name and cte_name not in seen_cte_names:
-                    seen_cte_names.add(cte_name)
-                    nested_ctes.append(deepcopy(nested_cte))
+    # Share nested CTEs only when their resolved bodies match; conflicting
+    # independently pruned variants keep distinct names and readers.
+    queries = [gg.query for gg in grain_groups]
+    names = CTENameRegistry(
+        queries,
+        dialect=grain_groups[0].dialect if grain_groups else Dialect.SPARK,
+        reserved=cte_names,
+    )
+    nested_ctes, main_queries = collect_shared_ctes(queries, names)
 
     # Then create the grain group CTEs
     grain_group_ctes = []
-    for gg, name in zip(grain_groups, cte_names):
-        # Deep copy the query to avoid mutating the original
-        cte_query = deepcopy(gg.query)
-        # Clear nested CTEs from this query (they're now at top level)
-        cte_query.ctes = []
+    for cte_query, name in zip(main_queries, cte_names):
         # Convert to CTE format (adds parentheses, AS keyword, etc.)
         cte_query.to_cte(ast.Name(name))
         grain_group_ctes.append(cte_query)

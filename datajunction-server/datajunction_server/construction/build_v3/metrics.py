@@ -24,6 +24,10 @@ from datajunction_server.construction.build_v3.cte import (
     replace_component_refs_in_ast,
     replace_dimension_refs_in_ast,
 )
+from datajunction_server.construction.build_v3.cte_identity import (
+    CTENameRegistry,
+    collect_shared_ctes,
+)
 from datajunction_server.construction.build_v3.filters import (
     combine_filters,
     get_filter_column_references,
@@ -521,6 +525,10 @@ def collect_and_build_ctes(
     """
     Collect shared CTEs and convert grain groups to CTEs.
 
+    Share same-name definitions only when their bodies match after resolving
+    dependencies in their original WITH scopes. Conflicting variants and their
+    readers receive distinct names before the group scopes are combined.
+
     For LIMITED grain groups (COUNT DISTINCT), also emits a pre-aggregation wrapper
     CTE that collapses the N-rows-per-dimension output to 1 row per dimension by
     computing COUNT(DISTINCT grain_key) inside the CTE.  This prevents fan-out when
@@ -532,45 +540,24 @@ def collect_and_build_ctes(
 
     Returns (all_cte_asts, cte_aliases).
     """
-    # Collect all inner CTEs, dedupe by original name
-    # CTEs with the same name are shared (e.g., v3_product dimension used by multiple grain groups)
-    shared_ctes: dict[str, ast.Query] = {}  # original_name -> CTE AST
-
-    for gg in grain_groups:
-        gg_query = gg.query
-        if gg_query.ctes:  # pragma: no branch
-            for inner_cte in gg_query.ctes:
-                cte_name = str(inner_cte.alias) if inner_cte.alias else "unnamed_cte"
-                if cte_name not in shared_ctes:
-                    # First time seeing this CTE - add it
-                    shared_ctes[cte_name] = deepcopy(inner_cte)
-
-    # Build grain group aliases and CTEs
-    all_cte_asts: list[ast.Query] = []
+    queries = [gg.query for gg in grain_groups]
+    names = CTENameRegistry(
+        queries,
+        dialect=grain_groups[0].dialect if grain_groups else Dialect.SPARK,
+    )
+    all_cte_asts, main_queries = collect_shared_ctes(queries, names)
     cte_aliases: list[str] = []
-
-    # Add shared CTEs first (no prefix - they keep original names)
-    for cte_ast in shared_ctes.values():
-        all_cte_asts.append(cte_ast)
 
     # Track index per parent for naming: {parent}_{index}
     parent_index_counter: dict[str, int] = {}
 
-    for gg in grain_groups:
+    for gg, gg_main in zip(grain_groups, main_queries):
         # Get short parent name (last part after separator)
         parent_short = get_short_name(gg.parent_name)
         # Get next index for this parent
         idx = parent_index_counter.get(parent_short, 0)
         parent_index_counter[parent_short] = idx + 1
-        alias = f"{parent_short}_{idx}"
-
-        # gg.query is already an AST - no need to parse!
-        gg_query = gg.query
-
-        # Build the grain group CTE (main SELECT, no inner CTEs)
-        # Table references already use original CTE names (which are now shared)
-        gg_main = deepcopy(gg_query)
-        gg_main.ctes = []  # Clear inner CTEs - they're now in shared layer
+        alias = names.allocate(f"{parent_short}_{idx}", with_wrapper=True)
 
         # Convert to CTE with the grain group alias
         gg_main.to_cte(ast.Name(alias), None)
@@ -1898,7 +1885,10 @@ def generate_metrics_sql(
     # If there are ANY window metrics, build the base_metrics CTE
     # (either for joining with window grain groups, or for same-grain window functions)
     if window_metrics:
-        window_metrics_cte_alias = "base_metrics"
+        window_metrics_cte_alias = CTENameRegistry.for_combined_ctes(
+            all_cte_asts,
+            measures_result.dialect,
+        ).allocate("base_metrics")
 
         # Walk the dependency graph once. Windows stay above the aggregation
         # boundary; their non-window ancestors are computed in base_metrics.
@@ -1962,6 +1952,7 @@ def generate_metrics_sql(
         # We REAGGREGATE from the base grain group CTE, not from source tables
         # This is more efficient and enables pre-agg matching at the base grain
         window_cte_names = AliasRegistry()
+        window_names = CTENameRegistry(all_cte_asts, dialect=measures_result.dialect)
         window_cte_owners: dict[str, str] = {}
         for idx, wgg in enumerate(window_grain_groups):
             # Get the ORDER BY dimension for naming (e.g., "week" from "v3.date.week")
@@ -2007,8 +1998,11 @@ def generate_metrics_sql(
             ):
                 order_by_role = order_by_dim.partition("[")[2].rstrip("]")
                 window_cte_key += f"[{order_by_role or 'no_role'}]"
-            window_cte_alias = window_cte_names.register(window_cte_key)
-            agg_cte_alias = window_cte_names.register(f"{window_cte_alias}_agg")
+            window_cte_alias = window_names.allocate(
+                window_cte_names.register(window_cte_key),
+                with_wrapper=True,
+            )
+            agg_cte_alias = f"{window_cte_alias}_agg"
             # source_cte_alias is guaranteed to be set by the branches above
             assert source_cte_alias is not None
             if is_cross_fact:
@@ -2151,7 +2145,14 @@ def generate_metrics_sql(
     # we reach this block, every Column is either a known metric (replaced
     # below) or a known dimension (passes through to engine-side resolution).
     metric_filter: ast.Expression | None = None
-    filtered_cte_alias = "__metric_filtered"
+    filtered_cte_alias = (
+        CTENameRegistry.for_combined_ctes(
+            all_cte_asts,
+            measures_result.dialect,
+        ).allocate("__metric_filtered")
+        if window_metrics_cte_alias and metric_filters_raw
+        else "__metric_filtered"
+    )
     if metric_filters_raw:
         parsed_metric_filters = []
         for f in metric_filters_raw:
