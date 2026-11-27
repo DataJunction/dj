@@ -65,6 +65,54 @@ def compare_registers(types, register) -> bool:
     return True
 
 
+def bind_lambda_params(func, param_types: list[ct.ColumnType]) -> None:
+    """
+    Types every reference to a lambda's params inside its body, where
+    `param_types[i]` is the type bound to the lambda's i-th param. Handles both
+    direct param references (`x`) and struct field access (`x.field`).
+    """
+    from datajunction_server.sql.parsing import ast
+
+    available_identifiers = {
+        identifier.name: idx for idx, identifier in enumerate(func.identifiers)
+    }
+
+    def param_type(name: str) -> ct.ColumnType | None:
+        idx = available_identifiers[name]
+        return param_types[idx] if idx < len(param_types) else None
+
+    def param_ref(col) -> str:
+        """The param name a column refers to: `x` for both `x` and `x.field`"""
+        return (col.alias_or_name.namespace or col.alias_or_name).name
+
+    # A nested lambda that redeclares a param name owns its references to it
+    shadowed = {
+        id(col)
+        for nested_func in func.expr.find_all(ast.Lambda)
+        for col in nested_func.expr.find_all(ast.Column)
+        if param_ref(col) in {ident.name for ident in nested_func.identifiers}
+    }
+
+    for col in func.expr.find_all(ast.Column):
+        if id(col) in shadowed:
+            continue
+        col_name = col.alias_or_name.name
+        col_ns = col.alias_or_name.namespace
+
+        # Direct reference to lambda param: x
+        if col_ns is None and col_name in available_identifiers:
+            if (type_ := param_type(col_name)) is not None:
+                col.add_type(type_)
+
+        # Struct field access via lambda param namespace: x.field_name
+        elif col_ns is not None and col_ns.name in available_identifiers:
+            type_ = param_type(col_ns.name)
+            if isinstance(type_, ct.StructType):
+                nested = type_.fields_mapping.get(col_name)
+                if nested is not None:
+                    col.add_type(nested.type)
+
+
 class DispatchMeta(type):
     """
     Dispatch abstract class for function registry
@@ -275,8 +323,6 @@ class Aggregate(Function):
         Compiles the lambda function used by the `aggregate` Spark function so that
         the lambda's expression can be evaluated to determine the result's type.
         """
-        from datajunction_server.sql.parsing import ast
-
         # aggregate's lambda function can take three or four arguments, depending on whether
         # an optional finish function is provided
         if len(args) == 4:
@@ -285,39 +331,9 @@ class Aggregate(Function):
             expr, start, merge = args
             finish = None
 
-        available_identifiers = {
-            identifier.name: idx for idx, identifier in enumerate(merge.identifiers)
-        }
-        merge_columns = list(
-            merge.expr.filter(
-                lambda x: (
-                    isinstance(x, ast.Column)
-                    and x.alias_or_name.name in available_identifiers
-                ),
-            ),
-        )
-        finish_columns = (
-            list(
-                finish.expr.filter(
-                    lambda x: (
-                        isinstance(x, ast.Column)
-                        and x.alias_or_name.name in available_identifiers
-                    ),
-                ),
-            )
-            if finish
-            else []
-        )
-        for col in merge_columns:
-            if available_identifiers.get(col.alias_or_name.name) == 0:
-                col.add_type(start.type)
-            if available_identifiers.get(col.alias_or_name.name) == 1:
-                col.add_type(expr.type.element.type)
-        for col in finish_columns:
-            if (
-                available_identifiers.get(col.alias_or_name.name) == 0
-            ):  # pragma: no cover
-                col.add_type(start.type)
+        bind_lambda_params(merge, [start.type, expr.type.element.type])
+        if finish:
+            bind_lambda_params(finish, [start.type])
 
 
 @Aggregate.register  # type: ignore
@@ -2007,27 +2023,16 @@ class Exists(Function):
     @staticmethod
     def compile_lambda(*args):
         """
-        Compiles the lambda function used by the `filter` Spark function so that
+        Compiles the lambda function used by the `exists` Spark function so that
         the lambda's expression can be evaluated to determine the result's type.
         """
-        from datajunction_server.sql.parsing import ast
-
         expr, func = args
         if len(func.identifiers) != 1:
             raise DJParseException(  # pragma: no cover
                 message="The function `exists` takes a lambda function that takes at "
                 "most one argument.",
             )
-        # The lambda body may legally not reference its parameter at all
-        # (e.g., `x -> true`); only annotate the type if a matching column
-        # actually appears.
-        matches = [
-            col
-            for col in func.expr.find_all(ast.Column)
-            if col.alias_or_name.name == func.identifiers[0].name
-        ]
-        if matches:
-            matches[0].add_type(expr.type.element.type)
+        bind_lambda_params(func, [expr.type.element.type])
 
 
 @Exists.register  # type: ignore
@@ -2135,26 +2140,13 @@ class Filter(Function):
         Compiles the lambda function used by the `filter` Spark function so that
         the lambda's expression can be evaluated to determine the result's type.
         """
-        from datajunction_server.sql.parsing import ast
-
         expr, func = args
         if len(func.identifiers) > 2:
             raise DJParseException(
                 message="The function `filter` takes a lambda function that takes at "
                 "most two arguments.",
             )
-        for col in func.expr.find_all(ast.Column):
-            if (  # pragma: no cover
-                col.alias_or_name.namespace
-                and col.alias_or_name.namespace.name
-                and func.identifiers[0].name == col.alias_or_name.namespace.name
-            ) or func.identifiers[0].name == col.alias_or_name.name:
-                col.add_type(expr.type.element.type)
-            if (
-                len(func.identifiers) == 2
-                and col.alias_or_name.name == func.identifiers[1].name
-            ):
-                col.add_type(ct.LongType())
+        bind_lambda_params(func, [expr.type.element.type, ct.LongType()])
 
 
 @Filter.register  # type: ignore
@@ -2314,27 +2306,16 @@ class Forall(Function):
     @staticmethod
     def compile_lambda(*args):
         """
-        Compiles the lambda function used by the `filter` Spark function so that
+        Compiles the lambda function used by the `forall` Spark function so that
         the lambda's expression can be evaluated to determine the result's type.
         """
-        from datajunction_server.sql.parsing import ast
-
         expr, func = args
         if len(func.identifiers) != 1:
             raise DJParseException(  # pragma: no cover
                 message="The function `forall` takes a lambda function that takes at "
                 "most one argument.",
             )
-        # The lambda body may legally not reference its parameter at all
-        # (e.g., `x -> true`); only annotate the type if a matching column
-        # actually appears.
-        matches = [
-            col
-            for col in func.expr.find_all(ast.Column)
-            if col.alias_or_name.name == func.identifiers[0].name
-        ]
-        if matches:
-            matches[0].add_type(expr.type.element.type)
+        bind_lambda_params(func, [expr.type.element.type])
 
 
 @Forall.register  # type: ignore
@@ -4503,33 +4484,9 @@ class Transform(Function):
 
         Handles both direct param references (`x`) and struct field access (`x.field`).
         """
-        from datajunction_server.sql.parsing import ast
-
         expr, func = args
-        available_identifiers = {
-            identifier.name: idx for idx, identifier in enumerate(func.identifiers)
-        }
-        element_type = expr.type.element.type
-
-        for col in func.expr.find_all(ast.Column):
-            col_name = col.alias_or_name.name
-            col_ns = col.alias_or_name.namespace
-
-            # Direct reference to lambda param: x
-            if col_name in available_identifiers:
-                idx = available_identifiers[col_name]
-                if idx == 0:
-                    col.add_type(element_type)
-                elif idx == 1:  # optional index arg
-                    col.add_type(ct.IntegerType())
-
-            # Struct field access via lambda param namespace: x.field_name
-            elif col_ns is not None and col_ns.name in available_identifiers:
-                idx = available_identifiers[col_ns.name]
-                if idx == 0 and isinstance(element_type, ct.StructType):
-                    nested = element_type.fields_mapping.get(col_name)
-                    if nested is not None:
-                        col.add_type(nested.type)
+        # the optional second param is the element's index
+        bind_lambda_params(func, [expr.type.element.type, ct.IntegerType()])
 
 
 @Transform.register  # type: ignore
